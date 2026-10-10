@@ -6,8 +6,8 @@ export function createDevDashboard(profiler, networkInspector) {
       performance: { x: 10, y: 50, w: 400, h: 280, visible: true },
       network: { x: 420, y: 50, w: 480, h: 320, visible: true },
       debug: { x: 10, y: 350, w: 890, h: 200, visible: true },
+      memory: { x: 10, y: 560, w: 890, h: 160, visible: true },
     },
-    resizing: null,
   }
 
   const sessionStats = {
@@ -71,7 +71,14 @@ export function createDevDashboard(profiler, networkInspector) {
       user-select: none;
       gap: 8px;
     `
-    header.innerHTML = `<span>${title}</span><span id="close-${id}" style="cursor:pointer;margin-left:auto;">✕</span>`
+    const titleEl = document.createElement('span')
+    titleEl.textContent = title
+    const closeEl = document.createElement('span')
+    closeEl.id = `close-${id}`
+    closeEl.style.cssText = 'cursor:pointer;margin-left:auto;'
+    closeEl.textContent = '✕'
+    header.appendChild(titleEl)
+    header.appendChild(closeEl)
 
     const content = document.createElement('div')
     content.style.cssText = `
@@ -150,7 +157,7 @@ export function createDevDashboard(profiler, networkInspector) {
       document.addEventListener('mouseup', handleUp)
     })
 
-    document.getElementById(`close-${id}`).addEventListener('click', () => {
+    closeEl.addEventListener('click', () => {
       state.panels[id].visible = false
       panel.style.display = 'none'
     })
@@ -161,10 +168,12 @@ export function createDevDashboard(profiler, networkInspector) {
   const perfPanel = createPanel('performance', '📊 Performance', 10, 50, 400, 280)
   const netPanel = createPanel('network', '🌐 Network', 420, 50, 480, 320)
   const debugPanel = createPanel('debug', '🔧 Debug', 10, 350, 890, 200)
+  const memoryPanel = createPanel('memory', '🧠 Memory', 10, 560, 890, 160)
 
   panels.performance = perfPanel
   panels.network = netPanel
   panels.debug = debugPanel
+  panels.memory = memoryPanel
 
   const toolbar = document.createElement('div')
   toolbar.style.cssText = `
@@ -221,7 +230,7 @@ export function createDevDashboard(profiler, networkInspector) {
     font-size: 10px;
     font-weight: bold;
   `
-  exportBtn.addEventListener('click', exportSession)
+  exportBtn.addEventListener('click', () => exportSession('json'))
   toolbar.appendChild(exportBtn)
 
   const closeBtn = document.createElement('button')
@@ -265,7 +274,6 @@ export function createDevDashboard(profiler, networkInspector) {
     sessionStats.peakFPS = Math.max(sessionStats.peakFPS, fps)
     sessionStats.minFPS = Math.min(sessionStats.minFPS, fps)
     sessionStats.avgFPS = (sessionStats.peakFPS + sessionStats.minFPS) / 2
-    sessionStats.peakMemory = Math.max(sessionStats.peakMemory, parseFloat(stats.memHeapMB))
   }
 
   function updateNetworkPanel() {
@@ -317,18 +325,40 @@ export function createDevDashboard(profiler, networkInspector) {
     panels.debug.content.innerHTML = html
   }
 
+  function updateMemoryPanel() {
+    if (!profiler || !state.panels.memory.visible) return
+    const stats = profiler.state
+    const usedPct = parseFloat(stats.memUsagePercent)
+    const html = `
+    <div style="color: ${usedPct > 90 ? '#f00' : usedPct > 70 ? '#ff0' : '#0f0'}">
+      <strong>Heap: ${stats.memHeapMB}/${stats.memLimitMB}MB (${stats.memUsagePercent}%)</strong>
+    </div>
+    <div style="margin-top: 4px; font-size: 10px;">
+      Textures: ${stats.textureMemMB}MB | Geometry: ${stats.geometryMemMB}MB<br>
+      Peak this session: ${sessionStats.peakMemory.toFixed(1)}MB<br>
+      Device RAM: ${(window.navigator?.deviceMemory || '?')}GB
+    </div>
+    `
+    panels.memory.content.innerHTML = html
+  }
+
   function setPreset(preset) {
     state.activePreset = preset
     const visibility = {
-      all: { perf: true, net: true, debug: true },
-      fps: { perf: true, net: false, debug: false },
-      network: { perf: false, net: true, debug: false },
-      memory: { perf: true, net: false, debug: false },
+      all: { perf: true, net: true, debug: true, mem: true },
+      fps: { perf: true, net: false, debug: false, mem: false },
+      network: { perf: false, net: true, debug: false, mem: false },
+      memory: { perf: false, net: false, debug: false, mem: true },
     }
     const v = visibility[preset] || visibility.all
+    state.panels.performance.visible = v.perf
+    state.panels.network.visible = v.net
+    state.panels.debug.visible = v.debug
+    state.panels.memory.visible = v.mem
     panels.performance.panel.style.display = v.perf ? 'flex' : 'none'
     panels.network.panel.style.display = v.net ? 'flex' : 'none'
     panels.debug.panel.style.display = v.debug ? 'flex' : 'none'
+    panels.memory.panel.style.display = v.mem ? 'flex' : 'none'
   }
 
   function exportSession(format = 'json') {
@@ -365,9 +395,14 @@ export function createDevDashboard(profiler, networkInspector) {
 
   function update() {
     if (!state.enabled) return
+    const heapMB = parseFloat(profiler?.state?.memHeapMB)
+    if (Number.isFinite(heapMB)) {
+      sessionStats.peakMemory = Math.max(sessionStats.peakMemory, heapMB)
+    }
     updatePerformancePanel()
     updateNetworkPanel()
     updateDebugPanel()
+    updateMemoryPanel()
   }
 
   function install() {
