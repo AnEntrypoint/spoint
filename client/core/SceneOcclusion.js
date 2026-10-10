@@ -13,7 +13,6 @@ export function createSceneOcclusion(renderer, opts = {}) {
     hideStreak: 2,
     unhideStreak: 2,
     stabilityGate: 6,
-    enableEyeExpiry: false,
     staleResolveFrames: 60,
     anomalyFraction: 0.30,
     anomalyMinCandidates: 32,
