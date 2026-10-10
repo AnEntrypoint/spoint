@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 
 const ROOT = process.cwd();
 const DOCS = ['AGENTS.md', 'docs/measurement-figures.md'];
@@ -32,9 +32,7 @@ const SEARCH_EXTS_SKIP = /\.(md|json|yml|yaml|txt|html)$/;
 const REGISTRY_DECLARATION_FILES = ['client/core/RenderControls.js'];
 const DEMO_ONLY_FILES = ['packages/mapspinner/src/terrain-gen-controls.js', 'packages/mapspinner/planet.html'];
 
-const WRITE_ONLY_KEYS = {
-  '__dprAuto': 'client/hud/SettingsMenu.js',
-};
+const WRITE_ONLY_KEYS = {};
 
 const DECLARATION_ONLY_KEYS = {
   'elevEdgeInset': 'documented as having NO consumer: only the registry entry and the mapspinner demo panel touch it',
@@ -51,7 +49,7 @@ const LINE_TOKEN = {
   'src/spatial/Octree.js#65': '< 1.0',
   'src/spatial/Octree.js#111': 'nearbyHorizontal',
   'src/shared/clusterConfig.js#8': 'JOLT_WASM_HEAP_BYTES',
-  'src/shared/clusterConfig.js#35': 'resolveClusterConfig',
+  'src/shared/clusterConfig.js#35': 'return null',
   'src/shared/clusterConfig.js#38,43,44,46,48,50': 'ClusterConfigError',
   'src/stage/Stage.js#16': 'resolvedPlanetRadius',
   'src/stage/Stage.js#61': 'getRelevantEntitiesHorizontal',
@@ -74,6 +72,7 @@ const LINE_TOKEN = {
   'client/app.js#191': '_runsInPageServer',
   'client/core/TerrainBackdrop.js#43': 'planet-tsl',
   'client/core/TerrainBackdrop.js#46-47': 'planet-orchestrator',
+  'client/core/Weather.js#168': 'SNOW_GROUND_RESAMPLE_DRIFT_M',
   'packages/mapspinner/src/gl-render.js#619': '__vsCheap',
   'packages/mapspinner/src/gl-render.js#1256': '__fsCheap',
   'packages/mapspinner/src/gl-render.js#1444': '__halfResWater',
@@ -81,7 +80,7 @@ const LINE_TOKEN = {
   'client/core/QualityPresets.js#95': 'halfResWater',
   'packages/mapspinner/src/terrain-gen-controls.js#45': 'elevEdgeInset',
   'packages/mapspinner/src/terrain-gen-controls.js#86': 'elevEdgeInset',
-  'src/sdk/TickHandler.js#30': 'SNAP_COST_HIGH_FRAC',
+  'src/sdk/TickHandler.js#29': 'SNAP_COST_HIGH_FRAC',
   'src/presets/tps.js#5': 'relevanceRadius',
   'apps/world/construct.js#20': 'relevanceRadius',
   'src/sdk/server.js#79': 'getRelevanceRadius',
@@ -110,6 +109,7 @@ const KNOB_GLOBALS = [
 ];
 
 const EXPECTED_NO_READER = {
+  '__dprAuto': 'documented as having NO consumer: DRY-n-r141-1 deleted _publishDpr, so neither window.__dprAuto nor window.__dprOff is written or read anywhere',
   'noveg': 'AGENTS.md records ?noveg as NOT a flag: silent no-op',
   '__terrainOff': 'documented as an unbuilt instrument, only a decided design',
   'input.back': 'documented as never set; keyboard sets input.backward',
@@ -287,6 +287,7 @@ let linesChecked = 0;
 let linesSymbolAsserted = 0;
 let linesDerived = 0;
 let linesExistenceOnly = 0;
+let linesSymbolAbsent = 0;
 
 for (const claim of [...pathClaims.values()].sort((a, b) => (a.raw + a.spec).localeCompare(b.raw + b.spec))) {
   if (isDirectoryClaim(claim.raw)) {
@@ -305,25 +306,21 @@ for (const claim of [...pathClaims.values()].sort((a, b) => (a.raw + a.spec).loc
   if (!lineNums || !lines) { findings.push({ kind: 'linespec-unparsed', claim: claim.raw + ':' + claim.spec, at: claim.doc + ':' + claim.line }); continue; }
   linesChecked++;
   const explicit = LINE_TOKEN[resolved + '#' + claim.spec] || LINE_TOKEN[resolved + '#' + [...lineNums][0]];
-  let hit = 0;
-  let mode = '';
   if (explicit) {
-    hit = lineHasToken(lines, lineNums, explicit);
-    mode = 'symbol';
-    if (hit) linesSymbolAsserted++;
+    if (lineHasToken(lines, lineNums, explicit)) linesSymbolAsserted++;
+    else { linesSymbolAbsent++; findings.push({ kind: 'symbol-absent', claim: claim.raw + ':' + claim.spec, resolved, token: explicit, at: claim.doc + ':' + claim.line }); }
+    continue;
   }
-  if (!hit) {
-    for (const t of derivedTokens(fileLines(claim.doc)[claim.line - 1])) {
-      const h = lineHasToken(lines, lineNums, t);
-      if (h) { hit = h; mode = 'derived:' + t; linesDerived++; break; }
-    }
+  let hit = 0;
+  for (const t of derivedTokens(fileLines(claim.doc)[claim.line - 1])) {
+    const h = lineHasToken(lines, lineNums, t);
+    if (h) { hit = h; linesDerived++; break; }
   }
   if (!hit) {
     const maxLine = Math.max(...lineNums);
-    if (lines.length >= maxLine && lines[maxLine - 1] !== undefined) { mode = 'line-exists'; linesExistenceOnly++; }
+    if (lines.length >= maxLine && lines[maxLine - 1] !== undefined) linesExistenceOnly++;
     else { findings.push({ kind: 'line-out-of-range', claim: claim.raw + ':' + claim.spec, resolved, fileLines: lines.length, at: claim.doc + ':' + claim.line }); continue; }
   }
-  if (mode === 'symbol' && !hit) findings.push({ kind: 'symbol-absent', claim: claim.raw + ':' + claim.spec, resolved, token: explicit, at: claim.doc + ':' + claim.line });
 }
 
 let shasChecked = 0;
@@ -401,6 +398,9 @@ for (const [key, file] of Object.entries(WRITE_ONLY_KEYS)) {
   if (consumers.length === 0) writeOnlyFindings.push({ kind: 'write-only-key-unwritten', key });
 }
 
+const FOLD_CORRECTED = {
+  'TickHandler.js:30': 'citation corrected to TickHandler.js:29 (the SNAP_COST_HIGH_FRAC declaration; line 30 is SNAP_STALL_ENTER), validated by the path:line check',
+};
 const BASELINE_REV = '55cd0199';
 const baselineText = (() => {
   try { return execFileSync('git', ['show', BASELINE_REV + ':AGENTS.md'], { cwd: ROOT, maxBuffer: 1 << 26 }).toString('utf8'); }
@@ -413,7 +413,7 @@ let foldNumbers = 0;
 for (const m of baselineText.matchAll(/`([^`\n]+)`/g)) {
   const tok = m[1].trim().replace(/\s+/g, ' ');
   foldTokens++;
-  if (!foldUnion.includes(tok)) foldFindings.push({ kind: 'fold-token-missing', token: tok });
+  if (!Object.hasOwn(FOLD_CORRECTED, tok) && !foldUnion.includes(tok)) foldFindings.push({ kind: 'fold-token-missing', token: tok });
 }
 for (const m of baselineText.matchAll(/[0-9][0-9A-Za-z.]*/g)) {
   foldNumbers++;
@@ -448,10 +448,30 @@ let p50StruckCount = 0;
 console.log('p50 citations invalidated (section 0 or AGENTS INVALID rules): ' + p50InvalidatedCount);
 console.log('p50 citations struck or refuted (outside section 0): ' + p50StruckCount);
 console.log('p50 findings (figure cites p50 without INVALIDATED or STRUCK/REFUTED): ' + p50Findings.length);
-const allClear = findings.length === 0 && keyFindings.length === 0 && foldFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0;
+const DEFAULT_CLAIM_KEYS = ['dprAuto'];
+const DEFAULT_RULE_DOCS = [process.env.VERIFY_DEFAULT_RULE_DOC || 'docs/measurement-figures.md', 'AGENTS.md'];
+const defaultValueFindings = [];
+let defaultClaimLines = 0;
+for (const key of DEFAULT_CLAIM_KEYS) {
+  const declLine = (fileLines('client/core/RenderControls.js') || []).find((l) => l.includes(`key: '${key}'`)) || '';
+  const declared = (declLine.match(/default: (\w+)/) || [])[1];
+  if (!declared) { defaultValueFindings.push({ kind: 'default-decl-unparsed', key, at: 'client/core/RenderControls.js' }); continue; }
+  for (const doc of DEFAULT_RULE_DOCS) {
+    const docPath = isAbsolute(doc) ? doc : join(ROOT, doc);
+    if (!existsSync(docPath)) { defaultValueFindings.push({ kind: 'default-rule-doc-missing', doc }); continue; }
+    readFileSync(docPath, 'utf8').split('\n').forEach((line, idx) => {
+      const claim = line.match(/REGISTRY DEFAULT (TRUE|FALSE)/);
+      if (!claim || !line.includes(key)) return;
+      defaultClaimLines++;
+      if (claim[1].toLowerCase() !== declared) defaultValueFindings.push({ kind: 'default-claim-mismatch', key, claimed: claim[1].toLowerCase(), declared, at: doc + ':' + (idx + 1) });
+    });
+  }
+}
+console.log('default-value claims checked: ' + defaultClaimLines);
+const allClear = findings.length === 0 && keyFindings.length === 0 && foldFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0 && defaultValueFindings.length === 0;
 console.log('RESULT: ' + (allClear ? 'PASS' : 'FAIL'));
 console.log('paths checked: ' + pathsChecked + ' (+' + dirsChecked + ' directories)');
-console.log('path:line claims checked: ' + linesChecked + ' (symbol ' + linesSymbolAsserted + ', derived ' + linesDerived + ', existence-only ' + linesExistenceOnly + ')');
+console.log('path:line claims checked: ' + linesChecked + ' (symbol ' + linesSymbolAsserted + ', derived ' + linesDerived + ', existence-only ' + linesExistenceOnly + ', symbol-absent ' + linesSymbolAbsent + ')');
 console.log('shas checked: ' + shasChecked + ' -> ' + [...shaClaims.keys()].join(' '));
 console.log('keys checked: ' + keysChecked.length);
 for (const k of keysChecked) console.log('  ' + k.token + ' [' + k.consumers.length + ' consumer] ' + (k.hits.length ? k.hits.map((h) => h.loc + '(' + h.kind + ')').join(' ') : 'NONE'));
@@ -460,4 +480,5 @@ if (keyFindings.length) { console.log('--- key findings ---'); for (const f of k
 if (foldFindings.length) { console.log('--- fold findings ---'); for (const f of foldFindings) console.log(JSON.stringify(f)); }
 if (writeOnlyFindings.length) { console.log('--- write-only findings ---'); for (const f of writeOnlyFindings) console.log(JSON.stringify(f)); }
 if (p50Findings.length) { console.log('--- p50 findings ---'); for (const f of p50Findings) console.log(JSON.stringify(f)); }
+if (defaultValueFindings.length) { console.log('--- default-value findings ---'); for (const f of defaultValueFindings) console.log(JSON.stringify(f)); }
 process.exit(allClear ? 0 : 1);

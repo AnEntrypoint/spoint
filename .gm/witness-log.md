@@ -171,3 +171,9 @@ HOP client/ui PBTAGENT 10 violations witness=1791672917977-500-bd927b9f5b6fb6d3 
 tick 122 live=20 ceiling=20 floor=10 shortfall=0 open=1039 launchable=237 done=1 launch orch-main-r199 hop=INVARIANTRUN client/ui 1791673360
 HOP client/xr OWNERSHIP 8 violations witness=1791673025494-500-1906fdbbb1f667a9 next=DRY client/xr
 tick 123 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r200 hop=DRY client/xr 1791673373
+- DRY-n-r141-1: verify-doc-claims-witness (fixture) exit=0 RESULT: PASS 20/20 checks ok; real-tree scripts/lib/verify-doc-claims.mjs write-only key findings: 0, __dprAuto [0 consumer] NONE, fold findings: 17 unchanged from the pre-edit baseline (foreign AGENTS.md dirt); 2026-10-10T23:02:31Z; dispatch 1791673351104-500-21eb95b251245a0d
+2026-10-10T23:11:44.000Z | xr-teleport-sequence-witness | exit 0 | RESULT: PASS | module client/xr/XRWidgets.js | claims 8/8 | out scripts/xr-teleport-sequence-witness.mjs | sha256 -
+RESULT ILLEGAL-n-r177-4 blocked next=mapspinner-gl-render-has-no-dispose (not in slots.candidates; LAMPORT-n-r129-1 taken instead)
+RESULT BOHM-JACOPINI-n-r166-2-scandeps-orch-main-r182 resolved f48a9c960e3e48f3b69096875320a850de26ce56 next=BOHM-JACOPINI-n-r166-2
+RESULT LAMPORT-n-r129-3 resolved c7bfb61af75b2c3d1bace6932b9bc6c4cd0e1988 next=LAMPORT-n-r129-4
+tick 124 live=20 ceiling=20 floor=10 shortfall=0 done=3 launch orch-main-r201 row=LAMPORT-n-r129-1 launch orch-main-r202 row=OWNERSHIP-n-r192-1 launch orch-main-r203 row=OWNERSHIP-n-r192-2 1791673568
