@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { isXRSessionSupported } from './xrSessionSupport.js'
 
 export class XRControls {
   constructor(options = {}) {
@@ -24,7 +25,7 @@ export class XRControls {
 
   async init(renderer) {
     if (!navigator.xr) { console.warn('[XR] WebXR not supported'); return false }
-    if (!await navigator.xr.isSessionSupported('immersive-ar')) { console.warn('[XR] immersive-ar not supported'); return false }
+    if (!await isXRSessionSupported('immersive-ar')) { console.warn('[XR] immersive-ar not supported'); return false }
     this.renderer = renderer; return true
   }
 
@@ -40,17 +41,17 @@ export class XRControls {
       this.session.addEventListener('end', () => this.onSessionEnd())
       this.session.addEventListener('planesdetected', e => this.onPlanesDetected(e))
       this.enabled = true; return true
-    } catch (err) { console.error('[XR] Failed to start session:', err); return false }
+    } catch (err) { console.error('[XR] Failed to start session:', err); await this.end(); this.onSessionEnd(); return false }
   }
 
   async end() { if (this.session) await this.session.end() }
 
-  onSessionEnd() { this.enabled=false; this.session=null; this.hitTestSource=null; this.planeDetected=false; this.anchorPlaced=false }
+  onSessionEnd() { this.enabled=false; this.session=null; this.hitTestSource=null; this.planeDetected=false; this.anchorPlaced=false; this.planes.clear(); this.planeMeshes=[] }
 
   onPlanesDetected(e) {
     if (!this.options.planeDetection) return
     for (const p of e.detectedPlanes) { if (!this.planes.has(p)) { const m=this.createPlaneMesh(); m.userData.plane=p; this.planes.set(p,m); this.planeMeshes.push(m) } }
-    this.planeDetected = true
+    this.planeDetected = this.planes.size > 0
   }
 
   showReticle(transform) {
@@ -116,7 +117,7 @@ function ensureXRStyle() {
 }
 
 export async function createXRButton(renderer, onStart, onEnd) {
-  if (!navigator.xr || !await navigator.xr.isSessionSupported('immersive-ar')) return null
+  if (!await isXRSessionSupported('immersive-ar')) return null
   ensureXRStyle()
   const btn = document.createElement('button')
   btn.id = 'ar-button'
