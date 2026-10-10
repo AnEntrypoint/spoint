@@ -47,7 +47,7 @@ const M4 = {
     if (xl < 1e-4) {
       const au=[0,0,1]; x0=au[1]*zz-au[2]*zy; x1=au[2]*zx-au[0]*zz; x2=au[0]*zy-au[1]*zx;
       xl=Math.hypot(x0,x1,x2);
-      if (xl < 1e-4){ x0=zy*1-zz*0; x1=zz*0-zx*1; x2=zx*0-zy*0; xl=Math.hypot(x0,x1,x2); }
+      if (xl < 1e-4){ x0=zy*1-zz*0; x1=zz*0-zx*1; x2=zx*0-zy*0; xl=Math.hypot(x0,x1,x2); if (xl === 0){ const ax=[1,0,0]; x0=ax[1]*zz-ax[2]*zy; x1=ax[2]*zx-ax[0]*zz; x2=ax[0]*zy-ax[1]*zx; xl=Math.hypot(x0,x1,x2); } }
     }
     xl = xl || 1; x0/=xl; x1/=xl; x2/=xl;
     const y0=zy*x2-zz*x1, y1=zz*x0-zx*x2, y2=zx*x1-zy*x0;
