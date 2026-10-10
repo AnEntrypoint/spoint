@@ -80,10 +80,23 @@ function sourceHashFor(filepath, mtime) {
   return hash
 }
 
+const _skipMemo = new Map()
+function _isKnownSkip(filepath, mtime) {
+  const skip = _skipMemo.get(filepath)
+  if (!skip || skip.codeVersion !== GLB_TRANSFORM_CODE_VERSION) return false
+  if (skip.mtime === mtime) return true
+  let hash
+  try { hash = sourceHashFor(filepath, mtime) } catch { return false }
+  if (hash !== skip.hash) return false
+  skip.mtime = mtime
+  return true
+}
+
 function _getOrStartTransform(filepath, mtime) {
   const mem = _memCache.get(filepath)
   if (mem && mem.mtime === mtime) return { buffer: mem.buffer }
   if (_inFlight.has(filepath)) return { promise: _inFlight.get(filepath) }
+  if (_isKnownSkip(filepath, mtime)) return { skipped: true }
   const cachePath = getCachePath(filepath)
   const cacheMetaPath = cachePath + '.meta'
   if (existsSync(cachePath) && existsSync(cacheMetaPath)) {
@@ -113,6 +126,7 @@ function _getOrStartTransform(filepath, mtime) {
           const pct = Math.round((1 - transformed.length / inputBuf.length) * 100)
           console.log(`[glb-transform] done ${basename(filepath)} ${(inputBuf.length/1024).toFixed(0)}KB -> ${(transformed.length/1024).toFixed(0)}KB (${pct > 0 ? '-' : '+'}${Math.abs(pct)}%) in ${Date.now()-t0}ms`)
         } else {
+          _skipMemo.set(filepath, { mtime, hash: contentHash(inputBuf), codeVersion: GLB_TRANSFORM_CODE_VERSION })
           console.log(`[glb-transform] skipped ${basename(filepath)} (no changes or error)`)
         }
       } catch (e) {
@@ -144,7 +158,7 @@ export async function getTransformedAsync(filepath) {
   const mtime = statSync(filepath).mtimeMs
   const result = _getOrStartTransform(filepath, mtime)
   if (result.buffer) return result.buffer
-  await result.promise
+  if (result.promise) await result.promise
   const freshMtime = statSync(filepath).mtimeMs
   if (freshMtime !== mtime) return getTransformedAsync(filepath)
   const post = _getOrStartTransform(filepath, freshMtime)
