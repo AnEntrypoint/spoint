@@ -3,7 +3,7 @@ import { createSceneHierarchy } from './SceneHierarchy.js'
 import { createLayerRegistry } from './LayerRegistry.js'
 import { createEditorInspector } from './EditorInspector.js'
 import { createEditorApps } from './EditorApps.js'
-import { createEditorFsBrowse } from './EditorFsBrowse.js'
+import { createEditorFsBrowse, fsSourceResultOf } from './EditorFsBrowse.js'
 import { createHookFlowViewer } from './HookFlowViewer.js'
 import { createRenderGraphViewer } from './RenderGraphViewer.js'
 import { createProcgenPanel } from './ProcgenPanel.js'
@@ -690,7 +690,7 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     updateAppFiles(name, files) { appsPanel.setAppFiles(name, files) },
     openCode(app, file, code) { appsPanel.openCode(app, file, code); _switchTab('Apps') },
     updateFsTree(tree, error) { _fsBrowsePanel?.setTree(tree, error) },
-    setFsSource(path, source, mtimeMs, binary, conflict, diskSource, error) { _fsBrowsePanel?.setSource(path, source, mtimeMs, binary, conflict, diskSource, error) },
+    setFsSource(path, payload) { _fsBrowsePanel?.setSource(path, fsSourceResultOf(payload)) },
     onFsOpResult(op, ok, error) { _fsBrowsePanel?.onOpResult(op, ok, error) },
     onFsTreeChanged() { _fsBrowsePanel?.onTreeChanged() },
     onEditorChange(fn) { _onChange = fn },

@@ -1295,7 +1295,7 @@ let client; const _clientConfig = {
       _fsBrowsePending.delete(_srcKey)
       const fullPath = _fsBrowseFullPathByKey.get(_srcKey) || (payload.appName + '/' + (payload.file || 'index.js'))
       _fsBrowseFullPathByKey.delete(_srcKey)
-      editPanel.setFsSource(fullPath, payload.source, payload.mtimeMs, payload.binary, payload.conflict, payload.diskSource, payload.error)
+      editPanel.setFsSource(fullPath, payload)
     } else {
       editPanel.openCode(payload.appName,payload.file||'index.js',payload.source)
     }
@@ -1649,7 +1649,7 @@ const editPanel = createEditPanel({
   onCreateApp: app => client.send(MSG.CREATE_APP,{appName:app}),
   onFsListTree: () => client.send(MSG.LIST_FS_TREE,{}),
   onFsGetSource: (path) => { const {appName,file}=_splitAppPath(path); const key=appName+'::'+file; _fsBrowsePending.add(key); _fsBrowseFullPathByKey.set(key,path); client.send(MSG.GET_SOURCE,{appName,file}) },
-  onFsSave: (path,source,baseMtimeMs) => { const {appName,file}=_splitAppPath(path); const key=appName+'::'+file; _fsBrowsePending.add(key); _fsBrowseFullPathByKey.set(key,path); client.send(MSG.SAVE_SOURCE,{appName,file,source,baseMtimeMs}) },
+  onFsSave: (path,source,base) => { const {appName,file}=_splitAppPath(path); const key=appName+'::'+file; _fsBrowsePending.add(key); _fsBrowseFullPathByKey.set(key,path); client.send(MSG.SAVE_SOURCE,{appName,file,source,baseMtimeMs: base?.mtimeMs ?? null}) },
   onFsMkdir: (path) => client.send(MSG.MKDIR,{path}),
   onFsDelete: (path) => client.send(MSG.DELETE_FILE,{path}),
   onFsRename: (path,newPath) => client.send(MSG.RENAME_FILE,{path,newPath}),

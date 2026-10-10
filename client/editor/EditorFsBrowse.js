@@ -20,6 +20,10 @@ function splitAppPath(path) {
   return { appName: p.slice(0, i), file: p.slice(i + 1) }
 }
 
+export function fsSaveBase(pendingSave) {
+  return pendingSave ? { mtimeMs: Number.isFinite(pendingSave.mtimeMs) ? pendingSave.mtimeMs : null } : null
+}
+
 function findNode(tree, path) {
   const parts = norm(path).split('/').filter(Boolean)
   let level = tree, node = null
@@ -39,8 +43,22 @@ function dirEntries(tree, dir) {
   return (node.children || []).slice().sort((a, b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'dir' ? -1 : 1))
 }
 
+export function fsSourceResultOf(payload) {
+  const p = payload || {}
+  if (p.conflict) {
+    if (typeof p.diskSource === 'string') return { kind: 'conflict', diskSource: p.diskSource, mtimeMs: p.mtimeMs }
+    return { kind: 'error', error: 'file changed on disk since it was loaded -- reload it (the on-disk source is unreadable)' }
+  }
+  if (p.binary) return { kind: 'binary' }
+  if (p.error != null) return { kind: 'error', error: String(p.error) }
+  if (typeof p.source === 'string') return { kind: 'text', source: p.source, mtimeMs: p.mtimeMs }
+  return { kind: 'error', error: 'no source returned for this file' }
+}
+
 export function createEditorFsBrowse(container, { onListTree, onGetSource, onSave, onMkdir, onDelete, onRename } = {}) {
-  let _tree = null, _cwd = '', _filt = '', _openFile = null, _pendingSave = null, _loading = true, _unavailable = null
+  let _state = { kind: 'loading' }
+  let _cwd = '', _filt = '', _openFile = null, _pendingSave = null, _banner = null
+  const _treeOf = () => (_state.kind === 'ready' ? _state.tree : null)
 
   container.classList.add('ds-ep-panel')
   container.style.cssText = 'display:flex;flex-direction:column;flex:1;min-height:0'
@@ -76,9 +94,9 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
       const name = wm ? await promptText(wm, { title: 'New file', label: 'File name', placeholder: 'name.js' }) : prompt('New file name')
       if (!name) return
       const path = join(_cwd, name)
-      onSave?.(path, '')
+      onSave?.(path, '', { mtimeMs: null })
     }, children: ['+ File'] })
-    const refresh = Btn({ ghost: true, dense: true, title: 'Refresh tree', onClick: (e) => { e.preventDefault(); _loading = true; renderList(); onListTree?.() }, children: ['Refresh'] })
+    const refresh = Btn({ ghost: true, dense: true, title: 'Refresh tree', onClick: (e) => { e.preventDefault(); _state = { kind: 'loading' }; renderList(); onListTree?.() }, children: ['Refresh'] })
     const toolbar = Toolbar({ children: [ h('div', { class: 'ds-ed-bar-grow' }, mkSearch()), up, mkFolder, mkFile, refresh ] })
     applyDiff(_toolbarHost, [toolbar])
   }
@@ -149,13 +167,25 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     return item
   }
 
+  function doSave() {
+    if (!_edRef) { showToast('Editor not ready', 'error'); return }
+    const base = fsSaveBase(_pendingSave)
+    if (!base) {
+      showToast('apps/' + _openFile + ' was never loaded -- reloading it, then save again', 'error')
+      onGetSource?.(_openFile)
+      return
+    }
+    onSave?.(_openFile, _edRef.getValue(), base)
+  }
+
+  let _sourceKind = null
   function renderEditor() {
     _ensureHosts()
     container.innerHTML = ''
     const backBtn = Btn({ ghost: true, onClick: (e) => { e.preventDefault(); _openFile = null; _toolbarHost = null; render() }, children: ['Back'] })
     const labelNode = h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px var(--ff-mono,monospace)' }, 'apps/' + _openFile)
-    const node = findNode(_tree, _openFile)
-    if (node && node.binary) {
+    const node = findNode(_treeOf(), _openFile)
+    if (_sourceKind === 'binary' || (node && node.binary)) {
       const barHost = document.createElement('div')
       barHost.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px'
       applyDiff(barHost, [backBtn, labelNode])
@@ -181,11 +211,6 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     const code = _pendingSave != null ? _pendingSave.source : ''
     _mountEditor(c, code)
 
-    function doSave() {
-      if (!_edRef) { showToast('Editor not ready', 'error'); return }
-      const baseMtimeMs = _pendingSave?.mtimeMs
-      onSave?.(_openFile, _edRef.getValue(), baseMtimeMs)
-    }
   }
 
   let _edRef = null, _edAlive = false
@@ -196,13 +221,13 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     ta.value = code || ''
     ta.spellcheck = false
     ta.style.cssText = 'width:100%;height:100%;box-sizing:border-box;background:var(--panel-0,#1e1e1e);color:var(--panel-text,#d4d4d4);font:12px/1.5 var(--ff-mono,monospace);border:none;padding:12px;resize:none;outline:none'
-    ta.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); onSave?.(_openFile, ta.value, _pendingSave?.mtimeMs) } })
+    ta.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave() } })
     mountEl.appendChild(ta)
     if (window.monaco) {
       try {
         mountEl.removeChild(ta)
         const ed = window.monaco.editor.create(mountEl, { value: code || '', language: 'javascript', theme: 'vs-dark', fontSize: 12, minimap: { enabled: false }, automaticLayout: true, scrollBeyondLastLine: false })
-        ed.addCommand(window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyS, () => onSave?.(_openFile, ed.getValue(), _pendingSave?.mtimeMs))
+        ed.addCommand(window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyS, () => doSave())
         _edRef = ed
         return
       } catch (_) { mountEl.appendChild(ta) }
@@ -214,23 +239,15 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     _ensureHosts()
     renderCrumbs()
     _listHost.replaceChildren()
-    if (_unavailable) {
+    if (_state.kind !== 'ready') {
       const empty = document.createElement('div')
       empty.className = 'ds-ep-panel-body'
-      empty.style.cssText = 'display:flex;align-items:center;justify-content:center;text-align:center;color:var(--panel-text-3);padding:16px'
-      empty.textContent = _unavailable
+      empty.style.cssText = 'display:flex;align-items:center;justify-content:center;text-align:center;color:var(--panel-text-3)' + (_state.kind === 'loading' ? '' : ';padding:16px')
+      empty.textContent = _state.kind === 'loading' ? 'Loading...' : _state.reason
       _listHost.appendChild(empty)
       return
     }
-    if (_loading || !_tree) {
-      const empty = document.createElement('div')
-      empty.className = 'ds-ep-panel-body'
-      empty.style.cssText = 'display:flex;align-items:center;justify-content:center;text-align:center;color:var(--panel-text-3)'
-      empty.textContent = 'Loading...'
-      _listHost.appendChild(empty)
-      return
-    }
-    let entries = dirEntries(_tree, _cwd)
+    let entries = dirEntries(_state.tree, _cwd)
     if (_filt) entries = entries.filter(e => e.name.toLowerCase().includes(_filt))
     if (!entries.length) {
       const empty = document.createElement('div')
@@ -243,12 +260,29 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     for (const entry of entries) _listHost.appendChild(_row(entry, join(_cwd, entry.name)))
   }
 
+  function _syncBanner() {
+    const reason = (_openFile && _state.kind === 'unavailable') ? _state.reason : null
+    if (_banner && _banner.parentNode !== container) _banner = null
+    if (reason == null) {
+      if (_banner) { _banner.remove(); _banner = null }
+      return
+    }
+    if (!_banner) {
+      _banner = document.createElement('div')
+      _banner.className = 'ds-ep-propfield-hint'
+      _banner.style.cssText = 'padding:6px 8px;color:var(--danger,#f7768e);font:11px var(--ff-mono,monospace)'
+      container.prepend(_banner)
+    }
+    _banner.textContent = reason
+  }
+
   function render() {
     container._editorPaneDispose?.()
-    if (_openFile) { renderEditor(); return }
+    if (_openFile) { renderEditor(); _syncBanner(); return }
     _ensureHosts()
     renderToolbar()
     renderList()
+    _syncBanner()
   }
 
   render()
@@ -256,21 +290,29 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
   return {
     render,
     setTree(tree, error) {
-      _loading = false
-      _unavailable = error || null
-      _tree = tree || []
-      if (!_openFile) renderList()
+      _state = error ? { kind: 'unavailable', reason: error } : { kind: 'ready', tree: tree || [] }
+      if (_openFile) { _syncBanner(); return }
+      renderList()
     },
-    setSource(path, source, mtimeMs, binary, conflict, diskSource, error) {
+    setSource(path, result) {
       if (path !== _openFile) return
-      if (conflict) {
-        showToast('Conflict: apps/' + path + ' changed on disk since it was loaded -- reload before saving again', 'error')
-        _pendingSave = { source: diskSource, mtimeMs }
-        return
+      const r = result || { kind: 'error', error: 'no source returned for this file' }
+      _sourceKind = r.kind
+      switch (r.kind) {
+        case 'binary':
+          if (_openFile) render()
+          return
+        case 'conflict':
+          showToast('Conflict: apps/' + path + ' changed on disk since it was loaded -- reload before saving again', 'error')
+          _pendingSave = { source: r.diskSource, mtimeMs: r.mtimeMs }
+          return
+        case 'text':
+          _pendingSave = { source: r.source, mtimeMs: r.mtimeMs }
+          if (_openFile) render()
+          return
+        default:
+          showToast(r.error || 'no source returned for this file', 'error')
       }
-      if (error) { showToast(error, 'error'); if (source == null) return }
-      _pendingSave = { source, mtimeMs }
-      if (_openFile) render()
     },
     onOpResult(op, ok, error) {
       if (ok) { showToast(op + ' ok', 'success') }
