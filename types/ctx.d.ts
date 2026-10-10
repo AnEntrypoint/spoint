@@ -22,12 +22,10 @@ export interface Entity {
 }
 
 export interface PhysicsAPI {
-  // Setters for body type
   setStatic(isStatic: boolean): void;
   setDynamic(isDynamic: boolean): void;
   setKinematic(isKinematic: boolean): void;
 
-  // Mass and damping
   setMass(mass: number): void;
   setLinearDamping(value: number): void;
   setAngularDamping(value: number): void;
@@ -35,7 +33,6 @@ export interface PhysicsAPI {
   // CCD (Continuous Collision Detection) policy
   setCCDPolicy(policy: 'auto' | 'always' | 'off'): void;
 
-  // Collider shapes
   addBoxCollider(size: Vector3 | number, shapeKey?: string): void;
   addSphereCollider(radius: number, shapeKey?: string): void;
   addCapsuleCollider(radius: number, height: number, shapeKey?: string): void;
@@ -43,10 +40,8 @@ export interface PhysicsAPI {
   addTrimeshCollider(): Promise<void>;
   addConvexHullCollider(shapeKey?: string): void;
 
-  // Collider configuration from config object
   addColliderFromConfig(config: ColliderConfig): void;
 
-  // Forces and motion
   addForce(force: Vector3): void;
   addTorque(torque: Vector3): void;
   setVelocity(velocity: Vector3): void;
@@ -54,7 +49,6 @@ export interface PhysicsAPI {
   getVelocity(): Vector3;
   setAngularVelocity(velocity: Vector3): void;
 
-  // Interactability
   setInteractable(radius?: number): void;
 }
 
@@ -72,38 +66,30 @@ export interface ColliderConfig {
 }
 
 export interface WorldAPI {
-  // Spawning
   spawn(appName: string, config?: Record<string, any>): Entity;
   spawnChild(appName: string, config?: Record<string, any>): Entity;
 
-  // Entity access
   getEntity(id: string): Entity | null;
   destroy(id: string): void;
   query(filter?: EntityFilter): Entity[];
   nearby(position: Vector3, radius: number): Entity[];
 
-  // App attachment
   attach(entityId: string, appName: string): void;
   detach(entityId: string): void;
 
-  // Hierarchy
   reparent(entityId: string, parentId: string): void;
 
-  // Cross-entity messaging
   sendToEntity(entityId: string, message: any): void;
 
-  // Cross-entity physics
   applyImpulse(entityId: string, impulse: Vector3, worldPoint?: Vector3): void;
   setVelocity(entityId: string, velocity: Vector3): void;
   setGravityFactor(entityId: string, factor: number): void;
 
-  // Body lifecycle
   setBodyActive(entityId: string, active: boolean): void;
   setPosition(entityId: string, position: Vector3, rotation?: Quaternion): void;
   setMotionType(entityId: string, type: 'dynamic' | 'kinematic' | 'static'): boolean;
   isAtRest(entityId: string, epsilon?: number): boolean;
 
-  // Constraints/Joints
   weld(entityA: string, entityB: string, opts?: ConstraintConfig): string;
   joint(entityA: string, entityB: string, opts: ConstraintConfig): string;
   removeConstraint(constraintId: string): void;
@@ -137,37 +123,29 @@ export interface Player {
 }
 
 export interface PlayersAPI {
-  // Access
   getAll(): Player[];
   getById(id: string): Player | null;
   getNearest(position: Vector3, radius: number): Player | null;
 
-  // Messaging
   send(playerId: string, message: any): void;
   broadcast(message: any): void;
   broadcastNearby(position: Vector3, radius: number, message: any): void;
 
-  // Position
   setPosition(playerId: string, position: Vector3): void;
 
-  // Appearance
   setName(playerId: string, name: string): void;
   setAppearance(playerId: string, appearance: PlayerAppearance): void;
   setModel(playerId: string, url: string): void;
 
-  // Animation and state
   setWeapon(playerId: string, name: string): void;
   playAnimation(playerId: string, clipName: string, opts?: AnimationOpts): void;
   setLifecycle(playerId: string, state: 'alive' | 'frozen' | 'spectator', opts?: any): void;
 
-  // Movement
   setMovementOverride(playerId: string, overrides: MovementOverride | null): void;
 
-  // Entity attachment
   attachEntity(playerId: string, entityId: string, offset: Vector3): void;
   detachEntity(entityId: string): void;
 
-  // Proximity
   onPlayerContact(radius: number, callback: (playerIdA: string, playerIdB: string) => void): () => void;
   nearestOtherPlayer(playerId: string, radius: number): Player | null;
 }

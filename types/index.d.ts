@@ -9,7 +9,6 @@
  *   - Shared math: import { Vector3, Quaternion } from 'spoint'
  */
 
-// Re-export math types
 export type {
   Vector3,
   Quaternion,
@@ -22,7 +21,6 @@ export type {
   ConstraintConfig
 } from './math';
 
-// Re-export server context types
 export type {
   Entity,
   PhysicsAPI,
@@ -60,7 +58,6 @@ export type {
   EditorProp
 } from './ctx';
 
-// Re-export client engine types
 export type {
   Camera,
   Scene,
@@ -98,37 +95,27 @@ declare global {
     /** Global app context (client-side): scene, camera, input, players, entities, etc. */
     __app?: any;
 
-    /** Grass system instance. */
     __grass?: any;
 
-    /** Vegetation system instance. */
     __veg?: any;
 
-    /** Rocks system instance. */
     __rocks?: any;
 
-    /** Terrain instance. */
     __terrain?: any;
 
-    /** Scene graph. */
     __scene?: any;
 
-    /** Camera instance. */
     __camera?: any;
 
-    /** Debug mode information. */
     __debug?: any;
 
-    /** Device information. */
     __deviceInfo?: any;
 
     /** Server instance (Node.js). */
     __server?: any;
 
-    /** Time of day system. */
     __timeOfDay?: any;
 
-    /** Floating origin coordinator. */
     __floatingOrigin?: any;
   }
 }

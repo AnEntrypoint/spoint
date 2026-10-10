@@ -108,17 +108,14 @@ export interface Vector4Like {
 }
 
 export interface InputState {
-  // Keyboard
   keys: Record<string, boolean>;
   isKeyPressed(key: string): boolean;
 
-  // Mouse
   mouseX: number;
   mouseY: number;
   mouseDelta: Vector2Like;
   isMousePressed(button: number): boolean;
 
-  // Touch
   touches: Touch[];
   isTouching: boolean;
 }

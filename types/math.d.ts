@@ -1,10 +1,7 @@
-/** [x, y, z] tuple. */
 export type Vector3 = [number, number, number];
 
-/** [x, y, z, w] tuple. */
 export type Quaternion = [number, number, number, number];
 
-/** [x, y, z, w] tuple. */
 export type Vector4 = [number, number, number, number];
 
 /** [x, z] tuple (ground plane -- not [x, y]). */
