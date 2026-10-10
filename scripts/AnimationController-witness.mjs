@@ -1,5 +1,3 @@
-// Node witness for src/animation/AnimationController.js (row witness-gap-AnimationController).
-// Usage: node scripts/AnimationController-witness.mjs [modulePath] [--case=<label>]
 // Drives the controller with a recording blender and with the real AnimationBlender over a
 // fake mixer. Prints RESULT: PASS (exit 0) or RESULT: FAIL (exit 1). A mutant is checked by
 // passing its path as modulePath. Output is create-only under .gm/witness-out/.
@@ -365,8 +363,7 @@ async function main() {
   for (const c of created) {
     try {
       c.dispose()
-    } catch (_) {
-      // already stopped
+    } catch (alreadyStopped) {
     }
   }
   return report()
