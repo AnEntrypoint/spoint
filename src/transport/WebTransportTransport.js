@@ -90,7 +90,7 @@ export class WebTransportTransport extends TransportWrapper {
 
   close() {
     super.close()
-    this._closed = true
+    this._handleClose()
     if (this.datagramWriter) {
       const writer = this.datagramWriter
       this.datagramWriter = null
