@@ -10,7 +10,13 @@ export function isRingAvailable() {
 
 export const RING_HEADER_INTS = 4
 const RING_MAGIC = 0x54524e47
-const MAGIC_OFF = 0, HEADER_CAPACITY_OFF = 1
+const MAGIC_OFF = 0, HEADER_CAPACITY_OFF = 1, HEADER_GEN_OFF = 2, HEADER_EPOCH_OFF = 3
+
+const WRITE_LOCK_ATTEMPTS = 64
+const SLOT_READ_RETRIES = 4
+const RING_CUT_RETRIES = 4
+
+function genLocked(gen) { return (gen & 1) === 1 }
 
 function headerBytes() { return RING_HEADER_INTS * 4 }
 function ctrlBytes(capacity) { return capacity * CTRL_INTS_PER_SLOT * 4 }
@@ -22,6 +28,8 @@ export function allocateRingBuffer(capacity = 64) {
   const header = new Int32Array(sab, 0, RING_HEADER_INTS)
   Atomics.store(header, MAGIC_OFF, RING_MAGIC)
   Atomics.store(header, HEADER_CAPACITY_OFF, capacity)
+  Atomics.store(header, HEADER_GEN_OFF, 0)
+  Atomics.store(header, HEADER_EPOCH_OFF, 0)
   return { sab, capacity }
 }
 
@@ -40,6 +48,7 @@ export function assertRingLayout(sab, capacity) {
 function makeViews(sab, capacity) {
   assertRingLayout(sab, capacity)
   return {
+    header: new Int32Array(sab, 0, RING_HEADER_INTS),
     ctrl: new Int32Array(sab, headerBytes(), capacity * CTRL_INTS_PER_SLOT),
     payload: new Float64Array(sab, headerBytes() + ctrlBytes(capacity), capacity * PAYLOAD_FLOATS_PER_SLOT)
   }
@@ -47,7 +56,8 @@ function makeViews(sab, capacity) {
 
 export class TransformRingWriter {
   constructor(sab, capacity) {
-    const { ctrl, payload } = makeViews(sab, capacity)
+    const { header, ctrl, payload } = makeViews(sab, capacity)
+    this._header = header
     this._ctrl = ctrl
     this._payload = payload
     this._capacity = capacity
@@ -73,14 +83,31 @@ export class TransformRingWriter {
     this._slotOf.set(playerId, slot)
   }
 
+  _beginWrite() {
+    for (let attempt = 0; attempt < WRITE_LOCK_ATTEMPTS; attempt++) {
+      const gen = Atomics.load(this._header, HEADER_GEN_OFF)
+      if (genLocked(gen)) continue
+      if (Atomics.compareExchange(this._header, HEADER_GEN_OFF, gen, gen + 1) === gen) return gen
+    }
+    return null
+  }
+
+  _endWrite(ringGen) {
+    Atomics.store(this._header, HEADER_GEN_OFF, ringGen + 2)
+  }
+
   release(playerId) {
     const slot = this._slotOf.get(playerId)
     if (slot === undefined) return false
+    const ringGen = this._beginWrite()
+    if (ringGen === null) return false
     const cbase = slot * CTRL_INTS_PER_SLOT
     const gen = Atomics.load(this._ctrl, cbase + GEN_OFF)
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 1)
     Atomics.store(this._ctrl, cbase + PID_OFF, -1)
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 2)
+    Atomics.add(this._header, HEADER_EPOCH_OFF, 1)
+    this._endWrite(ringGen)
     this._slotOf.delete(playerId)
     this._free.push(slot)
     return true
@@ -90,6 +117,8 @@ export class TransformRingWriter {
     let slot = this.slotOf(playerId)
     if (slot === null) { this.tryAssign(playerId); slot = this.slotOf(playerId) }
     if (slot === null) return false
+    const ringGen = this._beginWrite()
+    if (ringGen === null) return false
     const cbase = slot * CTRL_INTS_PER_SLOT, pbase = slot * PAYLOAD_FLOATS_PER_SLOT
     const gen = Atomics.load(this._ctrl, cbase + GEN_OFF)
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 1)
@@ -98,19 +127,21 @@ export class TransformRingWriter {
     this._payload[pbase + ROT_OFF] = rotation[0]; this._payload[pbase + ROT_OFF + 1] = rotation[1]; this._payload[pbase + ROT_OFF + 2] = rotation[2]; this._payload[pbase + ROT_OFF + 3] = rotation[3]
     this._payload[pbase + VEL_OFF] = velocity[0]; this._payload[pbase + VEL_OFF + 1] = velocity[1]; this._payload[pbase + VEL_OFF + 2] = velocity[2]
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 2)
+    this._endWrite(ringGen)
     return true
   }
 }
 
 export class TransformRingReader {
   constructor(sab, capacity) {
-    const { ctrl, payload } = makeViews(sab, capacity)
+    const { header, ctrl, payload } = makeViews(sab, capacity)
+    this._header = header
     this._ctrl = ctrl
     this._payload = payload
     this._capacity = capacity
   }
 
-  readAll(maxRetriesPerSlot = 4) {
+  _readSlots() {
     const out = new Map()
     for (let i = 0; i < this._capacity; i++) {
       const cbase = i * CTRL_INTS_PER_SLOT, pbase = i * PAYLOAD_FLOATS_PER_SLOT
@@ -124,11 +155,29 @@ export class TransformRingReader {
         vx = this._payload[pbase + VEL_OFF]; vy = this._payload[pbase + VEL_OFF + 1]; vz = this._payload[pbase + VEL_OFF + 2]
         gen2 = Atomics.load(this._ctrl, cbase + GEN_OFF)
         attempt++
-      } while (gen1 !== gen2 && attempt < maxRetriesPerSlot)
+      } while (gen1 !== gen2 && attempt < SLOT_READ_RETRIES)
       if (pid === undefined || pid === -1) continue
-      const stale = gen1 !== gen2 || (gen1 & 1) === 1
-      out.set(pid, { position: [px, py, pz], rotation: [qx, qy, qz, qw], velocity: [vx, vy, vz], stale })
+      if (gen1 !== gen2 || genLocked(gen1)) continue
+      out.set(pid, { position: [px, py, pz], rotation: [qx, qy, qz, qw], velocity: [vx, vy, vz], stale: false })
     }
     return out
+  }
+
+  readCut(maxRetries = RING_CUT_RETRIES) {
+    let players = null
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const generation = Atomics.load(this._header, HEADER_GEN_OFF)
+      if (genLocked(generation)) continue
+      const epoch = Atomics.load(this._header, HEADER_EPOCH_OFF)
+      players = this._readSlots()
+      if (Atomics.load(this._header, HEADER_GEN_OFF) === generation) return { generation, epoch, players, consistent: true }
+    }
+    const sampled = players ?? this._readSlots()
+    for (const entry of sampled.values()) entry.stale = true
+    return { generation: -1, epoch: -1, players: sampled, consistent: false }
+  }
+
+  readAll(maxRetries = RING_CUT_RETRIES) {
+    return this.readCut(maxRetries).players
   }
 }
