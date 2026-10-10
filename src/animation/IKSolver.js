@@ -6,6 +6,10 @@ const _v2 = new THREE.Vector3()
 const _v3 = new THREE.Vector3()
 const _q0 = new THREE.Quaternion()
 
+function worldDistance(from, to) {
+  return from.getWorldPosition(new THREE.Vector3()).distanceTo(to.getWorldPosition(new THREE.Vector3()))
+}
+
 export class TwoBoneIKSolver {
   constructor(rootBone, middleBone, endBone, options = {}) {
     this.rootBone = rootBone
@@ -17,8 +21,8 @@ export class TwoBoneIKSolver {
     this.enabled = true
     this.weight = 1.0
 
-    this.rootLength = rootBone ? rootBone.position.distanceTo(middleBone.position) : 1
-    this.middleLength = middleBone ? middleBone.position.distanceTo(endBone.position) : 1
+    this.rootLength = rootBone && middleBone ? worldDistance(rootBone, middleBone) : 1
+    this.middleLength = middleBone && endBone ? worldDistance(middleBone, endBone) : 1
 
     this.tolerance = options.tolerance || 0.001
     this.maxIterations = options.maxIterations || 5
@@ -48,92 +52,70 @@ export class TwoBoneIKSolver {
     const middle = this.middleBone
     const end = this.endBone
 
-    root.updateWorldMatrix(true, false)
-    middle.updateWorldMatrix(true, false)
-    end.updateWorldMatrix(true, false)
+    if (!root.parent) return this
 
     root.getWorldPosition(this._rootWorldPos)
     middle.getWorldPosition(this._middleWorldPos)
     end.getWorldPosition(this._endWorldPos)
 
-    const target = this.target.clone()
-    if (!this.useWorldSpace) {
-      if (root.parent) {
-        root.parent.updateWorldMatrix(true, false)
-        root.parent.getWorldPosition(_v0)
-        target.sub(_v0)
-      }
-    }
-
-    const rootToEnd = _v0.subVectors(target, this._rootWorldPos)
-    const distance = rootToEnd.length()
-
-    if (distance > this.rootLength + this.middleLength) {
-      const direction = rootToEnd.normalize()
-      target.copy(this._rootWorldPos).addScaledVector(direction, this.rootLength + this.middleLength)
-    }
-
-    const rootToTarget = target.clone().sub(this._rootWorldPos)
-    const d = rootToTarget.length()
-
-    if (d < this.tolerance) return this
-
+    const rootWorld = this._rootWorldPos
+    const middleWorld = this._middleWorldPos
+    const endWorld = this._endWorldPos
     const a = this.rootLength
     const b = this.middleLength
-    const c = Math.min(d, a + b)
+    const reach = a + b
 
-    const cosAngleAtRoot = (a * a + c * c - b * b) / (2 * a * c)
-    const angleAtRoot = Math.acos(Math.max(-1, Math.min(1, cosAngleAtRoot)))
-
-    const cosAngleAtMiddle = (a * a + b * b - c * c) / (2 * a * b)
-    const angleAtMiddle = Math.acos(Math.max(-1, Math.min(1, cosAngleAtMiddle)))
-
-    const rootDir = rootToTarget.clone().normalize()
-
-    const poleDir = this.poleVector.clone()
-    if (root.parent) {
+    const goal = this.target.clone()
+    if (!this.useWorldSpace) {
       root.parent.updateWorldMatrix(true, false)
-      const parentQuat = new THREE.Quaternion()
-      root.parent.getWorldQuaternion(parentQuat)
-      poleDir.applyQuaternion(parentQuat)
+      goal.applyMatrix4(root.parent.matrixWorld)
     }
 
-    const rightVector = new THREE.Vector3().crossVectors(rootDir, poleDir).normalize()
-    const upVector = new THREE.Vector3().crossVectors(rightVector, rootDir).normalize()
+    const rootToGoal = goal.sub(rootWorld)
+    if (rootToGoal.length() > reach) rootToGoal.normalize().multiplyScalar(reach)
+    const d = rootToGoal.length()
 
-    const middleWorldDir = new THREE.Vector3()
-      .copy(upVector)
-      .multiplyScalar(Math.cos(angleAtRoot))
-      .addScaledVector(rootDir, Math.sin(angleAtRoot))
+    if (d < this.tolerance || a <= 0 || b <= 0) return this
 
-    const endTargetWorldPos = new THREE.Vector3()
-      .copy(this._middleWorldPos)
-      .addScaledVector(middleWorldDir, b)
+    const rootDir = rootToGoal.clone().divideScalar(d)
+    const cosAtRoot = Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d)))
+    const sinAtRoot = Math.sqrt(1 - cosAtRoot * cosAtRoot)
 
-    if (root.parent) {
-      const parentInverse = new THREE.Matrix4()
-      root.parent.updateWorldMatrix(true, false)
-      parentInverse.copy(root.parent.matrixWorld).invert()
-
-      this._rootWorldPos.applyMatrix4(parentInverse)
-      const middleLocalTarget = target.clone().applyMatrix4(parentInverse)
-      this._middleWorldPos.applyMatrix4(parentInverse)
-      endTargetWorldPos.applyMatrix4(parentInverse)
-
-      const rootToMiddle = middleLocalTarget.clone().sub(this._rootWorldPos)
-      const rootQuat = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        rootToMiddle.normalize()
-      )
-      root.quaternion.slerpQuaternions(root.quaternion, rootQuat, this.weight)
-
-      const middleToEnd = endTargetWorldPos.clone().sub(this._middleWorldPos)
-      const middleQuat = new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        middleToEnd.normalize()
-      )
-      middle.quaternion.slerpQuaternions(middle.quaternion, middleQuat, this.weight)
+    const parentQuat = root.parent.getWorldQuaternion(new THREE.Quaternion())
+    const bend = this.poleVector.clone().applyQuaternion(parentQuat)
+    bend.addScaledVector(rootDir, -bend.dot(rootDir))
+    if (bend.lengthSq() < 1e-12) {
+      const reference = Math.abs(rootDir.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
+      bend.crossVectors(rootDir, reference)
     }
+    bend.normalize()
+
+    const middleGoal = rootWorld.clone()
+      .addScaledVector(rootDir, a * cosAtRoot)
+      .addScaledVector(bend, a * sinAtRoot)
+    const endGoal = rootWorld.clone().add(rootToGoal)
+
+    const rootQuat = root.getWorldQuaternion(new THREE.Quaternion())
+    const middleQuat = middle.getWorldQuaternion(new THREE.Quaternion())
+
+    const rootSwing = new THREE.Quaternion().setFromUnitVectors(
+      middleWorld.clone().sub(rootWorld).normalize(),
+      middleGoal.clone().sub(rootWorld).normalize()
+    )
+    const middleAfterRoot = middleWorld.clone().sub(rootWorld).applyQuaternion(rootSwing).add(rootWorld)
+    const endAfterRoot = endWorld.clone().sub(rootWorld).applyQuaternion(rootSwing).add(rootWorld)
+
+    const middleSwing = new THREE.Quaternion().setFromUnitVectors(
+      endAfterRoot.clone().sub(middleAfterRoot).normalize(),
+      endGoal.clone().sub(middleGoal).normalize()
+    )
+
+    const rootWorldTarget = rootSwing.clone().multiply(rootQuat)
+    const middleWorldTarget = middleSwing.clone().multiply(rootSwing).multiply(middleQuat)
+
+    root.quaternion.slerp(parentQuat.clone().invert().multiply(rootWorldTarget), this.weight)
+    const rootWorldNow = parentQuat.clone().multiply(root.quaternion)
+    middle.quaternion.slerp(rootWorldNow.clone().invert().multiply(middleWorldTarget), this.weight)
 
     return this
   }
@@ -152,7 +134,8 @@ export class FootIKSolver {
   solve() {
     if (!this.enabled || !this.footBone || !this.raycastCallback) return this
 
-    const rayOrigin = this.footBone.getWorldPosition(new THREE.Vector3())
+    const footWorld = this.footBone.getWorldPosition(new THREE.Vector3())
+    const rayOrigin = footWorld.clone()
     rayOrigin.y += this.rayDistance / 2
 
     const rayDirection = new THREE.Vector3(0, -1, 0)
@@ -160,11 +143,13 @@ export class FootIKSolver {
     const hitPoint = this.raycastCallback(rayOrigin, rayDirection, this.rayDistance)
 
     if (hitPoint) {
-      const targetHeight = hitPoint.y
-      const currentHeight = this.footBone.position.y
-
-      const heightAdjustment = targetHeight - currentHeight
-      this.footBone.position.y += heightAdjustment * this.weight
+      const worldHeightAdjustment = (hitPoint.y - footWorld.y) * this.weight
+      const localHeightAdjustment = new THREE.Vector3(0, worldHeightAdjustment, 0)
+      if (this.footBone.parent) {
+        const parentWorldInverse = new THREE.Matrix4().copy(this.footBone.parent.matrixWorld).invert()
+        localHeightAdjustment.applyMatrix3(new THREE.Matrix3().setFromMatrix4(parentWorldInverse))
+      }
+      this.footBone.position.add(localHeightAdjustment)
     }
 
     return this
