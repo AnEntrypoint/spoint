@@ -386,4 +386,9 @@ function main() {
   console.log(`RESULT: PASS ${report.length} file(s) scanned, ${total} high-signal finding(s), ${regressions.length} new dead gate(s)`)
 }
 
-main()
+if (process.argv.includes('--receipts')) {
+  const { runCli } = await import('./witness-receipt-audit.mjs')
+  process.exitCode = runCli(process.argv.slice(2))
+} else {
+  main()
+}
