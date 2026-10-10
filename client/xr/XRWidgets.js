@@ -92,6 +92,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   }
 
   function initTeleport() {
+    renderer.xr.addEventListener('sessionend', () => endTeleport(true))
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_SEGMENTS * 3), 3))
     teleportArc = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 }))
     teleportArc.name = 'teleportArc'; teleportArc.visible = false; scene.add(teleportArc)
@@ -99,9 +100,9 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     teleportMarker.name = 'teleportMarker'; teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker)
   }
 
-  function executeTeleport(pt, xrBase) {
+  function executeTeleport(pt) {
     if (teleportPending) return
-    teleportPending = { pt, xrBase }
+    teleportPending = { pt }
     _fadeActor.send({ type: 'START' })
     teleportTimer = setTimeout(moveTeleport, TELEPORT_MOVE_MS)
   }
@@ -109,7 +110,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   function moveTeleport() {
     const pending = teleportPending
     if (!pending) return
-    const base = pending.xrBase || renderer.xr.getReferenceSpace()
+    const base = renderer.xr.getReferenceSpace()
     if (!base) { endTeleport(true); return }
     teleportTimer = setTimeout(() => endTeleport(false), TELEPORT_SETTLE_MS)
     renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(new XRRigidTransform({ x: -pending.pt.x, y: -pending.pt.y, z: -pending.pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
@@ -137,7 +138,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }
 
-  function updateTeleportArc(handsDetectedNow, handModels, xrBase) {
+  function updateTeleportArc(handsDetectedNow, handModels) {
     handsDetected = handsDetectedNow
     if (!renderer.xr.isPresenting || !teleportArc || !vrSettings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
     const session = renderer.xr.getSession(); if (!session) return
@@ -163,7 +164,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     }
     if (!origin || !direction) { teleportArc.visible = false; teleportMarker.visible = false; return }
     const hit = computeParabolicArc(origin, direction)
-    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (triggerTeleport && !teleportPending) executeTeleport(hit.point, xrBase) }
+    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (triggerTeleport && !teleportPending) executeTeleport(hit.point) }
     else { teleportMarker.visible = false }
   }
 
