@@ -1126,6 +1126,7 @@ class Entity extends Emitter {
   }
 
   _updateMaterialBucketTier(screenPx, movable) {
+    if (this._bucketRejected) return false;
     const batcher = this.pool._getMaterialBucketBatcher();
     if (!batcher) return false;
     const bucket = this.clusterMeshes[0]?.materialBucket;
@@ -1143,7 +1144,16 @@ class Entity extends Emitter {
       this._setTrackedDrawsHidden(true);
       const cm = this.clusterMeshes[0];
       const sourceKey = `${this.asset.url}|0`;
-      const id = batcher.acquire(this, bucket, sourceKey, cm, cm.material);
+      let id;
+      try {
+        id = batcher.acquire(this, bucket, sourceKey, cm, cm.material);
+      } catch (error) {
+        this._setTrackedDrawsHidden(false);
+        if (!(error instanceof RangeError)) throw error;
+        this._bucketRejected = true;
+        console.warn(`[model-pool] material bucket skipped for ${this.asset.url}: ${error.message}`);
+        return false;
+      }
       if (id < 0) { this._setTrackedDrawsHidden(false); return false; }
       this._bucketActive = true;
       batcher.setMatrix(this, this.root.matrixWorld);
