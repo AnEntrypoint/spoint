@@ -4607,3 +4607,34 @@ MEASURE gm-finalize-during-merge project=gm verb=git_finalize error=cannot-do-a-
 2026-10-10T20:05:07.700Z render-debug-panel-witness label=mutant-arm exit=1 RESULT: FAIL mutant=get-unwired (input.checked = t.get() -> input.checked = false) | out=stdout of the same dispatch | output_sha256=none | witness_ts=2026-10-10T20:05:07.700Z | dispatch=1791662706037-500-61804d0e4e5ac3ed | session=orch-main-r103 row=witness-gap-RenderDebugPanel
 MEASURE gm-push-blocked-by-submodule-conflict project=gm commit=3f77737d6b54101f47fd1f504b9546acdbe24751 conflicts=gm-mcp,rs-plugkit dirt=gm-mcp:README.md,bin/gm-mcp-server.js,package.json,src/dispatch.js,src/release-bridge.js;rs-plugkit:AGENTS.md action=git_merge_abort,retry-after-lanes-commit 2026-10-10T20:10:07.563Z
 MEASURE gm-git-checkout-field verb=git_checkout unknown_fields=rev accepted=ref,create,path,paths,files 2026-10-10T20:10:07.563Z
+
+2026-10-10T20:10:55.385Z prd-resolve-spool-ledger-witness.mjs exit=0 RESULT: PASS dispatch=1791663012478-500-35fdb7b59686ff9d row=gm-prd-resolve-dispatch-not-in-ledger-w622
+
+2026-10-10T20:12:48.589Z prd-resolve-spool-ledger-witness.mjs exit=0 RESULT: PASS dispatch=1791663138527-500-14302dc5ab0292d7 row=gm-prd-resolve-dispatch-not-in-ledger-w622-verify-r82
+MEASURE gm-pull-submodule-conflict-2 project=gm head=99ed8584a5a11425bbb440d848cf815e973b77bd conflicts=gm-mcp(4c12270),rs-plugkit(67b90ec) action=git_merge_abort,retry-after-window 2026-10-10T20:14:52.562Z
+tick 42 event=pool-saturated live=20 ceiling=20 free=0 pending=4597 2026-10-10T20:14:52.562Z
+RESULT witness-gap-progression resolved 1791662234471-500-8301968dcc7d0076 sha=5acd73650ade39c0b45751c34691b5248ee146dc
+2026-10-10T20:12:16Z | pool-observe + instruction{mode:investigate_readonly} on plugkit plugkit-slim v0.1.1554 (source head 6d611e242738d6031f3b38461f5ec2e8a0ad2115), isolated AGENTPLUG_HOME, fixture C:/dev/pool-scratch-w565 | exit=0 | RESULT: PASS -- no-candidate reply now names route=blocked and slots.candidates_route (scanned_pending_rows=4, ranked_rows=0, skipped_by_rank{blocker_notes_rows:1,design_decision_rows:1,excluded_outcome_rows:1,excluded_refuted_rows:1}, survived=0) where the pre-fix wasm emits none of route/route_kind/candidates_route/candidate_acceptance/alarm_route; read-only route with a rankable row returns slots.candidates plus slots.candidate_acceptance text | dispatch 1791663042598-2-b328ac7100bbabb, 1791663071554-3-57630f28f028ff7f, 1791663136404-4-bac2c2f8491e9be6, pre-fix control 1791663252380-6-65b780b4428e00ca | witness-gap clause: 1791663392180-7-fb9da746f8ec904d candidates=[witness-gap-scratch-w565,scratch-w565-rankable] with acceptance text | row=gm-pool-resolver-no-candidates-route-w565
+tick 43 event=done-a111b567b556b12d6,launch-orch-main-r107 live=20 pending=4597 2026-10-10T20:18:41.872Z
+RESULT gm-git-show-silent-empty-on-unknown-rev resolved 1791663336037-500-4204591767b52c97 sha=500fc10070a2a4cbd9689eb0b85cb0a0d8f5a966
+tick 44 event=done-aee9af7ceceda0f18 live=20 pending=4597 2026-10-10T20:19:08.808Z
+RESULT gm-prd-resolve-dispatch-not-in-ledger-w622 resolved 1791663012478-500-35fdb7b59686ff9d sha=210e5f898951f76b02580fa507bdaf0e9cb2c999
+tick 45 event=done-ac344c4181f362a9f live=20 pending=4597 2026-10-10T20:19:51.722Z
+witness gm-codeinsight-bin-skipdir exit=0 RESULT: PASS 2026-10-10T20:40:00Z dispatch=1791662987881-500-f8d61eda46283248 dispatch=1791663291922-500-86f67cee7c25b9f2 row=gm-codeinsight-bin-skipdir session=orch-main-r95-w1 probe=bin/gm-install.js=21symbols,covered;site/theme.mjs=not-indexed
+RESULT gm-friction-plugin-slot-evicted-poisoned-store resolved 1791663498191-500-cad19a5a9e207b1d no-commit:acceptance-branch-1-met-live(42/42+70/70 ok,0 evicted)
+tick 46 event=done-a318dd01290ad7274 live=20 pending=4597 2026-10-10T20:21:20.076Z
+HOP POPPER C:/dev/spoint/client/core witness=rows=4(POPPER-r106-1..4) next=RICE retired=1
+tick 47 event=done-abc6e24aefc077d07 live=19 pending=4597 2026-10-10T20:23:00.449Z
+RESULT witness-gap-RenderDebugPanel resolved 1791662895391-500-4f398612535f6d72 sha=6637617f1a172695a83e02d96b66b54b3c14dcc1
+tick 48 event=done-a88ccc11fc2f5ad69 live=18 pending=4597 2026-10-10T20:23:38.324Z
+tick 49 event=launch-orch-main-r109+orch-main-r110 rows=POPPER-r106-2,POPPER-r106-4 live=20 pending=4597 2026-10-10T20:26:51.739Z
+RESULT gm-pool-resolver-no-candidates-route-w565 resolved 1791663626387-500-8ad8333e8472dad3 sha=6d611e242738d6031f3b38461f5ec2e8a0ad2115
+tick 50 event=done-ad159652e91cca932 live=19 pending=4597 2026-10-10T20:27:53.377Z
+witness-gap-GLBTransformer-finding-gm-exec-js-poisoned-store blocked dispatch=1791664016151-500-a0b616eb3a2d5888 exit=134 RESULT: FAIL host-level-Err-not-reproducible-on-running-build 2026-10-10T20:28:56.640Z
+tick 51 event=launch-orch-main-r111 row=gm-exec-argv-code-limit-fails-to-spawn skipped-held=perf-foliage-one-frame-disappears-on-change-spoint-orch-b186-u1 live=20 pending=4597 2026-10-10T20:29:18.087Z
+MEASURE gm-skill-publish commit=acda562dc2 push-refused=remote_moved pull-blocked=dirty-submodules(agentplug,gm-mcp,gm-config,rs-codeinsight) 2026-10-10T20:29:18.087Z
+RESULT gm-codeinsight-bin-skipdir resolved 1791663607067-500-40c527857b85227a sha=357ed7731e6db889e307c3a7f27d00d59ae3f6b7 local-unpushed
+tick 52 event=done-a351a3f544e92275c live=19 pending=4597 2026-10-10T20:29:47.879Z
+comment-sweep-invariant-3-witness.mjs exit=0 RESULT: PASS 2026-10-10T20:31:41Z dispatch=1791664301433-500-d0eb6ae32b8cbf9b sha256=0877c9e884833c0ddcaed1216598ccd018ccf89c1d77f2764f805cdc4b36cc04 out=.gm/witness-out/comment-sweep-invariant-3-w1-20261010T203140Z.txt mutant=exit1/1791664267269-500-f201c2d4206142fc
+BLOCKED witness-gap-GLBTransformer-finding-gm-exec-js-poisoned-store witness=1791664016151-500-a0b616eb3a2d5888 reason=fix-pushed-41eb679250-CI-38081568534-success-but-live-daemon-is-local-build-3510bf9-predating-it-and-refuses-release-swaps
+tick 53 event=launch-orch-main-r112 row=gm-codeinsight-outline-partial-deploy-witness live=20 pending=4597 2026-10-10T20:32:48.716Z

@@ -1,9 +1,5 @@
 import { RenderControls } from './RenderControls.js'
 
-// Dynamic quality governor: holds the frame budget by shedding NON-RESOLUTION cost only.
-// It writesRenderControls keys and never writes devicePixelRatio, canvas size, or any
-// render-target size, so no pixel doubling occurs. Off unless `qualityGovernor` is set true.
-
 export const FRAME_BUDGET_MS = 16.67
 const DEAD_BAND_UPPER_MS = 1.0
 const DEAD_BAND_LOWER_MS = 3.0
@@ -13,8 +9,6 @@ const FRAMES_PER_WINDOW = 30
 const WINDOWS_BEFORE_STEP = 2
 export const MIN_STEP_INTERVAL_MS = 1000
 
-// Resolution keys the governor is FORBIDDEN to write. Present so a future edit that adds one
-// to QUALITY_TIERS fails loudly at construction instead of silently rescaling the frame.
 export const RESOLUTION_KEYS = new Set([
   'dprAuto', 'dprOff', 'dpr', 'vdrsAuto', 'vdrsOff', 'vdrs', 'vdrsScale',
   'terrainVdrs', 'threeVdrs', 'threeVdrsScale', 'threeVdrsAuto', 'threeVdrsOff',
@@ -23,7 +17,6 @@ export const RESOLUTION_KEYS = new Set([
   'bloomResolutionScale',
 ])
 
-// Every knob the governor drives, with its LIVE consumer and its enable bit (silent-no-op check).
 export const GOVERNED_KNOBS = [
   { key: 'ssao', type: 'boolean',
     consumer: 'client/core/SSAO.js:249 (shouldRun: RenderControls.get(\'ssao\') === true && !!ctx.ssao), :260',
@@ -45,9 +38,6 @@ export const GOVERNED_KNOBS = [
     enableBit: 'live per-frame read. Smaller = quads split only when nearer the camera = coarser mesh = cheaper, so the governor only ever lowers it.' },
 ]
 
-// Tier ladder, index = tier. Tier 0 restores the booted snapshot; each higher tier is strictly
-// cheaper. Numbers are ceilings: resolveTier() takes min(booted, tier) so a low-tier preset is
-// never pushed to more work than it booted with.
 export const QUALITY_TIERS = [
   { maxLevel: 11, splitFactor: 0.25, vegLeafOff: false },
   { maxLevel: 11, splitFactor: 0.25, vegLeafOff: false },
