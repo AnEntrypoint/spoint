@@ -2,19 +2,27 @@ import * as THREE from 'three';
 
 const COARSE_INDEX_STREAM = 1;
 
+function coarsestIndexRange(lod, ci, sourceIndexArray, lod0Count) {
+  if (lod.stream !== 0 && lod.stream !== COARSE_INDEX_STREAM) {
+    throw new RangeError(`_extractCoarsestIndices: cluster ${ci} lod stream=${lod.stream} is not an index stream`);
+  }
+  const start = (lod.stream === COARSE_INDEX_STREAM ? lod0Count : 0) + lod.offset;
+  const end = start + lod.count;
+  if (!(lod.count >= 0 && start >= 0 && end <= sourceIndexArray.length)) {
+    throw new RangeError(`_extractCoarsestIndices: cluster ${ci} lod stream=${lod.stream} range [${start},${end}) outside index stream of length ${sourceIndexArray.length}`);
+  }
+  return [start, end];
+}
+
 function _extractCoarsestIndices(clusterSet, sourceIndexArray, lod0Count) {
   const clusters = clusterSet.clusters;
-  let total = 0;
-  for (const c of clusters) total += c.lods[c.lods.length - 1].count;
+  const ranges = clusters.map((c, ci) => coarsestIndexRange(c.lods[c.lods.length - 1], ci, sourceIndexArray, lod0Count));
+  const total = ranges.reduce((sum, [start, end]) => sum + (end - start), 0);
   if (total <= 0) return null;
   const Ctor = sourceIndexArray instanceof Uint32Array || total > 65535 ? Uint32Array : Uint16Array;
   const out = new Ctor(total);
   let o = 0;
-  for (const c of clusters) {
-    const lod = c.lods[c.lods.length - 1];
-    const streamBaseOffset = lod.stream === COARSE_INDEX_STREAM ? lod0Count : 0;
-    for (let i = 0; i < lod.count; i++) out[o++] = sourceIndexArray[streamBaseOffset + lod.offset + i];
-  }
+  for (const [start, end] of ranges) for (let i = start; i < end; i++) out[o++] = sourceIndexArray[i];
   return out;
 }
 
@@ -48,7 +56,8 @@ function identityOf(obj) {
 function textureSignature(t) {
   const img = t.image;
   const dims = img ? `${img.width ?? '?'}x${img.height ?? '?'}x${img.depth ?? 1}` : 'no-image';
-  return `${t.constructor.name}(${dims}|${t.format},${t.type},${t.colorSpace},${t.wrapS},${t.wrapT},${t.magFilter},${t.minFilter},${t.anisotropy},${t.flipY},${t.channel},${t.offset.x},${t.offset.y},${t.repeat.x},${t.repeat.y},${t.rotation},${t.center.x},${t.center.y})`;
+  const content = img ? identityOf(img) : 'no-content';
+  return `${t.constructor.name}(${content}|${dims}|${t.format},${t.type},${t.colorSpace},${t.wrapS},${t.wrapT},${t.magFilter},${t.minFilter},${t.anisotropy},${t.flipY},${t.channel},${t.offset.x},${t.offset.y},${t.repeat.x},${t.repeat.y},${t.rotation},${t.center.x},${t.center.y})`;
 }
 
 function valueSignature(v, depth) {
@@ -115,10 +124,11 @@ export class MaterialBucketBatcher {
   }
 
   acquire(entity, bucketKey, sourceKey, cm, seedMaterial) {
+    const bucketsBefore = this._buckets.size;
     const b = this._bucketFor(bucketKey, seedMaterial);
     let gid = b.geometryIds.get(sourceKey);
     if (gid == null) {
-      const geo = _buildCoarsestGeometry(cm);
+      const geo = this._buildCoarsestOrDiscard(b, bucketsBefore, cm);
       if (!geo) return -1;
       try {
         gid = b.mesh.addGeometry(geo);
@@ -128,6 +138,8 @@ export class MaterialBucketBatcher {
       }
       b.geometryIds.set(sourceKey, gid);
     }
+    const previousBucketKey = this._entityBucket.get(entity);
+    if (previousBucketKey != null && previousBucketKey !== b.key) this.release(entity);
     let id = b.instances.get(entity);
     if (id == null) {
       try {
@@ -144,6 +156,23 @@ export class MaterialBucketBatcher {
       b.mesh.setGeometryIdAt(id, gid);
     }
     return id;
+  }
+
+  _buildCoarsestOrDiscard(b, bucketsBefore, cm) {
+    let geo = null;
+    try {
+      geo = _buildCoarsestGeometry(cm);
+    } finally {
+      if (!geo && this._buckets.size > bucketsBefore) this._removeBucket(b);
+    }
+    return geo;
+  }
+
+  _removeBucket(b) {
+    if (this.pool.scene) this.pool.scene.remove(b.mesh);
+    b.mesh.dispose();
+    this._buckets.delete(b.key);
+    this.stats.bucketCount = this._buckets.size;
   }
 
   release(entity) {
