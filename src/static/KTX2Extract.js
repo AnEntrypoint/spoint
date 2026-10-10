@@ -57,7 +57,8 @@ export function getKtx2Extracted(srcPath) {
   if (ready && ready.mtime === mtime) return ready
 
   if (_inFlight.has(srcPath)) return null
-  const promise = (async () => {
+  _inFlight.set(srcPath, true)
+  void (async () => {
     try {
       const transformed = getTransformed(srcPath)
       if (!transformed) return
@@ -85,7 +86,6 @@ export function getKtx2Extracted(srcPath) {
       _inFlight.delete(srcPath)
     }
   })()
-  _inFlight.set(srcPath, promise)
   return null
 }
 
