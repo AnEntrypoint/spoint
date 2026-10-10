@@ -2,10 +2,12 @@ import * as THREE from 'three'
 import { createMachine, createActor } from '/node_modules/xstate/dist/xstate.esm.js'
 
 const FADE_SPEED = 5
-const FADE_DELAY = 50
+const FADE_DELAY_S = 0.05
 const ARC_SEGMENTS = 20
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
+const TELEPORT_MOVE_MS = 200
+const TELEPORT_SETTLE_MS = 200
 
 const fadeMachine = createMachine({
   id: 'fade',
@@ -21,8 +23,8 @@ const fadeMachine = createMachine({
 export function createXRWidgets(renderer, scene, camera, vrSettings) {
   let wristUI = null, wristUICanvas = null, wristUIContext = null
   let vrSettingsPanel = null
-  let teleportArc = null, teleportMarker = null, isTeleporting = false
-  let fadeQuad = null, fadeOpacity = 0
+  let teleportArc = null, teleportMarker = null, teleportPending = null, teleportTimer = 0
+  let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0
   const _fadeActor = createActor(fadeMachine); _fadeActor.start()
   let vignetteMesh = null, vignetteOpacity = 0, vignetteTargetOpacity = 0
   let handsDetected = false
@@ -98,13 +100,25 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   }
 
   function executeTeleport(pt, xrBase) {
-    isTeleporting = true; _fadeActor.send({ type: 'START' })
-    setTimeout(() => {
-      const base = xrBase || renderer.xr.getReferenceSpace()
-      if (!base) { isTeleporting = false; _fadeActor.send({ type: 'DONE' }); return }
-      renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(new XRRigidTransform({ x: -pt.x, y: -pt.y, z: -pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
-    }, 200)
-    setTimeout(() => { isTeleporting = false }, 400)
+    if (teleportPending) return
+    teleportPending = { pt, xrBase }
+    _fadeActor.send({ type: 'START' })
+    teleportTimer = setTimeout(moveTeleport, TELEPORT_MOVE_MS)
+  }
+
+  function moveTeleport() {
+    const pending = teleportPending
+    if (!pending) return
+    const base = pending.xrBase || renderer.xr.getReferenceSpace()
+    if (!base) { endTeleport(true); return }
+    teleportTimer = setTimeout(() => endTeleport(false), TELEPORT_SETTLE_MS)
+    renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(new XRRigidTransform({ x: -pending.pt.x, y: -pending.pt.y, z: -pending.pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
+  }
+
+  function endTeleport(aborted) {
+    clearTimeout(teleportTimer); teleportTimer = 0
+    teleportPending = null
+    if (aborted) _fadeActor.send({ type: 'DONE' })
   }
 
   function computeParabolicArc(origin, direction) {
@@ -149,14 +163,15 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     }
     if (!origin || !direction) { teleportArc.visible = false; teleportMarker.visible = false; return }
     const hit = computeParabolicArc(origin, direction)
-    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (triggerTeleport && !isTeleporting) executeTeleport(hit.point, xrBase) }
+    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (triggerTeleport && !teleportPending) executeTeleport(hit.point, xrBase) }
     else { teleportMarker.visible = false }
   }
 
   function updateFade(dt) {
     if (!fadeQuad) { const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false })); q.renderOrder = 9999; fadeQuad = q; camera.add(fadeQuad); fadeQuad.position.z = -0.1 }
     const fs = _fadeActor.getSnapshot().value
-    if (fs === 'fadeIn') { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; _fadeActor.send({ type: 'FULL' }); setTimeout(() => _fadeActor.send({ type: 'RESUME' }), FADE_DELAY) } }
+    if (fs === 'fadeIn') { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; _fadeActor.send({ type: 'FULL' }) } }
+    else if (fs === 'delay') { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; _fadeActor.send({ type: 'RESUME' }) } }
     else if (fs === 'fadeOut') { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; _fadeActor.send({ type: 'DONE' }) } }
     fadeQuad.material.opacity = fadeOpacity; fadeQuad.visible = fadeOpacity > 0.01
   }
@@ -176,7 +191,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     vignetteMesh.material.opacity = vignetteOpacity; vignetteMesh.visible = vignetteOpacity > 0.01
   }
 
-  return { initWristUI, updateWristUI, toggleSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return isTeleporting }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
+  return { initWristUI, updateWristUI, toggleSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
 }
 
 export const __freshnessProbe = 1
