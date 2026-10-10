@@ -39,10 +39,10 @@ function patchTextureSources(buf) {
   let changed = false
   for (const tex of json.textures || []) { if (tex.source === undefined) { tex.source = 0; changed = true } }
   if (!changed) return buf
-  const pjStr = JSON.stringify(json)
-  const pjPad = (4 - (pjStr.length % 4)) % 4
-  const pjBuf = Buffer.alloc(pjStr.length + pjPad, 0x20)
-  Buffer.from(pjStr).copy(pjBuf)
+  const pjBytes = Buffer.from(JSON.stringify(json))
+  const pjPad = (4 - (pjBytes.length % 4)) % 4
+  const pjBuf = Buffer.alloc(pjBytes.length + pjPad, 0x20)
+  pjBytes.copy(pjBuf)
   const binStart = 20 + jsonLen + 8
   const binLen = view.getUint32(20 + jsonLen, true)
   const binBuf = buf.slice(binStart, binStart + binLen)
