@@ -76,6 +76,6 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
     setLayerVisible, setLayerLocked, selectByLayer,
     hydrateFromEntities,
     get layerNames() { return [..._layers.keys()] },
-    getLayerState(name) { return _layers.get(name) || null },
+    getLayerState(name) { const state = _layers.get(name); return state ? { ...state } : null },
   }
 }
