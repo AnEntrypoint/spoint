@@ -24,8 +24,12 @@ export class NetworkSimTransport extends TransportWrapper {
     if (!this.ready) inner.on('open', () => { if (!this._closed) this.ready = true })
   }
 
-  get isOpen() {
-    return this.inner.isOpen
+  get ready() {
+    return !this._closed && this._wrapperOpen && this.inner.isOpen
+  }
+
+  set ready(value) {
+    this._wrapperOpen = Boolean(value)
   }
 
   configure(partial) {
@@ -36,7 +40,6 @@ export class NetworkSimTransport extends TransportWrapper {
       Object.assign(this.profile.inbound, partial)
       Object.assign(this.profile.outbound, partial)
     }
-    return this.profile
   }
 
   getProfile() {
@@ -55,7 +58,7 @@ export class NetworkSimTransport extends TransportWrapper {
     return Math.max(0, p.latencyMs + jitter)
   }
 
-  _schedule(direction, p, deliver) {
+  _schedule(direction, p, deliver, undelivered) {
     const stats = this._stats
     stats[`${direction}Sent`]++
     if (p.lossPct > 0 && Math.random() * 100 < p.lossPct) {
@@ -63,15 +66,17 @@ export class NetworkSimTransport extends TransportWrapper {
       return
     }
     const delay = this._drawDelay(p)
-    const entry = { deliver }
+    const entry = { deliver, undelivered }
     const queue = this._pendingQueue[direction]
     queue.push(entry)
 
     if (p.reorderPct > 0 && queue.length >= 2 && Math.random() * 100 < p.reorderPct) {
       const prev = queue[queue.length - 2]
-      const tmp = prev.deliver
+      const swapped = { deliver: prev.deliver, undelivered: prev.undelivered }
       prev.deliver = entry.deliver
-      entry.deliver = tmp
+      prev.undelivered = entry.undelivered
+      entry.deliver = swapped.deliver
+      entry.undelivered = swapped.undelivered
       stats[`${direction}Reordered`]++
     }
 
@@ -80,8 +85,12 @@ export class NetworkSimTransport extends TransportWrapper {
       const idx = queue.indexOf(entry)
       if (idx >= 0) queue.splice(idx, 1)
       if (this._closed) return
+      const accepted = entry.deliver()
+      if (accepted === false && entry.undelivered !== undefined) {
+        this.emit('undelivered', entry.undelivered)
+        return
+      }
       stats[`${direction}Delivered`]++
-      entry.deliver()
     }, delay)
     this._timers.add(timer)
   }
@@ -92,13 +101,13 @@ export class NetworkSimTransport extends TransportWrapper {
 
   send(data, mt) {
     if (!this.isOpen) return false
-    this._schedule('outbound', this.profile.outbound, () => this.inner.send(data, mt))
+    this._schedule('outbound', this.profile.outbound, () => this.inner.send(data, mt), { data, mt, unreliable: false })
     return true
   }
 
   sendUnreliable(data, mt) {
     if (!this.isOpen) return false
-    this._schedule('outbound', this.profile.outbound, () => this.inner.sendUnreliable(data, mt))
+    this._schedule('outbound', this.profile.outbound, () => this.inner.sendUnreliable(data, mt), { data, mt, unreliable: true })
     return true
   }
 
