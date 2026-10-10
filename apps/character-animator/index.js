@@ -4,6 +4,7 @@ export async function setup(scene, world, appCtx) {
   const { gltfLoader, modelPool } = appCtx
   let animationSystem = null
   let model = null
+  let commandedMotion = {}
 
   async function loadCharacter(modelUrl, animationClipsUrl) {
     try {
@@ -46,12 +47,13 @@ export async function setup(scene, world, appCtx) {
   function setMotion(speed, direction = [0, 0, 1], isGrounded = true, verticalVelocity = 0) {
     if (!animationSystem) return
 
-    animationSystem.update(1 / 60, {
+    commandedMotion = {
       speed,
       direction,
       isGrounded,
       verticalVelocity,
-    })
+    }
+    animationSystem.update(1 / 60, commandedMotion)
   }
 
   function setIKTarget(chainName, position, poleVector) {
@@ -62,7 +64,7 @@ export async function setup(scene, world, appCtx) {
   function tick(dt) {
     if (!animationSystem || !Number.isFinite(dt)) return
 
-    animationSystem.update(dt)
+    animationSystem.update(dt, commandedMotion)
   }
 
   function dispose() {
