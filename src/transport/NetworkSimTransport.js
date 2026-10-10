@@ -21,7 +21,12 @@ export class NetworkSimTransport extends TransportWrapper {
     inner.on('message', (data) => this._scheduleInbound(data))
     inner.on('close', () => { this.ready = false; this._closed = true; this.emit('close') })
     inner.on('error', (err) => this.emit('error', err))
-    if (!this.ready) inner.on('open', () => { if (!this._closed) this.ready = true })
+    if (!this.ready) inner.on('open', () => {
+      if (this._closed) return
+      const wasOpen = this.isOpen
+      this.ready = true
+      if (!wasOpen && this.isOpen) this.emit('open')
+    })
   }
 
   get ready() {
