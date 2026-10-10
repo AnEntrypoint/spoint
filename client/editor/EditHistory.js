@@ -22,16 +22,16 @@ function _describeGroup(group) {
 
 let _seq = 0
 
-export function createEditHistory({ send, onToast, onChange } = {}) {
+export function createEditHistory({ send, onToast, onChange, onPush } = {}) {
   const undoStack = [], redoStack = []
-  let _lastPushAt = 0
+  let _lastPushAt = null
   const _toast = (msg) => { try { onToast && onToast(msg) } catch (_) {} }
   const _notify = () => { try { onChange && onChange() } catch (_) {} }
   return {
     push(record) {
       const t = _now()
       const top = undoStack[undoStack.length - 1]
-      if (top && (t - _lastPushAt) <= BATCH_WINDOW_MS) {
+      if (top && _lastPushAt !== null && (t - _lastPushAt) <= BATCH_WINDOW_MS) {
         top.records.push(record)
         top.name = _describeGroup(top.records)
       } else {
@@ -47,6 +47,7 @@ export function createEditHistory({ send, onToast, onChange } = {}) {
     undo() {
       const entry = undoStack.pop()
       if (!entry) return false
+      _lastPushAt = null
       redoStack.push(entry)
       for (let i = entry.records.length - 1; i >= 0; i--) { const r = entry.records[i]; if (r.undoOp) r.undoOp(r); else send(r.entityId, r.before) }
       _toast('Undid: ' + entry.name)
@@ -56,6 +57,7 @@ export function createEditHistory({ send, onToast, onChange } = {}) {
     redo() {
       const entry = redoStack.pop()
       if (!entry) return false
+      _lastPushAt = null
       undoStack.push(entry)
       for (const r of entry.records) { if (r.redoOp) r.redoOp(r); else send(r.entityId, r.after) }
       _toast('Redid: ' + entry.name)
@@ -64,7 +66,7 @@ export function createEditHistory({ send, onToast, onChange } = {}) {
     },
     list() {
       const done = undoStack.map((e, i) => ({ txnId: e.txnId, name: e.name, at: e.at, count: e.records.length, state: 'done', depth: undoStack.length - 1 - i }))
-      const undone = redoStack.map((e, i) => ({ txnId: e.txnId, name: e.name, at: e.at, count: e.records.length, state: 'undone', depth: i }))
+      const undone = redoStack.map((e, i) => ({ txnId: e.txnId, name: e.name, at: e.at, count: e.records.length, state: 'undone', depth: redoStack.length - 1 - i }))
       return [...undone.slice().reverse(), ...done.slice().reverse()]
     },
     jumpTo(txnId) {
