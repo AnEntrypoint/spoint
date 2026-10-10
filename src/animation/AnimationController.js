@@ -146,24 +146,26 @@ export function createAnimationController(blender, options = {}) {
           blender.playClip(config.landClip, 0.15)
         },
         after: {
-          500: {
-            target: 'idle',
-            guard(appCtx, fsm) {
-              return fsm.context.speed < 0.5
+          500: [
+            {
+              target: 'idle',
+              guard(appCtx, fsm) {
+                return fsm.context.speed < 0.5
+              },
             },
-          },
-          500: {
-            target: 'walk',
-            guard(appCtx, fsm) {
-              return fsm.context.speed >= 0.5 && fsm.context.speed <= config.runSpeed
+            {
+              target: 'walk',
+              guard(appCtx, fsm) {
+                return fsm.context.speed >= 0.5 && fsm.context.speed <= config.runSpeed
+              },
             },
-          },
-          500: {
-            target: 'run',
-            guard(appCtx, fsm) {
-              return fsm.context.speed > config.runSpeed
+            {
+              target: 'run',
+              guard(appCtx, fsm) {
+                return fsm.context.speed > config.runSpeed
+              },
             },
-          },
+          ],
         },
         on: {
           IDLE: 'idle',
@@ -182,24 +184,26 @@ export function createAnimationController(blender, options = {}) {
           }
         },
         on: {
-          ATTACK_END: {
-            target: 'idle',
-            guard(appCtx, fsm) {
-              return fsm.context.speed < 0.5
+          ATTACK_END: [
+            {
+              target: 'idle',
+              guard(appCtx, fsm) {
+                return fsm.context.speed < 0.5
+              },
             },
-          },
-          ATTACK_END: {
-            target: 'walk',
-            guard(appCtx, fsm) {
-              return fsm.context.speed >= 0.5 && fsm.context.speed <= config.runSpeed
+            {
+              target: 'walk',
+              guard(appCtx, fsm) {
+                return fsm.context.speed >= 0.5 && fsm.context.speed <= config.runSpeed
+              },
             },
-          },
-          ATTACK_END: {
-            target: 'run',
-            guard(appCtx, fsm) {
-              return fsm.context.speed > config.runSpeed
+            {
+              target: 'run',
+              guard(appCtx, fsm) {
+                return fsm.context.speed > config.runSpeed
+              },
             },
-          },
+          ],
           DIE: 'die',
         },
       },
