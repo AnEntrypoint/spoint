@@ -114,3 +114,24 @@
     Not a deferral: the change is complete and witnessed; only the publish step is gated on another writer.
   session_id: orch-main-r205
   status: pending
+- id: DRY-n-r200-4-blocker-orch-main-r210
+  status: pending
+  session_id: orch-main-r210
+  subject: 'BLOCKER (files held) DRY-n-r200-4: the XR_IDENTITY_ROTATION patch is validated and ready to apply once client/xr/XRSystem.js and client/xr/XRWidgets.js are clean'
+  description: 'DRY-n-r200-4 cannot publish: both files it must edit carry foreign uncommitted hunks, so a path-scoped commit would sweep another lane''s edit. XRSystem.js holds the orch-main-r205 vrSettings/setVRSettings hunks plus the orch-main-r212 createRayLine/XRRayLine hunks; XRWidgets.js holds the orch-main-r212 XRRayLine hunks (createRayLine import at :3 and the initTeleport rewrite at :103). DRY-n-r200-4 is listed in .gm/pool/held-rows.json. VALIDATED PATCH, ready to apply when both files are clean: (1) new leaf module client/xr/xrSpace.js containing exactly ''export const XR_IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 }''; (2) client/xr/XRSystem.js - add ''import { XR_IDENTITY_ROTATION } from ''''./xrSpace.js'''''' after the ''./XRWidgets.js'' import, and replace both inline literals (now lines 96 and 141; they were 101 and 146 before the XRRayLine hunk) with XR_IDENTITY_ROTATION; (3) client/xr/XRWidgets.js - add the same import after the ''./XRRayLine.js'' import and replace the inline literal at line 121 with XR_IDENTITY_ROTATION. That is 3 sites, 2 files, one spelling. xrSpace.js is also the home DRY-n-r200-2 plans for offsetSpace, so DRY-n-r200-2 can add its helper there instead of creating a second module.'
+  notes: 'witness: exec_js dispatch 1791674897208-500-21cd836fb3022865 applied the whole patch in memory to the live worktree bytes and got RESULT: PASS -- inline literal at XRSystem.js:101, XRSystem.js:146, XRWidgets.js:121 -> 0 remaining; import added to both; constant initializer byte-identical to the removed literal; both transformed sources parse (data-URL link TypeError, not SyntaxError). Second run 1791675065342-500-692a70f56aaab837 applied it on disk to XRWidgets.js and evaluated the real xrSpace.js module: exports { x: 0, y: 0, z: 0, w: 1 }, RESULT: PASS. Both runs are recorded in .gm/witness-log.md. The on-disk application was then reverted by dispatch 1791675124849-500-2bc0099da5236796 (RESULT: PASS) because XRWidgets.js was re-dirtied by orch-main-r212 between the hold check and the commit, so no hunk of this row is left in the worktree for another lane to sweep. Nothing of this row is committed; no sha to cite.'
+  paths:
+  - client/xr/XRSystem.js
+  - client/xr/XRWidgets.js
+  - client/xr/xrSpace.js
+- id: PARSEDV-n-r216-4
+  SESSION_ID: orch-main-r216
+  status: pending
+  text: |-
+    PRINCIPLE PARSEDV. SURFACE apps/tps-game. Node-only row, logged unresolved by hop orch-main-r216; the hop edited nothing.
+
+    WITNESS exec_js 1791674928217-500-d1a8b4fd198554e7: driving server-app.js onMessage twice with `{type:'emote', code:'wave'}` -- once with no sender field and once with senderId 'p1' -- produces ctx.state.lastEmoteAt key set `["undefined","p1"]` and plays the clip both times (V7_bucketKeys). A client that never identifies itself gets its own rate-limit bucket under the key `"undefined"` and is never throttled, and the identity is guessed rather than parsed: server-app.js:69 `const playerId = msg.senderId || msg.playerId`. The code check at 72 (`EMOTE_CLIPS.has(msg.code)`) is a validation that discards its own evidence -- it does not narrow msg.code, so line 73 hands the raw value to playAnimation.
+
+    WORK: parse the inbound message once into `{kind:'emote', playerId, clip}` at the transport boundary, rejecting a message with no resolvable player id and a code outside EMOTE_CLIPS with a named parse error; delete the `msg.senderId || msg.playerId` guess and let the parsed record carry the clip, not `EMOTE_CLIPS.get(msg.code)`.
+  title: 'PARSEDV apps/tps-game: the emote message is guessed (`msg.senderId || msg.playerId`) and unidentifiable senders get a literal "undefined" rate-limit bucket'
+  session_id: orch-main-r216

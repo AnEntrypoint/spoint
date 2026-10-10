@@ -200,3 +200,40 @@ OWNERSHIP-n-r192-3 | exec_js (real extracted setupSessionListeners source, fake 
 2026-10-10T23:14:01.386Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
 2026-10-10T23:15:30.805Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
 ILLEGAL-n-r177-6 | client/editor/EditorFsBrowse.js tagged _state re-witness incl. binary-arm null-node guard | exit 0 | RESULT: PASS -- 11 check(s) | 2026-10-10T23:17:09.290Z | dispatch 1791674188432-500-51bc7234180efe1a (session orch-main-r187-w2)
+
+OWNERSHIP-n-r192-1 | client/xr/XRWidgets.js teleport stops borrowing the XR reference space (pending holds {pt}; moveTeleport reads the live space; sessionend cancels) | exit 0 | RESULT: PASS -- 3 check(s) | 2026-10-10T23:17:52.876Z | dispatch 1791674237413-500-e29027cce9cab09d (session orch-main-r202-w1)
+LAMPORT-n-r129-1 | exec_js harness (live src/transport/NetworkSimTransport.js, seeded RNG + fake clock) exit=0 RESULT: PASS checks=13/13 (jitter arm receiver inversions 24 == inboundReordered 24, control 0/0, reorder 1/1 with the index paired to its own payload through the swap, loss 27/40 delivered leaving a 13-wide index gap, sendIndex present on every arm) | tracked scripts/NetworkSimTransport-witness.mjs exit=0 RESULT: PASS claims 35/35 | 2026-10-10T23:22:02.152Z | dispatch=1791674122152-500-3f6d899f7be43c76 (harness) dispatch=1791674131082-500-ee2fb27a4cb22001 (tracked) | witness session orch-main-r201-sub2, editing session orch-main-r201
+
+ILLEGAL-n-r177-5 | fsbrowse-save-base-witness | exit=0 | RESULT: PASS | 2026-10-10T23:20:00.455Z | dispatch=1791674276606-500-db7a6d730c2eee98 | scripts/fsbrowse-save-base-witness.mjs: fsSaveBase(null)=null, fsSaveBase(unversioned)={mtimeMs:null}, fsSaveBase(revision)={mtimeMs:1700000000000}; Ctrl+S unloaded -> 0 saves + 2 reloads, loaded -> onSave carries {mtimeMs}
+RESULT OWNERSHIP-n-r192-2 blocked next=OWNERSHIP-n-r192-2-blocker-orch-main-r203
+RESULT DRY-n-r141-1 resolved b1e47bd900dae0858491c27f3168661fa55fbc6c next=HALTING-n-r101-3
+RESULT OWNERSHIP-n-r192-3 resolved b11c54f21ed1c835c4301e8dd54ec4bdf5b85af3 next=OWNERSHIP-n-r192-4
+tick 130 live=18 ceiling=20 floor=10 shortfall=0 done=3 launch orch-main-r210 row=DRY-n-r200-4 launch orch-main-r211 row=DRY-n-r200-5 1791674432
+- 2026-10-10T23:25:20.601Z row=ILLEGAL-n-r177-3 witness=1791674407425-500-1187fd97cf71ef9c session=orch-main-r191-sub1 exit=0 RESULT=PASS CHECKS=26 FAILED=0 sha=cc1dedf935b477f0ef8b120c23d1b19e4fb47ba9 note=union-tagged setSource; error-with-source no longer renders a Save-enabled editor
+RESULT ILLEGAL-n-r177-2 resolved 968d07435a89d68f7618c35a6b8900da16a31f3c next=ILLEGAL-n-r177-1
+nomination HALTING-n-r101-3 not in slots.candidates (advisory only)
+tick 131 live=17 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r212 row=DRY-n-r200-6 launch orch-main-r213 row=DRY-n-r200-8 launch orch-main-r214 row=DRY-n-r200-9 1791674525
+2026-10-10T23:22:09.796Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
+2026-10-10T23:22:10.334Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
+RESULT gm-git-pull-refused-dirty-tree-blocks-served-recovery resolved d549b57808c83d3f4f93c88cd1843889a1cecf47 next=PLUGKIT-SEMVER-VERSION-SET (gm git lane free)
+tick 132 live=20 ceiling=20 floor=10 shortfall=0 done=1 1791674564
+RESULT HALTING-n-r101-2 resolved a4c6959eb2240ce82d971fff109181731d30f91a next=HALTING-n-r101-3
+HOP apps/tps-game ILLEGAL 8 violations witness=1791674311362-500-aa4853e0219c8806 next=PARSEDV apps/tps-game
+tick 133 live=18 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r215 row=DRY-n-r200-10 launch orch-main-r216 hop=PARSEDV apps/tps-game 1791674621
+PUBLISH gm skills/gm-orchestrate/SKILL.md sha=25fdb7feb4e4f1b34aa96abd16aca894f8245762 pushed ci=pending runs=38094885290,38094885353 1791674665
+tick 134 live=20 ceiling=20 floor=10 shortfall=0 open=1083 launchable=258 blocked new-candidates=ILLEGAL-n-r208-1..7 1791674690
+HOP src/transport ILLEGAL 8 violations witness=1791674324206-500-b4d4b4f37ce97b47 next=PARSEDV src/transport
+RESULT ILLEGAL-n-r177-3 resolved cc1dedf935b477f0ef8b120c23d1b19e4fb47ba9 next=ILLEGAL-n-r177-1
+tick 135 live=18 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r217 row=ILLEGAL-n-r208-1 launch orch-main-r218 row=ILLEGAL-n-r208-2 1791674777
+
+OWNERSHIP-n-r192-1 | client/xr/XRWidgets.js teleport stops borrowing the XR reference space (pending holds {pt}; moveTeleport builds the offset from the live space only while renderer.xr.isPresenting) | exit 0 | RESULT: PASS -- 3 check(s) | 2026-10-10T23:27:15.265Z | dispatch 1791674801433-500-2bd8683489b3309c (session orch-main-r202-w1) | supersedes dispatch 1791674237413-500-e29027cce9cab09d
+ILLEGAL-n-r177-6 | EditorFsBrowse tagged _state: loading/unavailable/ready, open-file path surfaces the reason, binary arm guards the null node | exit 0 | RESULT: PASS -- 11 check(s) | 2026-10-10T23:27:03.308Z | dispatch 1791674823330-500-4ef6a6fda48d82e6 (session orch-main-r187-w3) | out .gm/witness-out/EditorFsBrowse-tagged-state-w187.txt sha256 0c42aefe21b4d49c87b704483dbe17b4456a5ce7ab8cdc8496ad6483db721559
+PUBLISH gm sha=25fdb7feb4e4f1b34aa96abd16aca894f8245762 ci=success jobs=release,scan
+RESULT OWNERSHIP-n-r192-5 blocked next=OWNERSHIP-n-r192-6
+RESULT ILLEGAL-n-r177-5 interim (ci check still running, child work live)
+tick 136 live=18 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r219 row=ILLEGAL-n-r208-3 launch orch-main-r220 row=OWNERSHIP-n-r192-6 1791674893
+RESULT ILLEGAL-n-r177-6 resolved ce9486350fd2b987d4ddb316726a77957dc84455 next=ILLEGAL-n-r177-1
+tick 137 live=19 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r221 row=ILLEGAL-n-r208-4 1791674924
+DRY-n-r200-4 | identity-rotation-constant-patch (in-memory, no write to a held file) | exit 0 | RESULT: PASS -- inline literal { x: 0, y: 0, z: 0, w: 1 } at XRSystem.js:101, XRSystem.js:146, XRWidgets.js:121 -> 0 remaining after patch; import { XR_IDENTITY_ROTATION } from './xrSpace.js' added to both; constant initializer byte-identical to the removed literal; both transformed sources parse (data-URL link TypeError, not SyntaxError) | 2026-10-10T23:28:44.586Z | dispatch 1791674897208-500-21cd836fb3022865
+tick 138 live=20 ceiling=20 floor=10 shortfall=0 open=1088 launchable=258 blocked candidates=ILLEGAL-n-r208-5..8,ILLEGAL-TPS-r207-6,7 1791675042
+tick 139 live=20 ceiling=20 floor=10 shortfall=0 open=1097 launchable=271 blocked candidates=KISS-n-r209-2..10,INVARIANTRUN-n-r185h1s1-2..4 1791675154
