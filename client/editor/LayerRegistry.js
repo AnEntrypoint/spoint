@@ -18,6 +18,7 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
     _layers.delete(name)
     const fallback = _layers.get(DEFAULT_LAYER)
     for (const id of moved) {
+      sendLayerUpdate?.(id, DEFAULT_LAYER)
       setHidden?.(id, !fallback.visible)
       setLocked?.(id, fallback.locked)
     }
