@@ -275,6 +275,37 @@ claim('small pending queues dispatch the highest priority first for two insertio
   }
 });
 
+claim('a synchronous throw from ensureMeshLod is handled like a rejection: queueLoad returns, the slot is released and the next queued load loads', async (api) => {
+  const queue = new api.DeferredLoadQueue(1, 50, 5000);
+  const asset = { url: 'asset://sync-throw', calls: [], ensureMeshLod: null };
+  let throwNext = true;
+  asset.ensureMeshLod = (meshDescIdx, lodIdx) => {
+    asset.calls.push(meshDescIdx + ':' + lodIdx);
+    if (throwNext) {
+      throwNext = false;
+      throw new Error('sync-throw');
+    }
+    return Promise.resolve({ meshDescIdx: meshDescIdx, lodIdx: lodIdx });
+  };
+  let thrown = null;
+  let queued = false;
+  try {
+    queued = queue.queueLoad(asset, 0, 0, 0);
+  } catch (error) {
+    thrown = error;
+  }
+  expectTrue(thrown === null, 'queueLoad threw on a synchronous ensureMeshLod throw: ' + (thrown && thrown.message));
+  expectEqual(queued, true, 'queueLoad result');
+  await flush();
+  expectEqual(queue.getStats().inFlight, 0, 'inFlight after the synchronous throw');
+  expectEqual(queue.getStats().failed, 1, 'failed count after the synchronous throw');
+  expectEqual(queue.queueLoad(asset, 1, 0, 0), true, 'queueLoad of the next request');
+  await flush();
+  expectEqual(queue.isLodLoaded('asset://sync-throw', 1, 0), true, 'the next request loaded');
+  expectEqual(queue.isLodLoaded('asset://sync-throw', 0, 0), false, 'the thrown request loaded');
+  expectEqual(asset.calls.join(','), '0:0,1:0', 'ensureMeshLod calls');
+});
+
 pin('streaming-gltf-dlq-heap-splice-dispatch-order (fixed): eight pending requests dispatch in priority order 100,60,50,45,40,10,9,8', async (api) => {
   const queue = new api.DeferredLoadQueue(1, 50, 5000);
   const blocker = makeAsset('asset://pin-heap-blocker', true);

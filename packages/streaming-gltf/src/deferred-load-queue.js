@@ -118,7 +118,13 @@ export class DeferredLoadQueue {
     clearTimeout(this._timeoutHandles.get(key));
     this._timeoutHandles.delete(key);
 
-    const promise = item.asset.ensureMeshLod(item.meshDescIdx, item.lodIdx)
+    let loading;
+    try {
+      loading = Promise.resolve(item.asset.ensureMeshLod(item.meshDescIdx, item.lodIdx));
+    } catch (error) {
+      loading = Promise.reject(error);
+    }
+    const promise = loading
       .then((geo) => {
         const tLoad1 = performance.now();
         const loadTime = tLoad1 - item.timestamp;
