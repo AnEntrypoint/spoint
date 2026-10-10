@@ -81,10 +81,15 @@ export function createDestructible(spec = {}, appCtx = null) {
     if (!fracturedAsset) _poolFree.push(id)
   }
 
+  function _pieceMass() {
+    const declared = spec.debrisShape?.mass
+    if (declared != null) return Math.max(0.1, declared)
+    return Math.max(0.1, (_homeCustom?.mass ?? 50) / debrisCount)
+  }
+
   function _spawnFracturedDebris() {
     const shape = spec.debrisShape || {}
-    const totalMass = shape.mass != null ? shape.mass : (_homeCustom?.mass ?? 50)
-    const pieceMass = Math.max(0.1, totalMass / debrisCount)
+    const pieceMass = _pieceMass()
     const color = shape.color ?? _homeCustom?.color ?? 0x8b4513
     const roughness = shape.roughness ?? _homeCustom?.roughness ?? 0.85
     const ids = []
@@ -109,8 +114,7 @@ export function createDestructible(spec = {}, appCtx = null) {
     const [px, py, pz] = _homePosition
     const [hx, hy, hz] = _pieceExtents()
     const shape = spec.debrisShape || {}
-    const totalMass = shape.mass != null ? shape.mass * debrisCount : (_homeCustom?.mass ?? 50)
-    const pieceMass = Math.max(0.1, totalMass / debrisCount)
+    const pieceMass = _pieceMass()
     const color = shape.color ?? _homeCustom?.color ?? 0x8b4513
     const roughness = shape.roughness ?? _homeCustom?.roughness ?? 0.85
     const ids = []
