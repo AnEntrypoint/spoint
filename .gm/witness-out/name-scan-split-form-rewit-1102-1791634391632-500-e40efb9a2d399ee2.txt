@@ -1,0 +1,15 @@
+witness: name-scan-split-form (row gm-name-scan-misses-split-path-arguments-spoint-orch-b186-0930)
+run-identity: spoint-orch-b186-rewit-1102 2026-10-10T12:13:59.779Z
+dispatch_id: 1791634391632-500-e40efb9a2d399ee2
+session: spoint-orch-b186-rewit-1102
+runtime: gm codesearch verb, live on the current build; mode literal; path scripts; root C:/dev/spoint
+query: apps/world/_fixtures/e2e-ci-arena
+expected (recorded 2026-10-10T12:13:04.123Z before the live dispatch, scratchpad expected-B-namescan-rewit-1102.txt):
+  exact matches 0; split_form_count=1; split_form_files=1; split_form_matches[0].path=./scripts/e2e-ci-arena-witness.mjs; split_form_matches[0].line=11
+observed (dispatch 1791634391632-500-e40efb9a2d399ee2):
+  count: 0 lines, 0 occurrences, 0 files of 586 scanned (145637 lines read); exhaustive: true; matches: []
+  split_form_count: 1; split_form_files: 1
+  split_form_matches[0]: path ./scripts/e2e-ci-arena-witness.mjs; line 11; column 40; joined apps/world/_fixtures/e2e-ci-arena.js
+    text: const DEFAULT_MODULE = join(REPO_ROOT, 'apps', 'world', '_fixtures', 'e2e-ci-arena.js');
+checks: 5 (exact matches, split_form_count, split_form_files, split_form_matches[0].path, split_form_matches[0].line); failed: 0
+RESULT: PASS name-scan-split-form checks=5 failed=0 dispatch=1791634391632-500-e40efb9a2d399ee2

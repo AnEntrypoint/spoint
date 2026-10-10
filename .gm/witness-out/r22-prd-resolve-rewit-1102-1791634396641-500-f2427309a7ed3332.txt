@@ -1,0 +1,13 @@
+witness: gm-prd-resolve-witness-ledger-and-status-spoint-orch-b186-r22 (re-witness on the current build; closure of this row by prd-resolve)
+run-identity: spoint-orch-b186-rewit-1102 2026-10-10T12:15:09.684Z
+session: spoint-orch-b186-rewit-1102
+probe dispatch_id: 1791634396641-500-f2427309a7ed3332 (exec_js; .gm/prd.yml latest block line 34698 status completed)
+closure dispatch_id: 1791634447036-500-e55fa27eb649393b (prd-resolve; status completed; witness_dispatch_id = probe dispatch id)
+expected (recorded 2026-10-10T12:13:04.123Z before the live dispatch, scratchpad expected-A-r22-rewit-1102.txt):
+  witness_dispatch_id_verified=true; status_kept=true; stored latest block status=completed; stored witness names the probe dispatch id and this receipt path
+observed:
+  prd-resolve response: resolved gm-prd-resolve-witness-ledger-and-status-spoint-orch-b186-r22; witness_dispatch_id_verified: true; witness_dispatch_id_verified_via: ledger; witness_dispatch_id_in_ledger: true; status_kept: true; witness_bound: false (dispatch-bound, no sha fields supplied); count_of_record: 2
+  stored latest block (.gm/prd.yml, block at line 34698, read back after the closure by exec_js dispatch 1791634467689-500-fbfb98865b507e4a and re-checked at write time): status completed; witness names 1791634396641-500-f2427309a7ed3332 and .gm/witness-out/r22-prd-resolve-rewit-1102-1791634396641-500-f2427309a7ed3332.txt
+checks: 4 (1=ok response witness_dispatch_id_verified=true; 2=ok response status_kept=true; 3=ok stored latest block status=completed; 4=ok stored witness names probe dispatch id and receipt path); passed: 4; failed: 0
+note: the procedure scratch row was not used; the closure of the real row is the witnessed call on the same verb path (status supplied, spool-out or ledger dispatch id), recorded in the row resolution.
+RESULT: PASS r22 prd-resolve witness checks=4 failed=0 dispatch=1791634396641-500-f2427309a7ed3332
