@@ -75,6 +75,13 @@ self.onmessage = (e) => {
           renderer.setSize(width, height, false)
           camera.aspect = width / Math.max(1, height)
           camera.updateProjectionMatrix()
+        } else {
+          self.postMessage({
+            type: 'error',
+            code: 'resize-no-render-target',
+            message: 'resize ignored: no renderer or camera (init has not run, or stop already ran)',
+            stack: null
+          })
         }
         break
       }
@@ -83,6 +90,15 @@ self.onmessage = (e) => {
         if (rafHandle) self.cancelAnimationFrame(rafHandle)
         if (renderer) { renderer.dispose(); renderer = null }
         self.postMessage({ type: 'stopped' })
+        break
+      }
+      default: {
+        self.postMessage({
+          type: 'error',
+          code: 'unknown-message-type',
+          message: 'unknown message type: ' + String(msg && msg.type),
+          stack: null
+        })
         break
       }
     }
