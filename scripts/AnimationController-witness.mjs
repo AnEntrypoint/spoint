@@ -24,7 +24,6 @@ const modulePath = positional.length ? resolve(positional[0]) : HONEST_MODULE
 // Defects confirmed live on the current tree and filed as PRD rows. They are reported,
 // not asserted, so the honest tree passes; a fix moves its entry into a check.
 const EXCLUDED = [
-  ['X3', 'animation-controller-attack-duration-unit-mismatch', 'attack compares fsm.timeInState (ms) with blender.getClipDuration (s): attack exits after about clipDuration ms'],
   ['X4', 'animation-controller-die-ignored-in-land', 'land has no DIE transition: setState("die") while landing is ignored'],
 ]
 
@@ -331,6 +330,25 @@ async function main() {
     await sleep(1000)
     c.update(0.016, { speed: 0 })
     record('X2', 'attack at speed 0 ends in idle once the clip has elapsed', 'idle', c.getState())
+  })
+  await scenario('X3', async () => {
+    const { AnimationBlender } = await import(pathToFileURL(BLEND_TREE).href)
+    const clips = ['Idle', 'WalkLoop', 'RunLoop', 'SprintLoop', 'JumpStart', 'Fall', 'Land', 'Attack', 'Die'].map((name) => ({ name, duration: name === 'Attack' ? 0.8 : 1.0 }))
+    const c = make(new AnimationBlender(fakeMixer(), clips))
+    const t0 = Date.now()
+    c.setState('attack')
+    let exitedAt = null
+    while (Date.now() - t0 < 3000) {
+      c.update(0.016, { speed: 7 })
+      if (c.getState() !== 'attack') {
+        exitedAt = Date.now() - t0
+        break
+      }
+      await sleep(5)
+    }
+    const timing = exitedAt === null ? 'still attack after 3000 ms' : exitedAt >= 800 ? 'ok' : `exit after ${exitedAt} ms`
+    record('X3', 'attack at speed 7 exits no earlier than the 0.8 s clip after entry (real AnimationBlender)', 'ok', timing)
+    record('X3', 'attack at speed 7 exits to run', 'run', c.getState())
   })
 
   for (const c of created) {

@@ -178,8 +178,8 @@ export function createAnimationController(blender, options = {}) {
           blender.playClip(config.attackClip, 0.1)
         },
         tick(appCtx, dt, fsm) {
-          const clipDuration = blender.getClipDuration(config.attackClip)
-          if (fsm.timeInState > clipDuration) {
+          const clipDurationMs = blender.getClipDuration(config.attackClip) * 1000
+          if (fsm.timeInState > clipDurationMs) {
             fsm.send('ATTACK_END')
           }
         },
