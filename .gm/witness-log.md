@@ -4563,3 +4563,10 @@ gm-libsql-refresh-lock-blocks-codeinsight | exit=0 | RESULT: PASS - spoint-side 
 tick 29 event=done-1-refill-2 live=18 ceiling=20 pending=4597 2026-10-10T19:40:39.674Z
 DONE gm-git-push-head-publishes-other-lanes-commits-spoint-orch-b186-sweep1-gm1 resolved 1791660756494-3-332d8b5f1642c134 sha=b13ee44af44dc9b85959f4144949fefc17f7a090
 MEASURE orch-main-heartbeat-confirmed live_heartbeats=2 sessions=orch-main-r92,orch-main-r93 note=0-to-2-after-heartbeat-step-in-briefs
+tick 30 event=launch-2 live=20 ceiling=20 pending=4597 2026-10-10T19:41:22.724Z
+MEASURE orch-main-advertised-held-filter live=20 note=2-advertised-rows-skipped-as-held-by-live-workers
+tick 31 event=done-1-skill-edit-2 live=19 ceiling=20 pending=4597 2026-10-10T19:43:03.875Z
+DONE gm-libsql-refresh-lock-blocks-codeinsight resolved 1791661172780-500-75b5034a48fc3ff7 sha=3320ada0d9c16a0022a72b6210c04395303b127d
+2026-10-10T19:43:28.692Z | witness=ci-status-success-38031496760-guest-v0.1.1549 | row=gm-ci-status-403-rate-limit-no-fallback-spoint-orch-b186-r15 | exit=0 | sha256=6f9f04342221c267b444d8f9adb4d8492e1f673b2c32bfe77e10daf367b07250 | dispatch_id=1791661343152-500-6231732fc6b374b4 | session=orch-main-r72-sub2 | guest=0.1.1549/8cffdaf9209ac996cdb2c451332c9777fc8325dbccad3658601a6bbec2049bbd | RESULT: PASS ci-status sha 5db14ec17f4b6e26f9618e1a6b5e7b8993460871 -> status success run 38031496760 (repo AnEntrypoint/spoint) on served gm.wasm v0.1.1549
+tick 32 event=launch-1 live=20 ceiling=20 pending=4597 2026-10-10T19:43:41.516Z
+DONE gm-orchestrate-skill-edit commit=b3495276d0ca73f4eadeb700e8e1968b590dfe06 merge=425b6aec1648febb877344a28f50e7be19358919 pushed=true ci=pending
