@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { validateManifest } from '../src/sdk/AppManifest.js'
 
@@ -38,6 +38,16 @@ async function fetchJson(url) {
     throw new Error(`HTTP ${res.status}: ${body}`)
   }
   return res.json()
+}
+
+function bundleDestination(targetDir, filename) {
+  const filePath = join(targetDir, filename)
+  const inside = relative(resolve(targetDir), resolve(filePath))
+  const escapes = inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)
+  if (escapes) {
+    throw new Error(`bundle key does not name a file inside the install directory: ${JSON.stringify(filename)}`)
+  }
+  return filePath
 }
 
 async function main() {
@@ -84,17 +94,22 @@ async function main() {
     console.log('No downloadUrl in manifest; creating minimal install from manifest.')
   }
 
+  const bundleFiles = sourceFiles
+    ? Object.entries(sourceFiles).map(([filename, content]) => ({
+        filename,
+        content,
+        filePath: bundleDestination(targetDir, filename),
+      }))
+    : []
+
   mkdirSync(targetDir, { recursive: true })
 
   writeFileSync(join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8')
 
-  if (sourceFiles) {
-    for (const [filename, content] of Object.entries(sourceFiles)) {
-      const filePath = join(targetDir, filename)
-      mkdirSync(dirname(filePath), { recursive: true })
-      writeFileSync(filePath, content, 'utf-8')
-      console.log(`  Wrote ${filename}`)
-    }
+  for (const { filename, content, filePath } of bundleFiles) {
+    mkdirSync(dirname(filePath), { recursive: true })
+    writeFileSync(filePath, content, 'utf-8')
+    console.log(`  Wrote ${filename}`)
   }
 
   console.log(`Installed ${manifest.name}@${manifest.version} to ${targetDir}`)
