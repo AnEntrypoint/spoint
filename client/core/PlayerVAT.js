@@ -295,3 +295,7 @@ export function installPlayerVATDebug(renderer) {
     hasNormalVAT() { return (renderer && renderer.mesh) ? !!renderer.mesh.material._vatHasNormal : null }
   }
 }
+
+export function playerVatDisabled() {
+  return typeof window !== 'undefined' && window.__playerVatOff === true
+}

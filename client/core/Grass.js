@@ -311,7 +311,7 @@ export async function createGrass(opts = {}) {
       streamRing(px, pz)
       if ((!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)) _cullDirty = true
       wind.uCamPosXZ.value.set(px, pz)
-      const decalOff = (typeof window !== 'undefined' && window.__grassDecal === false)
+      const decalOff = (typeof window !== 'undefined' && window.__grassDecalsOff === true)
       const nowMs = t0 || ((typeof performance !== 'undefined') ? performance.now() : Date.now())
       const decalTimeDue = (nowMs - _lastDecalRefreshMs) >= DECAL_REFRESH_MS
       if (decalOff) {

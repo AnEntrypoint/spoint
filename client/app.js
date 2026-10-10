@@ -90,7 +90,7 @@ import { createQualityGovernor } from './core/QualityGovernor.js'
 import { installThreeVdrs, createThreeVdrsController } from './core/ThreeVdrs.js'
 import { createCullingHub } from './core/CullingHub.js'
 import { installPlayerLOD, installPlayerLODDebug, TIER_DOT, TIER_REDUCED } from './core/PlayerLOD.js'
-import { bakeVAT, bakeVATMultiClip, createVATCrowdRenderer, installPlayerVATDebug } from './core/PlayerVAT.js'
+import { bakeVAT, bakeVATMultiClip, createVATCrowdRenderer, installPlayerVATDebug, playerVatDisabled } from './core/PlayerVAT.js'
 import { createFloatingOrigin } from './core/FloatingOrigin.js'
 import { createDecalSystem } from './core/DecalSystem.js'
 import { BIOME_PRESETS } from '/src/terrain/BiomeOverride.js'
@@ -2326,6 +2326,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
   const cp=camera.position
   _springBoneLodUpdated=0; _springBoneLodSkipped=0
   const _springBoneLodD2=(RenderControls.get('springBoneLodDist')**2)||625
+  const vatOff = playerVatDisabled()
   if (pm.playerMeshes.size > 1) {
     _playerLodEntries.length = 0
     for (const [id, mesh] of pm.playerMeshes) { if (id === lid) continue; const r = _playerLodRow(_playerLodEntries.length); r.id = id; r.x = mesh.position.x; r.y = mesh.position.y; r.z = mesh.position.z; _playerLodEntries.push(r) }
@@ -2342,7 +2343,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
         continue
       }
       if (ud._dotHidden) { ud._dotHidden = false; if (!ud._compileHidden) mesh.visible = true }
-      if (tier === TIER_REDUCED) {
+      if (tier === TIER_REDUCED && !vatOff) {
         const vat = ensureCrowdVAT()
         if (vat) {
           if (!ud._vatActive) { ud._vatActive = true; mesh.visible = false }
