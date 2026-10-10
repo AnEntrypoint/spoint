@@ -1441,7 +1441,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
 
     const _vW = gl.drawingBufferWidth, _vH = gl.drawingBufferHeight;
     let _vrs = 0;
-    const _hrwActive = (typeof window==='undefined' || window.__halfResWater!==false) && (camDist >= R - 2.0);
+    const _hrwActive = (typeof window!=='undefined' && window.__halfResWater===true) && (camDist >= R - 2.0);
     const _hostNF = (typeof window !== 'undefined') ? window.__hostNearFar : null;
     const _hostNearFarMismatch = !!(_hostNF && Number.isFinite(_hostNF.near) && Number.isFinite(_hostNF.far)
       && (Math.abs(_hostNF.near - near) > 1e-6 || Math.abs(_hostNF.far - far) > 1e-3));
@@ -1552,7 +1552,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
         gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4); gl.vertexAttribDivisor(2, 1);
         gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, STRIDE, 5 * 4); gl.vertexAttribDivisor(3, 1);
         const _sceneFbo = (_vdrsRsThisFrame > 0) ? _vdrsFbo : null;
-        const _hrw = (typeof window==='undefined' || window.__halfResWater!==false) && !_uw && _sceneFbo === _vdrsFbo;
+        const _hrw = (typeof window!=='undefined' && window.__halfResWater===true) && !_uw && _sceneFbo === _vdrsFbo;
         let _waterHidden = false, _stampedThisFrame = false;
         const WATER_PROBE_GRAZING_UNRELIABLE_ABOVE_ALT_M = 2000.0;
         const _waterProbeReliable = alt >= WATER_PROBE_MIN_RELIABLE_ALT_M && alt < WATER_PROBE_GRAZING_UNRELIABLE_ABOVE_ALT_M;
