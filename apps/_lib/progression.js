@@ -22,6 +22,7 @@ export function defineProgression(spec = {}) {
 
     setup(ctx) {
       ctx.progression = {
+        abilityTree,
         addXp(amount) {
           const playerId = ctx.entity.id
           const leveledUp = progression.addXp(playerId, amount)
