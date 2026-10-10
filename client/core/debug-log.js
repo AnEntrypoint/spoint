@@ -5,7 +5,12 @@ function _computeEnabled() {
   if (typeof location === 'undefined' || !location.search) return set
   const m = /[?&]debug=([^&]*)/.exec(location.search)
   if (!m) return set
-  const raw = decodeURIComponent(m[1] || '')
+  let raw
+  try {
+    raw = decodeURIComponent(m[1] || '')
+  } catch {
+    return set
+  }
   for (const part of raw.split(',')) {
     const ns = part.trim()
     if (ns) set.add(ns)
