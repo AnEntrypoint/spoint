@@ -39,19 +39,24 @@ function _entityDistance(entity, spawn) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz)
 }
 
+function _modelPathOf(entity) {
+  return typeof entity.model === 'string' && entity.model ? entity.model : null
+}
+
 export async function buildManifestEntries(worldDef, project, sdkRoot) {
   const scoreRequest = await _loadScoreRequest()
   const entities = Array.isArray(worldDef.entities) ? worldDef.entities : []
   const spawn = worldDef.worldSpawnPoint || worldDef.player?.spawn || [0, 0, 0]
   const entries = []
-  const seenModel = new Set()
+  const seenFile = new Set()
   for (const entity of entities) {
-    if (!entity.model || typeof entity.model !== 'string') continue
-    if (seenModel.has(entity.model)) continue
-    seenModel.add(entity.model)
-    const resolved = resolveModelPaths(entity.model, project, sdkRoot)
+    const model = _modelPathOf(entity)
+    if (!model) continue
+    const resolved = resolveModelPaths(model, project, sdkRoot)
     if (!resolved) continue
     const { fp, url } = resolved
+    if (seenFile.has(fp)) continue
+    seenFile.add(fp)
     let stat
     try { stat = statSync(fp) } catch { continue }
     const features = {
@@ -89,10 +94,11 @@ export async function buildFetchManifest(worldName, worldDef, project, sdkRoot) 
   const entities = Array.isArray(worldDef.entities) ? worldDef.entities : []
   let mtimeKey = ''
   for (const e of entities) {
-    if (!e.model) continue
-    const resolved = resolveModelPaths(e.model, project, sdkRoot)
+    const model = _modelPathOf(e)
+    if (!model) continue
+    const resolved = resolveModelPaths(model, project, sdkRoot)
     if (!resolved) continue
-    try { mtimeKey += `${e.model}:${statSync(resolved.fp).mtimeMs};` } catch {}
+    try { mtimeKey += `${model}:${statSync(resolved.fp).mtimeMs};` } catch {}
     try { const ready = getKtx2Extracted(resolved.fp); mtimeKey += `ktx2:${ready ? ready.indices.length : 0};` } catch {}
   }
   const cached = _manifestCache.get(worldName)
