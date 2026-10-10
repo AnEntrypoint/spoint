@@ -61,6 +61,23 @@ function readBody(req) {
   })
 }
 
+const CORE_VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
+
+function coreVersion(version) {
+  const match = CORE_VERSION.exec(String(version))
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+function isVersionGreater(next, stored) {
+  const a = coreVersion(next)
+  const b = coreVersion(stored)
+  if (!a || !b) return false
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] > b[i]
+  }
+  return false
+}
+
 const server = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -165,12 +182,22 @@ const server = createServer(async (req, res) => {
           jsonResponse(res, 409, { error: 'version already exists', name: body.name, version: body.version })
           return
         }
+        if (!isVersionGreater(body.version, existing.version)) {
+          jsonResponse(res, 409, {
+            error: 'version must be greater than the stored version',
+            name: body.name,
+            version: body.version,
+            stored: existing.version,
+          })
+          return
+        }
       }
 
+      const replaced = existing ? existing.version : null
       _registry.set(body.name, body)
       saveRegistry()
-      console.log(`Published: ${body.name}@${body.version}`)
-      jsonResponse(res, 200, { ok: true, name: body.name, version: body.version })
+      console.log(`Published: ${body.name}@${body.version}${replaced ? ` (replaced ${replaced})` : ''}`)
+      jsonResponse(res, 200, { ok: true, name: body.name, version: body.version, replaced })
       return
     }
 
