@@ -2,45 +2,60 @@ import { TransportWrapper } from './TransportWrapper.js'
 
 const UNRELIABLE_BACKPRESSURE_DROP_THRESHOLD_BYTES = 64 * 1024
 
+const CONNECTING = 'connecting'
+const OPEN = 'open'
+const CLOSED = 'closed'
+
 export class WebSocketTransport extends TransportWrapper {
   constructor(socket) {
     super()
     this.type = 'websocket'
     this.socket = socket
-    this._closed = false
+    this._state = socket.readyState === 1 ? OPEN : CONNECTING
+    Object.defineProperty(this, 'ready', { enumerable: false, configurable: true, get: () => this.isOpen })
 
     socket.on('message', (data) => {
       this.emit('message', data)
     })
 
     socket.on('close', () => {
-      this.ready = false
+      this.markClosed()
       this.emit('close')
     })
 
     socket.on('error', (err) => {
-      this.ready = false
       this.emit('error', err)
     })
 
     if (socket.readyState !== 1) {
       socket.on('open', () => {
-        if (this._closed) return
+        if (this._state === CLOSED) return
+        this.markOpened()
         this.emit('open')
       })
     }
   }
 
-  get ready() {
-    return this._closed ? false : this.socket.readyState === 1
+  get state() {
+    if (this._state === CLOSED) return CLOSED
+    if (this.socket.readyState === 1) return OPEN
+    return this._state === OPEN ? CLOSED : CONNECTING
   }
 
-  set ready(open) {
-    if (!open && this.socket) this._closed = true
+  get isOpen() {
+    return this.state === OPEN
+  }
+
+  markOpened() {
+    this._state = OPEN
+  }
+
+  markClosed() {
+    this._state = CLOSED
   }
 
   send(data) {
-    if (this.socket.readyState !== 1) return false
+    if (!this.isOpen) return false
     try {
       this.socket.send(data)
       return true
@@ -55,7 +70,7 @@ export class WebSocketTransport extends TransportWrapper {
   }
 
   close() {
-    super.close()
+    this.markClosed()
     if (this.socket.readyState === 1) {
       this.socket.close()
     }

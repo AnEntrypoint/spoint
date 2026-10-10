@@ -1,34 +1,49 @@
 import { TransportWrapper } from './TransportWrapper.js'
 
+const CONNECTING = 'connecting'
+const OPEN = 'open'
+const CLOSED = 'closed'
+
 export class WebSocketClientTransport extends TransportWrapper {
   constructor(ws) {
     super()
     this.type = 'websocket'
     this.ws = ws
-    this._closed = false
+    this._state = ws.readyState === WebSocket.OPEN ? OPEN : CONNECTING
+    Object.defineProperty(this, 'ready', { enumerable: false, configurable: true, get: () => this.isOpen })
     ws.addEventListener('message', (event) => this.emit('message', event.data))
-    ws.addEventListener('close', () => { this.ready = false; this.emit('close') })
-    ws.addEventListener('error', (err) => { this.ready = false; this.emit('error', err) })
-    if (ws.readyState !== WebSocket.OPEN) {
-      ws.addEventListener('open', () => { if (this._closed) return; this.emit('open') })
-    }
+    ws.addEventListener('close', () => { this.markClosed(); this.emit('close') })
+    ws.addEventListener('error', (err) => this.emit('error', err))
+    ws.addEventListener('open', () => {
+      if (this._state !== CONNECTING) return
+      this.markOpened()
+      this.emit('open')
+    })
   }
 
-  get ready() {
-    return this._closed ? false : this.ws.readyState === WebSocket.OPEN
+  get state() {
+    return this._state
   }
 
-  set ready(open) {
-    if (!open && this.ws) this._closed = true
+  get isOpen() {
+    return this._state === OPEN
+  }
+
+  markOpened() {
+    this._state = OPEN
+  }
+
+  markClosed() {
+    this._state = CLOSED
   }
 
   send(data) {
-    if (this.ws.readyState !== WebSocket.OPEN) return false
+    if (!this.isOpen) return false
     try { this.ws.send(data); return true } catch (e) { return false }
   }
 
   close() {
-    super.close()
+    this.markClosed()
     if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
       try { this.ws.close() } catch (e) {}
     }
