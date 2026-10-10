@@ -50,7 +50,8 @@ export function dropDegenerateTriangles(index, pos, worldMatrices = []) {
     if (isDegenerateUnderAll(pos, a, b, c, worldMatrices)) { dropped++; continue; }
     kept.push(a, b, c);
   }
-  return { index: dropped ? new index.constructor(kept) : index, dropped };
+  if (!dropped) return { index, dropped };
+  return { index: Array.isArray(index) ? kept : new index.constructor(kept), dropped };
 }
 
 function edgeExceeds(pos, a, b, limitSq) {
@@ -66,7 +67,11 @@ export function collapseFanTriangles(clusters, pos, streamIndex, streamBase) {
     const reachSq = reach * reach;
     for (const lod of clusters[ci].lods) {
       const index = streamIndex[lod.stream];
-      const start = streamBase[lod.stream] + lod.offset;
+      const base = streamBase[lod.stream];
+      if (!Number.isFinite(base)) {
+        throw new RangeError(`collapseFanTriangles: cluster ${ci} lod stream=${lod.stream} has no streamBase entry`);
+      }
+      const start = base + lod.offset;
       const end = start + lod.count;
       if (!index || end > index.length) {
         throw new RangeError(`collapseFanTriangles: cluster ${ci} lod stream=${lod.stream} range [${start},${end}) outside index stream of length ${index ? index.length : 'none'}`);
