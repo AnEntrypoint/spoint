@@ -74,11 +74,7 @@ export const EditorAutosave = {
 
   install({ beginSave, onRestorePrompt, onDirtyChange }) {
     _onRestorePrompt = onRestorePrompt || null
-    if (onDirtyChange) {
-      const origDirty = onDirtyChange
-      const wrapped = (dirty) => { _dirty = dirty; origDirty(dirty) }
-      return wrapped
-    }
+    this.dispose()
 
     _interval = setInterval(async () => {
       if (!_dirty) return
@@ -104,6 +100,11 @@ export const EditorAutosave = {
         } catch (e) { }
       }
       document.addEventListener('visibilitychange', _onHidden)
+    }
+
+    return (dirty) => {
+      _dirty = !!dirty
+      try { onDirtyChange && onDirtyChange(dirty) } catch (_) { }
     }
   },
 
