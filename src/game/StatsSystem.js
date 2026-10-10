@@ -100,7 +100,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
       data.level = this._levelFromXP(data.xp)
 
       if (data.level > oldLevel) {
-        _fire('onLevelUp', { playerId: String(pid), level: data.level, stats: statsSystem.getStats(pid) })
+        _fire('onLevelUp', { playerId: pid, level: data.level, stats: statsSystem.getStats(pid) })
       }
 
       _pushToClient(pid)
