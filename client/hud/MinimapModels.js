@@ -36,8 +36,9 @@ function localFootprint(root, out) {
 export function createModelFootprints() {
   const entries = new Map()
   const corners = new Float64Array(MAX_FOOTPRINTS * CORNERS_PER_FOOTPRINT * 2)
+  const cornersAtLastCollect = new Float64Array(corners.length)
   const seen = new Set()
-  let count = 0, signature = 0
+  let count = 0, countAtLastCollect = 0
 
   function entryFor(id, root, now) {
     let e = entries.get(id)
@@ -50,7 +51,7 @@ export function createModelFootprints() {
     return e
   }
 
-  let shiftX = 0, shiftZ = 0, nowMs = 0, sig = 0
+  let shiftX = 0, shiftZ = 0, nowMs = 0
 
   function visit(root, id) {
     if (!root || !root.userData || !root.userData.modelUrl || count >= MAX_FOOTPRINTS) return
@@ -62,23 +63,28 @@ export function createModelFootprints() {
       const lx = c === 1 || c === 2 ? b[2] : b[0], lz = c >= 2 ? b[3] : b[1]
       const x = m[0] * lx + m[8] * lz + m[12] + shiftX, z = m[2] * lx + m[10] * lz + m[14] + shiftZ
       corners[o + c * 2] = x; corners[o + c * 2 + 1] = z
-      sig += x * (c + 1) + z * (c + 7)
     }
     count++
   }
 
   function forgetUnseen(e, id) { if (!seen.has(id)) entries.delete(id) }
 
+  function cornersMoved() {
+    const used = count * CORNERS_PER_FOOTPRINT * 2
+    let moved = count !== countAtLastCollect
+    for (let i = 0; i < used && !moved; i++) moved = corners[i] !== cornersAtLastCollect[i]
+    cornersAtLastCollect.set(corners.subarray(0, used))
+    countAtLastCollect = count
+    return moved
+  }
+
   function collect(entityMeshes, shift, now) {
-    count = 0; sig = 0; nowMs = now
+    count = 0; nowMs = now
     shiftX = shift ? shift.x : 0; shiftZ = shift ? shift.z : 0
     seen.clear()
     if (entityMeshes) entityMeshes.forEach(visit)
     entries.forEach(forgetUnseen)
-    sig += count * 1e7
-    const changed = sig !== signature
-    signature = sig
-    return changed
+    return cornersMoved()
   }
 
   return { collect, corners, get count() { return count } }
