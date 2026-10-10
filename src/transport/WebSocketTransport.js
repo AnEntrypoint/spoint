@@ -8,6 +8,7 @@ export class WebSocketTransport extends TransportWrapper {
     this.type = 'websocket'
     this.socket = socket
     this.ready = socket.readyState === 1
+    this._closed = false
 
     socket.on('message', (data) => {
       this.emit('message', data)
@@ -25,14 +26,11 @@ export class WebSocketTransport extends TransportWrapper {
 
     if (!this.ready) {
       socket.on('open', () => {
+        if (this._closed) return
         this.ready = true
         this.emit('open')
       })
     }
-  }
-
-  get isOpen() {
-    return this.socket.readyState === 1
   }
 
   send(data) {
@@ -51,6 +49,7 @@ export class WebSocketTransport extends TransportWrapper {
   }
 
   close() {
+    this._closed = true
     super.close()
     if (this.socket.readyState === 1) {
       this.socket.close()
