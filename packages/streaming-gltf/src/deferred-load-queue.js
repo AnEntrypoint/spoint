@@ -30,6 +30,7 @@ export class DeferredLoadQueue {
       avgLoadTimeMs: 0,
       loadTimes: [],
       dropped: 0,
+      failed: 0,
     };
   }
 
@@ -46,13 +47,19 @@ export class DeferredLoadQueue {
     if (this._loading.has(key)) return false;
 
     if (this._pending.length >= this.maxQueueSize) {
-      const dropped = this._pending.pop();
-      this._pending_set.delete(dropped.key);
-      clearTimeout(this._timeoutHandles.get(dropped.key));
-      this._timeoutHandles.delete(dropped.key);
+      const lowestIdx = this._lowestPriorityIndex();
+      const lowest = this._pending[lowestIdx];
+      if (priority <= lowest.priority) {
+        this._stats.dropped++;
+        console.warn(`[deferred-queue] Queue size exceeded ${this.maxQueueSize}, dropped lowest-priority LOD: ${key}`);
+        return false;
+      }
+      this._pending_set.delete(lowest.key);
+      clearTimeout(this._timeoutHandles.get(lowest.key));
+      this._timeoutHandles.delete(lowest.key);
+      this._removeSlot(lowestIdx);
       this._stats.dropped++;
-      console.warn(`[deferred-queue] Queue size exceeded ${this.maxQueueSize}, dropped lowest-priority LOD: ${dropped.key}`);
-      if (this._pending.length > 0) this._bubbleDown(0);
+      console.warn(`[deferred-queue] Queue size exceeded ${this.maxQueueSize}, dropped lowest-priority LOD: ${lowest.key}`);
     }
 
     const item = {
@@ -89,8 +96,7 @@ export class DeferredLoadQueue {
 
     const idx = this._pending.findIndex(item => item.key === key);
     if (idx >= 0) {
-      this._pending.splice(idx, 1);
-      if (idx < this._pending.length) this._bubbleDown(idx);
+      this._removeSlot(idx);
     }
 
     clearTimeout(this._timeoutHandles.get(key));
@@ -128,6 +134,10 @@ export class DeferredLoadQueue {
         this._loadedLods.get(item.asset.url).add(key);
 
         return geo;
+      })
+      .catch((error) => {
+        this._stats.failed++;
+        console.warn(`[deferred-queue] LOD load failed: ${key}: ${error && error.message ? error.message : error}`);
       })
       .finally(() => {
         this._inFlight--;
@@ -171,11 +181,26 @@ export class DeferredLoadQueue {
 
     const root = this._pending[0];
     this._pending_set.delete(root.key);
-    this._pending.splice(0, 1);
-    if (this._pending.length > 0) this._bubbleDown(0);
+    this._removeSlot(0);
     this._stats.queued = this._pending.length;
 
     return root;
+  }
+
+  _removeSlot(idx) {
+    const last = this._pending.pop();
+    if (idx >= this._pending.length) return;
+    this._pending[idx] = last;
+    this._bubbleUp(idx);
+    this._bubbleDown(idx);
+  }
+
+  _lowestPriorityIndex() {
+    let lowest = 0;
+    for (let i = 1; i < this._pending.length; i++) {
+      if (this._pending[i].priority < this._pending[lowest].priority) lowest = i;
+    }
+    return lowest;
   }
 
   getLoadedLods(asset) {
@@ -204,6 +229,7 @@ export class DeferredLoadQueue {
       concurrency: this._inFlight,
       maxConcurrency: this.maxConcurrent,
       dropped: this._stats.dropped,
+      failed: this._stats.failed,
     };
   }
 
