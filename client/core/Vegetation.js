@@ -15,6 +15,7 @@ import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
 import { createWebGPULodInstancer } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
+import { runWarmPasses } from './ProgramReadiness.js'
 
 const _dbgVeg = dbg('vegetation')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -555,9 +556,8 @@ export async function createVegetation(opts = {}) {
   }
 
   function warmShaders(camera) {
-    if (!camera) return 0
-    try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {}
-    return meshes.length
+    if (!camera) return runWarmPasses(null, 0)
+    return runWarmPasses(() => renderer.render(scene, camera), 2)
   }
 
   let bvhBuilt = false
