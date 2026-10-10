@@ -16,21 +16,23 @@ export default {
       })
 
       ctx.time.every(0.1, () => {
-        const players = ctx.players.getAll()
-        players.forEach(player => {
+        if (ctx.entity.custom.collected) return
+
+        const collector = ctx.players.getAll().find(player => {
           const dist = Math.hypot(
             player.state.position[0] - ctx.entity.position[0],
             player.state.position[2] - ctx.entity.position[2]
           )
-
-          if (dist < 2) {
-            ctx.bus.emit('gold-coin-collected', {
-              playerId: player.id,
-              coin: ctx.entity.id
-            })
-            ctx.entity.destroy()
-          }
+          return dist < 2
         })
+        if (!collector) return
+
+        ctx.entity.custom.collected = true
+        ctx.bus.emit('gold-coin-collected', {
+          playerId: collector.id,
+          coin: ctx.entity.id
+        })
+        ctx.entity.destroy()
       })
     },
 
