@@ -8,19 +8,40 @@ export function isRingAvailable() {
     typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined'
 }
 
+export const RING_HEADER_INTS = 4
+const RING_MAGIC = 0x54524e47
+const MAGIC_OFF = 0, HEADER_CAPACITY_OFF = 1
+
+function headerBytes() { return RING_HEADER_INTS * 4 }
 function ctrlBytes(capacity) { return capacity * CTRL_INTS_PER_SLOT * 4 }
 function payloadBytes(capacity) { return capacity * PAYLOAD_FLOATS_PER_SLOT * 8 }
 
 export function allocateRingBuffer(capacity = 64) {
   if (!isRingAvailable()) return null
-  const sab = new SharedArrayBuffer(ctrlBytes(capacity) + payloadBytes(capacity))
+  const sab = new SharedArrayBuffer(headerBytes() + ctrlBytes(capacity) + payloadBytes(capacity))
+  const header = new Int32Array(sab, 0, RING_HEADER_INTS)
+  Atomics.store(header, MAGIC_OFF, RING_MAGIC)
+  Atomics.store(header, HEADER_CAPACITY_OFF, capacity)
   return { sab, capacity }
 }
 
+export function assertRingLayout(sab, capacity) {
+  if (!(sab instanceof SharedArrayBuffer)) throw new TypeError('[transform-ring] expected a SharedArrayBuffer')
+  const needed = headerBytes() + ctrlBytes(capacity) + payloadBytes(capacity)
+  if (sab.byteLength < headerBytes()) throw new RangeError(`[transform-ring] buffer is ${sab.byteLength} bytes, too small for the ${headerBytes()}-byte layout header`)
+  const header = new Int32Array(sab, 0, RING_HEADER_INTS)
+  const magic = Atomics.load(header, MAGIC_OFF)
+  if (magic !== RING_MAGIC) throw new RangeError(`[transform-ring] buffer carries no TransformRing header (magic 0x${(magic >>> 0).toString(16)}), so writer and reader cannot agree on its layout`)
+  const stamped = Atomics.load(header, HEADER_CAPACITY_OFF)
+  if (stamped !== capacity) throw new RangeError(`[transform-ring] capacity mismatch: buffer holds ${stamped} slots but ${capacity} were requested`)
+  if (sab.byteLength !== needed) throw new RangeError(`[transform-ring] buffer is ${sab.byteLength} bytes, expected ${needed} for ${capacity} slots`)
+}
+
 function makeViews(sab, capacity) {
+  assertRingLayout(sab, capacity)
   return {
-    ctrl: new Int32Array(sab, 0, capacity * CTRL_INTS_PER_SLOT),
-    payload: new Float64Array(sab, ctrlBytes(capacity), capacity * PAYLOAD_FLOATS_PER_SLOT)
+    ctrl: new Int32Array(sab, headerBytes(), capacity * CTRL_INTS_PER_SLOT),
+    payload: new Float64Array(sab, headerBytes() + ctrlBytes(capacity), capacity * PAYLOAD_FLOATS_PER_SLOT)
   }
 }
 
@@ -54,7 +75,7 @@ export class TransformRingWriter {
 
   release(playerId) {
     const slot = this._slotOf.get(playerId)
-    if (slot === undefined) return
+    if (slot === undefined) return false
     const cbase = slot * CTRL_INTS_PER_SLOT
     const gen = Atomics.load(this._ctrl, cbase + GEN_OFF)
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 1)
@@ -62,6 +83,7 @@ export class TransformRingWriter {
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 2)
     this._slotOf.delete(playerId)
     this._free.push(slot)
+    return true
   }
 
   write(playerId, position, rotation, velocity) {
