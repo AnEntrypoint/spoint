@@ -45,13 +45,13 @@ export function validateManifest(manifest) {
     } else if (typeof manifest.author.name !== 'string' || !manifest.author.name) {
       errors.push('author.name is required when author is present')
     }
-    if (manifest.author.nostr !== undefined && typeof manifest.author.nostr !== 'string') {
+    if (manifest.author && manifest.author.nostr !== undefined && typeof manifest.author.nostr !== 'string') {
       errors.push('author.nostr must be a hex pubkey string if present')
     }
   }
 
   if (manifest.editorProps !== undefined) {
-    if (typeof manifest.editorProps !== 'object' || Array.isArray(manifest.editorProps)) {
+    if (!manifest.editorProps || typeof manifest.editorProps !== 'object' || Array.isArray(manifest.editorProps)) {
       errors.push('editorProps must be an object')
     } else {
       for (const [field, prop] of Object.entries(manifest.editorProps)) {
@@ -94,7 +94,7 @@ export function validateManifest(manifest) {
   }
 
   if (manifest.compatibility !== undefined) {
-    if (typeof manifest.compatibility !== 'object' || !manifest.compatibility.spoint) {
+    if (!manifest.compatibility || typeof manifest.compatibility !== 'object' || !manifest.compatibility.spoint) {
       errors.push('compatibility.spoint semver range is required')
     }
   }

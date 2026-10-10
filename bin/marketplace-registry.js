@@ -51,8 +51,10 @@ function readBody(req) {
     req.on('end', () => {
       try {
         resolve(data ? JSON.parse(data) : null)
-      } catch (err) {
-        reject(new Error('Invalid JSON body'))
+      } catch {
+        const invalid = new Error('Invalid JSON body')
+        invalid.code = 'INVALID_JSON'
+        reject(invalid)
       }
     })
     req.on('error', reject)
@@ -138,7 +140,14 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/manifest') {
-      const body = await readBody(req)
+      let body
+      try {
+        body = await readBody(req)
+      } catch (err) {
+        if (err.code !== 'INVALID_JSON') throw err
+        jsonResponse(res, 400, { error: 'invalid manifest', errors: ['body must be valid JSON'] })
+        return
+      }
       if (!body) {
         jsonResponse(res, 400, { error: 'body required' })
         return
