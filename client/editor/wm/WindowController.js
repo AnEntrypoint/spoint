@@ -39,14 +39,14 @@ export function createWindowController({ root, storageKeyPrefix = 'ds-wm-' } = {
   function open({ id, title = 'window', x = 60, y = 60, w = 480, h = 320, body = null, onClose, onMinimize, onMaximize }) {
     if (windows.has(id)) { focus(id); return windows.get(id).handle }
     const bounds = _restoreBounds(id, { x, y, w, h })
-    let maximized = false, minimized = false
+    let state = 'normal'
     const handle = renderWindow({
       title, body, bounds,
       callbacks: {
         onFocus: () => focus(id),
         onClose: () => { close(id); onClose?.() },
-        onMinimize: () => { minimized = !minimized; handle.setMinimized(minimized); onMinimize?.(minimized) },
-        onMaximize: () => { maximized = !maximized; handle.setMaximized(maximized); onMaximize?.(maximized) },
+        onMinimize: () => { state = state === 'minimized' ? 'normal' : 'minimized'; handle.setWindowState(state); onMinimize?.(state) },
+        onMaximize: () => { state = state === 'maximized' ? 'normal' : 'maximized'; handle.setWindowState(state); onMaximize?.(state) },
         onDragStart: (e, startBounds) => { _drag = { id, mode: 'move', startX: e.clientX, startY: e.clientY, startBounds }; handle.el.classList.add('wm-dragging') },
         onResizeStart: (e, startBounds) => { _drag = { id, mode: 'resize', dir: startBounds.dir, startX: e.clientX, startY: e.clientY, startBounds }; handle.el.classList.add('wm-resizing') },
       }

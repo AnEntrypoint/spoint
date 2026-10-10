@@ -1,11 +1,12 @@
+const WINDOW_STATES = ['normal', 'minimized', 'maximized'];
+
 export function renderWindow(opts = {}) {
     const {
         title = 'window',
         body = null,
         bounds = { x: 60, y: 60, w: 480, h: 320 },
         focused = false,
-        maximized = false,
-        minimized = false,
+        state = 'normal',
         instanceId = '',
         kind = 'div',
         callbacks = {},
@@ -70,9 +71,11 @@ export function renderWindow(opts = {}) {
         if (callbacks.onResizeStart) callbacks.onResizeStart(e, { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, dir: g.dataset.dir });
     }));
 
+    let winState = normalizeWindowState(state);
+    const setState = (v) => { winState = normalizeWindowState(v); applyWindowState(el, winState); };
+
     applyFocused(el, focused);
-    applyMaximized(el, maximized);
-    applyMinimized(el, minimized);
+    applyWindowState(el, winState);
 
     return {
         el,
@@ -85,8 +88,10 @@ export function renderWindow(opts = {}) {
             if (typeof b.h === 'number') el.style.height = b.h + 'px';
         },
         setFocused(v) { applyFocused(el, v); },
-        setMaximized(v) { applyMaximized(el, v); },
-        setMinimized(v) { applyMinimized(el, v); },
+        setWindowState(v) { setState(v); },
+        getWindowState() { return winState; },
+        setMaximized(v) { setState(v ? 'maximized' : (winState === 'maximized' ? 'normal' : winState)); },
+        setMinimized(v) { setState(v ? 'minimized' : (winState === 'minimized' ? 'normal' : winState)); },
         setInstanceId(id) { if (id) el.dataset.instanceId = id; else delete el.dataset.instanceId; },
         setZIndex(z) { el.style.zIndex = String(z); },
         getBounds() { return { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }; },
@@ -111,5 +116,8 @@ function setBodyContent(host, body) {
 }
 
 function applyFocused(el, v) { el.classList.toggle('wm-focused', !!v); }
-function applyMaximized(el, v) { el.classList.toggle('wm-max', !!v); }
-function applyMinimized(el, v) { el.classList.toggle('wm-min', !!v); }
+function normalizeWindowState(v) { return WINDOW_STATES.includes(v) ? v : 'normal'; }
+function applyWindowState(el, v) {
+    el.classList.toggle('wm-min', v === 'minimized');
+    el.classList.toggle('wm-max', v === 'maximized');
+}
