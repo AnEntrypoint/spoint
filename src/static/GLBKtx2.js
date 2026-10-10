@@ -175,8 +175,8 @@ export async function applyKtx2(inputBuffer) {
   const extsUsed = hasKtx2 ? [...new Set([...dropWebp(json.extensionsUsed || []), 'KHR_texture_basisu'])] : dropWebp(json.extensionsUsed || [])
   const extsRequired = hasKtx2 ? [...new Set([...dropWebp(json.extensionsRequired || []), 'KHR_texture_basisu'])] : dropWebp(json.extensionsRequired || [])
   const newJson = { ...json, extensionsUsed: extsUsed, extensionsRequired: extsRequired, bufferViews: newBufViews, images: newImages, textures: newTextures, buffers: [{ byteLength: newOffset }] }
-  const jsonStr = JSON.stringify(newJson); const jsonPad = (4 - (jsonStr.length % 4)) % 4
-  const jsonBuf = Buffer.alloc(jsonStr.length + jsonPad, 0x20); Buffer.from(jsonStr).copy(jsonBuf)
+  const jsonStr = JSON.stringify(newJson); const jsonBytes = Buffer.from(jsonStr); const jsonPad = (4 - (jsonBytes.length % 4)) % 4
+  const jsonBuf = Buffer.alloc(jsonBytes.length + jsonPad, 0x20); jsonBytes.copy(jsonBuf)
   const newBin = Buffer.concat(newChunks); const binPad = (4 - (newBin.length % 4)) % 4
   const newBinPadded = Buffer.alloc(newBin.length + binPad, 0); newBin.copy(newBinPadded)
   const totalLen = 12 + 8 + jsonBuf.length + 8 + newBinPadded.length
