@@ -18,6 +18,12 @@ try {
   }
 } catch (e) {}
 
+const READ_ERROR_LIMIT = 8
+const READ_ERROR_BACKOFF_BASE_MS = 10
+const READ_ERROR_BACKOFF_MAX_MS = 1000
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const readErrorBackoffMs = (consecutiveReadErrors) => Math.min(READ_ERROR_BACKOFF_MAX_MS, READ_ERROR_BACKOFF_BASE_MS * 2 ** (consecutiveReadErrors - 1))
+
 export class WebTransportServer extends EventEmitter {
   constructor(options = {}) {
     super()
@@ -61,18 +67,33 @@ export class WebTransportServer extends EventEmitter {
   }
 
   async _acceptSessions() {
-    const sessionStream = await this.server.sessionStream('/')
-    const reader = sessionStream.getReader()
+    let reader
+    try {
+      const sessionStream = await this.server.sessionStream('/')
+      reader = sessionStream.getReader()
+    } catch (e) {
+      console.error('[webtransport] Session accept failed:', e.message)
+      return
+    }
+    let consecutiveReadErrors = 0
     while (this.running) {
       try {
         const { value, done } = await reader.read()
+        consecutiveReadErrors = 0
         if (done) break
         if (value) {
           const transport = new WebTransportTransport(value)
           this.emit('session', transport)
         }
       } catch (e) {
-        if (this.running) console.error('[webtransport] Session error:', e.message)
+        if (!this.running) break
+        console.error('[webtransport] Session error:', e.message)
+        consecutiveReadErrors += 1
+        if (consecutiveReadErrors >= READ_ERROR_LIMIT) {
+          console.error('[webtransport] Session accept stopped after', consecutiveReadErrors, 'consecutive read errors')
+          break
+        }
+        await sleep(readErrorBackoffMs(consecutiveReadErrors))
       }
     }
   }
