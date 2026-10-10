@@ -13,8 +13,14 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
   function deleteLayer(name) {
     if (name === DEFAULT_LAYER) return false
     if (!_layers.has(name)) return false
-    for (const [id, layer] of _memberLayer) if (layer === name) _memberLayer.set(id, DEFAULT_LAYER)
+    const moved = membersOf(name)
+    for (const id of moved) _memberLayer.set(id, DEFAULT_LAYER)
     _layers.delete(name)
+    const fallback = _layers.get(DEFAULT_LAYER)
+    for (const id of moved) {
+      setHidden?.(id, !fallback.visible)
+      setLocked?.(id, fallback.locked)
+    }
     return true
   }
 
