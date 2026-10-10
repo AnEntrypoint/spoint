@@ -21,14 +21,17 @@ import { MSG } from '/src/protocol/MessageTypes.js'
 export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, onListWorlds, onGizmoModeChange, onGizmoSpaceChange, onPivotModeChange, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp, onSnapChange, onEventLogQuery, onReparent, onRename, onDuplicate, onLockChange, onHiddenChange, onScatterArm, onAlign, onDistribute, onGroup, isSingleplayer, onFsListTree, onFsGetSource, onFsSave, onFsMkdir, onFsDelete, onFsRename, onJumpToHistory, onAddWaypoint, onReorderWaypoints, onToggleMinimapOverlay, onWireCreate, floatingOrigin, onEdgeRemove, onPlaceBatch, onPlaytestStart, onPlaytestStop, onCommandPalette, onDebugModeChange, onOpenP2PRoom, onOpenFreddieChat, onLayerAssign } = {}) {
   const overlay = document.createElement('div')
   overlay.className = 'ds-247420 ep-overlay'
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9000;pointer-events:none;display:none;color:var(--panel-text);font:12px/1.4 var(--ff-mono, monospace);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box'
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9000;pointer-events:none;color:var(--panel-text);font:12px/1.4 var(--ff-mono, monospace);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box'
   document.body.appendChild(overlay)
   _ensureEditorResponsiveCSS()
   _ensureWmCSS()
   const wmRoot = document.createElement('div')
   wmRoot.className = 'wm-root'
-  wmRoot.style.cssText = 'position:fixed;inset:0;display:none'
+  wmRoot.style.cssText = 'position:fixed;inset:0'
   document.body.appendChild(wmRoot)
+  let _visible = false
+  const _applyVisible = () => { const d = _visible ? 'block' : 'none'; overlay.style.display = d; wmRoot.style.display = d }
+  _applyVisible()
   const wm = createWindowController({ root: wmRoot, storageKeyPrefix: 'ds-editor-wm-' })
   setSharedWM(wm)
 
@@ -158,7 +161,7 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     _fsBrowsePanel = createEditorFsBrowse(_fsBrowseHost, {
       onListTree: () => onFsListTree?.(),
       onGetSource: (path) => onFsGetSource?.(path),
-      onSave: (path, source, baseMtimeMs) => onFsSave?.(path, source, baseMtimeMs),
+      onSave: (path, source, base) => onFsSave?.(path, source, base),
       onMkdir: (path) => onFsMkdir?.(path),
       onDelete: (path) => onFsDelete?.(path),
       onRename: (path, newPath) => onFsRename?.(path, newPath)
@@ -646,12 +649,15 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     repaint(buildAddMenuItems(place, openPropSubmenu, scatterState))
   }
 
+  const showShell = () => { _visible = true; _applyVisible() }
+  const hideShell = () => { _visible = false; _applyVisible(); evLog.stop(); _renderGraphViewer?.stop(); _p2pPanel?.destroy(); _freddieChatPanel?.clear(); if (_vpMenuHost) applyDiff(_vpMenuHost, []) }
+
   return {
     layers,
-    show() { overlay.style.display = 'block'; wmRoot.style.display = 'block' },
-    hide() { overlay.style.display = 'none'; wmRoot.style.display = 'none'; evLog.stop(); _renderGraphViewer?.stop(); _p2pPanel?.destroy(); _freddieChatPanel?.clear(); if (_vpMenuHost) applyDiff(_vpMenuHost, []) },
+    show: showShell,
+    hide: hideShell,
     openViewportMenu: openAddMenu,
-    toggle() { const v = overlay.style.display === 'none' ? 'block' : 'none'; overlay.style.display = v; wmRoot.style.display = v },
+    toggle() { if (_visible) hideShell(); else showShell() },
     updateApps(apps) { appsPanel.setApps(apps); _knownApps = apps || []; _validatorPanel?.updateKnownApps(_knownApps); hfViewer.updateApps(_knownApps); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps) },
     updateScene(entities) { _entities = entities || []; setSceneEntityIds(_entities.map(e => e.id)); hierarchy.updateEntities(entities); layers.hydrateFromEntities(_entities); hfViewer.updateGraph(_entities); _validatorPanel?.updateEntities(_entities); _waypointPanel?.updateEntities(_entities); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps); render() },
     showEntity(entity, eProps, extraIds, extraEntities) {
@@ -692,7 +698,7 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     toggleShortcutsHelp() { const w = wm.getWindow('shortcuts'); if (w) wm.close('shortcuts'); else openShortcutsWindow() },
     updateEventLog(events) { evLog.updateEvents(events); hfViewer.updateEvents(events) },
     updateHistory(entries) { _historyEntries = entries || []; if (_historyHost && wm.getWindow('history')) _renderHistoryBody(_historyHost); render() },
-    get visible() { return overlay.style.display !== 'none' },
+    get visible() { return _visible },
     get selectedEntity() { return inspector.selectedEntity },
     get currentTab() { return _tab },
     isLocked(id) { return hierarchy.isLocked(id) },
