@@ -1,10 +1,7 @@
 import { components as C, h, applyDiff } from 'anentrypoint-design'
+import { ensureStyle } from './ensureStyle.js'
 
-function ensureStyle() {
-  if (document.getElementById('chat-hud-style')) return
-  const s = document.createElement('style')
-  s.id = 'chat-hud-style'
-  s.textContent = `
+const CSS = `
     .ch-card{position:fixed;bottom:max(8px,env(safe-area-inset-bottom));left:max(8px,env(safe-area-inset-left));z-index:1000;width:min(320px,calc(100vw - 16px));pointer-events:all;display:flex;flex-direction:column;gap:6px;padding:10px}
     .ch-card .ch-h{font-size:12px;font-weight:600;color:var(--panel-text);display:flex;align-items:center;justify-content:space-between;gap:8px}
     .ch-card .ch-list{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
@@ -17,14 +14,12 @@ function ensureStyle() {
     .ch-card .ch-sub{font-size:10px;color:var(--panel-text-3)}
     .ch-card .ch-form{display:flex;gap:6px}
     .ch-card .ch-input{flex:1;font-size:11px;background:var(--panel-0, var(--panel-1));color:var(--panel-text);border:1px solid var(--rule);border-radius:var(--r-1, 4px);padding:6px;box-sizing:border-box}
-  `
-  document.head.appendChild(s)
-}
+`
 
 const TEXT_CHANNEL = 'room-chat'
 
 export function createChatHUD(uiRoot, getBridge) {
-  ensureStyle()
+  ensureStyle('chat-hud-style', CSS)
   const card = document.createElement('div')
   card.className = 'panel ds-247420 ch-card'
   uiRoot.appendChild(card)

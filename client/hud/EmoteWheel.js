@@ -1,8 +1,5 @@
-function ensureStyles() {
-  if (document.getElementById('emote-wheel-style')) return
-  const style = document.createElement('style')
-  style.id = 'emote-wheel-style'
-  style.textContent = `
+import { ensureStyle } from './ensureStyle.js'
+const CSS = `
 #emote-wheel-overlay {
   position: fixed; inset: 0; z-index: 10600;
   display: none; align-items: center; justify-content: center;
@@ -27,14 +24,12 @@ function ensureStyles() {
   border: 1px solid var(--rule, rgba(0,210,255,0.2));
 }
 `
-  document.head.appendChild(style)
-}
 
 const RADIUS = 100
 const SLOT0_AT_TOP_ANGLE_OFFSET = Math.PI / 2
 
 export function createEmoteWheel(slots) {
-  ensureStyles()
+  ensureStyle('emote-wheel-style', CSS)
   const overlay = document.createElement('div')
   overlay.id = 'emote-wheel-overlay'
   const ring = document.createElement('div')

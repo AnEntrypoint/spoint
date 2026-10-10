@@ -1,15 +1,10 @@
-function ensureStyle() {
-  if (document.getElementById('render-debug-panel-style')) return
-  const s = document.createElement('style')
-  s.id = 'render-debug-panel-style'
-  s.textContent = `
+import { ensureStyle } from './ensureStyle.js'
+const CSS = `
     .rdp-card{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:1000;width:min(280px,calc(100vw - 16px));pointer-events:all;display:flex;flex-direction:column;gap:4px;padding:10px;background:rgba(10,12,18,0.92);border:1px solid rgba(255,255,255,0.15);border-radius:8px;font:12px/1.5 ui-monospace,monospace;color:#e6e6e6}
     .rdp-card .rdp-h{font-size:13px;font-weight:600;margin-bottom:4px}
     .rdp-card label{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0}
     .rdp-card input{cursor:pointer}
-  `
-  document.head.appendChild(s)
-}
+`
 
 function _toggles(renderControls) {
   return [
@@ -55,7 +50,7 @@ function _toggles(renderControls) {
 }
 
 export function createRenderDebugPanel(uiRoot, renderControls) {
-  ensureStyle()
+  ensureStyle('render-debug-panel-style', CSS)
   const card = document.createElement('div')
   card.className = 'rdp-card'
   uiRoot.appendChild(card)

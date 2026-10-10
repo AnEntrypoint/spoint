@@ -1,6 +1,7 @@
 import { QualityPresets } from '../core/QualityPresets.js'
 import { AudioMixer } from '../../src/client/AudioMixer.js'
 import { getCacheStats, clearCache } from '../ModelCache.js'
+import { ensureStyle } from './ensureStyle.js'
 
 const STORAGE_KEY = 'spoint.settings'
 
@@ -28,11 +29,7 @@ function saveValues(values) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)) } catch (e) { console.warn('[settings] localStorage write failed:', e?.message || e) }
 }
 
-function ensureStyles() {
-  if (document.getElementById('settings-menu-style')) return
-  const style = document.createElement('style')
-  style.id = 'settings-menu-style'
-  style.textContent = `
+const CSS = `
 #settings-menu-overlay {
   position: fixed; inset: 0; z-index: 10800;
   display: none; align-items: center; justify-content: center;
@@ -74,11 +71,9 @@ function ensureStyles() {
 #settings-menu-panel .sm-cache-status { font-size: 11px; color: var(--panel-text-3, rgba(255,255,255,0.7)); flex: 1; }
 #settings-menu-panel button.sm-danger:hover { border-color: #ff5a4e; color: #ff5a4e; }
 `
-  document.head.appendChild(style)
-}
 
 export function createSettingsMenu({ getCam = () => null, getRenderer = () => null } = {}) {
-  ensureStyles()
+  ensureStyle('settings-menu-style', CSS)
 
   const values = { ...DEFAULTS, ...loadSaved() }
   let onCloseCb = null

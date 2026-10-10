@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
 const PANEL_REL = 'client/hud/RenderDebugPanel.js'
+const ENSURE_STYLE_ABS = join(REPO_ROOT, 'client/hud/ensureStyle.js')
 const ARGV = process.argv.slice(2)
 function flag(name, dflt = null) {
   const hit = ARGV.find((a) => a.startsWith(`--${name}=`))
@@ -243,7 +244,7 @@ async function drivePanel(moduleUrl) {
 const MUTANTS = [
   { id: 'get-unwired', from: 'input.checked = t.get()', to: 'input.checked = false' },
   { id: 'set-unwired', from: "input.addEventListener('change', () => t.set(input.checked))", to: "input.addEventListener('change', () => {})" },
-  { id: 'style-not-appended', from: 'document.head.appendChild(s)', to: 'void s' },
+  { id: 'style-not-appended', from: "ensureStyle('render-debug-panel-style', CSS)", to: 'void CSS' },
   { id: 'destroy-noop', from: 'destroy() { card.remove() }', to: 'destroy() { void card }' },
   { id: 'host-shadow-inverted', from: 'window.__hostShadowOff = !on', to: 'window.__hostShadowOff = on' },
   { id: 'cascade-clears-sun', from: 'for (let i = 1; i < sp.lights.length; i++)', to: 'for (let i = 0; i < sp.lights.length; i++)' },
@@ -259,6 +260,7 @@ async function main() {
   console.log(`${TAG} honest failures: ${JSON.stringify(honest.failures)}`)
 
   const scratch = mkdtempSync(join(tmpdir(), 'rdp-panel-witness-'))
+  writeFileSync(join(scratch, 'ensureStyle.js'), readFileSync(ENSURE_STYLE_ABS, 'utf8'), 'utf8')
   const survivors = []
   let mutantsCaught = 0
   try {

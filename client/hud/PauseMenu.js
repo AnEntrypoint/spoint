@@ -1,8 +1,5 @@
-function ensureStyles() {
-  if (document.getElementById('pause-menu-style')) return
-  const style = document.createElement('style')
-  style.id = 'pause-menu-style'
-  style.textContent = `
+import { ensureStyle } from './ensureStyle.js'
+const CSS = `
 #pause-menu-overlay {
   position: fixed; inset: 0; z-index: 10700;
   display: none; align-items: center; justify-content: center;
@@ -33,8 +30,6 @@ function ensureStyles() {
 }
 #pause-menu-toast.show { opacity: 1; }
 `
-  document.head.appendChild(style)
-}
 
 function _defaultLeaveMatch() {
   location.href = new URL('landing/', location.href).href
@@ -51,7 +46,7 @@ function _showToast(msg) {
 }
 
 export function createPauseMenu({ requestPointerLock = null, settingsMenu = null, onLeaveMatch = null, getRoomInfo = null } = {}) {
-  ensureStyles()
+  ensureStyle('pause-menu-style', CSS)
 
   let onResumeCb = null
 

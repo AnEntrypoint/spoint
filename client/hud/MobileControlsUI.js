@@ -1,4 +1,5 @@
 import { worldMobileButtons } from '/src/shared/worldDefaults.js'
+import { ensureStyle } from './ensureStyle.js'
 const CSS = `
 @keyframes joyGlow{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 40%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 10%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 60%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 20%, transparent)}}
 @keyframes joyGlowLook{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 35%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 8%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 55%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 18%, transparent)}}
@@ -41,13 +42,6 @@ const CSS = `
 }
 `
 
-function injectStyle() {
-  if (document.getElementById('mobile-controls-style')) return
-  const s = document.createElement('style')
-  s.id = 'mobile-controls-style'
-  s.textContent = CSS
-  document.head.appendChild(s)
-}
 
 function makeJoystick(id, dirs) {
   const container = document.createElement('div')
@@ -111,7 +105,7 @@ export function createMobileControlsUI(controls, buttons = DEFAULT_MOBILE_BUTTON
   if (!controls.enabled) return { show: () => {}, hide: () => {}, update: () => {}, destroy: () => {} }
   const actionButtons = Array.isArray(buttons) && buttons.length > 0 ? buttons : DEFAULT_MOBILE_BUTTONS
 
-  injectStyle()
+  ensureStyle('mobile-controls-style', CSS)
   const { responsive: res, layout: lay } = controls
   const r = res.joystickRadius, d = r * 2, bs = res.buttonSize
 

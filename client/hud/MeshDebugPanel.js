@@ -1,11 +1,8 @@
 import { h, applyDiff } from 'anentrypoint-design'
 import { installMeshDebug } from '../core/MeshDebug.js'
+import { ensureStyle } from './ensureStyle.js'
 
-function ensureStyle() {
-  if (document.getElementById('mesh-debug-panel-style')) return
-  const s = document.createElement('style')
-  s.id = 'mesh-debug-panel-style'
-  s.textContent = `
+const CSS = `
     .mdp-card{position:fixed;bottom:max(8px,env(safe-area-inset-bottom));left:max(8px,env(safe-area-inset-left));z-index:1000;width:min(360px,calc(100vw - 16px));max-height:50vh;overflow-y:auto;pointer-events:all;display:flex;flex-direction:column;gap:6px;padding:10px;font:11px/1.4 var(--ff-mono, ui-monospace, monospace)}
     .mdp-card .mdp-h{font-size:12px;font-weight:600;color:var(--panel-text);font-family:var(--ff-body, inherit)}
     .mdp-card .mdp-row{display:flex;justify-content:space-between;gap:8px;color:var(--panel-text-3)}
@@ -15,12 +12,10 @@ function ensureStyle() {
     .mdp-card .mdp-dc-open{color:#4caf50}
     .mdp-card .mdp-dc-other{color:#e0a030}
     .mdp-card .mdp-empty{color:var(--panel-text-3)}
-  `
-  document.head.appendChild(s)
-}
+`
 
 export function createMeshDebugPanel(uiRoot) {
-  ensureStyle()
+  ensureStyle('mesh-debug-panel-style', CSS)
   const mesh = installMeshDebug()
   const card = document.createElement('div')
   card.className = 'panel ds-247420 mdp-card'

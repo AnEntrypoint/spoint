@@ -2,6 +2,7 @@ import { sampleMinimapCell, shadeHeightGrid } from '../../src/shared/MinimapBiom
 import { createPlacementScanner } from './MinimapPlacements.js'
 import { createModelFootprints } from './MinimapModels.js'
 import { paintChunkGlyphs, paintFootprints } from './MinimapGlyphs.js'
+import { ensureStyle } from './ensureStyle.js'
 
 const SIZE_PX = 168
 const DEFAULT_VIEW_SPAN_M = 512
@@ -24,11 +25,7 @@ function reportSampleFailure(e) {
   console.error('[minimap] terrain cell sample failed; unsampled cells draw as background:', e && e.message || e)
 }
 
-function ensureStyles() {
-  if (document.getElementById('minimap-hud-style')) return
-  const style = document.createElement('style')
-  style.id = 'minimap-hud-style'
-  style.textContent = `
+const CSS = `
 #minimap-hud {
   position: fixed; top: 10px; right: 10px; z-index: 9400;
   width: ${SIZE_PX}px; height: ${SIZE_PX}px;
@@ -41,8 +38,6 @@ function ensureStyles() {
 }
 #minimap-hud canvas { display: block; width: 100%; height: 100%; }
 `
-  document.head.appendChild(style)
-}
 
 function makeLayer(overlayPx) {
   const terrain = document.createElement('canvas')
@@ -78,7 +73,7 @@ function worldSeedOf(sources, terrain) {
 }
 
 export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
-  ensureStyles()
+  ensureStyle('minimap-hud-style', CSS)
   if (!minimapMeta || !minimapMeta.base || !Array.isArray(minimapMeta.center) || !Number.isFinite(minimapMeta.extent) || minimapMeta.extent <= 0) {
     return { update() {}, dispose() {}, setViewSpan() {} }
   }

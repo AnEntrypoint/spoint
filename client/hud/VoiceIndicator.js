@@ -1,14 +1,11 @@
 import { components as C, h, applyDiff } from 'anentrypoint-design'
+import { ensureStyle } from './ensureStyle.js'
 
 const PROXIMITY_NEAR_M = 6
 const PROXIMITY_FAR_M = 45
 const PROXIMITY_TICK_MS = 100
 
-function ensureStyle() {
-  if (document.getElementById('voice-indicator-style')) return
-  const s = document.createElement('style')
-  s.id = 'voice-indicator-style'
-  s.textContent = `
+const CSS = `
     .vi-card{position:fixed;bottom:max(8px,env(safe-area-inset-bottom));right:max(8px,env(safe-area-inset-right));z-index:1000;width:min(220px,calc(100vw - 16px));pointer-events:all;display:flex;flex-direction:column;gap:6px;padding:10px}
     .vi-card .vi-h{font-size:12px;font-weight:600;color:var(--panel-text);display:flex;align-items:center;justify-content:space-between;gap:8px}
     .vi-card .vi-list{display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto}
@@ -19,14 +16,12 @@ function ensureStyle() {
     .vi-card .vi-mutei{font-size:10px;opacity:.7}
     .vi-card .vi-sub{font-size:10px;color:var(--panel-text-3)}
     @media (prefers-reduced-motion: reduce){ .vi-card .vi-dot{transition:none} }
-  `
-  document.head.appendChild(s)
-}
+`
 
 const VOICE_CHANNEL = 'room-voice'
 
 export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = null) {
-  ensureStyle()
+  ensureStyle('voice-indicator-style', CSS)
   const card = document.createElement('div')
   card.className = 'panel ds-247420 vi-card'
   uiRoot.appendChild(card)

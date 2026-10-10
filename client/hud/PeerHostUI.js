@@ -1,11 +1,8 @@
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 import { DEFAULT_ICE_SERVERS } from '../../src/shared/worldDefaults.js'
+import { ensureStyle } from './ensureStyle.js'
 
-function ensureStyle() {
-  if (document.getElementById('peer-host-ui-style')) return
-  const s = document.createElement('style')
-  s.id = 'peer-host-ui-style'
-  s.textContent = `
+const CSS = `
     .ph-card{position:fixed;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));z-index:1000;width:min(320px,calc(100vw - 16px));pointer-events:all;display:flex;flex-direction:column;gap:8px;padding:12px}
     .ph-card .ph-h{font-size:13px;font-weight:600;color:var(--panel-text)}
     .ph-card .ph-sub{font-size:11px;color:var(--panel-text-3)}
@@ -16,9 +13,7 @@ function ensureStyle() {
     @media (prefers-reduced-motion: reduce){
       .ph-card .ph-toast{transition:none}
     }
-  `
-  document.head.appendChild(s)
-}
+`
 
 function showToast(msg) {
   const t = document.createElement('div')
@@ -30,7 +25,7 @@ function showToast(msg) {
 }
 
 export function createRoomCodeUI(uiRoot, code, joinLink) {
-  ensureStyle()
+  ensureStyle('peer-host-ui-style', CSS)
   const card = document.createElement('div')
   card.className = 'panel ds-247420 ph-card'
   card.style.top = 'max(64px,calc(env(safe-area-inset-top) + 56px))'
@@ -46,7 +41,7 @@ export function createRoomCodeUI(uiRoot, code, joinLink) {
 }
 
 export function createPeerHostUI(uiRoot, getClient, iceServers) {
-  ensureStyle()
+  ensureStyle('peer-host-ui-style', CSS)
   const card = document.createElement('div')
   card.className = 'panel ds-247420 ph-card'
   uiRoot.appendChild(card)
