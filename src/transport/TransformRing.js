@@ -36,12 +36,20 @@ export class TransformRingWriter {
     for (let i = 0; i < capacity; i++) Atomics.store(this._ctrl, i * CTRL_INTS_PER_SLOT + PID_OFF, -1)
   }
 
-  assign(playerId) {
-    if (this._slotOf.has(playerId)) return this._slotOf.get(playerId)
+  hasSlot(playerId) {
+    return this._slotOf.has(playerId)
+  }
+
+  slotOf(playerId) {
+    const slot = this._slotOf.get(playerId)
+    return slot === undefined ? null : slot
+  }
+
+  tryAssign(playerId) {
+    if (this._slotOf.has(playerId)) return
     const slot = this._free.pop()
-    if (slot === undefined) return -1
+    if (slot === undefined) return
     this._slotOf.set(playerId, slot)
-    return slot
   }
 
   release(playerId) {
@@ -57,8 +65,9 @@ export class TransformRingWriter {
   }
 
   write(playerId, position, rotation, velocity) {
-    let slot = this._slotOf.get(playerId)
-    if (slot === undefined) { slot = this.assign(playerId); if (slot === -1) return false }
+    let slot = this.slotOf(playerId)
+    if (slot === null) { this.tryAssign(playerId); slot = this.slotOf(playerId) }
+    if (slot === null) return false
     const cbase = slot * CTRL_INTS_PER_SLOT, pbase = slot * PAYLOAD_FLOATS_PER_SLOT
     const gen = Atomics.load(this._ctrl, cbase + GEN_OFF)
     Atomics.store(this._ctrl, cbase + GEN_OFF, gen + 1)
