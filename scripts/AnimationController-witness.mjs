@@ -23,9 +23,7 @@ const modulePath = positional.length ? resolve(positional[0]) : HONEST_MODULE
 
 // Defects confirmed live on the current tree and filed as PRD rows. They are reported,
 // not asserted, so the honest tree passes; a fix moves its entry into a check.
-const EXCLUDED = [
-  ['X4', 'animation-controller-die-ignored-in-land', 'land has no DIE transition: setState("die") while landing is ignored'],
-]
+const EXCLUDED = []
 
 const results = []
 const record = (id, what, expected, observed) => {
@@ -229,6 +227,19 @@ async function main() {
     })
   }
 
+  await scenario('X4', async () => {
+    const b = recordingBlender()
+    const c = make(b)
+    c.setState('jump')
+    c.update(0.016, { speed: 0, isGrounded: true, verticalVelocity: 0 })
+    const landed = c.getState()
+    c.setState('die')
+    const immediately = c.getState()
+    await sleep(700)
+    record('X4', 'setState("die") while landing reaches die', ['land', 'die'], [landed, immediately])
+    record('X4', 'die is not undone by the 500 ms land timer', 'die', c.getState())
+    record('X4', 'die entry plays Die 0.3', ['playClip', 'Die', 0.3], lastPlay(b))
+  })
   await scenario('K1', () => {
     const b = recordingBlender()
     const c = make(b)

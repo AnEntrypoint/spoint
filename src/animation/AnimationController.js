@@ -171,6 +171,7 @@ export function createAnimationController(blender, options = {}) {
           IDLE: 'idle',
           WALK: 'walk',
           RUN: 'run',
+          DIE: 'die',
         },
       },
       attack: {
