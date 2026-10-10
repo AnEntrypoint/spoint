@@ -193,7 +193,7 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
       info.className = 'ds-ep-propfield-hint'
       info.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px'
       info.append(
-        Object.assign(document.createElement('div'), { textContent: '\u{1F4E6} Binary file -- ' + fmtSize(node.size) }),
+        Object.assign(document.createElement('div'), { textContent: '\u{1F4E6} Binary file -- ' + fmtSize(node ? node.size : null) }),
         Object.assign(document.createElement('div'), { textContent: 'apps/' + _openFile, style: 'color:var(--panel-text-3,var(--fg-3));font-size:11px' })
       )
       container.append(barHost, info)
