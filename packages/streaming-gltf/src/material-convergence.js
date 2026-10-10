@@ -4,12 +4,11 @@ const _textureHashCache = new WeakMap();
 
 function textureHash(tex) {
   if (!tex) return null;
-  if (_textureHashCache.has(tex)) return _textureHashCache.get(tex);
   const img = tex.getImage();
-  const hash = img && img.byteLength
-    ? createHash('sha1').update(Buffer.isBuffer(img) ? img : Buffer.from(img.buffer, img.byteOffset, img.byteLength)).digest('hex')
-    : null;
-  _textureHashCache.set(tex, hash);
+  if (!img || !img.byteLength) return null;
+  if (_textureHashCache.has(img)) return _textureHashCache.get(img);
+  const hash = createHash('sha1').update(Buffer.isBuffer(img) ? img : Buffer.from(img.buffer, img.byteOffset, img.byteLength)).digest('hex');
+  _textureHashCache.set(img, hash);
   return hash;
 }
 
