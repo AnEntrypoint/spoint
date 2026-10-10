@@ -59,7 +59,8 @@ export default {
       const moveZ = (input.forward ? 1 : 0) - (input.backward ? 1 : 0)
       const moveLen = Math.sqrt(moveX * moveX + moveZ * moveZ)
 
-      ctl.isGrounded = ctx.physics.raycastDown(pos, 0.2)
+      const ground = ctx.raycast(pos, [0, -1, 0], 0.2, ctx.physics.getBodyId())
+      ctl.isGrounded = !!ground?.hit
       if (ctl.isGrounded) {
         ctl.lastGroundedTime = ctx.time.elapsed
         if (ctl.fallStartTime) {
@@ -172,10 +173,10 @@ export default {
         Math.sin(ctl.pitchVel),
         Math.cos(ctl.yawVel) * Math.cos(ctl.pitchVel)
       ]
-      const right = engine.THREE.MathUtils.normalize3(
-        engine.THREE.MathUtils.cross3(forward, worldUp)
-      )
-      const actualUp = engine.THREE.MathUtils.cross3(right, forward)
+      const forwardVec = new engine.THREE.Vector3(forward[0], forward[1], forward[2])
+      const worldUpVec = new engine.THREE.Vector3(worldUp[0], worldUp[1], worldUp[2])
+      const right = new engine.THREE.Vector3().crossVectors(forwardVec, worldUpVec).normalize()
+      const actualUp = new engine.THREE.Vector3().crossVectors(right, forwardVec)
 
       if (ctl.cameraMode === 'fps') {
         const eyeHeight = player.custom._charCtl.height - 0.15
@@ -189,8 +190,8 @@ export default {
           eyePos[1] + forward[1],
           eyePos[2] + forward[2]
         ]
-        engine.cam?.setPosition?.(eyePos)
-        engine.cam?.lookAt?.(targetPos)
+        engine.cam?.setPosition?.(eyePos[0], eyePos[1], eyePos[2])
+        engine.cam?.setTarget?.(targetPos[0], targetPos[1], targetPos[2])
       } else {
         const distance = 2.0
         const height = 1.0
@@ -200,8 +201,8 @@ export default {
           playerPos[1] + height,
           playerPos[2] - forward[2] * distance
         ]
-        engine.cam?.setPosition?.(camPos)
-        engine.cam?.lookAt?.([playerPos[0], playerPos[1] + 0.5, playerPos[2]])
+        engine.cam?.setPosition?.(camPos[0], camPos[1], camPos[2])
+        engine.cam?.setTarget?.(playerPos[0], playerPos[1] + 0.5, playerPos[2])
       }
     },
 
