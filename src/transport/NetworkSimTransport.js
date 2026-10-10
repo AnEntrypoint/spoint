@@ -8,7 +8,6 @@ export class NetworkSimTransport extends TransportWrapper {
     this._closed = false
     this._pending = 0
     this._timers = new Set()
-    this._lastScheduledAt = { inbound: 0, outbound: 0 }
     this._pendingQueue = { inbound: [], outbound: [] }
 
     const base = { lossPct: 0, latencyMs: 0, jitterMs: 0, reorderPct: 0 }
@@ -52,7 +51,7 @@ export class NetworkSimTransport extends TransportWrapper {
   }
 
   getStats() {
-    return { ...this._stats }
+    return { ...this._stats, pending: this._pending }
   }
 
   _stats = { inboundSent: 0, inboundDropped: 0, inboundDelivered: 0, inboundReordered: 0,
@@ -74,6 +73,7 @@ export class NetworkSimTransport extends TransportWrapper {
     const entry = { deliver, undelivered }
     const queue = this._pendingQueue[direction]
     queue.push(entry)
+    this._pending++
 
     if (p.reorderPct > 0 && queue.length >= 2 && Math.random() * 100 < p.reorderPct) {
       const prev = queue[queue.length - 2]
@@ -88,7 +88,7 @@ export class NetworkSimTransport extends TransportWrapper {
     const timer = setTimeout(() => {
       this._timers.delete(timer)
       const idx = queue.indexOf(entry)
-      if (idx >= 0) queue.splice(idx, 1)
+      if (idx >= 0) { queue.splice(idx, 1); this._pending-- }
       if (this._closed) return
       const accepted = entry.deliver()
       if (accepted === false && entry.undelivered !== undefined) {
@@ -123,6 +123,7 @@ export class NetworkSimTransport extends TransportWrapper {
     this._timers.clear()
     this._pendingQueue.inbound.length = 0
     this._pendingQueue.outbound.length = 0
+    this._pending = 0
     this.inner.close()
   }
 }
