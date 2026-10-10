@@ -4570,3 +4570,35 @@ DONE gm-libsql-refresh-lock-blocks-codeinsight resolved 1791661172780-500-75b503
 2026-10-10T19:43:28.692Z | witness=ci-status-success-38031496760-guest-v0.1.1549 | row=gm-ci-status-403-rate-limit-no-fallback-spoint-orch-b186-r15 | exit=0 | sha256=6f9f04342221c267b444d8f9adb4d8492e1f673b2c32bfe77e10daf367b07250 | dispatch_id=1791661343152-500-6231732fc6b374b4 | session=orch-main-r72-sub2 | guest=0.1.1549/8cffdaf9209ac996cdb2c451332c9777fc8325dbccad3658601a6bbec2049bbd | RESULT: PASS ci-status sha 5db14ec17f4b6e26f9618e1a6b5e7b8993460871 -> status success run 38031496760 (repo AnEntrypoint/spoint) on served gm.wasm v0.1.1549
 tick 32 event=launch-1 live=20 ceiling=20 pending=4597 2026-10-10T19:43:41.516Z
 DONE gm-orchestrate-skill-edit commit=b3495276d0ca73f4eadeb700e8e1968b590dfe06 merge=425b6aec1648febb877344a28f50e7be19358919 pushed=true ci=pending
+RESULT gm-wait-verb-max-ms-60000-caps-incident-wait-spoint-orch-b186-r69 resolved 1791661361582-500-1da78ad4185afbb2 shas=1d5a5664,bc592cf815 2026-10-10T19:50:05.861Z
+CI gm 425b6aec1648febb877344a28f50e7be19358919 status=success jobs=release(skill-release),scan(doc-drift) 2026-10-10T19:50:05.861Z
+MEASURE pool-observe-advertised-held live=18 slots=2 advertised=perf-dynamic-quality-governor-u2,perf-foliage-one-frame-u1 both-held-by-live=true skipped=true 2026-10-10T19:50:05.861Z
+tick 33 event=done-3-launch-1 live=18 ceiling=20 pending=4597 2026-10-10T19:50:05.861Z
+tick 34 event=launch-2-unheld live=20 ceiling=20 pending=4597 2026-10-10T19:50:05.861Z
+RESULT witness-gap-SpointCoreLib resolved 1791661076114-500-22acbd92990feed1 sha=c7993ef71b7bce22259288009db614a705e34b6d 2026-10-10T19:51:35.594Z
+tick 35 event=done-1 live=19 ceiling=20 pending=4597 2026-10-10T19:51:35.594Z
+RESULT gm-ci-status-403-rate-limit-no-fallback-spoint-orch-b186-r15 resolved 1791661343152-500-6231732fc6b374b4 sha=f4c77ca9dd79edd3551e11c30b70ae45c5a6b141 2026-10-10T19:52:43.953Z
+HOP RICE C:/dev/spoint/client/core witness=1791661393834-500-b83e3c1015a71cee rows=2(RICE-in-r93-1,RICE-in-r93-2) retired=2 next=HALTING 2026-10-10T19:52:43.953Z
+tick 36 event=done-2-launch-3 live=20 ceiling=20 pending=4597 2026-10-10T19:52:43.953Z
+MEASURE git-show-no-object-2 rev=f4c77ca9dd79edd3551e11c30b70ae45c5a6b141 root=gm fields-returned=rev-only note=second-sighting-silent-empty worker=aee9af7ceceda0f18 2026-10-10T19:53:08.110Z
+2026-10-10T19:54:06Z | prd-add id-first fix witness (scratch .gm/prd.yml outside both repos, scan for a leading "- id:") | exit=0 | RESULT: PASS -- 3 block(s), all begin with "- id:"; probe-id-first-key-r91 and probe-id-first-key-r91-b pending | exec_js 1791661875183-6-e7dcd39518113a8c | prd-add 1791661850198-4-4dce4f5ede04f4eb | rs-plugkit c62d581dbf20046592aee6f4901f6c5f95132324 | row=gm-prd-add-session-first-key-breaks-text-scan
+RESULT perf-dynamic-quality-governor-60fps-no-pixel-doubling-spoint-orch-b186-u2 resolved 1791660657115-500-73a1cfc160a4ba44 sha=254e03eb11df5db629fc8d51846e4051c518fc23 2026-10-10T19:54:51.115Z
+RESULT gm-prd-resolve-silent-drop-witness-binding-object resolved 1791661844082-500-71a98479ec61faf2 sha=057db0e8c8a31c749ab7df241cdd28cc8886a743 2026-10-10T19:54:51.115Z
+tick 37 event=done-2 live=18 ceiling=20 pending=4597 2026-10-10T19:54:51.115Z
+git_show 057db0e8c8a31c749ab7df241cdd28cc8886a743 root=gm ok merge=48d2b13,8a23a31 file=package.json 2026-10-10T19:55:34.052Z
+MEASURE pool-heartbeats live=18 live_heartbeats=8 live_rows=6 note=dedupe-healthy-after-heartbeat-step 2026-10-10T19:55:34.052Z
+tick 38 event=launch-2-unheld live=20 ceiling=20 pending=4597 2026-10-10T19:55:34.052Z
+notify-gm-live | exit 0 | RESULT: PASS notify-gm-live: gm-config run 38081562171 step "Dispatch submodule-released to AnEntrypoint/gm" HTTP 204; ci-status success on a2443393 (run 38061156218); AnEntrypoint/gm bump-pins 38081567967 repository_dispatch success | 2026-10-10T19:53:13Z | 1791662054912-460-cec14a312c9c2156
+RESULT gm-prd-add-session-first-key-breaks-text-scan resolved 1791662102217-500-ea74fc78d34ca4b9 sha=c62d581dbf20046592aee6f4901f6c5f95132324 2026-10-10T19:57:58.608Z
+ROW-FILED gm-pool-observe-advertises-held-rows-beyond-heartbeat project=gm kind=defect 2026-10-10T19:57:58.608Z
+tick 39 event=done-1-launch-1 live=20 ceiling=20 pending=4597 2026-10-10T19:57:58.608Z
+MEASURE git-show-no-object-3 rev=c62d581dbf20046592aee6f4901f6c5f95132324 root=gm stat=true fields-returned=rev-only note=third-sighting;057db0e8-with-stat-returned-output-so-stat-is-not-the-cause 2026-10-10T19:58:27.786Z
+MEASURE spawn-ceiling-2 live=20 refusal=Concurrent-subagent-limit-reached-20 2026-10-10T19:58:27.786Z
+2026-10-10T19:57:14.426Z progression-witness label=honest-reverify exit=0 RESULT: PASS claims=31 failed=0 | out=.gm/witness-out/progression-witness-2026-10-10T19-57-14-426Z-17612-6481f1d4.txt | output_sha256=35b7a40fe379f3074a0017d24056b8b14177e9eb7babf2e9ba311f8c98c091c0 | witness_sha256=c81a51bd17b0a9cf1d53953484a807ac641aa9e5b177f33ce7593629e08ce612 | module_sha256=3562d439a049018214e3b176a870d75ad0f67e739c9d1ba07c5268eaa62d3f16 | witness_ts=2026-10-10T19:57:14.426Z | dispatch=1791662234471-500-8301968dcc7d0076 | session=orch-main-r99 row=witness-gap-progression
+RESULT gm-config-notify-gm-publisher-token-empty resolved 1791662432283-500-eaf5bbf773ade51b sha=a2443393f0684085a4d70a350f834494f9e6f1c8
+tick 40 event=done-a2193e6b661848cad live=19 pending=4597 2026-10-10T20:04:11.780Z
+HOP HALTING C:/dev/spoint/client/core witness=1791662543031-500-2932c802b6987fc7 rows=4(HALTING-n-r101-1..4) next=POPPER retired=1
+tick 41 event=done-a5ba3d6f40821edb9,launch-a8ac00858ecf28cd4,launch-abc6e24aefc077d07 live=20 pending=4597 2026-10-10T20:06:00.628Z
+MEASURE gm-finalize-during-merge project=gm verb=git_finalize error=cannot-do-a-partial-commit-during-a-merge action=defer
+2026-10-10T20:02:46.305Z progression-witness label=mutant-curve-linear exit=1 RESULT: FAIL claims=31 failed=1 (C22 getStatScaling at level 4 expected=130 got=115) | out=.gm/witness-out/progression-witness-2026-10-10T20-02-46-305Z-17428-ee4047d1.txt | output_sha256=dd5c71e9dfc2ae8859156da6ff86b93cf65d5565e08b3f928cc888d59a846cd3 | mutant_sha256=aab2e1b2a5f5f4033f2d635d9bab095079e8bdf9705969994baa6778059217e6 | mutation=apps/_lib/progression.js:113 getStatScaling(level, baseValue, progressionCfg.curve) -> (level, baseValue, linear) | witness_ts=2026-10-10T20:02:46.305Z | dispatch=1791662566347-500-3ab2b6d47290a49e | session=orch-main-r99 row=witness-gap-progression
+2026-10-10T20:04:05.720Z progression-witness label=mutant-control-relocation-only exit=0 RESULT: PASS claims=31 failed=0 | out=.gm/witness-out/progression-witness-2026-10-10T20-04-05-720Z-11948-0ecfad1d.txt | output_sha256=1a3b26ab7999cc37bd329112193d4684aacede752114939ccde068a528030d09 | note=scratch copy with the import specifier relocated one level and NO behavioural change, so the kill above is attributable to the curve mutation alone | witness_ts=2026-10-10T20:04:05.720Z | session=orch-main-r99 row=witness-gap-progression
