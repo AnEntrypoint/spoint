@@ -1,5 +1,63 @@
 import { TransportWrapper } from './TransportWrapper.js'
 
+const SIM_MAX_DELAY_MS = 2147483647
+
+const SIM_PROFILE_RANGES = Object.assign(Object.create(null), {
+  lossPct: [0, 100],
+  latencyMs: [0, SIM_MAX_DELAY_MS],
+  jitterMs: [0, SIM_MAX_DELAY_MS],
+  reorderPct: [0, 100]
+})
+
+const SIM_PROFILE_KEYS = Object.keys(SIM_PROFILE_RANGES)
+
+const SIM_PROFILE_BASE = Object.freeze(SIM_PROFILE_KEYS.reduce((base, key) => {
+  base[key] = SIM_PROFILE_RANGES[key][0]
+  return base
+}, {}))
+
+function describe(value) {
+  return typeof value === 'string' ? JSON.stringify(value) : String(value)
+}
+
+function assertSimProfile(profile, label) {
+  for (const key of Object.keys(profile)) {
+    const range = SIM_PROFILE_RANGES[key]
+    if (!range) {
+      throw new TypeError(`[network-sim] ${label}: unknown profile field "${key}", expected one of ${SIM_PROFILE_KEYS.join(', ')}`)
+    }
+    const value = profile[key]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < range[0] || value > range[1]) {
+      throw new TypeError(`[network-sim] ${label}: ${key} must be a finite number in [${range[0]}, ${range[1]}], got ${describe(value)}`)
+    }
+  }
+  const delay = (profile.latencyMs || 0) + (profile.jitterMs || 0)
+  if (delay > SIM_MAX_DELAY_MS) {
+    throw new TypeError(`[network-sim] ${label}: latencyMs + jitterMs must be <= ${SIM_MAX_DELAY_MS}, got ${delay}`)
+  }
+  return profile
+}
+
+function pickSides(spec, label) {
+  if (spec === null || typeof spec !== 'object') {
+    throw new TypeError(`[network-sim] ${label}: profile must be an object, got ${describe(spec)}`)
+  }
+  const directional = spec.inbound !== undefined || spec.outbound !== undefined
+  if (!directional) return { inbound: spec, outbound: spec }
+  for (const key of Object.keys(spec)) {
+    if (key !== 'inbound' && key !== 'outbound') {
+      throw new TypeError(`[network-sim] ${label}: unknown profile field "${key}", expected inbound/outbound or one of ${SIM_PROFILE_KEYS.join(', ')}`)
+    }
+  }
+  for (const side of ['inbound', 'outbound']) {
+    const value = spec[side]
+    if (value !== undefined && (value === null || typeof value !== 'object')) {
+      throw new TypeError(`[network-sim] ${label}: ${side} must be an object, got ${describe(value)}`)
+    }
+  }
+  return { inbound: spec.inbound, outbound: spec.outbound }
+}
+
 export class NetworkSimTransport extends TransportWrapper {
   constructor(inner, config = {}) {
     super()
@@ -9,10 +67,10 @@ export class NetworkSimTransport extends TransportWrapper {
     this._timers = new Set()
     this._pendingQueue = { inbound: [], outbound: [] }
 
-    const base = { lossPct: 0, latencyMs: 0, jitterMs: 0, reorderPct: 0 }
+    const sides = pickSides(config, 'constructor')
     this.profile = {
-      inbound: { ...base, ...(config.inbound || config) },
-      outbound: { ...base, ...(config.outbound || config) }
+      inbound: assertSimProfile({ ...SIM_PROFILE_BASE, ...sides.inbound }, 'constructor.inbound'),
+      outbound: assertSimProfile({ ...SIM_PROFILE_BASE, ...sides.outbound }, 'constructor.outbound')
     }
 
     this.ready = inner.isOpen
@@ -36,13 +94,13 @@ export class NetworkSimTransport extends TransportWrapper {
   }
 
   configure(partial) {
-    if (partial.inbound || partial.outbound) {
-      Object.assign(this.profile.inbound, partial.inbound || {})
-      Object.assign(this.profile.outbound, partial.outbound || {})
-    } else {
-      Object.assign(this.profile.inbound, partial)
-      Object.assign(this.profile.outbound, partial)
+    const sides = pickSides(partial, 'configure')
+    const next = {}
+    for (const side of ['inbound', 'outbound']) {
+      if (sides[side] === undefined) continue
+      next[side] = assertSimProfile({ ...this.profile[side], ...sides[side] }, `configure.${side}`)
     }
+    for (const side of Object.keys(next)) this.profile[side] = next[side]
   }
 
   getProfile() {
@@ -133,4 +191,8 @@ export const NETWORK_SIM_PRESETS = {
   roadmapTarget: { lossPct: 3, latencyMs: 150, jitterMs: 20, reorderPct: 2 },
   degradedWan: { lossPct: 5, latencyMs: 200, jitterMs: 60, reorderPct: 5 },
   brutal: { lossPct: 10, latencyMs: 300, jitterMs: 100, reorderPct: 10 }
+}
+
+for (const [name, preset] of Object.entries(NETWORK_SIM_PRESETS)) {
+  assertSimProfile({ ...SIM_PROFILE_BASE, ...preset }, `NETWORK_SIM_PRESETS.${name}`)
 }
