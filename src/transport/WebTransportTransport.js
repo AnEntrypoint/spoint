@@ -10,6 +10,7 @@ export class WebTransportTransport extends TransportWrapper {
     this.reliableReader = null
     this.datagramWriter = null
     this._closed = false
+    this._lastSendError = null
     this._init()
   }
 
@@ -66,12 +67,34 @@ export class WebTransportTransport extends TransportWrapper {
     return this.ready && !this._closed
   }
 
+  get lastSendError() {
+    return this._lastSendError
+  }
+
+  _releaseDatagramWriter() {
+    const writer = this.datagramWriter
+    this.datagramWriter = null
+    if (writer) {
+      try { writer.releaseLock() } catch (e) {}
+    }
+  }
+
+  _reportSendFailure(channel, data, error) {
+    this._lastSendError = { channel, data, error }
+    this.emit('send-error', { channel, data, error })
+  }
+
   send(data) {
     if (!this.isOpen || !this.reliableWriter) return false
     try {
-      this.reliableWriter.write(data).catch(() => { if (!this._closed) this._handleClose() })
+      const written = this.reliableWriter.write(data)
+      Promise.resolve(written).catch((error) => {
+        this._reportSendFailure('reliable', data, error)
+        if (!this._closed) this._handleClose()
+      })
       return true
-    } catch (e) {
+    } catch (error) {
+      this._reportSendFailure('reliable', data, error)
       return false
     }
   }
@@ -80,10 +103,15 @@ export class WebTransportTransport extends TransportWrapper {
     if (!this.isOpen) return false
     try {
       if (!this.datagramWriter) this.datagramWriter = this.session.datagrams.writable.getWriter()
-      this.datagramWriter.write(data).catch(() => { if (!this._closed) this._handleClose() })
+      const written = this.datagramWriter.write(data)
+      Promise.resolve(written).catch((error) => {
+        this._reportSendFailure('unreliable', data, error)
+        this._releaseDatagramWriter()
+      })
       return 'datagram'
-    } catch (e) {
-      this.datagramWriter = null
+    } catch (error) {
+      this._releaseDatagramWriter()
+      this._reportSendFailure('unreliable', data, error)
       return this.send(data) ? 'reliable' : false
     }
   }
