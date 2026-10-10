@@ -118,8 +118,8 @@ export default {
       const moved = _dist2d(finalPos, st.lastPos)
       if (moved < DEFAULT_STUCK_EPSILON && !justRetargeted) {
         st.stillTicks++
-        if (st.stillTicks === st.stuckTicks) {
-          _logFinding(ctx, 'stuck', `position unchanged for ${st.stuckTicks} ticks`, finalPos)
+        if (st.stillTicks >= st.stuckTicks) {
+          _logFinding(ctx, 'stuck', `position unchanged for ${st.stillTicks} ticks`, finalPos)
           st.path = null
           const ang = Math.random() * Math.PI * 2, r = Math.random() * st.wanderRadius
           st.wanderTarget = [st.home[0] + Math.cos(ang) * r, st.home[1], st.home[2] + Math.sin(ang) * r]
