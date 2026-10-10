@@ -26,7 +26,7 @@ const VEG_SHARED_IMPOSTOR_OPAQUE_DRAW_ORDER = 4
 const BUILD_SLICE_BUDGET_MS = 8
 const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const _tintUniform = new THREE.Vector3()
-const bootSpan = (step, label, t0) => { try { performance.measure('boot:veg:' + label + ':' + step, { start: t0, end: performance.now() }) } catch (_) {} }
+const bootSpan = (step, label, t0) => { try { performance.measure('boot:vegetation:' + label + ':' + step, { start: t0, end: performance.now() }) } catch (_) {} }
 const _leanQ = new THREE.Quaternion()
 const barkTintLuma = (t) => 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]
 const SHARED_IMPOSTOR_BAKE = Symbol('shape variants share the species impostor bake')
@@ -260,7 +260,7 @@ export async function createVegetation(opts = {}) {
       _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
   }
-  performance.mark('boot:veg:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
+  performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
   const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
 
   try {
@@ -344,6 +344,9 @@ export async function createVegetation(opts = {}) {
 
   const loaded = new Map()
   const deferredChunks = new Set()
+  // Chunks a rebuild discarded the placement of: they keep drawing what they hold until loadChunk
+  // has built their replacement, so a rebuild swaps trees instead of blanking the ring.
+  const staleKeys = new Set()
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, VEG, ringRadius)
   let _occCands = null
@@ -354,7 +357,8 @@ export async function createVegetation(opts = {}) {
   const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
 
   function loadChunk(key, px, pz) {
-    if (loaded.has(key)) return true
+    const replacingStale = staleKeys.has(key)
+    if (loaded.has(key) && !replacingStale) return true
     const _lcT0 = _nowMs()
     const entries = []
     let list
@@ -368,6 +372,7 @@ export async function createVegetation(opts = {}) {
       return false
     }
     deferredChunks.delete(key)
+    if (replacingStale) unloadChunk(key)
     const _haveCam = Number.isFinite(px) && Number.isFinite(pz)
     const byRec = new Map()
     let _minY = Infinity, _maxY = -Infinity
@@ -440,6 +445,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function unloadChunk(key) {
+    staleKeys.delete(key)
     const cell = loaded.get(key)
     if (!cell) return
     for (const en of cell.entries) {
@@ -487,11 +493,11 @@ export async function createVegetation(opts = {}) {
       attempts++
       if (loadChunk(key, px, pz)) didLoad = true
     }
-    for (let ringAttempts = 0; totalInstances < MAX_INSTANCES && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
+    for (let ringAttempts = 0; (staleKeys.size > 0 || totalInstances < MAX_INSTANCES) && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
       let found = false
       for (; _vegSpiralCursor < ring.length; _vegSpiralCursor++) {
         const key = ring[_vegSpiralCursor]
-        if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !staleKeys.has(key)) || deferredChunks.has(key)) continue
         if (loadChunk(key, px, pz)) didLoad = true
         found = true; break
       }
@@ -502,6 +508,9 @@ export async function createVegetation(opts = {}) {
       if (placementRing.distSqFromFocus(key) <= dropRadiusSq) continue
       if (didDrop && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
       unloadChunk(key); didDrop = true
+    }
+    if (staleKeys.size > 0 && !didLoad && !didDrop && deferredChunks.size === 0) {
+      for (const key of [...staleKeys]) { unloadChunk(key); didDrop = true }
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -522,7 +531,7 @@ export async function createVegetation(opts = {}) {
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (n >= minChunks && workMs >= budgetMs) break
-      if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
+      if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !staleKeys.has(key))) continue
       const _c0 = _nowMs()
       if (loadChunk(key, px, pz)) n++
       else deferred++
@@ -832,7 +841,7 @@ export async function createVegetation(opts = {}) {
     get sharedImpostor() { return sharedImpostor ? sharedImpostor.mesh : null },
     get totalInstances() { return totalInstances },
     get profile() { return profile },
-    rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN },
+    rebuildPlacement() { for (const key of loaded.keys()) staleKeys.add(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN },
     repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); this.rebuildPlacement() },
     biomeOverride,
     getOcclusionCandidates, applyOcclusion,
