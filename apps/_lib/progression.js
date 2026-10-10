@@ -7,6 +7,18 @@ import {
   getStatScaling
 } from '../../src/game/index.js'
 
+const ABILITY_TREE_APP_METHODS = [
+  'getAbility',
+  'getAbilityCooldown',
+  'canCastAbility',
+  'castAbility',
+  'getHotkeyBinding',
+  'getAllAbilities',
+  'getUnlockedAbilities',
+  'getPlayerAbilityInfo',
+  'getCooldownsForNetwork'
+]
+
 export function defineProgression(spec = {}) {
   const progressionCfg = {
     ...DEFAULT_CONFIG,
@@ -15,6 +27,11 @@ export function defineProgression(spec = {}) {
 
   const progression = createProgressionSystem(progressionCfg)
   const abilityTree = createAbilityTree(spec.abilities || DEFAULT_ABILITIES, spec.hotkeys || HOTKEY_MAP)
+  const appAbilityTree = Object.freeze(
+    Object.fromEntries(
+      ABILITY_TREE_APP_METHODS.map((name) => [name, abilityTree[name].bind(abilityTree)])
+    )
+  )
 
   const system = {
     progression,
@@ -22,7 +39,7 @@ export function defineProgression(spec = {}) {
 
     setup(ctx) {
       ctx.progression = {
-        abilityTree,
+        abilityTree: appAbilityTree,
         addXp(amount) {
           const playerId = ctx.entity.id
           const leveledUp = progression.addXp(playerId, amount)
