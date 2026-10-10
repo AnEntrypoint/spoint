@@ -46,10 +46,10 @@ function patchTextureSources(buf) {
     if (tex.source === undefined) { tex.source = 0; changed = true }
   }
   if (!changed) return buf
-  const pjStr = JSON.stringify(json)
-  const pjPad = (4 - (pjStr.length % 4)) % 4
-  const pjBuf = Buffer.alloc(pjStr.length + pjPad, 0x20)
-  Buffer.from(pjStr).copy(pjBuf)
+  const pjBytes = Buffer.from(JSON.stringify(json))
+  const pjPad = (4 - (pjBytes.length % 4)) % 4
+  const pjBuf = Buffer.alloc(pjBytes.length + pjPad, 0x20)
+  pjBytes.copy(pjBuf)
   const binStart = 20 + jsonLen + 8
   const binLen = view.getUint32(20 + jsonLen, true)
   const binBuf = buf.slice(binStart, binStart + binLen)
@@ -170,10 +170,10 @@ export async function processGLB(inputBuf) {
 
   const newJson = { ...json, extensionsUsed: extsUsed, extensionsRequired: extsRequired, bufferViews: newBufViews, images: newImages, textures: newTextures, buffers: [{ byteLength: newOffset }] }
 
-  const jsonStr = JSON.stringify(newJson)
-  const jsonPad = (4 - (jsonStr.length % 4)) % 4
-  const jsonBuf = Buffer.alloc(jsonStr.length + jsonPad, 0x20)
-  Buffer.from(jsonStr).copy(jsonBuf)
+  const jsonBytes = Buffer.from(JSON.stringify(newJson))
+  const jsonPad = (4 - (jsonBytes.length % 4)) % 4
+  const jsonBuf = Buffer.alloc(jsonBytes.length + jsonPad, 0x20)
+  jsonBytes.copy(jsonBuf)
 
   const newBin = Buffer.concat(newChunks)
   const binPad = (4 - (newBin.length % 4)) % 4
