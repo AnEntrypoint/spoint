@@ -1,4 +1,4 @@
-import { rayVsCapsule, hitHeightRatio, DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
+import { rayVsCapsule, hitHeightRatio, normalizeShotDirection, DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
 
 export const POWERUP_DEFS = [
   { type: 'damage', color: 0xff3344, emissive: 0xaa0000, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 1, damageMultiplier: 2 } },
@@ -58,12 +58,15 @@ export const EMOTE_WHEEL_SLOTS = [
   { code: 'sit', label: 'Sit' },
 ]
 
+const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
+
 export function predictHit(origin, dir, players, selfId, headshotZone) {
-  if (!origin || !dir || !players) return null
+  const direction = normalizeShotDirection(dir)
+  if (!isFiniteVec3(origin) || !direction || !Array.isArray(players)) return null
   for (const p of players) {
-    if (!p || p.id === selfId || !p.position) continue
+    if (!p || p.id === selfId || !isFiniteVec3(p.position)) continue
     if ((p.health ?? 100) <= 0) continue
-    const hit = rayVsCapsule(origin, dir, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
+    const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
     if (!hit) continue
     return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= (headshotZone ?? DEFAULT_HEADSHOT_ZONE) }
   }
