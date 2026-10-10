@@ -6,6 +6,8 @@ const DEFAULT_AIR_CONTROL = 0.5
 const GRAVITY = 9.8
 const FALL_DAMAGE_THRESHOLD = 15.0
 const FALL_DAMAGE_SCALE = 1.0
+const COLLIDER_CAPSULE_RADIUS_M = 0.3
+const GROUND_PROBE_SKIN_M = 0.1
 
 export default {
   description: 'Smooth FPS/TPS character controller with spring-damped camera, WASD movement, jumping with coyote buffer, physics capsule, and animation state.',
@@ -59,7 +61,8 @@ export default {
       const moveZ = (input.forward ? 1 : 0) - (input.backward ? 1 : 0)
       const moveLen = Math.sqrt(moveX * moveX + moveZ * moveZ)
 
-      const ground = ctx.raycast(pos, [0, -1, 0], 0.2, ctx.physics.getBodyId())
+      const groundProbeM = (ctl.height / 2) + COLLIDER_CAPSULE_RADIUS_M + GROUND_PROBE_SKIN_M
+      const ground = ctx.raycast(pos, [0, -1, 0], groundProbeM, ctx.physics.getBodyId())
       ctl.isGrounded = !!ground?.hit
       if (ctl.isGrounded) {
         ctl.lastGroundedTime = ctx.time.elapsed
