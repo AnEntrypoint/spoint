@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { validateManifest } from '../src/sdk/AppManifest.js'
 
 const PORT = parseInt(process.env.PORT || '3100', 10)
@@ -9,27 +9,43 @@ const DATA_FILE = process.env.DATA_FILE || './registry-data.json'
 
 let _registry = new Map()
 
-function loadRegistry() {
-  if (existsSync(DATA_FILE)) {
-    try {
-      const raw = readFileSync(DATA_FILE, 'utf-8')
-      const entries = JSON.parse(raw)
-      if (Array.isArray(entries)) {
-        _registry = new Map(entries.map(e => [e.name, e]))
-        console.log(`Loaded ${_registry.size} entries from ${DATA_FILE}`)
-      }
-    } catch (err) {
-      console.error(`Failed to load registry from ${DATA_FILE}:`, err.message)
-    }
+class RegistryLoadError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'RegistryLoadError'
   }
 }
 
-function saveRegistry() {
+function loadRegistry() {
+  if (!existsSync(DATA_FILE)) return
+  let entries
   try {
-    const entries = [..._registry.values()]
-    writeFileSync(DATA_FILE, JSON.stringify(entries, null, 2), 'utf-8')
+    entries = JSON.parse(readFileSync(DATA_FILE, 'utf-8'))
   } catch (err) {
-    console.error(`Failed to save registry to ${DATA_FILE}:`, err.message)
+    throw new RegistryLoadError(`${DATA_FILE} is not valid JSON (${err.message}); refusing to start with an empty registry`)
+  }
+  if (!Array.isArray(entries) || !entries.every(e => e !== null && typeof e === 'object')) {
+    throw new RegistryLoadError(`${DATA_FILE} does not hold a JSON array of app manifests; refusing to start with an empty registry`)
+  }
+  _registry = new Map(entries.map(e => [e.name, e]))
+  console.log(`Loaded ${_registry.size} entries from ${DATA_FILE}`)
+}
+
+function saveRegistry(registry) {
+  const tmp = `${DATA_FILE}.tmp`
+  const payload = JSON.stringify([...registry.values()], null, 2)
+  try {
+    const fd = openSync(tmp, 'w')
+    try {
+      writeFileSync(fd, payload, 'utf-8')
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(tmp, DATA_FILE)
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
   }
 }
 
@@ -194,8 +210,16 @@ const server = createServer(async (req, res) => {
       }
 
       const replaced = existing ? existing.version : null
-      _registry.set(body.name, body)
-      saveRegistry()
+      const next = new Map(_registry)
+      next.set(body.name, body)
+      try {
+        saveRegistry(next)
+      } catch (err) {
+        console.error(`Failed to save registry to ${DATA_FILE}:`, err.message)
+        jsonResponse(res, 500, { error: 'registry not saved', name: body.name, version: body.version })
+        return
+      }
+      _registry = next
       console.log(`Published: ${body.name}@${body.version}${replaced ? ` (replaced ${replaced})` : ''}`)
       jsonResponse(res, 200, { ok: true, name: body.name, version: body.version, replaced })
       return
@@ -208,7 +232,12 @@ const server = createServer(async (req, res) => {
   }
 })
 
-loadRegistry()
+try {
+  loadRegistry()
+} catch (err) {
+  console.error(`${err.name}: ${err.message}`)
+  process.exit(1)
+}
 server.listen(PORT, () => {
   console.log(`Marketplace registry running on http://localhost:${PORT}`)
   console.log(`  GET  /index           -- list all apps`)
