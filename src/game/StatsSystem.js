@@ -32,15 +32,31 @@ export function defineStatsSystem(spec = {}, appCtx) {
     }
   }
 
+  const _xpForLevel = (level) => (level <= 1 ? 0 : xpPerLevel * (level - 1))
+
+  const _levelFromXP = (totalXP) => {
+    let level = 1
+    while (level < maxLevel && totalXP >= _xpForLevel(level + 1)) {
+      level++
+    }
+    return Math.min(level, maxLevel)
+  }
+
+  const _levelForXP = (totalXP, floorLevel) => {
+    const floor = typeof floorLevel === 'number' && !Number.isNaN(floorLevel) ? Math.max(1, floorLevel) : 1
+    return Math.min(maxLevel, Math.max(floor, _levelFromXP(totalXP)))
+  }
+
   const _playerData = new Map()
 
   const _getPlayerData = (pid) => {
     const key = String(pid)
     let data = _playerData.get(key)
     if (!data) {
+      const level = Math.min(startLevel, maxLevel)
       data = {
-        level: startLevel,
-        xp: startXP,
+        level,
+        xp: Math.max(startXP, _xpForLevel(level)),
         equipment: new Map(),
         loadouts: new Map(),
         bonuses: new Map(),
@@ -79,16 +95,11 @@ export function defineStatsSystem(spec = {}, appCtx) {
 
   const statsSystem = {
     _xpForLevel(level) {
-      if (level <= 1) return 0
-      return xpPerLevel * (level - 1)
+      return _xpForLevel(level)
     },
 
     _levelFromXP(totalXP) {
-      let level = 1
-      while (level < maxLevel && totalXP >= this._xpForLevel(level + 1)) {
-        level++
-      }
-      return Math.min(level, maxLevel)
+      return _levelFromXP(totalXP)
     },
 
     addXP(pid, amount) {
@@ -97,7 +108,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
       const data = _getPlayerData(pid)
       const oldLevel = data.level
       data.xp = Math.min(this._xpForLevel(maxLevel + 1), data.xp + amount)
-      data.level = this._levelFromXP(data.xp)
+      data.level = _levelForXP(data.xp, data.level)
 
       if (data.level > oldLevel) {
         _fire('onLevelUp', { playerId: String(pid), level: data.level, stats: statsSystem.getStats(pid) })
@@ -274,9 +285,12 @@ export function defineStatsSystem(spec = {}, appCtx) {
       _playerData.clear()
 
       for (const [pid, playerData] of Object.entries(data)) {
+        const declaredXP = typeof playerData.xp === 'number' && !Number.isNaN(playerData.xp) ? playerData.xp : 0
+        const declaredLevel = typeof playerData.level === 'number' && !Number.isNaN(playerData.level) ? playerData.level : startLevel
+        const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(0, declaredXP))
         const restored = {
-          level: Math.min(maxLevel, Math.max(1, playerData.level || startLevel)),
-          xp: Math.max(0, playerData.xp || 0),
+          level: _levelForXP(xp, Math.max(startLevel, declaredLevel)),
+          xp,
           equipment: new Map(),
           loadouts: new Map(),
           bonuses: new Map(),
