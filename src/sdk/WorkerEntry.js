@@ -253,7 +253,7 @@ if (hasWorkerPostMessage) {
       const RAY_HALF_RANGE_M = 20000
       try {
         const r = _ctx.physics.raycast([data.x, RAY_HALF_RANGE_M, data.z], [0, -1, 0], RAY_HALF_RANGE_M * 2)
-        self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: !!r.hit, y: r.hit ? r.position[1] : null, bodyId: r.hit ? r.bodyId ?? r.body ?? null : null, terrainHeightSource: _ctx.physics._terrainHeightSource || null })
+        self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: !!r.hit, y: r.hit ? r.position[1] : null, bodyId: r.hit ? r.bodyId ?? r.body ?? null : null, groundFrozen: _ctx.physics.groundFrozenAt ? _ctx.physics.groundFrozenAt(data.x, data.z) : null })
       } catch (e) { self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: false, error: e?.message || String(e) }) }
       return
     }
@@ -277,8 +277,9 @@ if (hasWorkerPostMessage) {
       const trunkStreamer = trs ? { liveCount: trs.liveCount, centers: trs.centers, rebuildCount: trs.rebuildCount } : null
       const frame = physics._planetFrame
       const frameGround = frame ? guardedGroundHeight('debug collider probe chart height', (x, z) => frame.groundHeightLocal(x, z), null) : null
-      const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frameGround ? frameGround(x, z) : null }))
-      self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, trunkStreamer, terrainFields, terrainBodyId: physics.getTerrainBodyId(), workerPlayers, rockIdCount: rockIds ? rockIds.size : null, heightProbe, heightSource: physics._terrainHeightSource })
+      const groundFrozen = typeof physics.groundFrozenAt === 'function' ? physics.groundFrozenAt : () => null
+      const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frameGround ? frameGround(x, z) : null, groundFrozen: groundFrozen(x, z) }))
+      self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, trunkStreamer, terrainFields, terrainBodyId: physics.getTerrainBodyId(), workerPlayers, rockIdCount: rockIds ? rockIds.size : null, heightProbe })
       return
     }
 

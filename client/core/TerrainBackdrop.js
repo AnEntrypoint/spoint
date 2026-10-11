@@ -128,7 +128,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     const z = (dx * frame.north[0] + dy * frame.north[1] + dz * frame.north[2]) * L
     if (typeof window === 'undefined' || !window.__client || typeof window.__client.queryColliderHeight !== 'function') return { ok: false, reason: 'no singleplayer BrowserServer client (window.__client.queryColliderHeight missing)', x, z }
     const r = await window.__client.queryColliderHeight(x, z)
-    return { ok: !!r.hit, x, z, colliderY: r.hit ? r.y : null, terrainHeightSource: r.terrainHeightSource || null, raw: r }
+    return { ok: !!r.hit, x, z, colliderY: r.hit ? r.y : null, groundFrozen: r.groundFrozen ?? null, raw: r }
   }
 
   const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _eye = [0, 0, 0], _tgt = [0, 0, 0], _fwdE = [0, 0, 0]
