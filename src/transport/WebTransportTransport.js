@@ -1,4 +1,4 @@
-import { TransportWrapper } from './TransportWrapper.js'
+import { SEND_ACCEPTED, SEND_REJECTED, TransportWrapper } from './TransportWrapper.js'
 
 export const LIFECYCLE_CONNECTING = 'connecting'
 export const LIFECYCLE_OPEN = 'open'
@@ -69,14 +69,6 @@ export class WebTransportTransport extends TransportWrapper {
     return this.lifecycle === LIFECYCLE_OPEN
   }
 
-  get ready() {
-    return this.isOpen
-  }
-
-  set ready(open) {
-    this.lifecycle = open ? LIFECYCLE_OPEN : LIFECYCLE_CLOSED
-  }
-
   get lastSendError() {
     return this._lastSendError
   }
@@ -118,15 +110,15 @@ export class WebTransportTransport extends TransportWrapper {
     try {
       if (!this.datagramWriter) this.datagramWriter = this.session.datagrams.writable.getWriter()
       const written = this.datagramWriter.write(data)
+      this._releaseDatagramWriter()
       Promise.resolve(written).catch((error) => {
         this._reportSendFailure('unreliable', data, error)
-        this._releaseDatagramWriter()
       })
-      return 'datagram'
+      return SEND_ACCEPTED
     } catch (error) {
       this._releaseDatagramWriter()
       this._reportSendFailure('unreliable', data, error)
-      return this.send(data) ? 'reliable' : false
+      return this.send(data) ? SEND_ACCEPTED : SEND_REJECTED
     }
   }
 
