@@ -47,7 +47,21 @@ const CONFIG_RULES = Object.freeze({
   keyframeSliceMs: { rule: 'a number from 0.05 to 20', test: v => Number.isFinite(v) && v >= 0.05 && v <= 20 },
 })
 
+const CLASS_KEYS = Object.freeze(Object.keys(CLASS_RULES))
+const SPEC_KEYS = Object.freeze([...Object.keys(DEFAULT_FIRE), 'classes', 'fuel', 'seed', 'wind', 'moisture', 'rain', 'radius', 'rewind', 'role', 'gameplay', 'weather', 'firebreaks', 'windField', 'onIgnite', 'onExtinguish'])
+const FUEL_KEYS = Object.freeze(['default', 'classAt'])
+const WINDFIELD_KEYS = Object.freeze(['amplitude', 'periodSteps', 'seed'])
+const FIREBREAK_KEYS = Object.freeze(['water', 'kinds', 'cleared', 'rock', 'heightAt', 'seaLevelAt', 'kindAt'])
+
 function describeValue(v) { return typeof v === 'number' ? String(v) : JSON.stringify(v) }
+
+function rejectUnknownKeys(values, known, label) {
+  const allowed = new Set(known)
+  for (const key of Object.keys(values)) {
+    if (allowed.has(key)) continue
+    throw new TypeError(`[fire] ${label} declares unknown key "${key}" (known: ${known.join(', ')})`)
+  }
+}
 
 function rejectInvalidFields(values, rules, label) {
   for (const [field, { rule, test }] of Object.entries(rules)) {
@@ -61,6 +75,7 @@ function isVec3(v) { return Array.isArray(v) && v.length === 3 && v.every(Number
 function resolveWindField(f) {
   if (f === undefined || f === null) return null
   if (typeof f !== 'object' || Array.isArray(f)) throw new TypeError('[fire] spec.windField must be an object')
+  rejectUnknownKeys(f, WINDFIELD_KEYS, 'spec.windField')
   const amplitude = f.amplitude ?? 4
   const periodSteps = f.periodSteps ?? 20
   if (!(Number.isInteger(amplitude) && amplitude >= 1 && amplitude <= FIRE_MAX_WIND_COMPONENT)) throw new TypeError(`[fire] spec.windField.amplitude must be an integer from 1 to ${FIRE_MAX_WIND_COMPONENT}, got ${describeValue(amplitude)}`)
@@ -71,6 +86,7 @@ function resolveWindField(f) {
 
 export function resolveFireSpec(spec) {
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new TypeError('[fire] spec must be an object')
+  rejectUnknownKeys(spec, SPEC_KEYS, 'spec')
   const config = { ...DEFAULT_FIRE }
   for (const key of Object.keys(DEFAULT_FIRE)) if (spec[key] !== undefined) config[key] = spec[key]
   rejectInvalidFields(config, CONFIG_RULES, 'spec')
@@ -85,6 +101,7 @@ export function resolveFireSpec(spec) {
     if (def === null || typeof def !== 'object') throw new TypeError(`[fire] spec.classes.${name} must be an object`)
     for (const field of ['fuel', 'burnRate', 'igniteHeat', 'heatOut']) if (def[field] === undefined) throw new TypeError(`[fire] spec.classes.${name}.${field} is required`)
     rejectInvalidFields(def, CLASS_RULES, `spec.classes.${name}`)
+    rejectUnknownKeys(def, CLASS_KEYS, `spec.classes.${name}`)
     const burnSteps = Math.ceil(def.fuel / def.burnRate)
     if (config.regrowSteps <= burnSteps) throw new TypeError(`[fire] spec.regrowSteps (${config.regrowSteps}) must exceed the ${burnSteps} steps spec.classes.${name} burns for`)
     classes.push({ fuel: def.fuel, burnRate: def.burnRate, igniteHeat: def.igniteHeat, heatOut: def.heatOut, spotChance: def.spotChance ?? 0, spotHeat: def.spotHeat ?? 0, smoke: def.smoke ?? 0, damage: def.damage ?? 0 })
@@ -92,6 +109,7 @@ export function resolveFireSpec(spec) {
   const classIndex = new Map(names.map((name, i) => [name, i + 1]))
   const fuel = spec.fuel ?? {}
   if (fuel === null || typeof fuel !== 'object') throw new TypeError('[fire] spec.fuel must be an object')
+  rejectUnknownKeys(fuel, FUEL_KEYS, 'spec.fuel')
   if (fuel.default !== undefined && !classIndex.has(fuel.default)) throw new TypeError(`[fire] spec.fuel.default must name a class in spec.classes, got ${describeValue(fuel.default)}`)
   if (fuel.classAt !== undefined && typeof fuel.classAt !== 'function') throw new TypeError('[fire] spec.fuel.classAt must be a function (face, I, J) -> class name or null')
   const defaultClass = classIndex.get(fuel.default ?? names[0])
@@ -125,10 +143,12 @@ const GAMEPLAY_RULES = Object.freeze({
   explosionImpulse: { rule: 'a number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
 })
 export const DEFAULT_FIRE_GAMEPLAY = Object.freeze({ damageEveryTicks: 15, burnStatusSeconds: 4, statusDamagePerSec: 5, smokeBlockDepth: 1, smokeHeightM: 30, eyeHeightM: 1.6, explosionImpulse: 12 })
+const GAMEPLAY_KEYS = Object.freeze([...Object.keys(DEFAULT_FIRE_GAMEPLAY), 'targets'])
 
 function resolveGameplay(g) {
   if (g === undefined) return null
   if (g === null || typeof g !== 'object' || Array.isArray(g)) throw new TypeError('[fire] spec.gameplay must be an object')
+  rejectUnknownKeys(g, GAMEPLAY_KEYS, 'spec.gameplay')
   const out = { ...DEFAULT_FIRE_GAMEPLAY }
   for (const k of Object.keys(DEFAULT_FIRE_GAMEPLAY)) if (g[k] !== undefined) out[k] = g[k]
   rejectInvalidFields(out, GAMEPLAY_RULES, 'spec.gameplay')
@@ -146,10 +166,12 @@ const WEATHER_RULES = Object.freeze({
   hysteresis: { rule: 'an integer from 1 to 255', test: v => Number.isInteger(v) && v >= 1 && v <= 255 },
 })
 export const DEFAULT_FIRE_WEATHER = Object.freeze({ rainPerIntensity: 255, snowRainFraction: 0.25, wetPerStep: 8, dryPerStep: 1, maxMoisture: 200, hysteresis: 8 })
+const WEATHER_KEYS = Object.freeze([...Object.keys(DEFAULT_FIRE_WEATHER), 'source'])
 
 function resolveWeather(w) {
   if (w === undefined) return null
   if (w === null || typeof w !== 'object' || Array.isArray(w)) throw new TypeError('[fire] spec.weather must be an object')
+  rejectUnknownKeys(w, WEATHER_KEYS, 'spec.weather')
   const out = { ...DEFAULT_FIRE_WEATHER }
   for (const k of Object.keys(DEFAULT_FIRE_WEATHER)) if (w[k] !== undefined) out[k] = w[k]
   rejectInvalidFields(out, WEATHER_RULES, 'spec.weather')
@@ -161,6 +183,7 @@ function resolveWeather(w) {
 function resolveFirebreaks(b) {
   if (b === undefined) return null
   if (b === null || typeof b !== 'object' || Array.isArray(b)) throw new TypeError('[fire] spec.firebreaks must be an object')
+  rejectUnknownKeys(b, FIREBREAK_KEYS, 'spec.firebreaks')
   const kinds = b.kinds ?? ['road', 'river']
   if (!Array.isArray(kinds) || !kinds.every(k => typeof k === 'string')) throw new TypeError('[fire] spec.firebreaks.kinds must be an array of terrain kind names')
   const cleared = b.cleared ?? []
