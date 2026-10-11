@@ -133,18 +133,32 @@ export function createProgressionSystem(config = {}) {
     return Array.from(playerProgression.values())
   }
 
+  function levelForTotalXp(totalXp) {
+    let level = 1
+    while (level < cfg.maxLevel && totalXp >= calculateXpThreshold(level + 1)) level++
+    return level
+  }
+
   function applySnapshot(snapshotData) {
     if (!snapshotData || !Array.isArray(snapshotData.progressions)) return
 
     for (const snap of snapshotData.progressions) {
-      if (!snap.id) continue
+      if (!snap || !snap.id) continue
+      const declaredTotalXp = Number.isFinite(snap.totalXp) ? snap.totalXp : 0
+      const totalXp = Math.min(0xFFFFFFFF, Math.max(0, declaredTotalXp))
+      const level = levelForTotalXp(totalXp)
+      const declaredTick = Number.isFinite(snap.lastLevelUpTick) ? Math.floor(snap.lastLevelUpTick) : 0
       playerProgression.set(snap.id, {
         id: snap.id,
-        xp: snap.xp || 0,
-        level: snap.level || 1,
-        totalXp: snap.totalXp || 0,
-        lastLevelUpTick: snap.lastLevelUpTick || 0,
-        levelUpEvents: Array.isArray(snap.levelUpEvents) ? snap.levelUpEvents.map(event => ({ ...event })) : []
+        xp: totalXp - calculateXpThreshold(level),
+        level,
+        totalXp,
+        lastLevelUpTick: Math.max(0, declaredTick),
+        levelUpEvents: Array.isArray(snap.levelUpEvents)
+          ? snap.levelUpEvents
+            .filter(event => event && Number.isFinite(event.level) && Number.isFinite(event.totalXp))
+            .map(event => ({ ...event }))
+          : []
       })
     }
   }
