@@ -287,3 +287,27 @@ tick 149 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r229 ho
 2026-10-10T23:54:38.361Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=1 RESULT: FAIL (16 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-10T23-54-38-361Z-11780.txt sha256=5dc9826f9db375dc741a47aca7689ab8341537715615b6c250f5bd81d35c5965
 tick 150 live=20 ceiling=20 floor=10 shortfall=0 open=1115 launchable=304 blocked held=7 hops=10 rows=10 1791676495
 2026-10-11 2026-10-10T23:55:18.299Z | OWNERSHIP-n-r192-4 | exec_js xr-ownership-single-writer-witness on the landed tree e231b952 | exit=0 | RESULT: PASS | dispatch=1791676478168-500-1e54345ac1544082 (witness session orch-main-r205-sub2) | 17/17 | partial-patch contract surfaced by the first run dispatch=1791676438234-500-71bb1bd42a6e0719 | regression scripts/xr-teleport-sequence-witness.mjs exit=0 RESULT: PASS dispatch=1791674835661-500-ac8834c83f263d7b | landed at e231b952, CI run 38095966870 check=success (ci-status dispatch=1791676329717-500-aead05f40c03754d) | row closed
+tick 151 live=20 ceiling=20 floor=10 shortfall=0 open=1114 launchable=304 blocked 1791676598
+RESULT OWNERSHIP-n-r192-4 resolved e231b952da917860090a7252980c0d043bc56e73 next=KISS-n-r209-8 (4th row closed on this sha)
+tick 152 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r230 row=KISS-n-r209-8 1791676679
+RESULT DRY-n-r200-10 resolved e231b952da917860090a7252980c0d043bc56e73 next=KISS-n-r209-8 (already launched as orch-main-r230, not re-launched)
+tick 153 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r231 hop=KISS src/behaviours (unscanned) 1791676698
+20261010T235830Z | scripts/WebSocketClientTransport-witness.mjs | exit=0 | RESULT: PASS -- 25 of 25 claims | module=C:\dev\spoint\src\transport\WebSocketClientTransport.js | websocket=global WebSocket (runtime-provided) | output=.gm/witness-out/WebSocketClientTransport-witness-20261010T235830Z-30600-2b182f.txt | sha256=826678ef962d1738fc377c3afb305451b1915a0bbebf3db91dc963b3c835af83
+tick 154 live=20 ceiling=20 floor=10 shortfall=0 open=1112 launchable=300 blocked held=6 1791676750
+RESULT ILLEGAL-n-r208-2 resolved 8f811d7d1665d627eec0fef981c4fc6dfa065572 next=ILLEGAL-n-r208-5
+HOP src/netcode HUGHES 5 violations witness=1791676145150-500-b22ead2983a76469 next=ILLEGAL src/netcode
+HOP client/hud KISS 4 violations witness=1791676324474-500-cf751176e5690106 next=YAGNI client/hud
+tick 155 live=20 ceiling=20 floor=10 shortfall=0 done=3 launch orch-main-r232 hop=ILLEGAL src/netcode launch orch-main-r233 hop=YAGNI client/hud launch orch-main-r234 hop=PARSEDV src/sdk (ILLEGAL-n-r208-5 deferred: src/transport keeps 3 live writers) 1791676837
+RESULT DRY-n-r200-5 resolved a6828f93d1d23da0517249f5ecc29430469e01bf next=DRY-n-r200-7
+VERIFY a6828f93d1d23da0517249f5ecc29430469e01bf ci-run=38096551001 check=success frame-time=skipped
+tick 156 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r235 hop=DBC packages/ecs (DRY-n-r200-7 deferred: DBC hop still holds client/xr) 1791677063
+RESULT ILLEGAL-n-r208-4 resolved 619ea4e9a61d869a0067d7384a0d67f0879a53ad next=transport-wrapper-base-ready-field-unread
+tick 157 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r236 hop=HUGHES packages/mapspinner/src (transport-wrapper-base-ready-field-unread deferred: r208-1 and r208-3 still hold src/transport) 1791677086
+tick 158 live=20 ceiling=20 floor=10 shortfall=0 open=1118 launchable=306 blocked held=3 candidates=WADLER-n-r223-1/2,METAMORPH-n-r227-1/2,webtransport-send-throw-leaves-open,DBC-n-r209-1/2,KISS-r224-1/2,HUGHES-n-r225-2/3/4 1791677130
+HOP src/apps METAMORPH 4 violations witness=1791676679539-500-7efdd77130d233c6 next=FUZZ src/apps
+RESULT ILLEGAL-n-r208-3 resolved 8f811d7d1665d627eec0fef981c4fc6dfa065572 next=DRY-n-r141-1-blocker-orch-main-r195 (blocker row, not a candidate)
+tick 159 live=20 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r237 hop=FUZZ src/apps launch orch-main-r238 hop=MILNER src/stage (unscanned; src/transport still holds r208-1) 1791677227
+ILLEGAL-n-r208-1 | scripts/WebSocketTransport-witness.mjs | exit=0 | RESULT: PASS claims=19/19 | module=src/transport/WebSocketTransport.js | utc=2026-10-11T00:08:03Z | dispatch=1791677160202-500-47ca5a9633af9bf1 | session=orch-main-r217-w1 | corroborating: player-manager-send-failure-witness RESULT: PASS dispatch=1791676269603-500-1f41eef36fdc6264, real-ws live lifecycle run dispatch=1791676707710-500-a240bc2a38178e, idempotency dispatch=1791676852727-500-9dd6495c23257cb8, witness-audit --gate PASS dispatch=1791677036031-500-8f868edc6f102466 | source landed 8f811d7d (merged with ILLEGAL-n-r208-3)
+tick 160 live=20 ceiling=20 floor=10 shortfall=0 open=1125 launchable=303 blocked held=2 candidates=PARSEDV-n-r199-2-1/2,ILLEGAL-n-r226-3/4,WADLER-n-r223-1/2,METAMORPH-n-r227-1/2 1791677367
+- 2026-10-11T00:10:50.412Z | xr-widgets-single-owner-witness | exit 0 | RESULT: PASS 28/28 | dispatch 1791677373009-500-7f53abf6d4fed894 | session orch-main-r230 | KISS-n-r209-8
+- 2026-10-11T00:10:50.412Z | xr-widgets-single-owner-witness (baseline pre-edit) | exit 1 | RESULT: FAIL 25/28 | dispatch 1791677264555-500-902071adf42bd990 | session orch-main-r230 | KISS-n-r209-8

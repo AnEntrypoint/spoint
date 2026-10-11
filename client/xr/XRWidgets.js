@@ -23,7 +23,7 @@ const fadeMachine = createMachine({
 
 export function createXRWidgets(renderer, scene, camera, initialSettings) {
   let settings = { ...initialSettings }
-  let wristUI = null, wristUICanvas = null, wristUIContext = null
+  let wristUI = null
   let vrSettingsPanel = null
   let teleportArc = null, teleportMarker = null, teleportPending = null, teleportTimer = 0
   let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0
@@ -50,13 +50,13 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   }
 
   function initWristUI(hand) {
-    wristUI = createWristUI(); wristUICanvas = wristUI.canvas; wristUIContext = wristUI.ctx
+    wristUI = createWristUI()
     wristUI.mesh.position.set(0, -0.05, 0.08); wristUI.mesh.rotation.x = -Math.PI / 3; hand.add(wristUI.mesh)
   }
 
   function updateWristUI(health, ammo, reloading) {
-    if (!wristUIContext) return
-    const ctx = wristUIContext, canvas = wristUICanvas
+    if (!wristUI) return
+    const ctx = wristUI.ctx, canvas = wristUI.canvas
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, canvas.width, canvas.height)
     ctx.font = 'bold 36px monospace'; ctx.textAlign = 'left'
@@ -75,7 +75,7 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
     const texture = new THREE.CanvasTexture(canvas)
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.95, side: THREE.DoubleSide }))
     mesh.name = 'vrSettingsPanel'; mesh.visible = false; mesh.position.set(0, 0, -0.6)
-    return { mesh, canvas, ctx, texture, visible: false }
+    return { mesh, canvas, ctx, texture }
   }
 
   function setSettings(next) {
@@ -103,8 +103,8 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
 
   function toggleSettings() {
     if (!vrSettingsPanel) { vrSettingsPanel = createSettingsPanel(); camera.add(vrSettingsPanel.mesh) }
-    vrSettingsPanel.visible = !vrSettingsPanel.visible; vrSettingsPanel.mesh.visible = vrSettingsPanel.visible
-    if (vrSettingsPanel.visible) updateSettingsPanel()
+    vrSettingsPanel.mesh.visible = !vrSettingsPanel.mesh.visible
+    if (vrSettingsPanel.mesh.visible) updateSettingsPanel()
   }
 
   function initTeleport() {
@@ -204,7 +204,7 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
     setQuadOpacity(vignetteMesh, vignetteOpacity)
   }
 
-  return { initWristUI, updateWristUI, toggleSettings, setSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
+  return { initWristUI, updateWristUI, toggleSettings, setSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.mesh.visible || false } }
 }
 
 export const __freshnessProbe = 1
