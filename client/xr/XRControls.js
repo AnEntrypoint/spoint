@@ -88,11 +88,11 @@ export async function createXRButton(renderer, onStart, onEnd) {
   btn.className = 'btn btn-primary ds-247420 xr-btn'
   btn.textContent = 'Enter XR'
   btn.addEventListener('click', async () => {
+    if (renderer.xr.isPresenting) { await onEnd?.(); return }
     const ok = await onStart?.(); if (!ok) return
     btn.textContent = 'Exit XR'
     btn.classList.remove('btn-primary')
     btn.classList.add('xr-exit')
-    if (onEnd) btn.onclick = onEnd
   })
   return btn
 }
