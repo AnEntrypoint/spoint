@@ -309,6 +309,18 @@ function runProperties(mod, check) {
     }
     restored.applySnapshot(wire)
     if (observable(restored, level) !== observable(tree, level)) roundTrip.push([trial, 'not-idempotent'])
+
+    const spentWire = JSON.parse(JSON.stringify(tree.buildSnapshot()))
+    for (const state of spentWire.playerStates) {
+      for (const entry of state.cooldowns) entry[1] = 0
+    }
+    const spent = createAbilityTree()
+    spent.applySnapshot(spentWire)
+    for (const playerId of PLAYERS) {
+      const info = spent.getPlayerAbilityInfo(playerId, level)
+      const cooling = info.cooldowns.filter(c => c.remaining > 0).map(c => c.abilityId).sort().join(',')
+      if (cooling !== info.activeAbilities.slice().sort().join(',')) activeDrift.push([trial, 'spent-wire', playerId])
+    }
   }
 
   for (let trial = 0; trial < 60; trial++) {
