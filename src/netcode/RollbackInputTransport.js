@@ -1,4 +1,4 @@
-import { ROLLBACK_CTRL_PREFIX, controlFrameHandlers, countReject, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
+import { ROLLBACK_CTRL_PREFIX, controlFrameHandlers, countOrder, countReject, createFrameClock, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeCtrl(obj) { return encodeControlFrame(ROLLBACK_CTRL_PREFIX, obj) }
 
@@ -14,7 +14,7 @@ export class RollbackInputTransport {
 
     this._roster = new Set()
     this._dropped = new Set()
-    this._lastTickByPeer = new Map()
+    this._clock = createFrameClock()
 
     this._onData = ({ detail }) => this._handleFrame(detail)
     this._onPeerOpen = ({ detail }) => { if (detail?.peerPubkey) this._roster.add(detail.peerPubkey) }
@@ -47,11 +47,15 @@ export class RollbackInputTransport {
   }
 
   _handleFrame(detail) {
-    const dispatched = dispatchControlFrame(ROLLBACK_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats))
+    const dispatched = dispatchControlFrame(ROLLBACK_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats), {
+      from: detail?.peerPubkey,
+      selfId: this.myPubkey,
+      clock: this._clock,
+      tickOf: (frame) => (frame.type === 'input' ? frame.tick : undefined),
+      onOrder: countOrder(this.stats),
+    })
     if (!dispatched) return
-    const from = detail.peerPubkey
-    if (!from || from === this.myPubkey) return
-    dispatched.apply(dispatched.frame, from)
+    dispatched.apply(dispatched.frame, dispatched.from)
   }
 
   _applyRemoteChecksum(frame, from) {
@@ -62,9 +66,6 @@ export class RollbackInputTransport {
   _applyRemoteInput(frame, from) {
     this._roster.add(from)
     this._dropped.delete(from)
-    const last = this._lastTickByPeer.get(from) ?? -1
-    if (frame.tick < last) this.stats.staleIgnored++
-    if (frame.tick > last) this._lastTickByPeer.set(from, frame.tick)
     this.stats.received++
     if (this.onRemoteInput) this.onRemoteInput(from, frame.tick, frame.input, Number.isFinite(frame.adv) ? frame.adv : 0)
   }
@@ -78,7 +79,7 @@ export class RollbackInputTransport {
     const out = []
     for (const pk of this._roster) {
       if (this._dropped.has(pk)) continue
-      const last = this._lastTickByPeer.get(pk)
+      const last = this._clock.get(pk)
       if (last === undefined || nowTick - last > this.stallTicks) out.push({ pubkey: pk, lastTick: last ?? -1 })
     }
     return out
@@ -87,7 +88,7 @@ export class RollbackInputTransport {
   getRoster() { return [...this._roster].filter(pk => !this._dropped.has(pk)) }
 
   getStats() {
-    return { ...this.stats, roster: [...this._roster], dropped: [...this._dropped], lastTickByPeer: Object.fromEntries(this._lastTickByPeer) }
+    return { ...this.stats, staleIgnored: this.stats.order?.['stale-frame'] ?? 0, duplicateIgnored: this.stats.order?.['duplicate-frame'] ?? 0, roster: [...this._roster], dropped: [...this._dropped], lastTickByPeer: Object.fromEntries(this._clock) }
   }
 
   destroy() {

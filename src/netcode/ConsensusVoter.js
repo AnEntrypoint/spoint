@@ -1,6 +1,6 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-import { CONSENSUS_CTRL_PREFIX, controlFrameHandlers, countReject, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
+import { CONSENSUS_CTRL_PREFIX, controlFrameHandlers, countOrder, countReject, createFrameClock, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
   return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
@@ -52,20 +52,27 @@ export class ConsensusVoter {
       this._peerDesync.set(pk, { consecutiveCount: 0, evidenceTicks: [], ejected: false })
     }
 
+    this._clock = createFrameClock()
     this._arms = controlFrameHandlers(CONSENSUS_CTRL_PREFIX, {
-      checksum: (frame) => this._ingestRemoteChecksum(frame.tick, frame.pubkey, frame.checksum),
+      checksum: (frame, from) => this._ingestRemoteChecksum(frame.tick, from, frame.checksum),
     })
 
     this._onData = ({ detail }) => {
-      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats))
+      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats), {
+        from: detail?.peerPubkey,
+        selfId: this.localPeerId,
+        clock: this._clock,
+        tickOf: (frame) => frame.tick,
+        senderOf: (frame) => frame.pubkey,
+        onOrder: countOrder(this.stats),
+      })
       if (!dispatched) return
-      const { frame, apply } = dispatched
-      if (frame.pubkey === this.localPeerId || frame.pubkey !== detail.peerPubkey) return
-      apply(frame, detail.peerPubkey)
+      if (dispatched.order === 'stale-frame') this.stats.staleChecksums = (this.stats.staleChecksums ?? 0) + 1
+      dispatched.apply(dispatched.frame, dispatched.from)
     }
     this.bridge.data.addEventListener('data', this._onData)
 
-    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0, rejects: {} }
+    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, staleChecksums: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0, rejects: {} }
   }
 
   tick(tick) {

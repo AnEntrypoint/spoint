@@ -72,11 +72,47 @@ export const countReject = (stats) => (parsed) => {
   if (parsed.status === 'unknown-kind') stats.unknownKind = (stats.unknownKind ?? 0) + 1
 }
 
-export function dispatchControlFrame(prefix, arms, data, onReject = null) {
+export const countOrder = (stats) => (order) => {
+  const counts = stats.order ?? (stats.order = {})
+  counts[order] = (counts[order] ?? 0) + 1
+}
+
+export const createFrameClock = () => new Map()
+
+export function advanceFrameClock(clock, sender, tick) {
+  const last = clock.get(sender)
+  if (last === undefined || tick > last) {
+    clock.set(sender, tick)
+    return 'in-order'
+  }
+  return tick === last ? 'duplicate-frame' : 'stale-frame'
+}
+
+export function dispatchControlFrame(prefix, arms, data, onReject = null, origin = null) {
   const parsed = parseControlFrame(prefix, data)
   if (parsed.status !== 'accepted') {
     if (onReject) onReject(parsed)
     return null
   }
-  return { frame: parsed.frame, apply: arms.get(parsed.frame.type) }
+  const { frame } = parsed
+  if (!origin) return { frame, apply: arms.get(frame.type), from: null, order: null }
+  const from = origin.from ?? null
+  const refuse = (status, extra = null) => {
+    if (onReject) onReject({ status, kind: frame.type, from, ...(extra ?? {}) })
+    return null
+  }
+  if (!from) return refuse('unattributed-sender')
+  if (from === origin.selfId) return refuse('self-echo')
+  const claimed = origin.senderOf ? origin.senderOf(frame) : null
+  if (claimed != null && claimed !== from) return refuse('misattributed-sender', { claimed })
+  let order = null
+  if (origin.tickOf) {
+    if (!origin.clock) throw new Error('dispatchControlFrame: a tick reader needs a frame clock')
+    const tick = origin.tickOf(frame)
+    if (Number.isFinite(tick)) {
+      order = advanceFrameClock(origin.clock, from, tick)
+      if (origin.onOrder) origin.onOrder(order)
+    }
+  }
+  return { frame, apply: arms.get(frame.type), from, order }
 }
