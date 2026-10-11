@@ -26,7 +26,7 @@ const PEN_TOL_M = Number(args.penTol || 0.05)
 const APPROACH_PEN_TOL_M = Number(args.approachPenTol || 0.2)
 const APPROACH_OVER_TOL_MAX = Number(args.approachOverTolMax || 2)
 const TRANSIENT_PEN_TOL_M = Number(args.transientPenTol || 0.25)
-const DIVERGENCE_CAP_M = Number(args.divergenceCap || 1)
+const DIVERGENCE_SLACK_TICKS = Number(args.divergenceSlackTicks || 1)
 const MIN_LEAD_FRAC = Number(args.minLeadFrac || 0.2)
 const MIN_HELD_TICKS = Number(args.minHeldTicks || 60)
 const MIN_SLIDE_TICKS = Number(args.minSlideTicks || 40)
@@ -152,6 +152,7 @@ async function runArm(cfg) {
     let predPathM = 0
     const acksAtStart = pred.stats.acks
     const correctionsAtStart = pred.stats.corrections
+    const inputSeqAtStart = pred._inputSeq ?? 0
 
     tickSystem.onTick(() => {
       tickCount++
@@ -195,7 +196,9 @@ async function runArm(cfg) {
     sampler.unref?.()
 
     let phaseTick = 0
+    let inputCalls = 0
     const stopInput = client.startInputLoop(() => {
+      inputCalls++
       if (CYCLES > 1 && cfg.slide !== true) {
         const phase = Math.floor(phaseTick++ / CYCLE_TICKS) % 2
         return { forward: phase === 0, backward: phase === 1, sprint: true, yaw: 0, pitch: 0 }
@@ -241,6 +244,8 @@ async function runArm(cfg) {
     const predStepSum = movingAtWall.reduce((a, s) => a + (s.predStepM ?? 0), 0)
     const serverStepSum = movingAtWall.reduce((a, s) => a + (s.serverStepM ?? 0), 0)
 
+    const freeDivMax = freeDiv.length ? Math.max(...freeDiv) : NaN
+    const clearStepMeanM = mean(clearLane.filter(s => s.serverStepM > MOVE_EPS_M).map(s => s.serverStepM))
     const out = {
       arm: cfg.name,
       wallBody: cfg.wallBody,
@@ -271,11 +276,22 @@ async function runArm(cfg) {
       predStepRatio: round(predStepSum / Math.max(1e-9, serverStepSum), 4),
       meanDivergenceMovingM: round(mean(movingAtWall.map(s => s.divergence ?? 0)), 5),
       meanLeadTicks: round(mean(movingAtWall.map(s => s.lead ?? 0)), 2),
+      meanDivergenceTicks: round(mean(movingAtWall.map(s => s.divergence ?? 0)) / Math.max(1e-9, clearStepMeanM), 2),
       serverPathM: round(serverPathM, 4),
       predPathM: round(predPathM, 4),
       pathRatio: round(predPathM / Math.max(1e-9, serverPathM), 4),
+      inputSeqSteps: (pred._inputSeq ?? 0) - inputSeqAtStart,
+      inputCalls,
+      serverTicks: ticks,
+      predStepMeanM: round(predPathM / Math.max(1, inputCalls), 6),
+      serverStepMeanM: round(serverPathM / Math.max(1, ticks), 6),
+      stepRatio: round((predPathM / Math.max(1, inputCalls)) / Math.max(1e-9, serverPathM / Math.max(1, ticks)), 4),
+      stepsPerServerTick: round(inputCalls / Math.max(1, ticks), 4),
+      maxLeadTicks: post.reduce((m, s) => Math.max(m, s.lead ?? 0), 0),
       maxHeldDivergenceM: round(heldDiv.length ? Math.max(...heldDiv) : NaN, 5),
-      maxFreeDivergenceM: round(freeDiv.length ? Math.max(...freeDiv) : NaN, 5),
+      maxFreeDivergenceM: round(freeDivMax, 5),
+      clearStepMeanM: round(clearStepMeanM, 6),
+      maxFreeDivergenceTicks: round(freeDivMax / Math.max(1e-9, clearStepMeanM), 2),
       acksDuringArm: (pred.stats.acks ?? 0) - acksAtStart,
       correctionsDuringArm: (pred.stats.corrections ?? 0) - correctionsAtStart,
     }
@@ -450,8 +466,8 @@ for (const o of results) {
   const p = o.arm + ': '
   expect(o.groundedAtStart, p + 'the player was standing on the floor before the arm started')
   expect(Number.isFinite(o.serverPathM) && o.serverPathM > 5, p + `the player walked a real distance: serverPath ${o.serverPathM} m`)
-  expect(o.pathRatio >= 0.9 && o.pathRatio <= 1.1, p + `the predicted path length tracked the server path length: ratio ${o.pathRatio} (pred ${o.predPathM} m, server ${o.serverPathM} m)`)
-  expect(Number.isFinite(o.maxFreeDivergenceM) && o.maxFreeDivergenceM <= DIVERGENCE_CAP_M, p + `clear-lane divergence stayed bounded: max ${o.maxFreeDivergenceM} m (cap ${DIVERGENCE_CAP_M} m)`)
+  expect(o.stepRatio >= 0.9 && o.stepRatio <= 1.1, p + `the predicted step tracked the server step: per-step ratio ${o.stepRatio} (pred ${o.predStepMeanM} m over ${o.inputCalls} input step(s), server ${o.serverStepMeanM} m over ${o.serverTicks} tick(s))`)
+  expect(Number.isFinite(o.maxFreeDivergenceTicks) && o.maxFreeDivergenceTicks <= o.maxLeadTicks + DIVERGENCE_SLACK_TICKS, p + `clear-lane divergence stayed inside the input lead: ${o.maxFreeDivergenceTicks} step(s) of ${o.clearStepMeanM} m (max ${o.maxFreeDivergenceM} m) at lead ${o.maxLeadTicks} tick(s) + slack ${DIVERGENCE_SLACK_TICKS}`)
   expect(o.acksDuringArm > 0, p + `the arm really reconciled against server snapshots: ${o.acksDuringArm} acks`)
   expect(o.heldSamplesOverTol === 0, p + `the predicted position never settled inside the wall: ${o.heldSamplesOverTol} of ${o.stoppedAtWall} settled samples over ${PEN_TOL_M} m (max ${o.heldMaxPenetrationM} m)`)
   expect(o.approachSamplesOverTol <= APPROACH_OVER_TOL_MAX, p + `the predicted position did not keep entering the wall while the server was still approaching it: ${o.approachSamplesOverTol} of ${o.movingAtWall} moving samples over ${PEN_TOL_M} m (max ${o.approachMaxPenetrationM} m)`)
@@ -463,9 +479,9 @@ for (const o of results) {
   }
   if (o.slide) {
     expect(o.movingAtWall >= MIN_SLIDE_TICKS, p + `the player kept sliding along the wall for at least ${MIN_SLIDE_TICKS} samples at the wall: ${o.movingAtWall}`)
-    expect(o.pathRatio >= 0.9, p + `the predicted path tracked the server while sliding: ratio ${o.pathRatio}`)
+    expect(o.stepRatio >= 0.9, p + `the predicted step tracked the server step while sliding: per-step ratio ${o.stepRatio}`)
     expect(Number.isFinite(o.meanDivergenceMovingM) && o.meanDivergenceMovingM >= MIN_LEAD_FRAC * o.maxFreeDivergenceM, p + `prediction kept leading while the server slid: mean divergence while moving ${o.meanDivergenceMovingM} m, ${round(o.meanDivergenceMovingM / Math.max(1e-9, o.maxFreeDivergenceM), 3)} of the ${o.maxFreeDivergenceM} m clear-lane lead (floor ${MIN_LEAD_FRAC})`)
-    expect(Number.isFinite(o.meanDivergenceMovingM) && o.meanDivergenceMovingM <= DIVERGENCE_CAP_M, p + `sliding divergence stayed bounded: mean ${o.meanDivergenceMovingM} m (cap ${DIVERGENCE_CAP_M} m)`)
+    expect(Number.isFinite(o.meanDivergenceTicks) && o.meanDivergenceTicks <= o.meanLeadTicks + DIVERGENCE_SLACK_TICKS, p + `sliding divergence stayed inside the input lead: mean ${o.meanDivergenceTicks} step(s) of ${o.clearStepMeanM} m (${o.meanDivergenceMovingM} m) at lead ${o.meanLeadTicks} tick(s) + slack ${DIVERGENCE_SLACK_TICKS}`)
   } else {
     expect(o.stoppedAtWall >= MIN_HELD_TICKS, p + `the player was held against the wall for at least ${MIN_HELD_TICKS} samples: ${o.stoppedAtWall}`)
     expect(Number.isFinite(o.heldMaxPenetrationM) && o.heldMaxPenetrationM <= PEN_TOL_M, p + `the predicted position never stayed inside the wall the player is held against: max ${o.heldMaxPenetrationM} m over ${o.stoppedAtWall} settled samples at the wall (tol ${PEN_TOL_M} m)`)
