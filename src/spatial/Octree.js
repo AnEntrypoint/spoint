@@ -15,6 +15,14 @@ function cellKey(cx, cz) {
   return cx + ',' + cz
 }
 
+function placeInto(cells, idCell, id, point) {
+  const key = cellKey(cellCoord(point[0]), cellCoord(point[2]))
+  let bucket = cells.get(key)
+  if (!bucket) { bucket = []; cells.set(key, bucket) }
+  bucket.push(id)
+  idCell.set(id, key)
+}
+
 export class SpatialIndex {
   constructor(config = {}) {
     this._cells = new Map()
@@ -34,11 +42,7 @@ export class SpatialIndex {
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return
     const point = [px, py, pz]
     this._entities.set(id, point)
-    const key = cellKey(cellCoord(px), cellCoord(pz))
-    let bucket = this._cells.get(key)
-    if (!bucket) { bucket = []; this._cells.set(key, bucket) }
-    bucket.push(id)
-    this._idCell.set(id, key)
+    placeInto(this._cells, this._idCell, id, point)
     this._mutations++
     const n = this._entities.size
     if (n >= 256 && (n & (n - 1)) === 0) { try { console.warn('[SpatialIndex] size=' + n) } catch (_) {} }
@@ -218,18 +222,19 @@ export class SpatialIndex {
   }
 
   reseat(positionOf) {
-    this._cells.clear()
-    this._idCell.clear()
-    for (const [id, point] of this._entities) {
+    const cells = new Map()
+    const idCell = new Map()
+    const entities = new Map()
+    for (const [id] of this._entities) {
       const p = positionOf(id)
-      if (!p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) { this._entities.delete(id); continue }
-      point[0] = p[0]; point[1] = p[1]; point[2] = p[2]
-      const key = cellKey(cellCoord(p[0]), cellCoord(p[2]))
-      let bucket = this._cells.get(key)
-      if (!bucket) { bucket = []; this._cells.set(key, bucket) }
-      bucket.push(id)
-      this._idCell.set(id, key)
+      if (!p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) continue
+      const point = [p[0], p[1], p[2]]
+      entities.set(id, point)
+      placeInto(cells, idCell, id, point)
     }
+    this._cells = cells
+    this._idCell = idCell
+    this._entities = entities
     this._mutations++
   }
 
