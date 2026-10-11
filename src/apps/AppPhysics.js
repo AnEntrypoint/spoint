@@ -80,8 +80,12 @@ function boxHalfExtents(s, name) {
   return raw.map(x => nonNeg(x, name))
 }
 
+export function liveBodyIdOf(runtime, ent) {
+  return (!ent || !runtime._physics || ent._physicsBodyId === undefined) ? undefined : ent._physicsBodyId
+}
+
 export function buildPhysicsAPI(ent, runtime) {
-  const liveBodyId = () => (runtime._physics && ent._physicsBodyId !== undefined) ? ent._physicsBodyId : undefined
+  const liveBodyId = () => liveBodyIdOf(runtime, ent)
   const api = {
     setInteractable: (radius = 3) => {
       nonNeg(radius, 'physics.setInteractable: radius')

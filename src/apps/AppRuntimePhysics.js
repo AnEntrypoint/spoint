@@ -1,4 +1,4 @@
-import { resolveCCD } from './AppPhysics.js'
+import { resolveCCD, liveBodyIdOf } from './AppPhysics.js'
 
 export function mixinPhysics(runtime) {
   runtime._rebindTierBodyId = function(e, tier) {
@@ -141,8 +141,6 @@ export function mixinPhysics(runtime) {
       this._physics.deactivateBody(e._physicsBodyId)
     }
   }
-
-  const liveBodyIdOf = (runtime, e) => (!e || !runtime._physics || e._physicsBodyId === undefined) ? undefined : e._physicsBodyId
 
   runtime.applyImpulseToEntity = function(entityId, impulse, worldPoint) {
     const e = this.entities.get(entityId)
