@@ -21,7 +21,7 @@ const fadeMachine = createMachine({
   }
 })
 
-export function createXRWidgets(renderer, scene, camera, initialSettings) {
+export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   let settings = { ...initialSettings }
   let wristUI = null
   let vrSettingsPanel = null
@@ -29,7 +29,6 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0
   const _fadeActor = createActor(fadeMachine); _fadeActor.start()
   let vignetteMesh = null, vignetteOpacity = 0, vignetteTargetOpacity = 0
-  const _tmp1 = new THREE.Vector3(), _tmp2 = new THREE.Vector3()
 
   function createScreenQuad({ renderOrder, z, material }) {
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material)
@@ -124,10 +123,8 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   function moveTeleport() {
     const pending = teleportPending
     if (!pending) return
-    const base = renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null
-    if (!base) { endTeleport(true); return }
+    if (!moveXROrigin(pending.pt)) { endTeleport(true); return }
     teleportTimer = setTimeout(() => endTeleport(false), TELEPORT_SETTLE_MS)
-    renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(new XRRigidTransform({ x: -pending.pt.x, y: -pending.pt.y, z: -pending.pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
   }
 
   function endTeleport(aborted) {
@@ -152,31 +149,10 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }
 
-  function updateTeleportArc(handsDetected) {
-    if (!renderer.xr.isPresenting || !teleportArc || !settings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
-    const session = renderer.xr.getSession(); if (!session) return
-    let origin = null, direction = null, triggerTeleport = false
-    if (handsDetected) {
-      const j = renderer.xr.getHand?.(0)?.joints
-      if (j) {
-        if (j?.['index-finger-tip']) {
-          j['index-finger-tip'].getWorldPosition(_tmp1); j['index-finger-tip'].getWorldDirection(_tmp2)
-          origin = _tmp1.clone(); direction = _tmp2.clone().multiplyScalar(-1)
-          const thumbTip = j['thumb-tip'], indexTip = j['index-finger-tip']
-          if (thumbTip && indexTip) triggerTeleport = thumbTip.position.distanceTo(indexTip.position) < 0.02
-        }
-      }
-    } else {
-      for (const s of session.inputSources) {
-        if (s.handedness === 'left' && s.gamepad) {
-          const lc = renderer.xr.getController(0); lc.getWorldPosition(_tmp1); lc.getWorldDirection(_tmp2).multiplyScalar(-1); origin = _tmp1.clone(); direction = _tmp2.clone()
-        }
-        if (s.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) triggerTeleport = true
-      }
-    }
-    if (!origin || !direction) { teleportArc.visible = false; teleportMarker.visible = false; return }
-    const hit = computeParabolicArc(origin, direction)
-    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (triggerTeleport && !teleportPending) executeTeleport(hit.point) }
+  function updateTeleportArc(pointer) {
+    if (!teleportArc || !settings.teleportEnabled || !pointer) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
+    const hit = computeParabolicArc(pointer.origin, pointer.direction)
+    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (pointer.trigger && !teleportPending) executeTeleport(hit.point) }
     else { teleportMarker.visible = false }
   }
 

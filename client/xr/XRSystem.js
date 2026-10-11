@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
@@ -26,7 +27,7 @@ export function createXRSystem(renderer, scene, camera) {
   let arHold = null
   let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
   let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: STAND_EYE_HEIGHT_M, teleportEnabled: false }
-  const widgets = createXRWidgets(renderer, scene, camera, vrSettings)
+  const widgets = createXRWidgets(scene, camera, vrSettings, offsetXROrigin)
 
   function setVRSettings(patch) {
     vrSettings = { ...vrSettings, ...patch }
@@ -75,6 +76,38 @@ export function createXRSystem(renderer, scene, camera) {
       if (ctrl) ctrl.visible = inVR && !hasHands
       if (hd) hd.hand.visible = inVR && hasHands
     }
+  }
+
+  const _aimOrigin = new THREE.Vector3(), _aimDir = new THREE.Vector3()
+  function readAimPointer() {
+    if (!renderer.xr.isPresenting) return null
+    const session = renderer.xr.getSession()
+    if (!session) return null
+    if (handsDetected) {
+      const joints = handModels.get(0)?.hand?.joints ?? renderer.xr.getHand?.(0)?.joints
+      const indexTip = joints?.['index-finger-tip']
+      if (!indexTip) return null
+      indexTip.getWorldPosition(_aimOrigin); indexTip.getWorldDirection(_aimDir).multiplyScalar(-1)
+      const thumbTip = joints['thumb-tip']
+      return { origin: _aimOrigin.clone(), direction: _aimDir.clone(), trigger: thumbTip ? thumbTip.position.distanceTo(indexTip.position) < 0.02 : false }
+    }
+    let pointer = null, trigger = false
+    for (const s of session.inputSources) {
+      if (s.handedness === 'left' && s.gamepad) {
+        const ctrl = renderer.xr.getController(0)
+        ctrl.getWorldPosition(_aimOrigin); ctrl.getWorldDirection(_aimDir).multiplyScalar(-1)
+        pointer = { origin: _aimOrigin.clone(), direction: _aimDir.clone(), trigger: false }
+      }
+      if (s.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) trigger = true
+    }
+    if (pointer) pointer.trigger = trigger
+    return pointer
+  }
+
+  function offsetXROrigin(pt) {
+    if (!renderer.xr.isPresenting || !xrBaseReferenceSpace) return false
+    renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform({ x: -pt.x, y: -pt.y, z: -pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
+    return true
   }
 
   const FIXED_FOVEATION_LEVEL = 0.5
@@ -160,10 +193,9 @@ export function createXRSystem(renderer, scene, camera) {
   }
 
   function syncVRPosition(local) {
-    if (!renderer.xr.isPresenting || !local?.position || !xrBaseReferenceSpace || widgets.isTeleporting) return
+    if (!local?.position || widgets.isTeleporting) return
     const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
-    const pos = { x: -local.position[0], y: -(local.position[1] + eyeHeight), z: -local.position[2] }
-    renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
+    offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeight, z: local.position[2] })
   }
 
   const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1
@@ -175,7 +207,7 @@ export function createXRSystem(renderer, scene, camera) {
       widgets.updateWristUI(local.health ?? 100, stats.ammo ?? '', stats.reloading === true)
     }
     if (now % 100 < 16) updateControllerVisibility()
-    widgets.updateTeleportArc(handsDetected)
+    widgets.updateTeleportArc(readAimPointer())
     widgets.updateFade(dt)
     const isMoving = inVR && local?.velocity ? Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2) > 0.5 : false
     widgets.updateVignette(dt, isMoving)
