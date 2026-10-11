@@ -13,7 +13,7 @@ function hitY(r) {
 
 function walkable(r) {
   const n = r.normal
-  return !n || !Number.isFinite(n[1]) || n[1] >= MIN_UP_NORMAL_Y
+  return !!n && Number.isFinite(n[1]) && n[1] >= MIN_UP_NORMAL_Y
 }
 
 export function columnSurfaces(raycast, x, topY, z) {

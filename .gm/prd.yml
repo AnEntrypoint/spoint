@@ -239,16 +239,17 @@
   witness: 'node import of client/hud/MinimapPlacements.js fails: Cannot find module ''C:\src\terrain\VegPlacement.js'' (dispatch 1791679945550-500-60dd00708f39afca), a browser-bundled root-relative specifier, so this hop could not close it live.'
   session_id: orch-main-r250
 - id: ILLEGAL-n-r256-1
+  SESSION_ID: orch-main-r256-sub1
   action: return null (or throw) for an unresolvable name so 0 means only 'explicitly unarmed', and update AppRuntime.js:661-667 plus the witness in the same change
   blocker: scripts/equipment-witness.mjs:47,48 pins equipCodeOf(LIST,'axe')===0 and equipCodeOf([],'sword')===0, so the fix moves the module, the caller and that witness together
   claim: src/shared/equipment.js:3-7 maps three distinct causes (equipment not an array, name not a non-empty string, name absent from the list) onto EQUIP_UNARMED (0), which is also the code for a deliberately unarmed player, so 'unarmed' and 'could not resolve the name' are the same value
-  evidence: 'the only production caller re-derives the distinction out of band: src/apps/AppRuntime.js:664 `if (code === EQUIP_UNARMED && name)`, i.e. the difference lives in the truthiness of an argument the function already consumed; a caller that omits that guard silently disarms the player'
-  session_id: orch-main-r256
+  evidence: 'executed falsifier (dispatch 1791681155262-500-d3f7c116742a69ca), live import of src/shared/equipment.js: equipCodeOf(['''',''pistol''],'''') === 0, equipCodeOf(['''',''pistol''],''axe'') === 0 and equipCodeOf(null,''sword'') === 0 are three distinct causes with one answer, and the round trip equipNameOf(eq, equipCodeOf(eq, name)) === name fails silently for every one of them: it answers the empty string for code 0''s neighbour equipNameOf(['''',''pistol''],1) === '''', so code 0 is not even ''the player holds nothing distinguishable''. The only production caller re-derives the distinction out of band: src/apps/AppRuntime.js:664 `if (code === EQUIP_UNARMED && name)`, i.e. the difference lives in the truthiness of an argument the function already consumed; a caller that omits that guard silently disarms the player'
+  witness: 1791681155262-500-d3f7c116742a69ca
   principle: ILLEGAL
+  session_id: orch-main-r256-sub1
   status: pending
   surface: src/shared
-  title: equipCodeOf represents an unresolvable weapon name as unarmed
-  witness: 1791680450162-500-5fab493a725e7c82
+  title: equipCodeOf represents an unresolvable weapon name as unarmed and breaks the name round trip
 - id: ILLEGAL-n-r256-2
   title: worldMobileButtons makes a declared-empty button set unrepresentable and drops declared buttons silently
   principle: ILLEGAL
@@ -261,15 +262,18 @@
   callers: client/app.js:667, client/app.js:671, client/hud/MobileControlsUI.js:57
   session_id: orch-main-r256
 - id: ILLEGAL-n-r256-3
-  title: SpawnSurface admits a malformed ray hit as a walkable surface and returns one null for two causes
+  SESSION_ID: orch-main-r256-sub1
+  action: make a raycast result with a hit but no finite position a distinct failure (throw or a tagged result) instead of folding it into 'miss'; the 'hit with no normal is walkable' half is CLOSED, see closed_by
+  callers: src/apps/AppRuntime.js:655-676 respawn clearance, scripts/spawn-surface-witness.mjs
+  claim: 'src/shared/SpawnSurface.js:11 `hitY` returns null both for ''the ray missed'' and for ''the hit carried no finite position'', and columnSurfaces breaks on that null (line 27), so one unreadable hit ends the column scan exactly as an empty column would; src/shared/SpawnSurface.js:53 returns the same null for ''no surface found'' and for ''bad arguments''. The second half of this row, ''src/shared/SpawnSurface.js:15-17 walkable returns true when the hit has no normal at all'', is no longer live: walkable now requires a finite normal and answers false for a hit carrying no normal.'
+  closed_by: edit to src/shared/SpawnSurface.js:14-17 `walkable` = `!!n && Number.isFinite(n[1]) && n[1] >= MIN_UP_NORMAL_Y`, replacing `!n || !Number.isFinite(n[1]) || ...`; precedent src/shared/characterStep.js:11 `if (!n || !(n[1] >= MIN_WALKABLE_NORMAL_Y)) return 0` and src/physics/World.js:818-830 where a real raycast returns {hit:true, position:[...], normal:null}
+  evidence: 'post-edit live run (dispatch 1791681466911-500-3a35eaac902b570): a hit with no normal, with normal null and with normal[1] NaN all answer not-walkable, so columnSurfaces returns [] for the no-normal column and [1] for the flat-normal column under the identical raycast; pre-edit class sweep (dispatch 1791681155262-500-d3f7c116742a69ca) showed the same inputs accepted as a spawn surface. The pre-existing untracked witness scripts/spawn-surface-witness.mjs still reports claims 22, failed 0 / RESULT: PASS (dispatch 1791681468173-500-f0ed839620686a3b): its worldRaycast always supplies a normal, so it could not have caught this'
+  witness: 1791681466911-500-3a35eaac902b570
   principle: ILLEGAL
-  surface: src/shared
+  session_id: orch-main-r256-sub1
   status: pending
-  claim: src/shared/SpawnSurface.js:11 `hitY` returns null both for 'the ray missed' and for 'the hit carried no finite position', and columnSurfaces breaks on that null (line 27), so one unreadable hit ends the column scan exactly as an empty column would; src/shared/SpawnSurface.js:15-17 `walkable` returns true when the hit has no normal at all, so missing data defaults to the permissive answer; src/shared/SpawnSurface.js:53 returns the same null for 'no surface found' and for 'bad arguments'
-  evidence: 'read of the module: `!n || !Number.isFinite(n[1]) || n[1] >= MIN_UP_NORMAL_Y` makes an absent normal walkable, and `r && r.hit && Number.isFinite(...)` collapses a miss and a malformed hit'
-  action: make a raycast result with a hit but no finite position or no normal a distinct failure (throw or a tagged result) instead of folding it into 'miss'/'walkable'
-  witness: 1791680450162-500-5fab493a725e7c82
-  session_id: orch-main-r256
+  surface: src/shared
+  title: SpawnSurface admits a malformed ray hit as a walkable surface and returns one null for two causes (walkable half CLOSED, hitY half open)
 - id: ILLEGAL-n-r256-4
   title: createChartAnchorLattice encodes one invalid-config class two ways
   principle: ILLEGAL
@@ -406,3 +410,25 @@
   witness: codesearch regex 'String\(pid\)|playerProgression\.(has|get|set)\(' over src/game (exhaustive, 11 hits, dispatch 1791681251171-500-2676217125e5caf0)
   session_id: orch-main-r260
   status: pending
+- id: HUGHES-n-r256-sub1-1
+  SESSION_ID: orch-main-r256-sub1
+  action: validate both guards before either returns and throw one named error for any invalid lattice request (delete the null encoding and the caller-side `if (!lattice) throw` re-derivation at src/shared/clusterConfig.js:38-39 and src/terrain/ChartReanchorService.js:5-6); give chartAnchorDecision an explicit lattice precondition that throws a named error rather than a TypeError from a property read; route playerCentroidDir's degenerate dir into the refusal shape
+  claim: 'executed input-class sweep (dispatch 1791681155262-500-d3f7c116742a69ca) over src/shared/chartAnchor.js:13-14 and src/shared/chartReanchorPolicy.js: one invalid-request class is answered three ways. createChartAnchorLattice(0, 0) returns null because the radius guard at line 13 fires first, so the anchorsPerFace guard at line 14 never runs (the first guard masks the second); createChartAnchorLattice(6371e3, 0) throws `chart anchor lattice needs anchorsPerFace >= 1, got 0`; and the null the first call produced is then consumed by chartAnchorDecision, which throws a TypeError from inside its own body instead of the named failure it already was. A fourth input of the same class, a zero-length member dir, escapes playerCentroidDir as an uncaught plain Error that no caller catches.'
+  evidence: 'first falsifying case per class, live dynamic import of src/shared/chartAnchor.js: (radius 0, anchorsPerFace 0) -> null, not a throw; (6371e3, anchorsPerFace 0) -> Error; radius -1 and radius NaN -> null; chartAnchorDecision({lattice: null, frame: {up:[0,1,0]}, dirs: [[0,1,0]]}) -> TypeError inside the policy; a zero-length dir -> uncaught Error out of playerCentroidDir, caught by no caller; chartAnchorCellWorstAngleDeg(createChartAnchorLattice(6371e3)) = 2.2596748516959444 deg, under CHART_REANCHOR_ANGLE_DEG 28, so the AGENTS.md tilt invariant still holds'
+  principle: HUGHES
+  status: pending
+  surface: src/shared
+  title: an invalid chart-anchor request has three live encodings and the radius guard masks the anchorsPerFace guard
+  witness: 1791681155262-500-d3f7c116742a69ca
+  session_id: orch-main-r256-sub1
+- id: HUGHES-n-r256-sub1-2
+  SESSION_ID: orch-main-r256-sub1
+  action: reject (never rewrite) a declared grid cell outside 1..3 and a declaration that does not fit the 3x3 grid, so a world author's layout is either honoured or refused
+  claim: 'executed input-class sweep (dispatch 1791681155262-500-d3f7c116742a69ca) over src/shared/worldDefaults.js:30-47: two silent rewrites of a declared button set that no caller can observe. A declared grid cell outside the 1..3 range is not rejected by normalizeGridCell but relocated: {action:''jump'', grid:[9,9]} comes back at grid [1,1], so the world author''s layout is silently rewritten to the first free cell rather than refused. A declaration that exceeds the 3x3 grid loses its tail: 10 distinct declared actions yield 9 buttons, the 10th vanishing at the cap with no signal.'
+  evidence: 'live dynamic import of src/shared/worldDefaults.js: worldMobileButtons({input:{mobileButtons:[{action:''jump'', grid:[9,9]}]}}) -> [{action:''jump'', grid:[1,1], ...}], the declared [9,9] gone; worldMobileButtons({input:{mobileButtons: ten distinct ''a0''..''a9'' entries}}) -> 9 buttons, ''a9'' absent; worldMobileButtons({input:{mobileButtons:[]}}) -> the same three DEFAULT_MOBILE_BUTTONS an undeclared world gets, so declared-empty and undeclared are indistinguishable in the output'
+  principle: HUGHES
+  status: pending
+  surface: src/shared
+  title: worldMobileButtons silently relocates a declared out-of-range grid and drops declared buttons past the 3x3 cap
+  witness: 1791681155262-500-d3f7c116742a69ca
+  session_id: orch-main-r256-sub1
