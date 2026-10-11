@@ -61,7 +61,10 @@ async function _addTrimeshColliderImpl(ent, runtime) {
 
 export function buildPhysicsAPI(ent, runtime) {
   const api = {
-    setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id) },
+    setInteractable: (radius = 3) => {
+      if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) throw new TypeError('physics.setInteractable: radius must be a non-negative finite number')
+      ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id)
+    },
     setStatic: (v) => { if (v) setBodyType(ent, runtime, 'static') },
     setDynamic: (v) => { if (v) setBodyType(ent, runtime, 'dynamic') },
     setKinematic: (v) => { if (v) setBodyType(ent, runtime, 'kinematic') },
