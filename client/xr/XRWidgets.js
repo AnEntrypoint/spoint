@@ -179,7 +179,5 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
     setQuadOpacity(vignetteMesh, vignetteOpacity)
   }
 
-  return { initWristUI, updateWristUI, toggleSettings, setSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.mesh.visible || false } }
+  return { initWristUI, updateWristUI, toggleSettings, setSettings, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.mesh.visible || false } }
 }
-
-export const __freshnessProbe = 1
