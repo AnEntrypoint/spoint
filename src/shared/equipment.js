@@ -17,5 +17,6 @@ export function equipResolve(equipment, name) {
 
 export function equipNameOf(equipment, code) {
   if (!Array.isArray(equipment) || !Number.isInteger(code) || code < 1) return null
-  return equipment[code - 1] ?? null
+  const at = equipment[code - 1]
+  return typeof at === 'string' ? at : null
 }
