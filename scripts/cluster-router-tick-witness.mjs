@@ -12,8 +12,15 @@ const args = Object.fromEntries(process.argv.slice(2).map(a => {
   const [k, v = 'true'] = a.replace(/^--/, '').split('=')
   return [k, v]
 }))
+function numberFlag(name, fallback) {
+  const raw = args[name]
+  if (raw === undefined) return fallback
+  const value = Number(raw)
+  if (!Number.isFinite(value)) throw new Error(`${TAG} --${name} needs a finite number, got "${raw}"`)
+  return value
+}
 const MODE = ['realtime', 'live'].includes(args.mode) ? args.mode : 'sim'
-const SECONDS = Number(args.seconds || 600)
+const SECONDS = numberFlag('seconds', 600)
 const PLAYERS = 64
 const RADIUS_M = 63600
 const ANCHOR = [0.9, 0.1, 0.4]
@@ -178,7 +185,7 @@ function withClusterSpec(worldDef, spec) {
 
 async function liveMain(shipped) {
   const { WebSocket } = await import('ws')
-  const PORT = Number(args.port || 38765)
+  const PORT = numberFlag('port', 38765)
   const ledger = { created: [], destroyed: [] }
   const router = new RegionRouter({
     worldDef: withClusterSpec(shipped, { enabled: true }), port: PORT, cellSize: 512,
