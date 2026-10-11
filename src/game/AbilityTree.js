@@ -156,7 +156,7 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function tick(dt) {
-    if (!(typeof dt === 'number' && Number.isFinite(dt))) return
+    if (!(typeof dt === 'number' && Number.isFinite(dt) && dt >= 0)) return
 
     for (const state of playerAbilityStates.values()) {
       for (const [abilityId, cooldown] of state.cooldowns.entries()) {
