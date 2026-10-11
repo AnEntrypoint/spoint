@@ -25,21 +25,20 @@ export function createChatHUD(uiRoot, getBridge) {
   uiRoot.appendChild(card)
 
   let chat = null
-  let joined = false
-  let destroyed = false
+  let phase = 'idle'
   let draft = ''
   let statusMsg = ''
 
   const render = () => {
-    if (destroyed) return
+    if (phase === 'destroyed') return
     const messages = chat ? chat.messages : []
     const myPubkey = getBridge()?.pubkey || null
     applyDiff(card, [
       h('div', { class: 'ch-h' }, [
         h('span', {}, 'Chat'),
-        !joined ? C.Btn({ primary: true, onClick: onJoin, children: ['Join Chat'] }) : null
+        phase !== 'joined' ? C.Btn({ primary: true, onClick: onJoin, children: ['Join Chat'] }) : null
       ]),
-      joined
+      phase === 'joined'
         ? h('div', { class: 'ch-list' }, messages.length
             ? messages.map(m => {
                 const mine = m.userId === myPubkey
@@ -51,7 +50,7 @@ export function createChatHUD(uiRoot, getBridge) {
               })
             : [h('div', { class: 'ch-sub' }, 'No messages yet.')])
         : h('div', { class: 'ch-sub' }, 'Join to chat with everyone in this room.'),
-      joined
+      phase === 'joined'
         ? h('form', { class: 'ch-form', onsubmit: onSend }, [
             h('input', { class: 'ch-input', type: 'text', placeholder: 'Message...', value: draft, oninput: (e) => { draft = e.target.value } }),
             C.Btn({ type: 'submit', children: ['Send'] })
@@ -87,7 +86,7 @@ export function createChatHUD(uiRoot, getBridge) {
     try {
       const c = await ensureChat()
       await c.loadHistory(TEXT_CHANNEL)
-      joined = true
+      phase = 'joined'
       render()
     } catch (err) {
       console.warn('[chat] join failed:', err?.message || err)
@@ -113,10 +112,10 @@ export function createChatHUD(uiRoot, getBridge) {
 
   return {
     node: card,
-    get joined() { return joined },
+    get joined() { return phase === 'joined' },
     get chat() { return chat },
     destroy() {
-      destroyed = true
+      phase = 'destroyed'
       card.remove()
     }
   }
