@@ -1,3 +1,5 @@
+import { brushRejected, brushApplied } from './brushResult.js'
+
 export const CELL_M = 8
 
 function cellKey(cx, cz) {
@@ -23,10 +25,10 @@ export function createBiomeOverride(strokes) {
   function cellCenter(cx, cz) { return [cx * CELL_M + CELL_M * 0.5, cz * CELL_M + CELL_M * 0.5] }
 
   function applyPaintBrush(x, z, radius, target, strength) {
-    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0) return { touched: 0 }
-    if (!target || !Number.isFinite(target.temp) || !Number.isFinite(target.humidity) || !Number.isFinite(target.erosion)) return { touched: 0 }
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0) return brushRejected('x|z|radius')
+    if (!target || !Number.isFinite(target.temp) || !Number.isFinite(target.humidity) || !Number.isFinite(target.erosion)) return brushRejected('target')
     const clampedStrength = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 1
-    if (clampedStrength <= 0) return { touched: 0 }
+    if (clampedStrength <= 0) return brushRejected('strength')
     const tgt = { temp: clamp01(target.temp), humidity: clamp01(target.humidity), erosion: clamp01(target.erosion) }
     const cx0 = Math.floor((x - radius) / CELL_M), cx1 = Math.ceil((x + radius) / CELL_M)
     const cz0 = Math.floor((z - radius) / CELL_M), cz1 = Math.ceil((z + radius) / CELL_M)
@@ -58,7 +60,7 @@ export function createBiomeOverride(strokes) {
       }
     }
     if (touched > 0) appliedStrokes.push({ x, z, radius, strength: clampedStrength, target: tgt })
-    return { touched }
+    return brushApplied(touched)
   }
 
   function overrideAt(x, z) {
