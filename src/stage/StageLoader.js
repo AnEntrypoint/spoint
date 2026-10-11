@@ -1,7 +1,15 @@
 import { Stage } from './Stage.js'
 import { worldPlayerModel } from '../shared/worldDefaults.js'
 import { resolveTerrainConfig } from '../shared/terrainConfig.js'
-import { resolveClusterConfig } from '../shared/clusterConfig.js'
+import { resolveClusterConfig, declaredWeaponRangeM } from '../shared/clusterConfig.js'
+
+export class StageConfigError extends TypeError {
+  constructor(code, message) {
+    super(`${code}: ${message}`)
+    this.name = 'StageConfigError'
+    this.code = code
+  }
+}
 
 function vecOK(v, n) {
   if (!Array.isArray(v) || v.length !== n) return false
@@ -9,15 +17,30 @@ function vecOK(v, n) {
   return true
 }
 
-function stagePlanetRadius(worldDef) {
+function stagePlanetRadius(worldDef, appDefs) {
+  const worldName = worldDef.name ?? '(unnamed)'
   const tcfg = resolveTerrainConfig(worldDef)
-  const clusterConfig = tcfg
-    ? resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius || 200, maxWeaponRangeM: worldDef.maxWeaponRangeM ?? 0 })
-    : null
-  if (clusterConfig) return clusterConfig.radius
+  if (tcfg && tcfg.clusters && tcfg.clusters.enabled === true && !(Number.isFinite(tcfg.radius) && tcfg.radius > 0)) {
+    throw new StageConfigError('stage-cluster-needs-planet-radius', `[stage] world "${worldName}" enables clusters on terrain radius ${JSON.stringify(tcfg.radius ?? null)}: a cluster world is one chart-anchor lattice over one positive finite radius, so the stage refuses the request at the entry instead of letting the lattice raise downstream with no world named`)
+  }
+  let clusterConfig = null
+  if (tcfg) {
+    try {
+      clusterConfig = resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius || 200, maxWeaponRangeM: declaredWeaponRangeM(worldDef, appDefs) })
+    } catch (e) {
+      throw new StageConfigError('stage-cluster-config-refused', `[stage] world "${worldName}" carries a cluster config the cluster resolver refuses (${e?.code ?? e?.name ?? 'unnamed'}: ${e?.message ?? e}): the stage owns one radius per world and reports the refusal in its own vocabulary, so a caller never has to know which module drew the line`)
+    }
+  }
+  if (clusterConfig) {
+    const declared = worldDef.planetRadius
+    if (declared != null && declared !== 0 && declared !== clusterConfig.radius) {
+      throw new StageConfigError('stage-radius-conflicts-with-cluster-radius', `[stage] world "${worldName}" declares planetRadius ${JSON.stringify(declared)} while its enabled clusters resolve ${clusterConfig.radius}: one world has one radius and the cluster-resolved one is the one that moves every cell query origin, so a second declared value is a disagreement the stage refuses instead of discarding`)
+    }
+    return clusterConfig.radius
+  }
   const declared = worldDef.planetRadius
   if (declared == null || declared === 0) return 0
-  throw new TypeError(`[stage] world "${worldDef.name ?? '(unnamed)'}" declares planetRadius ${JSON.stringify(declared)} without enabled clusters: the cube-sphere cell lattice moves every cell query origin onto the sphere while players stay at chart-local distances, so the ring serves nothing and raises nothing -- the radius has to be the one resolveClusterConfig resolves`)
+  throw new StageConfigError('stage-radius-not-cluster-resolved', `[stage] world "${worldName}" declares planetRadius ${JSON.stringify(declared)} without enabled clusters: the cube-sphere cell lattice moves every cell query origin onto the sphere while players stay at chart-local distances, so the ring serves nothing and raises nothing -- the radius has to be the one resolveClusterConfig resolves`)
 }
 
 export class StageLoader {
@@ -30,7 +53,7 @@ export class StageLoader {
   loadFromDefinition(name, worldDef) {
     const stage = new Stage(name, {
       relevanceRadius: worldDef.relevanceRadius || 200,
-      planetRadius: stagePlanetRadius(worldDef),
+      planetRadius: stagePlanetRadius(worldDef, this._runtime?._appDefs ?? null),
       gravity: worldDef.gravity,
       spawnPoint: worldDef.spawnPoint,
       playerModel: worldPlayerModel(worldDef)
