@@ -4,7 +4,7 @@ const SMALLEST_POSITIVE_RADIUS_M = Number.MIN_VALUE
 
 const shapes = new Map()
 
-function declaredBand(id, band) {
+function ownedBand(id, band) {
   if (!band || typeof band !== 'object') {
     throw new TypeError(`[stage] stage shape "${id}" declares no band: a shape owns one half-open radius interval [minInclusive, maxExclusive), so the registry can refuse an overlap instead of letting registration order decide which ring a radius reaches`)
   }
@@ -19,7 +19,7 @@ function declaredBand(id, band) {
   if (!(minInclusive < maxExclusive)) {
     throw new TypeError(`[stage] stage shape "${id}" declares the empty band [${minInclusive}, ${maxExclusive}): a shape no radius can reach is unreachable by construction, so the registry refuses it where the shape is declared rather than at the resolve that never selects it`)
   }
-  return band
+  return Object.freeze({ minInclusive, maxExclusive })
 }
 
 function bandHolds(band, planetRadius) {
@@ -45,9 +45,9 @@ export function registerStageShape(id, shape) {
   if (shapes.has(id)) {
     throw new TypeError(`[stage] stage shape "${id}" is already registered: one id owns one ring and one cell query, so a second registration is a disagreement the registry refuses instead of discarding`)
   }
-  const band = declaredBand(id, shape?.band)
+  const band = ownedBand(id, shape?.band)
   refuseOverlap(id, band)
-  const entry = { ...shape, band }
+  const entry = Object.freeze({ ...shape, band })
   shapes.set(id, entry)
   return entry
 }
