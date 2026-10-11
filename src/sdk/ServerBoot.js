@@ -187,11 +187,6 @@ export async function boot(overrides = {}) {
     worldName, worldPath, worldLocatedByDefault: !process.env.WORLD,
     ...overrides
   }
-  setImmediate(() => {
-    prewarmCompression(config.staticDirs)
-      .then(n => { if (n) console.log(`[static] precompressed ${n} asset(s)`) })
-      .catch(e => console.error('[static] prewarm error:', e.message))
-  })
   const server = await createServer(config)
   try {
     await server.loadWorld(worldDef, worldName)
@@ -236,6 +231,11 @@ export async function boot(overrides = {}) {
   const info = await server.start()
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
   logServerIdentity()
+  setImmediate(() => {
+    prewarmCompression(config.staticDirs)
+      .then(n => { if (n) console.log(`[static] precompressed ${n} asset(s)`) })
+      .catch(e => console.error('[static] prewarm error:', e.message))
+  })
 
   const presenceCfg = worldDef.presence || {}
   const presenceEnabled = process.env.SPOINT_PRESENCE === '1' || process.env.SPOINT_PRESENCE === 'true' || !!presenceCfg.enabled
