@@ -377,8 +377,10 @@ export class EventChainManager {
   tick(dt = 0.016) {
     if (this.activeDelayedActions.length === 0) return
 
+    const scheduledBeforeTick = this.activeDelayedActions
+    this.activeDelayedActions = []
     const remainingItems = []
-    for (const item of this.activeDelayedActions) {
+    for (const item of scheduledBeforeTick) {
       item.remaining -= dt
       if (item.remaining <= 0) {
         const action = item.actions[item.index]
@@ -389,7 +391,7 @@ export class EventChainManager {
       }
     }
 
-    this.activeDelayedActions = remainingItems
+    this.activeDelayedActions = remainingItems.concat(this.activeDelayedActions)
   }
 
   _log(type, details) {
