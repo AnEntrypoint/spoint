@@ -434,20 +434,43 @@ const PROVENANCE_SRC = '\\[(' + PROVENANCE_TAGS.join('|') + ')\\]';
 const FIGURE_SLOT_SRC = '\\[(STAT|INSTR|ADAPTER|RES|W):';
 const LIFECYCLE_SRC = '\\[(PLANNED|UNBUILT|AWAITING-RE-DERIVATION|INVALIDATED)\\]';
 
-function parseDocRow(text, section, isOpenQuestion, seenHeading) {
+const TOP_BULLET = '- ';
+const SUB_BULLET_SRC = /^\s+- /;
+const HEADING_SRC = /^## /;
+
+function parseDocRow(text, section, isOpenQuestion, seenHeading, enclosingProvenance) {
   const provenanceTags = [...text.matchAll(new RegExp(PROVENANCE_SRC, 'g'))].map((m) => m[1]);
   const slots = [...text.matchAll(new RegExp(FIGURE_SLOT_SRC, 'g'))].map((m) => m[1]);
   const modifiers = [...text.matchAll(new RegExp(LIFECYCLE_SRC, 'g'))].map((m) => m[1]);
-  const bullet = text.startsWith('- ');
+  const bullet = text.startsWith(TOP_BULLET);
+  const subBullet = !bullet && SUB_BULLET_SRC.test(text);
   const quotesNumber = /[0-9]/.test(text);
-  const kind = !seenHeading ? 'preamble'
+  const declaresFigure = provenanceTags.length > 0 || (bullet && quotesNumber && slots.length > 0);
+  const shape = !seenHeading ? 'preamble'
+    : HEADING_SRC.test(text) ? 'heading'
+    : text.trim() === '' ? 'blank'
+    : subBullet ? 'sub-bullet'
     : isOpenQuestion ? 'open-question'
-    : (bullet && quotesNumber && (slots.length > 0 || provenanceTags.length > 0)) ? 'figure'
+    : declaresFigure ? 'figure'
     : 'prose';
+  const rejected = shape === 'figure' && provenanceTags.length !== 1;
+  const provenance = shape === 'figure' ? (provenanceTags.length === 1 ? provenanceTags[0] : null)
+    : shape === 'sub-bullet' ? enclosingProvenance
+    : null;
+  const reason = rejected ? (provenanceTags.length === 0 ? 'provenance-missing' : 'provenance-multiple')
+    : shape === 'figure' ? 'carries exactly one provenance tag, so the row is a figure'
+    : shape === 'sub-bullet' ? 'indented sub-bullet, inherits the enclosing provenance and carries no tag of its own'
+    : shape === 'open-question' ? 'section 13 records open questions, not figures'
+    : shape === 'preamble' ? 'stands before the first section heading'
+    : shape === 'heading' ? 'section heading'
+    : shape === 'blank' ? 'empty line'
+    : slots.length > 0 ? 'carries a figure slot but no provenance tag, so it is prose, not a figure'
+    : quotesNumber ? 'quotes a number with no slot and no provenance, so it is prose, not a figure'
+    : 'quotes no number and carries no slot or provenance tag, so it is prose';
   return {
-    text, section, kind, bullet, quotesNumber, slots, modifiers, provenanceTags,
-    provenanceCount: provenanceTags.length,
-    provenance: provenanceTags.length === 1 ? provenanceTags[0] : null,
+    text, section, shape, verdict: rejected ? 'rejected' : 'accepted',
+    bullet, subBullet, quotesNumber, slots, modifiers, provenanceTags,
+    provenanceCount: provenanceTags.length, provenance, reason,
   };
 }
 
@@ -456,34 +479,36 @@ const docRows = [];
   let seenHeading = false;
   let section = '';
   let isOpenQuestion = false;
+  let enclosingProvenance = null;
   (fileLines('docs/measurement-figures.md') || []).forEach((line, idx) => {
     if (line.startsWith('## ')) {
       seenHeading = true;
       section = line.slice(3).trim();
       isOpenQuestion = /^## .*Open questions/.test(line);
+      enclosingProvenance = null;
     }
-    const row = parseDocRow(line, section, isOpenQuestion, seenHeading);
+    const row = parseDocRow(line, section, isOpenQuestion, seenHeading, enclosingProvenance);
     row.at = 'docs/measurement-figures.md:' + (idx + 1);
+    if (row.bullet) enclosingProvenance = row.provenance;
     docRows.push(row);
   });
 }
 
-const figureRows = docRows.filter((r) => r.kind === 'figure');
-const proseBullets = docRows.filter((r) => r.kind === 'prose' && r.bullet);
-const openQuestionBullets = docRows.filter((r) => r.kind === 'open-question' && r.bullet);
-const provenanceFindings = [];
-for (const row of figureRows) {
-  if (row.provenanceCount === 1) continue;
-  provenanceFindings.push({ kind: row.provenanceCount === 0 ? 'provenance-missing' : 'provenance-multiple', at: row.at, tags: row.provenanceTags, text: row.text.trim().slice(0, 120) });
-}
-const undecidableBullets = proseBullets.filter((r) => r.quotesNumber && r.slots.length === 0 && r.provenanceCount === 0);
-const unadmittedBullets = proseBullets.filter((r) => !(r.quotesNumber && r.slots.length === 0 && r.provenanceCount === 0));
+const figureRows = docRows.filter((r) => r.shape === 'figure');
+const acceptedRows = docRows.filter((r) => r.verdict === 'accepted');
+const rejectedRows = docRows.filter((r) => r.verdict === 'rejected');
+const undecidedRows = docRows.filter((r) => r.verdict !== 'accepted' && r.verdict !== 'rejected');
+const provenanceFindings = rejectedRows.map((r) => ({ kind: r.reason, at: r.at, tags: r.provenanceTags, text: r.text.trim().slice(0, 120) }));
+for (const row of undecidedRows) provenanceFindings.push({ kind: 'row-shape-undecided', at: row.at, shape: row.shape, text: row.text.trim().slice(0, 120) });
 const lineNumbers = (rows) => rows.map((r) => r.at.split(':')[1]).join(' ') || 'none';
+const shapeTally = [...new Set(docRows.map((r) => r.shape))].sort().map((s) => s + ' ' + docRows.filter((r) => r.shape === s).length).join(', ');
 const provenanceTally = PROVENANCE_TAGS.map((t) => t + ' ' + figureRows.filter((r) => r.provenance === t).length).join(', ');
 console.log('provenance figure rows checked: ' + figureRows.length + ' (' + provenanceTally + ')');
-console.log('doc rows parsed into one class each: figure ' + figureRows.length + ', prose bullet ' + proseBullets.length + ', open-question bullet ' + openQuestionBullets.length);
-console.log('prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): ' + lineNumbers(undecidableBullets));
-console.log('prose bullets the figure rule does not admit (no number, or a slot or tag outside a figure row): ' + lineNumbers(unadmittedBullets));
+console.log('doc rows parsed: ' + docRows.length + ' -> accepted ' + acceptedRows.length + ', rejected ' + rejectedRows.length + ', undecided ' + undecidedRows.length);
+console.log('row shapes: ' + shapeTally);
+console.log('figure rows admitted on provenance alone (quotes no number): ' + lineNumbers(figureRows.filter((r) => !r.quotesNumber)));
+console.log('sub-bullets inheriting an enclosing provenance: ' + lineNumbers(docRows.filter((r) => r.shape === 'sub-bullet' && r.provenance !== null)));
+for (const row of docRows.filter((r) => r.shape === 'prose' && (r.quotesNumber || r.slots.length > 0))) console.log('  prose ' + row.at.split(':')[1] + ': ' + row.reason);
 console.log('provenance findings (figure row without exactly one provenance tag): ' + provenanceFindings.length);
 const p50Findings = [];
 let p50InvalidatedCount = 0;
