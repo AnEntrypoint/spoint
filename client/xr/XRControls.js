@@ -13,6 +13,16 @@ export class XRControls {
     this.reticle = null
   }
 
+  onSessionChange = null
+
+  get enabled() { return this._sessionActive === true }
+
+  set enabled(active) {
+    if (this._sessionActive === active) return
+    this._sessionActive = active
+    this.onSessionChange?.(active)
+  }
+
   get reticleVisible() { return this.reticle !== null && this.reticle.visible === true }
 
   set reticleVisible(v) { if (this.reticle) this.reticle.visible = v === true }
