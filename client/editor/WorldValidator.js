@@ -5,6 +5,10 @@ const OUT_OF_BOUNDS_RADIUS = 50000
 
 const SPAWN_APP_NAMES = new Set(['spawn-point', 'respawn-zone'])
 
+const _isFiniteVec3 = (p) => Array.isArray(p) && p.length >= 3 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Number.isFinite(p[2])
+
+const _fmtPos = (p) => (Array.isArray(p) ? `[${p.join(', ')}]` : String(p))
+
 function _flatten(nodes, depth, parentId, out) {
   for (const n of nodes || []) {
     if (!n || !n.id) continue
@@ -20,9 +24,15 @@ function lintWorld(entities, knownAppNames) {
 
   for (const { node } of flat) {
     const p = node.position
-    if (!Array.isArray(p) || p.length < 3) continue
+    if (!_isFiniteVec3(p)) {
+      findings.push({
+        id: node.id, severity: Array.isArray(p) && p.length >= 3 ? 'error' : 'warn', check: 'bad-position',
+        message: `${node.id} has position ${_fmtPos(p)} -- lintWorld vouches only for a 3-component finite array, and every other check skips a node that fails it`
+      })
+      continue
+    }
     const mag = Math.max(Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]))
-    if (Number.isFinite(mag) && mag > OUT_OF_BOUNDS_RADIUS) {
+    if (mag > OUT_OF_BOUNDS_RADIUS) {
       findings.push({
         id: node.id, severity: 'error', check: 'out-of-bounds',
         message: `${node.id} is at [${p.map(v => v.toFixed(0)).join(', ')}] -- ${mag.toFixed(0)}u from origin, past the ${OUT_OF_BOUNDS_RADIUS}u reasonable-playable-bounds radius`
@@ -39,15 +49,19 @@ function lintWorld(entities, knownAppNames) {
   }
 
   const seenIds = new Map()
-  for (const { node } of flat) {
+  for (let i = 0; i < flat.length; i++) {
+    const { node, parentId } = flat[i]
     if (seenIds.has(node.id)) {
-      const first = seenIds.get(node.id)
+      const firstUnder = seenIds.get(node.id).parentId ?? '(root)'
+      const againUnder = parentId ?? '(root)'
       findings.push({
         id: node.id, severity: 'error', check: 'duplicate-id',
-        message: `Entity id "${node.id}" appears more than once in the scene tree (first seen under parent ${first.parentId ?? '(root)'}, again under ${flat.find(f => f.node === node).parentId ?? '(root)'})`
+        message: firstUnder === againUnder
+          ? `Entity id "${node.id}" appears more than once in the scene tree -- both occurrences sit under parent ${firstUnder}, so this id has one location in the tree, not two`
+          : `Entity id "${node.id}" appears more than once in the scene tree (first seen under parent ${firstUnder}, again under ${againUnder})`
       })
     } else {
-      seenIds.set(node.id, flat.find(f => f.node === node))
+      seenIds.set(node.id, flat[i])
     }
   }
 

@@ -311,3 +311,63 @@ ILLEGAL-n-r208-1 | scripts/WebSocketTransport-witness.mjs | exit=0 | RESULT: PAS
 tick 160 live=20 ceiling=20 floor=10 shortfall=0 open=1125 launchable=303 blocked held=2 candidates=PARSEDV-n-r199-2-1/2,ILLEGAL-n-r226-3/4,WADLER-n-r223-1/2,METAMORPH-n-r227-1/2 1791677367
 - 2026-10-11T00:10:50.412Z | xr-widgets-single-owner-witness | exit 0 | RESULT: PASS 28/28 | dispatch 1791677373009-500-7f53abf6d4fed894 | session orch-main-r230 | KISS-n-r209-8
 - 2026-10-11T00:10:50.412Z | xr-widgets-single-owner-witness (baseline pre-edit) | exit 1 | RESULT: FAIL 25/28 | dispatch 1791677264555-500-902071adf42bd990 | session orch-main-r230 | KISS-n-r209-8
+tick 161 live=20 ceiling=20 floor=10 shortfall=0 open=1142 launchable=324 blocked held=2 r235 DBC packages/ecs logged 10 rows 1791677582
+HOP packages/ecs DBC 13 violations witness=1791677418911-500-edf35f7dc2266c78 next=LAMPORT packages/ecs
+tick 162 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r239 hop=LAMPORT packages/ecs 1791677598
+- 2026-10-11T00:14:24.167Z | xr-widgets-single-owner-witness-verifier1 | exit 0 | RESULT: PASS 49/49 | dispatch 1791677614540-500-b3713aacbc1e11da | session orch-main-r230-sub1 | KISS-n-r209-8
+tick 163 live=20 ceiling=20 floor=10 shortfall=0 open=1145 launchable=325 blocked held=2 (5th consecutive saturated blocked observation; churn row filed) 1791677715
+RESULT ILLEGAL-n-r208-1 resolved 36fd41d2d17d67f3233e5707264f77873081c25a next=KISS-n-r209-3
+HOP src/sdk PARSEDV 5 violations witness=1791677292093-500-8b4587705d1d1e88 next=ILLEGAL src/sdk
+tick 164 live=20 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r240 hop=ILLEGAL src/sdk launch orch-main-r241 row=transport-wrapper-base-ready-field-unread (src/transport free: r208-1/2/3/4 all closed) 1791677807
+HOP src/stage MILNER 7 violations witness=1791677493853-500-9b67e6bc7d1f58d3 next=ILLEGAL src/stage
+tick 165 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r242 hop=ILLEGAL src/stage 1791677896
+RESULT KISS-n-r209-8 resolved ec115e6878361f565d556803aff9b7918d982237 next=KISS-n-r209-9
+tick 166 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r243 hop=MILNER src/shared (unscanned; KISS-n-r209-9 deferred pending surface check) 1791677999
+HOP client/hud YAGNI 2 violations witness=1791677719835-500-4f7ed982ea61ecb2 next=TARPIT client/hud
+tick 167 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r244 hop=TARPIT client/hud 1791678083
+HOP client/ui INVARIANTRUN 12 violations witness=1791673828440-500-f3196f6b960b642f next=METAMORPH client/ui (chain closed at depth 6: 33 node-only rows INVARIANTRUN/METAMORPH/FUZZ/PARSEDV/WADLER; client/ui edits BLOCKED-ON-EDIT by foreign uncommitted hunks in DevDashboard.js and NetworkInspector.js)
+tick 168 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r245 hop=DBC client/workers 1791678179
+HOP packages/ecs LAMPORT 9 violations witness=1791677953922-500-571bef7c8e39e680 next=INVARIANTRUN packages/ecs
+tick 169 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r246 hop=INVARIANTRUN packages/ecs 1791678274
+2026-10-11T00:25:29.727Z witness=scripts/WorkerTransport-witness.mjs module=C:/dev/spoint/src/transport/WorkerTransport.js exit=1 RESULT: FAIL (57 of 59 expectations hold) out=.gm/witness-out/WorkerTransport-witness-2026-10-11T00-25-29-727Z-6068.txt sha256=9e975cb32a4cc10880c088f0ec09c98af1b89b16470782f592501e86ae2347e8
+2026-10-11T00:25:30.001Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
+20261011T002541Z | scripts/WebSocketClientTransport-witness.mjs | exit=0 | RESULT: PASS -- 25 of 25 claims | module=C:\dev\spoint\src\transport\WebSocketClientTransport.js | websocket=global WebSocket (runtime-provided) | output=.gm/witness-out/WebSocketClientTransport-witness-20261011T002541Z-22756-e5cf28.txt | sha256=b28267fb1f023b15159f0ac3103ce8eecfacf840914aede717d5d6efde1ef890
+tick 170 live=20 ceiling=20 floor=10 shortfall=0 open=1186 launchable=353 blocked held=2 candidates=PARSEDV-n-2-sub1-1/2,WADLER-n-r185h1s4-2
+HOP client/editor HUGHES 5 violations witness=1791673200373-500-e9c4215508678c23 next=WADLER-n-r185h1s4-2 (chain closed: PBTAGENT/INVARIANTRUN/DBC/PARSEDV/WADLER 25 node-only rows)
+tick 171 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r247 row=WADLER-n-r185h1s4-2 (client/editor free: r185 chain closed)
+HOP src/shared MILNER 3 violations witness=1791678510377-500-6bd56eae67190690 next=PARSEDV src/shared
+tick 172 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r248 hop=PARSEDV src/shared
+HOP src/apps FUZZ 10 violations witness=1791677757444-500-fb0d9dbc126bd3b5 next=PARSEDV src/apps
+tick 173 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r249 hop=PARSEDV src/apps
+2026-10-11T00:32:09.472Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -
+20261011T003220Z | scripts/WebSocketClientTransport-witness.mjs | exit=0 | RESULT: PASS -- 25 of 25 claims | module=C:\dev\spoint\src\transport\WebSocketClientTransport.js | websocket=global WebSocket (runtime-provided) | output=.gm/witness-out/WebSocketClientTransport-witness-20261011T003220Z-30048-05afc1.txt | sha256=14cd5b9e55a4bb3f42f4a4b24b14ae6ed779196f37664ef234401e18aebf1494
+GM skills/gm-orchestrate/SKILL.md commit a047ccf19d pushed 89291cd00a74161eead17b01be77e822e97cd6d7 ci=unknown(no workflow runs for sha) author=lanmower -- rule: no timer re-dispatch of pool-observe while saturated
+tick 174 live=20 ceiling=20 floor=10 shortfall=0 open=1186 launchable=353 blocked saturated -- observing on completion per new rule, not on timer
+2026-10-11T00:32:25Z witness=gm:exec_js module=src/transport/TransportWrapper.js dispatch=1791678745397-500-de9eea0da41df89a session=orch-main-r241-verifier exit=0 RESULT: PASS (75 of 75 expectations hold) out=.gm/exec-spool/out/exec_js-orch-main-r241-verifier-20380-1791678727336-12051.txt sha256=dd6deba6a78db76c2c5cdfbc58d542d197ff0f19bb129cb9b3bdd83445528e7b
+HOP client/hud TARPIT 2 violations witness=1791678581507-500-cff94a9e768328be next=ILLEGAL client/hud
+tick 175 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r250 hop=ILLEGAL client/hud
+HOP src/sdk ILLEGAL 8 violations witness=1791678602167-500-2fbccb50ad30b7da next=HUGHES src/sdk
+tick 176 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r251 hop=HUGHES src/sdk
+2026-10-11T00:36:10Z witness=gm:exec_js module=client/editor/EditHistory.js dispatch=1791678901995-500-ae59b55cc95bb7a2 session=orch-main-r247 exit=0 RESULT: PASS (29 of 29 expectations hold) out=.gm/exec-spool/out/exec_js-orch-main-r247-20380-1791678896107-12144.json sha256=51f942a88cd494f66054336aac602490bad10d7275e4ff6483ab25759b397c90
+HOP packages/ecs INVARIANTRUN 2 violations witness=1791678808768-500-35b15ccda57f3334 next=METAMORPH packages/ecs (5 rows INVARIANTRUN-n-r246-1..5; world.js+query.js carry foreign uncommitted edits)
+tick 177 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r252 hop=METAMORPH packages/ecs
+HOP client/workers DBC 6 violations witness=1791678836535-500-153345334fc38434 next=LAMPORT client/workers
+tick 178 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r253 hop=LAMPORT client/workers
+VERIFY 158c437a32edf11485148d3e293d9c26aafc9522 ci-run=38099162637 check=pending frame-time=skipped(no gpu runner)
+RESULT transport-wrapper-base-ready-field-unread resolved ae3457b582475311837ee20c890146681b89c633 next=DRY-n-r141-1-blocker-orch-main-r195 (blocker row, not a candidate)
+RESULT WADLER-n-r185h1s4-2 resolved 2eeb58eb096cc2d5289323020773a378ee705eef next=WADLER-n-r185h1s4-1
+VERIFY ae3457b582475311837ee20c890146681b89c633 author=lanmower subject=fix(transport): derive ready and isOpen from one lifecycle state
+tick 179 live=20 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r254 row=WADLER-n-r185h1s4-1 (client/editor free) launch orch-main-r255 row=webtransport-send-throw-leaves-open (src/transport free: r241 done)
+HOP src/shared PARSEDV 1 violations witness=1791679019712-500-cdbe96244b29ffa7 next=ILLEGAL src/shared
+tick 180 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r256 hop=ILLEGAL src/shared
+VERIFY 158c437a32edf11485148d3e293d9c26aafc9522 ci-run=38099162637 check=success frame-time=skipped
+2026-10-11T00:53:13.955Z witness=exec_js:webtransport-send-throw-parity session=orch-main-r255-sub1 exit=0 RESULT: PASS sha256=7366f13ac57a3a380264060633bf413257d0ac5db928d5d58a5689d929c40dc8
+HOP packages/ecs METAMORPH 9 violations witness=1791679560005-500-a76838f7c223fec1 next=FUZZ packages/ecs (not spawned: gm-hop spawns its own successor; slot used for a fresh surface)
+tick 181 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r257 hop=ILLEGAL apps/world (unscanned, unheld)
+WADLER-n-r185h1s4-1 | exec_js 1791679955547-500-9586eba9a2070e20 | exit 0 | RESULT: PASS -- A_dup names root-a and root-b (two distinct locations); B_dup reports one location and says so; C_dup unchanged root-a/root-b; find_cmp n100=0 n200=0 n400=0 (flat.find re-derivation gone); map_probe n100=100 n200=200 n400=400 ratio=4.00 linear=true; clean= byte-identical to pre-fix | 2026-10-11T00:55:17.859Z | dispatch 1791679955547-500-9586eba9a2070e20
+2026-10-11T00:55:43.767Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=1 RESULT: FAIL (16 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-11T00-55-43-767Z-11884.txt sha256=d6f09e7b4b55a0649761d345c49c8465d893c7659feb69fb5c4312ab61e55019
+2026-10-11T00:56:25.251Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=1 RESULT: FAIL (16 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-11T00-56-25-251Z-14428.txt sha256=d6f09e7b4b55a0649761d345c49c8465d893c7659feb69fb5c4312ab61e55019
+CEILING spawn refusal confirms ceiling=20 at tick 181: hop METAMORPH packages/ecs self-spawned FUZZ packages/ecs and filled the slot before the orchestrator launch
+RULE-CONFIRMED orchestrator spawns a hop successor only when the hop returns next: none
+tick 182 live=20 ceiling=20 floor=10 shortfall=0 saturated (wait 60s; no pool-observe on timer per new rule)
+HOP src/behaviours KISS 4 violations witness=1791677595599-500-728f1475e99fdfa7 closed src/behaviours/fire.js pass-through re-export removed; successor YAGNI self-spawned orch-main-r231-sub1 VIOLATED witness=1791679937128-500-89f7cb371224421a row YAGNI-1-sub1-3
