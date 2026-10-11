@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Stage } from '../src/stage/Stage.js'
+import { flatPlanetRadius, clusterPlanetRadius } from '../src/stage/planetRadius.js'
 import { StageLoader } from '../src/stage/StageLoader.js'
 import { AppRuntime } from '../src/apps/AppRuntime.js'
 import tpsPreset from '../src/presets/tps.js'
@@ -62,7 +63,7 @@ function moduleArgument(argv) {
 }
 
 function buildRuntime() {
-  const stage = new Stage('aoi-delivered-sphere', { relevanceRadius: RELEVANCE, planetRadius: PLANET_RADIUS })
+  const stage = new Stage('aoi-delivered-sphere', { relevanceRadius: RELEVANCE, planetRadius: PLANET_RADIUS === 0 ? flatPlanetRadius() : clusterPlanetRadius(PLANET_RADIUS) })
   const stageLoader = Object.create(StageLoader.prototype)
   stageLoader._stages = new Map([['aoi-delivered-sphere', stage]])
   stageLoader._activeStage = stage
@@ -164,6 +165,41 @@ async function main() {
     const viaHorizontal = stageLoader.getRelevantEntitiesHorizontal(VIEWER, RELEVANCE).slice().sort()
     const ok = viaHolder.length === viaHorizontal.length && viaHolder.every((id, i) => id === viaHorizontal[i])
     return { ok, detail: `holder=[${viaHolder.join(',')}] horizontal=[${viaHorizontal.join(',')}]` }
+  })
+  const caseNames = aoi.AOI_ENTITY_POSITION_CASE
+  runtime.entities.set('registry-no-position', {})
+  aoi.resetAoiRingWork()
+  const knownResult = aoi._positionOfEntity(runtime, 'ground-inside')
+  const noPositionResult = aoi._positionOfEntity(runtime, 'registry-no-position')
+  const unknownResult = aoi._positionOfEntity(runtime, 'vanished-id')
+  const work = { ...aoi.aoiRingWork }
+
+  runClaim('C5', 'the entity-position case set names both refusals, so neither is expressible as the other', () => {
+    const names = Object.keys(caseNames || {}).sort()
+    const ok = names.length === 3 && names.join(',') === 'noPosition,position,unknownEntity'
+    return { ok, detail: `cases=[${names.join(',')}]` }
+  })
+  runClaim('C6', 'an id neither the index nor the registry knows resolves to unknownEntity, not null and not noPosition', () => {
+    const ok = unknownResult !== null && unknownResult.case === caseNames.unknownEntity && unknownResult.position === null
+    return { ok, detail: `case=${unknownResult && unknownResult.case} position=${String(unknownResult && unknownResult.position)}` }
+  })
+  runClaim('C7', 'an entity the registry holds without a position resolves to noPosition, distinct from unknownEntity', () => {
+    const ok = noPositionResult !== null && noPositionResult.case === caseNames.noPosition && noPositionResult.case !== unknownResult.case
+    return { ok, detail: `noPosition=${noPositionResult && noPositionResult.case} unknown=${unknownResult && unknownResult.case}` }
+  })
+  runClaim('C8', 'each refusal is counted separately on the hot path instead of collapsing into one unresolved null', () => {
+    const ok = knownResult.case === caseNames.position && work.positionOfEntityResolves === 1 && work.positionOfEntityNoPosition === 1 && work.positionOfEntityUnknownEntity === 1
+    return { ok, detail: `known=${knownResult && knownResult.case} resolves=${work.positionOfEntityResolves} noPosition=${work.positionOfEntityNoPosition} unknown=${work.positionOfEntityUnknownEntity}` }
+  })
+  runClaim('C9', 'the delivery policy is unchanged: both unresolvable ids still reach the client through resolveDeliveredIds', () => {
+    aoi.resetAoiRingWork()
+    aoi._spatialCache.clear()
+    aoi._ringCache.clear()
+    aoi.setAoiCellBaseEpoch(RELEVANCE, PLANET_RADIUS, runtime)
+    const ring = aoi.computeRingRelevantIds(cell.cellKey, cell.cellFace, cell.cellCx, cell.cellCy, cell.cellsPerFace, PLANET_RADIUS, RELEVANCE, runtime)
+    const delivered = aoi.resolveDeliveredIds(ring.relevantIds, ['registry-no-position', 'vanished-id'], VIEWER, PLANET_RADIUS, RELEVANCE, runtime)
+    const keptBoth = delivered.has('registry-no-position') && delivered.has('vanished-id')
+    return { ok: keptBoth, detail: `delivered=[${[...delivered].join(',')}]` }
   })
   finishWithClaims()
 

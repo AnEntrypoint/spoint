@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Stage } from '../src/stage/Stage.js'
+import { flatPlanetRadius, clusterPlanetRadius } from '../src/stage/planetRadius.js'
 import { StageLoader } from '../src/stage/StageLoader.js'
 import { AppRuntime } from '../src/apps/AppRuntime.js'
 
@@ -57,7 +58,7 @@ function moduleArgument(argv) {
 }
 
 function buildRuntime() {
-  const stage = new Stage('aoi-postcondition', { relevanceRadius: RELEVANCE, planetRadius: PLANET_RADIUS })
+  const stage = new Stage('aoi-postcondition', { relevanceRadius: RELEVANCE, planetRadius: PLANET_RADIUS === 0 ? flatPlanetRadius() : clusterPlanetRadius(PLANET_RADIUS) })
   const stageLoader = Object.create(StageLoader.prototype)
   stageLoader._stages = new Map([['aoi-postcondition', stage]])
   stageLoader._activeStage = stage

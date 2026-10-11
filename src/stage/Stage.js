@@ -1,23 +1,16 @@
 import { SpatialIndex } from '../spatial/Octree.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { resolveStageShape } from './stageShapes.js'
+import { planetRadiusMeters } from './planetRadius.js'
 
 export { FLAT_RING_HALF_HEIGHT_M } from './stageShapes.js'
-
-function resolvedPlanetRadius(stageName, declared) {
-  if (declared == null || declared === 0) return 0
-  if (!(Number.isFinite(declared) && declared > 0)) {
-    throw new TypeError(`[stage] stage "${stageName}" got planetRadius ${JSON.stringify(declared)}: a stage is flat with no radius or planet-centred with a positive finite radius resolved from enabled clusters, and every other value silently picks the cube-sphere cell lattice it cannot serve`)
-  }
-  return declared
-}
 
 export class Stage {
   constructor(name, config = {}) {
     this.name = name
     this.entityIds = new Set()
     this.spatial = new SpatialIndex({ relevanceRadius: resolveRelevanceRadius(config.relevanceRadius) })
-    this.spatial.planetRadius = resolvedPlanetRadius(name, config.planetRadius)
+    this.spatial.planetRadius = planetRadiusMeters(name, config.planetRadius)
     this.shape = resolveStageShape(this.spatial.planetRadius, config.shape)
     this.gravity = config.gravity || null
     this.spawnPoint = config.spawnPoint || null

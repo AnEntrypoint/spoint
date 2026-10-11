@@ -2,6 +2,7 @@ import { Stage } from './Stage.js'
 import { worldPlayerModel } from '../shared/worldDefaults.js'
 import { resolveTerrainConfig } from '../shared/terrainConfig.js'
 import { resolveClusterConfig, declaredWeaponRangeM } from '../shared/clusterConfig.js'
+import { flatPlanetRadius, clusterPlanetRadius } from './planetRadius.js'
 
 export class StageConfigError extends TypeError {
   constructor(code, message) {
@@ -36,10 +37,10 @@ function stagePlanetRadius(worldDef, appDefs) {
     if (declared != null && declared !== 0 && declared !== clusterConfig.radius) {
       throw new StageConfigError('stage-radius-conflicts-with-cluster-radius', `[stage] world "${worldName}" declares planetRadius ${JSON.stringify(declared)} while its enabled clusters resolve ${clusterConfig.radius}: one world has one radius and the cluster-resolved one is the one that moves every cell query origin, so a second declared value is a disagreement the stage refuses instead of discarding`)
     }
-    return clusterConfig.radius
+    return clusterPlanetRadius(clusterConfig.radius)
   }
   const declared = worldDef.planetRadius
-  if (declared == null || declared === 0) return 0
+  if (declared == null || declared === 0) return flatPlanetRadius()
   throw new StageConfigError('stage-radius-not-cluster-resolved', `[stage] world "${worldName}" declares planetRadius ${JSON.stringify(declared)} without enabled clusters: the cube-sphere cell lattice moves every cell query origin onto the sphere while players stay at chart-local distances, so the ring serves nothing and raises nothing -- the radius has to be the one resolveClusterConfig resolves`)
 }
 
