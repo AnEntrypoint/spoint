@@ -36,31 +36,26 @@ export interface PhysicsAPI {
   // CCD (Continuous Collision Detection) policy
   setCCDPolicy(policy: 'auto' | 'always' | 'off'): void;
 
-  addBoxCollider(size: Vector3 | number, shapeKey?: string): void;
+  addBoxCollider(size: Vector3 | NonNegFinite, shapeKey?: string): void;
   addSphereCollider(radius: NonNegFinite, shapeKey?: string): void;
   addCapsuleCollider(radius: NonNegFinite, height: NonNegFinite, shapeKey?: string): void;
-  addCylinderCollider(radius: number, height: number, shapeKey?: string): void;
   addTrimeshCollider(): Promise<void>;
-  addConvexHullCollider(shapeKey?: string): void;
 
   addColliderFromConfig(config: ColliderConfig): void;
 
   addForce(force: Vector3): void;
-  addTorque(torque: Vector3): void;
   setVelocity(velocity: Vector3): void;
-  addVelocity(delta: Vector3): void;
   getVelocity(): Vector3;
-  setAngularVelocity(velocity: Vector3): void;
 
   setInteractable(radius?: NonNegFinite): void;
 }
 
 export interface ColliderConfig {
-  type: 'box' | 'sphere' | 'capsule' | 'cylinder' | 'trimesh' | 'convex-hull';
-  size?: Vector3 | number;
-  radius?: number;
-  height?: number;
-  mass?: number;
+  type: 'box' | 'sphere' | 'capsule' | 'convex' | 'trimesh';
+  size?: Vector3 | NonNegFinite;
+  radius?: NonNegFinite;
+  height?: NonNegFinite;
+  mass?: NonNegFinite;
   dynamic?: boolean;
   kinematic?: boolean;
   ccd?: 'auto' | 'always' | 'off';
@@ -128,7 +123,7 @@ export interface Player {
 export interface PlayersAPI {
   getAll(): Player[];
   getById(id: string): Player | null;
-  getNearest(position: Vector3, radius: number): Player | null;
+  getNearest(position: Vector3, radius: NonNegFinite): Player | null;
 
   send(playerId: string, message: any): void;
   broadcast(message: any): void;
@@ -149,7 +144,7 @@ export interface PlayersAPI {
   attachEntity(playerId: string, entityId: string, offset: Vector3): void;
   detachEntity(entityId: string): void;
 
-  onPlayerContact(radius: number, callback: (playerIdA: string, playerIdB: string) => void): () => void;
+  onPlayerContact(radius: NonNegFinite, callback: (playerIdA: string, playerIdB: string) => void): () => void;
   nearestOtherPlayer(playerId: string, radius: number): Player | null;
 }
 
@@ -426,7 +421,7 @@ export interface AppContext {
   ): RaycastResult;
 
   interactable(config?: InteractableConfig): void;
-  onPlayerProximity(radius: number, callback: ProximityCallback): () => void;
+  onPlayerProximity(radius: NonNegFinite, callback: ProximityCallback): () => void;
   onConfigChange(callback: ConfigChangeCallback): () => void;
   onShutdown(callback: ShutdownCallback): () => void;
 
