@@ -37,26 +37,22 @@ export const FIRE_SPEC = {
 const PREDICT_RANGE_M = 1000
 const DEFAULT_HEADSHOT_ZONE = 0.7
 
-export const EMOTE_CLIPS = new Map([
-  ['wave', 'Bow'],
-  ['dance', 'DanceLoop'],
-  ['nod', 'HeadNod'],
-  ['victory', 'Victory'],
-  ['meditate', 'Meditate'],
-  ['jumpingjacks', 'JumpingJacks'],
-  ['confused', 'Confused'],
-  ['sit', 'SittingEnter'],
-])
-export const EMOTE_WHEEL_SLOTS = [
-  { code: 'wave', label: 'Bow' },
-  { code: 'dance', label: 'Dance' },
-  { code: 'nod', label: 'Nod' },
-  { code: 'victory', label: 'Victory' },
-  { code: 'meditate', label: 'Meditate' },
-  { code: 'jumpingjacks', label: 'Jumping Jacks' },
-  { code: 'confused', label: 'Confused' },
-  { code: 'sit', label: 'Sit' },
-]
+const EMOTES = Object.freeze({
+  wave: { label: 'Bow', clip: 'Bow' },
+  dance: { label: 'Dance', clip: 'DanceLoop' },
+  nod: { label: 'Nod', clip: 'HeadNod' },
+  victory: { label: 'Victory', clip: 'Victory' },
+  meditate: { label: 'Meditate', clip: 'Meditate' },
+  jumpingjacks: { label: 'Jumping Jacks', clip: 'JumpingJacks' },
+  confused: { label: 'Confused', clip: 'Confused' },
+  sit: { label: 'Sit', clip: 'SittingEnter' },
+})
+
+export const EMOTE_CLIPS = new Map(Object.entries(EMOTES).map(([code, emote]) => [code, emote.clip]))
+
+export const EMOTE_WHEEL_SLOTS = Object.freeze(
+  Object.entries(EMOTES).map(([code, emote]) => Object.freeze({ code, label: emote.label }))
+)
 
 const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
 
