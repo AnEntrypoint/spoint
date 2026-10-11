@@ -105,16 +105,55 @@ function cacheEntryPaths(fp, encoding) {
   return { body, meta: body + '.meta' }
 }
 
-function readCacheEntry(fp, encoding, stamp) {
+export const CACHE_REFUSAL = {
+  ENTRY_ABSENT: 'entry-absent',
+  UNSTAMPED: 'unstamped',
+  META_UNPARSED: 'meta-unparsed',
+  BODY_UNREADABLE: 'body-unreadable',
+  STAMP_MISMATCH: 'stamp-mismatch',
+  LENGTH_MISMATCH: 'length-mismatch',
+  HASH_MISMATCH: 'hash-mismatch'
+}
+
+const CACHE_CORRUPTION_REFUSALS = new Set([
+  CACHE_REFUSAL.META_UNPARSED,
+  CACHE_REFUSAL.BODY_UNREADABLE,
+  CACHE_REFUSAL.LENGTH_MISMATCH,
+  CACHE_REFUSAL.HASH_MISMATCH
+])
+
+function cacheRefusal(reason, detail) {
+  return { ok: false, reason, ...detail }
+}
+
+export function readCacheEntry(fp, encoding, stamp) {
   const { body, meta } = cacheEntryPaths(fp, encoding)
-  if (!existsSync(body) || !existsSync(meta)) return null
+  if (!existsSync(body)) return cacheRefusal(CACHE_REFUSAL.ENTRY_ABSENT, { missing: 'body' })
+  if (!existsSync(meta)) return cacheRefusal(CACHE_REFUSAL.ENTRY_ABSENT, { missing: 'meta' })
+  let m
   try {
-    const m = JSON.parse(readFileSync(meta, 'utf8'))
-    if (m.codeVersion !== STATIC_CACHE_CODE_VERSION || m.src !== resolve(fp) || m.stamp !== stamp) return null
-    const content = readFileSync(body)
-    if (content.length !== m.bytes || fnv1aBytes(content).toString(16) !== m.hash) return null
-    return content
-  } catch { return null }
+    m = JSON.parse(readFileSync(meta, 'utf8'))
+  } catch (e) {
+    return cacheRefusal(CACHE_REFUSAL.META_UNPARSED, { message: e?.message || String(e) })
+  }
+  if (m.codeVersion !== STATIC_CACHE_CODE_VERSION) return cacheRefusal(CACHE_REFUSAL.STAMP_MISMATCH, { field: 'codeVersion' })
+  if (m.src !== resolve(fp)) return cacheRefusal(CACHE_REFUSAL.STAMP_MISMATCH, { field: 'src' })
+  if (m.stamp !== stamp) return cacheRefusal(CACHE_REFUSAL.STAMP_MISMATCH, { field: 'stamp' })
+  let content
+  try {
+    content = readFileSync(body)
+  } catch (e) {
+    return cacheRefusal(CACHE_REFUSAL.BODY_UNREADABLE, { message: e?.message || String(e) })
+  }
+  if (content.length !== m.bytes) return cacheRefusal(CACHE_REFUSAL.LENGTH_MISMATCH, { expected: m.bytes, got: content.length })
+  const hash = fnv1aBytes(content).toString(16)
+  if (hash !== m.hash) return cacheRefusal(CACHE_REFUSAL.HASH_MISMATCH, { expected: m.hash, got: hash })
+  return { ok: true, content }
+}
+
+function reportCacheRefusal(fp, encoding, refusal) {
+  if (!CACHE_CORRUPTION_REFUSALS.has(refusal.reason)) return
+  console.warn(`[static-cache] ${refusal.reason} for ${fp} encoding=${encoding}: ${JSON.stringify(refusal)}`)
 }
 
 function writeAtomic(path, data) {
@@ -176,8 +215,11 @@ export async function getCached(fp, ext, encoding) {
   let variant = cached.variants.get(encoding)
   if (!variant) {
     const stamp = `mtime:${cached.mtime}`
-    variant = readCacheEntry(fp, encoding, stamp)
-    if (!variant) {
+    const hit = readCacheEntry(fp, encoding, stamp)
+    if (hit.ok) {
+      variant = hit.content
+    } else {
+      reportCacheRefusal(fp, encoding, hit)
       variant = await compressAsync(cached.raw, encoding)
       writeCacheEntry(fp, encoding, stamp, variant)
     }
@@ -197,11 +239,15 @@ export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, co
   if (!encoding) return { srcMtime, content: rawBuffer, encoding: null }
   let variant = cached.variants.get(encoding)
   if (!variant) {
+    const key = fp + '#transformed'
     const stamp = contentHash ? `transformed:${contentHash}` : null
-    variant = stamp ? readCacheEntry(fp + '#transformed', encoding, stamp) : null
-    if (!variant) {
+    const hit = stamp ? readCacheEntry(key, encoding, stamp) : cacheRefusal(CACHE_REFUSAL.UNSTAMPED, {})
+    if (hit.ok) {
+      variant = hit.content
+    } else {
+      reportCacheRefusal(key, encoding, hit)
       variant = await compressAsync(rawBuffer, encoding)
-      if (stamp) writeCacheEntry(fp + '#transformed', encoding, stamp, variant)
+      if (stamp) writeCacheEntry(key, encoding, stamp, variant)
     }
     cached.variants.set(encoding, variant)
     if (rawBuffer.length <= MAX_CACHEABLE_BYTES) transformedCache.resync(fp)
