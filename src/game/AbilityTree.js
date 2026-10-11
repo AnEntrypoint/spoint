@@ -58,27 +58,50 @@ export const HOTKEY_MAP = {
   9: null
 }
 
+export const DEFINITION_REFUSAL = {
+  DEFS_NOT_AN_ARRAY: 'definitions-not-an-array',
+  NOT_AN_OBJECT: 'not-an-object',
+  ID_MISSING: 'id-missing',
+  ID_NOT_A_POSITIVE_INTEGER: 'id-not-a-positive-integer',
+  DUPLICATE_ID: 'duplicate-id'
+}
+
+export function definitionRefusal(def, knownIds = null) {
+  if (def === null || typeof def !== 'object' || Array.isArray(def)) return DEFINITION_REFUSAL.NOT_AN_OBJECT
+  if (def.id === null || def.id === undefined) return DEFINITION_REFUSAL.ID_MISSING
+  if (!Number.isInteger(def.id) || def.id <= 0) return DEFINITION_REFUSAL.ID_NOT_A_POSITIVE_INTEGER
+  if (knownIds !== null && knownIds.has(def.id)) return DEFINITION_REFUSAL.DUPLICATE_ID
+  return null
+}
+
 export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = HOTKEY_MAP) {
   const abilities = new Map()
   const playerAbilityStates = new Map()
+  const definitionRefusals = []
 
   const _parseCooldown = (value) =>
     typeof value === 'number' && Number.isFinite(value) ? Math.max(0.1, value) : 1.0
 
-  for (const def of abilityDefs) {
-    if (!def.id || typeof def.id !== 'number') continue
-    abilities.set(def.id, {
-      id: def.id,
-      name: def.name || '',
-      description: def.description || '',
-      manaCost: def.manaCost || 0,
-      cooldown: _parseCooldown(def.cooldown),
-      unlockLevel: def.unlockLevel || 1,
-      damage: def.damage || 0
-    })
+  if (!Array.isArray(abilityDefs)) {
+    definitionRefusals.push({ index: null, field: 'definitions', reason: DEFINITION_REFUSAL.DEFS_NOT_AN_ARRAY })
+  } else {
+    for (const [index, def] of abilityDefs.entries()) {
+      const refusal = definitionRefusal(def, abilities)
+      if (refusal !== null) {
+        definitionRefusals.push({ index, field: `definitions[${index}]`, reason: refusal })
+        continue
+      }
+      abilities.set(def.id, {
+        id: def.id,
+        name: def.name || '',
+        description: def.description || '',
+        manaCost: def.manaCost || 0,
+        cooldown: _parseCooldown(def.cooldown),
+        unlockLevel: def.unlockLevel || 1,
+        damage: def.damage || 0
+      })
+    }
   }
-
-  const hotkeys = { ...hotkeyMap }
 
   function getPlayerAbilityState(playerId) {
     if (!playerAbilityStates.has(playerId)) {
@@ -129,6 +152,20 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     if (!Number.isInteger(hotkeyNumber) || hotkeyNumber < HOTKEY_SLOT_MIN || hotkeyNumber > HOTKEY_SLOT_MAX) return BIND_REFUSAL.SLOT_OUT_OF_RANGE
     if (abilityId !== null && !abilities.has(abilityId)) return BIND_REFUSAL.UNKNOWN_ABILITY
     return null
+  }
+
+  const hotkeys = {}
+  const hotkeyRefusals = []
+  for (const [slotKey, bound] of Object.entries(hotkeyMap !== null && typeof hotkeyMap === 'object' ? hotkeyMap : {})) {
+    const slot = Number(slotKey)
+    const abilityId = bound === undefined ? null : bound
+    const refusal = bindRefusal(slot, abilityId)
+    if (refusal !== null) {
+      hotkeyRefusals.push({ field: `hotkeys.${slotKey}`, reason: refusal })
+      if (refusal !== BIND_REFUSAL.SLOT_OUT_OF_RANGE) hotkeys[slot] = null
+      continue
+    }
+    hotkeys[slot] = abilityId
   }
 
   function canCastAbility(playerId, abilityId, playerLevel) {
@@ -195,6 +232,16 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     return Array.from(abilities.values())
   }
 
+  function getDefinitionRefusals() {
+    return definitionRefusals.map(entry => ({ ...entry }))
+  }
+
+  function getHotkeyRefusals() {
+    return hotkeyRefusals.map(entry => ({ ...entry }))
+  }
+
+  const SLOT_KEY_PATTERN = /^[1-9]$/
+
   function applySnapshot(snapshotData) {
     if (!snapshotData || typeof snapshotData !== 'object') {
       return { ok: false, reason: 'not-an-object', hotkeys: 0, players: 0, dropped: [] }
@@ -204,10 +251,14 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     let boundHotkeys = 0
     let restoredPlayers = 0
 
-    if (snapshotData.hotkeys && typeof snapshotData.hotkeys === 'object') {
-      for (const [slotKey, abilityId] of Object.entries(snapshotData.hotkeys)) {
-        const slot = parseInt(slotKey, 10)
-        if (!Number.isFinite(slot) || slot < 1 || slot > 9) {
+    const hotkeysIn = snapshotData.hotkeys
+    const hotkeysUsable = hotkeysIn !== undefined && hotkeysIn !== null && typeof hotkeysIn === 'object' && !Array.isArray(hotkeysIn)
+    if (hotkeysIn !== undefined && hotkeysIn !== null && !hotkeysUsable) {
+      dropped.push({ field: 'hotkeys', reason: 'hotkeys-not-an-object' })
+    }
+    if (hotkeysUsable) {
+      for (const [slotKey, abilityId] of Object.entries(hotkeysIn)) {
+        if (!SLOT_KEY_PATTERN.test(slotKey)) {
           dropped.push({ field: `hotkeys.${slotKey}`, reason: 'slot-out-of-range' })
           continue
         }
@@ -215,17 +266,28 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
           dropped.push({ field: `hotkeys.${slotKey}`, reason: 'unknown-ability' })
           continue
         }
-        hotkeys[slot] = abilityId
+        hotkeys[Number(slotKey)] = abilityId
         boundHotkeys++
       }
     }
 
-    if (Array.isArray(snapshotData.playerStates)) {
-      for (const [playerIndex, snap] of snapshotData.playerStates.entries()) {
+    const playerStatesIn = snapshotData.playerStates
+    const playerStatesUsable = Array.isArray(playerStatesIn)
+    if (playerStatesIn !== undefined && playerStatesIn !== null && !playerStatesUsable) {
+      dropped.push({ field: 'playerStates', reason: 'player-states-not-an-array' })
+    }
+    if (playerStatesUsable) {
+      const seenPlayers = new Set()
+      for (const [playerIndex, snap] of playerStatesIn.entries()) {
         if (!snap || !snap.playerId) {
           dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'missing' })
           continue
         }
+        if (seenPlayers.has(snap.playerId)) {
+          dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'duplicate-player' })
+          continue
+        }
+        seenPlayers.add(snap.playerId)
         if (!Array.isArray(snap.cooldowns)) {
           dropped.push({ field: `playerStates[${playerIndex}].cooldowns`, reason: 'not-an-array' })
           continue
@@ -234,6 +296,10 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
         const cooldowns = new Map()
         const active = new Set()
         for (const [entryIndex, entry] of snap.cooldowns.entries()) {
+          if (!Array.isArray(entry)) {
+            dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}]`, reason: 'not-an-array' })
+            continue
+          }
           const abilityId = parseInt(entry[0], 10)
           if (!Number.isFinite(abilityId)) {
             dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].abilityId`, reason: 'not-a-number' })
@@ -320,6 +386,8 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     getAllHotkeyBindings,
     getAbility,
     getAllAbilities,
+    getDefinitionRefusals,
+    getHotkeyRefusals,
     applySnapshot,
     buildSnapshot,
     removePlayer,

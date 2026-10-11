@@ -8,6 +8,125 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_MODULE = resolve(REPO_ROOT, 'src', 'game', 'AbilityTree.js')
 const NONDETERMINISM = /Math\.random|\bDate\b|performance\.now|crypto\.getRandomValues|crypto\.randomUUID/g
 
+const SLOT_KEY_PATTERN = /^[1-9]$/
+const PLAYER_ENTRY_PATTERN = /^playerStates\[\d+\](\.playerId|\.cooldowns)?$/
+
+const ALT_ABILITIES = [
+  { id: 11, name: 'Dash', description: 'Dash forward', manaCost: 5, cooldown: 1.5, unlockLevel: 3, damage: 0 },
+  { id: 12, name: 'Shield', description: 'Block the next hit', manaCost: 12, cooldown: 6, unlockLevel: 8, damage: 0 },
+  { id: 13, name: 'Quake', description: 'Shatter the ground in a ring', manaCost: 44, cooldown: 9.25, unlockLevel: 20, damage: 55 }
+]
+
+const MALFORMED_ABILITIES = [
+  { id: 21, name: 'Valid', cooldown: 2, unlockLevel: 1, damage: 3 },
+  { name: 'no id' },
+  { id: 0, name: 'zero id' },
+  { id: '22', name: 'string id' },
+  { id: 21.5, name: 'fractional id' },
+  42,
+  null,
+  [21],
+  { id: 21, name: 'duplicate of 21' },
+  { id: 23, name: 'second valid', cooldown: 0, unlockLevel: 2, damage: 1 }
+]
+
+const INVARIANT_CONFIGS = [
+  { label: 'default/a11ce', defs: 'default', seed: 0xa11ce },
+  { label: 'default/1f2e3d', defs: 'default', seed: 0x1f2e3d },
+  { label: 'default/c0ffee', defs: 'default', seed: 0x00c0ffee },
+  { label: 'alt/a11ce', defs: 'alt', seed: 0xa11ce },
+  { label: 'alt/1f2e3d', defs: 'alt', seed: 0x1f2e3d },
+  { label: 'malformed/a11ce', defs: 'malformed', seed: 0xa11ce },
+  { label: 'malformed/c0ffee', defs: 'malformed', seed: 0x00c0ffee }
+]
+
+function expectedDefinitionRefusals(defs) {
+  if (!Array.isArray(defs)) return [{ index: null, field: 'definitions', reason: 'definitions-not-an-array' }]
+  const out = []
+  const seen = new Set()
+  defs.forEach((def, index) => {
+    const field = `definitions[${index}]`
+    if (def === null || typeof def !== 'object' || Array.isArray(def)) {
+      out.push({ index, field, reason: 'not-an-object' })
+      return
+    }
+    if (def.id === null || def.id === undefined) {
+      out.push({ index, field, reason: 'id-missing' })
+      return
+    }
+    if (!Number.isInteger(def.id) || def.id <= 0) {
+      out.push({ index, field, reason: 'id-not-a-positive-integer' })
+      return
+    }
+    if (seen.has(def.id)) {
+      out.push({ index, field, reason: 'duplicate-id' })
+      return
+    }
+    seen.add(def.id)
+  })
+  return out
+}
+
+function expectedDropped(knownIds, wire) {
+  if (!wire || typeof wire !== 'object') return null
+  const dropped = []
+  const hotkeysIn = wire.hotkeys
+  const hotkeysUsable = hotkeysIn !== undefined && hotkeysIn !== null && typeof hotkeysIn === 'object' && !Array.isArray(hotkeysIn)
+  if (hotkeysIn !== undefined && hotkeysIn !== null && !hotkeysUsable) dropped.push({ field: 'hotkeys', reason: 'hotkeys-not-an-object' })
+  if (hotkeysUsable) {
+    for (const [slotKey, abilityId] of Object.entries(hotkeysIn)) {
+      if (!SLOT_KEY_PATTERN.test(slotKey)) {
+        dropped.push({ field: `hotkeys.${slotKey}`, reason: 'slot-out-of-range' })
+        continue
+      }
+      if (abilityId !== null && !knownIds.has(abilityId)) {
+        dropped.push({ field: `hotkeys.${slotKey}`, reason: 'unknown-ability' })
+        continue
+      }
+    }
+  }
+  const statesIn = wire.playerStates
+  const statesUsable = Array.isArray(statesIn)
+  if (statesIn !== undefined && statesIn !== null && !statesUsable) dropped.push({ field: 'playerStates', reason: 'player-states-not-an-array' })
+  if (statesUsable) {
+    const seenPlayers = new Set()
+    statesIn.forEach((snap, playerIndex) => {
+      if (!snap || !snap.playerId) {
+        dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'missing' })
+        return
+      }
+      if (seenPlayers.has(snap.playerId)) {
+        dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'duplicate-player' })
+        return
+      }
+      seenPlayers.add(snap.playerId)
+      if (!Array.isArray(snap.cooldowns)) {
+        dropped.push({ field: `playerStates[${playerIndex}].cooldowns`, reason: 'not-an-array' })
+        return
+      }
+      snap.cooldowns.forEach((entry, entryIndex) => {
+        if (!Array.isArray(entry)) {
+          dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}]`, reason: 'not-an-array' })
+          return
+        }
+        const abilityId = parseInt(entry[0], 10)
+        if (!Number.isFinite(abilityId)) {
+          dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].abilityId`, reason: 'not-a-number' })
+          return
+        }
+        if (!knownIds.has(abilityId)) {
+          dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].abilityId`, reason: 'unknown-ability' })
+          return
+        }
+        if (!(typeof entry[1] === 'number' && Number.isFinite(entry[1]))) {
+          dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].cooldown`, reason: 'not-a-number' })
+        }
+      })
+    })
+  }
+  return dropped
+}
+
 function parseArgs(argv) {
   const options = { module: DEFAULT_MODULE, out: null, log: null, unknown: [] }
   for (const arg of argv) {
@@ -226,6 +345,86 @@ function runSuite(mod, check, source) {
     return [tree.getHotkeyBinding(7), tree.getHotkeyBinding(8)]
   }, [2, null])
 
+  const malformed = createAbilityTree(MALFORMED_ABILITIES)
+  check('each malformed definition is refused with a named reason at the parse boundary', () => malformed.getDefinitionRefusals(), [
+    { index: 1, field: 'definitions[1]', reason: 'id-missing' },
+    { index: 2, field: 'definitions[2]', reason: 'id-not-a-positive-integer' },
+    { index: 3, field: 'definitions[3]', reason: 'id-not-a-positive-integer' },
+    { index: 4, field: 'definitions[4]', reason: 'id-not-a-positive-integer' },
+    { index: 5, field: 'definitions[5]', reason: 'not-an-object' },
+    { index: 6, field: 'definitions[6]', reason: 'not-an-object' },
+    { index: 7, field: 'definitions[7]', reason: 'not-an-object' },
+    { index: 8, field: 'definitions[8]', reason: 'duplicate-id' }
+  ])
+  check('a refused definition is not registered and the valid ones are', () => malformed.getAllAbilities().map(a => a.id), [21, 23])
+  check('a definition list that is not an array is refused as a whole', () => createAbilityTree('nope').getDefinitionRefusals(), [{ index: null, field: 'definitions', reason: 'definitions-not-an-array' }])
+  check('a non-array definition list registers no ability', () => [createAbilityTree('nope').getAllAbilities(), createAbilityTree(undefined).getAllAbilities().length], [[], 5])
+  check('the returned refusal list is a copy of the recorded refusals', () => {
+    const view = malformed.getDefinitionRefusals()
+    view.push({ index: 9, field: 'definitions[9]', reason: 'forged' })
+    view[0].reason = 'rewritten'
+    return malformed.getDefinitionRefusals().length
+  }, 8)
+  check('a hotkey map that is not an object is refused, not silently ignored', () => {
+    const tree = createAbilityTree()
+    tree.bindHotkey(8, 3)
+    const result = tree.applySnapshot({ hotkeys: 'nope' })
+    return [result.dropped, result.hotkeys, tree.getHotkeyBinding(8)]
+  }, [[{ field: 'hotkeys', reason: 'hotkeys-not-an-object' }], 0, 3])
+  check('playerStates that is not an array is refused, not silently ignored', () => {
+    const tree = createAbilityTree()
+    tree.castAbility('pQ', 1, 1)
+    const result = tree.applySnapshot({ playerStates: { pQ: [[1, 9]] } })
+    return [result.dropped, result.players, tree.getAbilityCooldown('pQ', 1)]
+  }, [[{ field: 'playerStates', reason: 'player-states-not-an-array' }], 0, 2])
+  check('a repeated player in one snapshot is refused with a named reason', () => {
+    const tree = createAbilityTree()
+    const result = tree.applySnapshot({ playerStates: [{ playerId: 'pR', cooldowns: [[1, 4]] }, { playerId: 'pR', cooldowns: [[1, 1]] }] })
+    return [result.dropped, result.players, tree.getAbilityCooldown('pR', 1)]
+  }, [[{ field: 'playerStates[1].playerId', reason: 'duplicate-player' }], 1, 4])
+  check('a cooldown entry that is not an array is refused with a named reason', () => {
+    const tree = createAbilityTree()
+    const result = tree.applySnapshot({ playerStates: [{ playerId: 'pS', cooldowns: [[1, 4], null, ['x', 1], [1, 'y'], [99, 2]] }] })
+    return [result.dropped, result.players, tree.getAbilityCooldown('pS', 1)]
+  }, [[
+    { field: 'playerStates[0].cooldowns[1]', reason: 'not-an-array' },
+    { field: 'playerStates[0].cooldowns[2].abilityId', reason: 'not-a-number' },
+    { field: 'playerStates[0].cooldowns[3].cooldown', reason: 'not-a-number' },
+    { field: 'playerStates[0].cooldowns[4].abilityId', reason: 'unknown-ability' }
+  ], 1, 4])
+  check('a hotkey slot key that is not one digit 1-9 is refused, not parsed loosely', () => {
+    const tree = createAbilityTree()
+    tree.bindHotkey(3, 1)
+    const result = tree.applySnapshot({ hotkeys: { '3abc': 4, 0: 1, 10: 2, 7: 2 } })
+    return [result.dropped, result.hotkeys, tree.getHotkeyBinding(3), tree.getHotkeyBinding(7)]
+  }, [[
+    { field: 'hotkeys.0', reason: 'slot-out-of-range' },
+    { field: 'hotkeys.10', reason: 'slot-out-of-range' },
+    { field: 'hotkeys.3abc', reason: 'slot-out-of-range' }
+  ], 1, 1, 2])
+
+  const altHotkeys = createAbilityTree(ALT_ABILITIES)
+  check('a default hotkey slot whose ability is absent from the table is refused, not bound to a missing ability', () => [altHotkeys.getHotkeyRefusals(), altHotkeys.getAllHotkeyBindings()], [
+    [
+      { field: 'hotkeys.1', reason: 'unknown-ability' },
+      { field: 'hotkeys.2', reason: 'unknown-ability' },
+      { field: 'hotkeys.3', reason: 'unknown-ability' },
+      { field: 'hotkeys.4', reason: 'unknown-ability' },
+      { field: 'hotkeys.5', reason: 'unknown-ability' }
+    ],
+    { 1: null, 2: null, 3: null, 4: null, 5: null, 6: null, 7: null, 8: null, 9: null }
+  ])
+  check('a hotkey map with an out-of-range slot is refused at construction', () => createAbilityTree(DEFAULT_ABILITIES, { 1: 1, 12: 3, '3abc': 2 }).getHotkeyRefusals(), [
+    { field: 'hotkeys.12', reason: 'slot-out-of-range' },
+    { field: 'hotkeys.3abc', reason: 'slot-out-of-range' }
+  ])
+  check('a tree built from its own table round-trips its hotkeys through a snapshot', () => {
+    const restored = createAbilityTree(ALT_ABILITIES)
+    restored.bindHotkey(1, 11)
+    const result = createAbilityTree(ALT_ABILITIES).applySnapshot(restored.buildSnapshot())
+    return [result.dropped, result.hotkeys]
+  }, [[], 9])
+
   check('module source is seed-free (no Math.random, Date, performance.now or crypto randomness)', () => source.match(NONDETERMINISM) || [], [])
 
   runProperties(mod, check)
@@ -233,31 +432,22 @@ function runSuite(mod, check, source) {
 }
 
 function runInvariantRun(mod, check) {
-  const { DEFAULT_ABILITIES, createAbilityTree } = mod
-  const rand = mulberry32(0xa11ce)
+  const { DEFAULT_ABILITIES, HOTKEY_MAP, createAbilityTree } = mod
+  const TABLES = { default: DEFAULT_ABILITIES, alt: ALT_ABILITIES, malformed: MALFORMED_ABILITIES }
   const PLAYERS = ['p0', 'p1', 'p2']
-  const ABILITY_IDS = DEFAULT_ABILITIES.map(ability => ability.id)
-  const COOLDOWN = new Map(DEFAULT_ABILITIES.map(ability => [ability.id, ability.cooldown]))
-  const UNLOCK = new Map(DEFAULT_ABILITIES.map(ability => [ability.id, ability.unlockLevel]))
+  const LEVEL_CHOICES = [1, 2, 3, 5, 8, 10, 15, 20, 25, 30, undefined, NaN, null]
   const DT_CHOICES = [0, 0.001, 0.1, 0.25, 1 / 3, 0.5, 1, 1.5, 2.5, 7, 1e3, -1, NaN, Infinity]
-  const pick = list => list[Math.floor(rand() * list.length)]
-  const violations = { drift: [], tick: [], cast: [], gate: [], restored: [], hotkeys: [], survivor: [], removed: [], unspent: [], disagree: [], unlocked: [], trip: [] }
+  const violations = { drift: [], tick: [], cast: [], gate: [], restored: [], hotkeys: [], survivor: [], removed: [], unspent: [], disagree: [], unlocked: [], trip: [], dropped: [], account: [], definitions: [], construction: [] }
   const note = (bucket, detail) => violations[bucket].push(detail)
 
-  const cooldownTable = tree => {
-    const table = []
-    for (const playerId of PLAYERS) {
-      for (const abilityId of ABILITY_IDS) table.push(tree.getAbilityCooldown(playerId, abilityId))
-    }
-    return table
-  }
   const activeOf = (tree, playerId) => [...tree.getPlayerAbilityState(playerId).activeAbilities].sort().join(',')
-  const coolingOf = (tree, playerId) => ABILITY_IDS.filter(abilityId => tree.getAbilityCooldown(playerId, abilityId) > 0).join(',')
-  const acceptedEntries = snap => {
+  const coolingOf = (tree, playerId, abilityIds) => abilityIds.filter(abilityId => tree.getAbilityCooldown(playerId, abilityId) > 0).join(',')
+  const acceptedEntries = (snap, knownIds) => {
     const accepted = new Map()
     for (const entry of snap.cooldowns) {
+      if (!Array.isArray(entry)) continue
       const abilityId = parseInt(entry[0], 10)
-      if (!Number.isFinite(abilityId) || !COOLDOWN.has(abilityId)) continue
+      if (!Number.isFinite(abilityId) || !knownIds.has(abilityId)) continue
       if (!(typeof entry[1] === 'number' && Number.isFinite(entry[1]))) continue
       accepted.set(abilityId, entry[1])
     }
@@ -274,138 +464,209 @@ function runInvariantRun(mod, check) {
     })
   })
 
-  for (let trial = 0; trial < 300; trial++) {
-    const tree = createAbilityTree()
-    const level = pick([1, 5, 10, 15, 25, 30, 1, 5, 10, 25, undefined, NaN, null])
-    const owed = new Map()
+  for (const config of INVARIANT_CONFIGS) {
+    const defs = TABLES[config.defs]
+    const rand = mulberry32(config.seed)
+    const pick = list => list[Math.floor(rand() * list.length)]
 
-    for (let step = 0; step < 40; step++) {
-      const roll = rand()
+    const probe = createAbilityTree(defs)
+    const wantRefusals = expectedDefinitionRefusals(defs)
+    const gotRefusals = typeof probe.getDefinitionRefusals === 'function' ? probe.getDefinitionRefusals() : 'getDefinitionRefusals-missing'
+    if (JSON.stringify(gotRefusals) !== JSON.stringify(wantRefusals)) {
+      note('definitions', [config.label, JSON.stringify(gotRefusals), JSON.stringify(wantRefusals)])
+    }
 
-      if (roll < 0.3) {
-        const playerId = pick(PLAYERS)
-        const abilityId = pick([...ABILITY_IDS, 99])
-        const before = cooldownTable(tree)
-        const wantAccepted = Number.isFinite(level) && UNLOCK.get(abilityId) <= level && tree.getAbilityCooldown(playerId, abilityId) <= 0
-        const accepted = tree.castAbility(playerId, abilityId, level)
-        const after = cooldownTable(tree)
-        if (accepted !== wantAccepted) note('gate', [trial, step, playerId, abilityId, String(level), accepted, wantAccepted])
-        if (accepted) {
-          if (tree.getAbilityCooldown(playerId, abilityId) !== COOLDOWN.get(abilityId)) {
-            note('cast', [trial, step, playerId, abilityId, tree.getAbilityCooldown(playerId, abilityId)])
-          }
-          if (!tree.getPlayerAbilityState(playerId).activeAbilities.has(abilityId)) note('cast', [trial, step, playerId, abilityId, 'no-active'])
-          owed.set(`${playerId}:${abilityId}`, { cooldown: COOLDOWN.get(abilityId), elapsed: 0 })
-        } else if (JSON.stringify(before) !== JSON.stringify(after)) {
-          note('cast', [trial, step, playerId, abilityId, 'refused-mutated'])
-        }
-      } else if (roll < 0.58) {
-        const dt = pick(DT_CHOICES)
-        const before = cooldownTable(tree)
-        const beforeActive = PLAYERS.map(playerId => activeOf(tree, playerId)).join('|')
-        tree.tick(dt)
-        const after = cooldownTable(tree)
-        const applies = typeof dt === 'number' && Number.isFinite(dt) && dt >= 0
-        for (let i = 0; i < before.length; i++) {
-          if (applies) {
-            const want = Math.max(0, before[i] - dt)
-            if (after[i] !== want) note('tick', [trial, step, dt, i, before[i], after[i], want])
-          } else if (after[i] !== before[i]) {
-            note('tick', [trial, step, String(dt), i, before[i], after[i], 'invalid-dt-mutated'])
-          }
-        }
-        if (!applies && PLAYERS.map(playerId => activeOf(tree, playerId)).join('|') !== beforeActive) {
-          note('tick', [trial, step, String(dt), 'invalid-dt-moved-active'])
-        }
-        if (applies) for (const record of owed.values()) record.elapsed += dt
-      } else if (roll < 0.72) {
-        const wire = JSON.parse(JSON.stringify(tree.buildSnapshot()))
-        const mode = pick(['full', 'drop-player', 'unknown', 'stale', 'malformed'])
-        if (mode === 'drop-player') wire.playerStates = wire.playerStates.filter(state => state.playerId !== pick(PLAYERS))
-        if (mode === 'unknown') for (const state of wire.playerStates) state.cooldowns.push([99, 3], ['x', 1], [1, 'y'])
-        if (mode === 'stale') wire.playerStates = [{ playerId: pick(PLAYERS), cooldowns: [[pick(ABILITY_IDS), 0], [pick(ABILITY_IDS), 1.5]] }]
-        if (mode === 'malformed') {
-          wire.playerStates = wire.playerStates.concat([{ playerId: 0 }, { cooldowns: 'nope' }, { playerId: 'p9', cooldowns: [] }])
-          wire.hotkeys = { ...wire.hotkeys, 0: 1, 10: 2, '3abc': 4, 5: 99 }
-        }
-        const absent = PLAYERS.filter(playerId => !wire.playerStates.some(state => state && state.playerId === playerId))
-        const beforeAbsent = absent.map(playerId => JSON.stringify([...tree.getPlayerAbilityState(playerId).cooldowns]))
-        const beforeHotkeys = tree.getAllHotkeyBindings()
-        const result = tree.applySnapshot(wire)
-        if (!result.ok) note('restored', [trial, step, mode, result.reason])
-        const wantHotkeys = { ...beforeHotkeys }
-        for (const [slotKey, abilityId] of Object.entries(wire.hotkeys || {})) {
-          const slot = parseInt(slotKey, 10)
-          if (!Number.isFinite(slot) || slot < 1 || slot > 9) continue
-          if (abilityId !== null && !COOLDOWN.has(abilityId)) continue
-          wantHotkeys[slot] = abilityId
-        }
-        const gotHotkeys = tree.getAllHotkeyBindings()
-        for (const slot of Object.keys({ ...wantHotkeys, ...gotHotkeys })) {
-          if ((wantHotkeys[slot] ?? null) !== (gotHotkeys[slot] ?? null)) {
-            note('hotkeys', [trial, step, mode, slot, wantHotkeys[slot] ?? null, gotHotkeys[slot] ?? null])
-          }
-        }
-        for (const snap of wire.playerStates) {
-          if (!snap || !snap.playerId || !Array.isArray(snap.cooldowns)) continue
-          const got = [...tree.getPlayerAbilityState(snap.playerId).cooldowns.entries()].sort((a, b) => a[0] - b[0])
-          const want = [...acceptedEntries(snap).entries()].sort((a, b) => a[0] - b[0])
-          if (JSON.stringify(got) !== JSON.stringify(want)) note('restored', [trial, step, mode, snap.playerId, JSON.stringify(got), JSON.stringify(want)])
-        }
-        absent.forEach((playerId, index) => {
-          const now = JSON.stringify([...tree.getPlayerAbilityState(playerId).cooldowns])
-          if (now !== beforeAbsent[index]) note('survivor', [trial, step, mode, playerId, beforeAbsent[index], now])
-        })
-      } else if (roll < 0.8) {
-        const playerId = pick(PLAYERS)
-        tree.removePlayer(playerId)
-        if (tree.getCooldownsForNetwork(playerId).length !== 0) note('removed', [trial, step, playerId])
-        for (const key of [...owed.keys()]) if (key.startsWith(`${playerId}:`)) owed.delete(key)
-      } else if (roll < 0.9) {
-        const slot = 1 + Math.floor(rand() * 9)
-        const abilityId = pick([...ABILITY_IDS, null])
-        const wantBound = abilityId === null || COOLDOWN.has(abilityId)
-        if (tree.bindHotkey(slot, abilityId) !== wantBound) note('gate', [trial, step, slot, abilityId, 'bind'])
-      } else {
-        const playerId = pick(PLAYERS)
-        const abilityId = pick(ABILITY_IDS)
-        const predicted = tree.canCastAbility(playerId, abilityId, level)
-        const accepted = tree.castAbility(playerId, abilityId, level)
-        const want = Number.isFinite(level) ? accepted : tree.getAbilityCooldown(playerId, abilityId) === 0
-        if (predicted !== want) note('disagree', [trial, step, playerId, abilityId, String(level), predicted, want])
-      }
-
+    const ABILITIES = probe.getAllAbilities()
+    const ABILITY_IDS = ABILITIES.map(ability => ability.id)
+    const COOLDOWN = new Map(ABILITIES.map(ability => [ability.id, ability.cooldown]))
+    const UNLOCK = new Map(ABILITIES.map(ability => [ability.id, ability.unlockLevel]))
+    const KNOWN = new Set(COOLDOWN.keys())
+    const wantHotkeyRefusals = Object.entries(HOTKEY_MAP)
+      .filter(([, abilityId]) => abilityId !== null && !KNOWN.has(abilityId))
+      .map(([slotKey]) => ({ field: `hotkeys.${slotKey}`, reason: 'unknown-ability' }))
+    const gotHotkeyRefusals = typeof probe.getHotkeyRefusals === 'function' ? probe.getHotkeyRefusals() : 'getHotkeyRefusals-missing'
+    if (JSON.stringify(gotHotkeyRefusals) !== JSON.stringify(wantHotkeyRefusals)) {
+      note('construction', [config.label, JSON.stringify(gotHotkeyRefusals), JSON.stringify(wantHotkeyRefusals)])
+    }
+    const cooldownTable = tree => {
+      const table = []
       for (const playerId of PLAYERS) {
-        const active = activeOf(tree, playerId)
-        if (active !== coolingOf(tree, playerId)) note('drift', [trial, step, playerId, active, coolingOf(tree, playerId)])
+        for (const abilityId of ABILITY_IDS) table.push(tree.getAbilityCooldown(playerId, abilityId))
       }
-
-      if (Number.isFinite(level)) {
-        const wantUnlocked = ABILITY_IDS.filter(abilityId => UNLOCK.get(abilityId) <= level).join(',')
-        const gotUnlocked = tree.getUnlockedAbilities(level).map(ability => ability.id).join(',')
-        if (gotUnlocked !== wantUnlocked) note('unlocked', [trial, step, level, gotUnlocked, wantUnlocked])
-      }
-
-      for (const [key, record] of owed) {
-        const [playerId, abilityId] = key.split(':')
-        const remaining = tree.getAbilityCooldown(playerId, Number(abilityId))
-        if (record.elapsed >= record.cooldown && remaining !== 0) note('unspent', [trial, step, key, record.cooldown, record.elapsed, remaining])
-        if (remaining === 0) owed.delete(key)
-      }
+      return table
     }
 
-    const wire = JSON.parse(JSON.stringify(tree.buildSnapshot()))
-    const restored = createAbilityTree()
-    const result = restored.applySnapshot(wire)
-    if (!result.ok || result.dropped.length > 0 || observable(restored, level) !== observable(tree, level)) {
-      note('trip', [trial, result.dropped.length, 'round-trip'])
+    for (let trial = 0; trial < 300; trial++) {
+      const tree = createAbilityTree(defs)
+      const level = pick(LEVEL_CHOICES)
+      const owed = new Map()
+
+      for (let step = 0; step < 40; step++) {
+        const roll = rand()
+
+        if (roll < 0.3) {
+          const playerId = pick(PLAYERS)
+          const abilityId = pick([...ABILITY_IDS, 99])
+          const before = cooldownTable(tree)
+          const wantAccepted = Number.isFinite(level) && UNLOCK.get(abilityId) <= level && tree.getAbilityCooldown(playerId, abilityId) <= 0
+          const accepted = tree.castAbility(playerId, abilityId, level)
+          const after = cooldownTable(tree)
+          if (accepted !== wantAccepted) note('gate', [config.label, trial, step, playerId, abilityId, String(level), accepted, wantAccepted])
+          if (accepted) {
+            if (tree.getAbilityCooldown(playerId, abilityId) !== COOLDOWN.get(abilityId)) {
+              note('cast', [config.label, trial, step, playerId, abilityId, tree.getAbilityCooldown(playerId, abilityId)])
+            }
+            if (!tree.getPlayerAbilityState(playerId).activeAbilities.has(abilityId)) note('cast', [config.label, trial, step, playerId, abilityId, 'no-active'])
+            owed.set(`${playerId}:${abilityId}`, { cooldown: COOLDOWN.get(abilityId), elapsed: 0 })
+          } else if (JSON.stringify(before) !== JSON.stringify(after)) {
+            note('cast', [config.label, trial, step, playerId, abilityId, 'refused-mutated'])
+          }
+        } else if (roll < 0.58) {
+          const dt = pick(DT_CHOICES)
+          const before = cooldownTable(tree)
+          const beforeActive = PLAYERS.map(playerId => activeOf(tree, playerId)).join('|')
+          tree.tick(dt)
+          const after = cooldownTable(tree)
+          const applies = typeof dt === 'number' && Number.isFinite(dt) && dt >= 0
+          for (let i = 0; i < before.length; i++) {
+            if (applies) {
+              const want = Math.max(0, before[i] - dt)
+              if (after[i] !== want) note('tick', [config.label, trial, step, dt, i, before[i], after[i], want])
+            } else if (after[i] !== before[i]) {
+              note('tick', [config.label, trial, step, String(dt), i, before[i], after[i], 'invalid-dt-mutated'])
+            }
+          }
+          if (!applies && PLAYERS.map(playerId => activeOf(tree, playerId)).join('|') !== beforeActive) {
+            note('tick', [config.label, trial, step, String(dt), 'invalid-dt-moved-active'])
+          }
+          if (applies) for (const record of owed.values()) record.elapsed += dt
+        } else if (roll < 0.72) {
+          const wire = JSON.parse(JSON.stringify(tree.buildSnapshot()))
+          const mode = pick(['full', 'drop-player', 'unknown', 'stale', 'malformed', 'hotkeys-not-an-object', 'hotkeys-array', 'states-not-an-array', 'null-entry', 'dup-player'])
+          if (mode === 'drop-player') wire.playerStates = wire.playerStates.filter(state => state.playerId !== pick(PLAYERS))
+          if (mode === 'unknown') for (const state of wire.playerStates) state.cooldowns.push([99, 3], ['x', 1], [1, 'y'])
+          if (mode === 'stale') wire.playerStates = [{ playerId: pick(PLAYERS), cooldowns: [[pick(ABILITY_IDS), 0], [pick(ABILITY_IDS), 1.5]] }]
+          if (mode === 'dup-player') wire.playerStates = wire.playerStates.concat(JSON.parse(JSON.stringify(wire.playerStates.slice(0, 1))))
+          if (mode === 'null-entry') for (const state of wire.playerStates) state.cooldowns.push(null)
+          if (mode === 'malformed') {
+            wire.playerStates = wire.playerStates.concat([{ playerId: 0 }, { cooldowns: 'nope' }, { playerId: 'p9', cooldowns: [] }])
+            wire.hotkeys = { ...wire.hotkeys, 0: 1, 10: 2, '3abc': 4, 5: 99 }
+          }
+          if (mode === 'hotkeys-not-an-object') wire.hotkeys = 'nope'
+          if (mode === 'hotkeys-array') wire.hotkeys = [1, 2]
+          if (mode === 'states-not-an-array') wire.playerStates = { p0: [[pick(ABILITY_IDS), 1]] }
+          const statesUsable = Array.isArray(wire.playerStates)
+          const hotkeysUsable = wire.hotkeys !== undefined && wire.hotkeys !== null && typeof wire.hotkeys === 'object' && !Array.isArray(wire.hotkeys)
+          const absent = PLAYERS.filter(playerId => !(statesUsable && wire.playerStates.some(state => state && state.playerId === playerId)))
+          const beforeAbsent = absent.map(playerId => JSON.stringify([...tree.getPlayerAbilityState(playerId).cooldowns]))
+          const beforeHotkeys = tree.getAllHotkeyBindings()
+          const result = tree.applySnapshot(wire)
+          if (!result.ok) note('restored', [config.label, trial, step, mode, result.reason])
+
+          const wantDropped = expectedDropped(KNOWN, wire)
+          if (JSON.stringify(result.dropped) !== JSON.stringify(wantDropped)) {
+            note('dropped', [config.label, trial, step, mode, JSON.stringify(result.dropped), JSON.stringify(wantDropped)])
+          }
+          const inputHotkeys = wire.hotkeys === undefined || wire.hotkeys === null ? 0 : (hotkeysUsable ? Object.keys(wire.hotkeys).length : 1)
+          const droppedHotkeys = result.dropped.filter(entry => entry.field === 'hotkeys' || entry.field.startsWith('hotkeys.')).length
+          if (result.hotkeys + droppedHotkeys !== inputHotkeys) {
+            note('account', [config.label, trial, step, mode, 'hotkeys', result.hotkeys, droppedHotkeys, inputHotkeys])
+          }
+          const inputPlayers = wire.playerStates === undefined || wire.playerStates === null ? 0 : (statesUsable ? wire.playerStates.length : 1)
+          const droppedPlayers = result.dropped.filter(entry => entry.field === 'playerStates' || PLAYER_ENTRY_PATTERN.test(entry.field)).length
+          if (result.players + droppedPlayers !== inputPlayers) {
+            note('account', [config.label, trial, step, mode, 'players', result.players, droppedPlayers, inputPlayers])
+          }
+
+          const wantHotkeys = { ...beforeHotkeys }
+          if (hotkeysUsable) {
+            for (const [slotKey, abilityId] of Object.entries(wire.hotkeys)) {
+              if (!SLOT_KEY_PATTERN.test(slotKey)) continue
+              if (abilityId !== null && !COOLDOWN.has(abilityId)) continue
+              wantHotkeys[slotKey] = abilityId
+            }
+          }
+          const gotHotkeys = tree.getAllHotkeyBindings()
+          for (const slot of Object.keys({ ...wantHotkeys, ...gotHotkeys })) {
+            if ((wantHotkeys[slot] ?? null) !== (gotHotkeys[slot] ?? null)) {
+              note('hotkeys', [config.label, trial, step, mode, slot, wantHotkeys[slot] ?? null, gotHotkeys[slot] ?? null])
+            }
+          }
+          const seenPlayers = new Set()
+          for (const snap of statesUsable ? wire.playerStates : []) {
+            if (!snap || !snap.playerId || !Array.isArray(snap.cooldowns)) continue
+            if (seenPlayers.has(snap.playerId)) continue
+            seenPlayers.add(snap.playerId)
+            const got = [...tree.getPlayerAbilityState(snap.playerId).cooldowns.entries()].sort((a, b) => a[0] - b[0])
+            const want = [...acceptedEntries(snap, KNOWN).entries()].sort((a, b) => a[0] - b[0])
+            if (JSON.stringify(got) !== JSON.stringify(want)) note('restored', [config.label, trial, step, mode, snap.playerId, JSON.stringify(got), JSON.stringify(want)])
+          }
+          for (const playerId of seenPlayers) {
+            for (const key of [...owed.keys()]) if (key.startsWith(`${playerId}:`)) owed.delete(key)
+            for (const [abilityId, remaining] of tree.getPlayerAbilityState(playerId).cooldowns) {
+              owed.set(`${playerId}:${abilityId}`, { cooldown: remaining, elapsed: 0 })
+            }
+          }
+          absent.forEach((playerId, index) => {
+            const now = JSON.stringify([...tree.getPlayerAbilityState(playerId).cooldowns])
+            if (now !== beforeAbsent[index]) note('survivor', [config.label, trial, step, mode, playerId, beforeAbsent[index], now])
+          })
+        } else if (roll < 0.8) {
+          const playerId = pick(PLAYERS)
+          tree.removePlayer(playerId)
+          if (tree.getCooldownsForNetwork(playerId).length !== 0) note('removed', [config.label, trial, step, playerId])
+          for (const key of [...owed.keys()]) if (key.startsWith(`${playerId}:`)) owed.delete(key)
+        } else if (roll < 0.9) {
+          const slot = 1 + Math.floor(rand() * 9)
+          const abilityId = pick([...ABILITY_IDS, null])
+          const wantBound = abilityId === null || COOLDOWN.has(abilityId)
+          if (tree.bindHotkey(slot, abilityId) !== wantBound) note('gate', [config.label, trial, step, slot, abilityId, 'bind'])
+        } else {
+          const playerId = pick(PLAYERS)
+          const abilityId = pick(ABILITY_IDS)
+          const predicted = tree.canCastAbility(playerId, abilityId, level)
+          const accepted = tree.castAbility(playerId, abilityId, level)
+          const want = Number.isFinite(level) ? accepted : tree.getAbilityCooldown(playerId, abilityId) === 0
+          if (predicted !== want) note('disagree', [config.label, trial, step, playerId, abilityId, String(level), predicted, want])
+        }
+
+        for (const playerId of PLAYERS) {
+          const active = activeOf(tree, playerId)
+          if (active !== coolingOf(tree, playerId, ABILITY_IDS)) note('drift', [config.label, trial, step, playerId, active, coolingOf(tree, playerId, ABILITY_IDS)])
+        }
+
+        if (Number.isFinite(level)) {
+          const wantUnlocked = ABILITY_IDS.filter(abilityId => UNLOCK.get(abilityId) <= level).join(',')
+          const gotUnlocked = tree.getUnlockedAbilities(level).map(ability => ability.id).join(',')
+          if (gotUnlocked !== wantUnlocked) note('unlocked', [config.label, trial, step, level, gotUnlocked, wantUnlocked])
+        }
+
+        for (const [key, record] of owed) {
+          const [playerId, abilityId] = key.split(':')
+          const remaining = tree.getAbilityCooldown(playerId, Number(abilityId))
+          if (record.elapsed >= record.cooldown && remaining !== 0) note('unspent', [config.label, trial, step, key, record.cooldown, record.elapsed, remaining])
+          if (remaining === 0) owed.delete(key)
+        }
+      }
+
+      const wire = JSON.parse(JSON.stringify(tree.buildSnapshot()))
+      const restored = createAbilityTree(defs)
+      const result = restored.applySnapshot(wire)
+      if (!result.ok || result.dropped.length > 0 || observable(restored, level) !== observable(tree, level)) {
+        note('trip', [config.label, trial, result.dropped.length, 'round-trip'])
+      }
+      restored.applySnapshot(wire)
+      if (observable(restored, level) !== observable(tree, level)) note('trip', [config.label, trial, 'not-idempotent'])
     }
-    restored.applySnapshot(wire)
-    if (observable(restored, level) !== observable(tree, level)) note('trip', [trial, 'not-idempotent'])
   }
 
   const report = bucket => [violations[bucket].length, violations[bucket][0] ?? null]
-  check('invariant run: activeAbilities is exactly the running cooldowns, 300 trials x 40 steps', () => report('drift'), [0, null])
+  const CONFIGS = `${INVARIANT_CONFIGS.length} configs (3 seeds x default+alt, 2 seeds x malformed)`
+  check(`invariant run: applySnapshot's dropped list is exactly the refused entries, ${CONFIGS} x 300 trials x 40 steps`, () => report('dropped'), [0, null])
+  check('invariant run: hotkeys + dropped hotkey entries and players + dropped player entries account for the whole input', () => report('account'), [0, null])
+  check('invariant run: a malformed ability definition is refused with a named reason at the parse boundary', () => report('definitions'), [0, null])
+  check('invariant run: a default hotkey bound to an ability absent from the table is refused at construction', () => report('construction'), [0, null])
+  check(`invariant run: activeAbilities is exactly the running cooldowns, ${CONFIGS} x 300 trials x 40 steps`, () => report('drift'), [0, null])
   check('invariant run: tick moves every player cooldown by exactly dt and ignores an invalid dt', () => report('tick'), [0, null])
   check('invariant run: an accepted cast sets one cooldown, a refused cast moves nothing', () => report('cast'), [0, null])
   check('invariant run: cast and bind accept exactly what the ability table allows', () => report('gate'), [0, null])
