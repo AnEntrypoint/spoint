@@ -103,7 +103,7 @@ function apply(name, opts = {}) {
     renderer.shadowMap.enabled = preset.shadowsEnabled
     const dpr = _clampDpr(preset.dpr)
     try { renderer.setPixelRatio(dpr) } catch (e) { console.warn('[quality-presets] setPixelRatio failed:', e?.message || e) }
-    if (typeof window !== 'undefined') window.__dpr = dpr
+    RenderControls.set('dpr', dpr)
   }
 
   _current = name
