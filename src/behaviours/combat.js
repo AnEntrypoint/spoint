@@ -46,7 +46,8 @@ function describeValue(v) {
 
 function rejectInvalidFields(values, rules, label) {
   for (const [field, { rule, test }] of Object.entries(rules)) {
-    if (values[field] === undefined || test(values[field])) continue
+    if (!Object.prototype.hasOwnProperty.call(values, field)) continue
+    if (test(values[field])) continue
     throw new TypeError(`[combat] ${label}.${field} must be ${rule}, got ${describeValue(values[field])}`)
   }
 }
