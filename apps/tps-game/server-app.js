@@ -4,6 +4,15 @@ import { pickClearSpawnPose } from './respawn-clearance.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
 const MAX_IGNITION_SOURCE = 255
+const NO_EMOTE = null
+
+function emoteOf(msg) {
+  const playerId = msg.senderId
+  if (!Number.isInteger(playerId) || playerId < 1) return NO_EMOTE
+  const clip = EMOTE_CLIPS.get(msg.code)
+  if (typeof clip !== 'string' || clip === '') return NO_EMOTE
+  return { playerId, clip }
+}
 
 const COMBAT_SPEC = {
   config: COMBAT_CONFIG,
@@ -66,12 +75,12 @@ export const tpsGameServer = {
   onMessage(ctx, msg) {
     if (!msg) return
     if (msg.type === 'emote') {
-      const playerId = msg.senderId || msg.playerId
+      const emote = emoteOf(msg)
+      if (!emote) return
       const now = Date.now()
-      if (now - (ctx.state.lastEmoteAt.get(playerId) || 0) < EMOTE_RATE_LIMIT_MS) return
-      if (!EMOTE_CLIPS.has(msg.code)) return
-      ctx.state.lastEmoteAt.set(playerId, now)
-      ctx.players.playAnimation(playerId, EMOTE_CLIPS.get(msg.code), { loop: false })
+      if (now - (ctx.state.lastEmoteAt.get(emote.playerId) || 0) < EMOTE_RATE_LIMIT_MS) return
+      ctx.state.lastEmoteAt.set(emote.playerId, now)
+      ctx.players.playAnimation(emote.playerId, emote.clip, { loop: false })
       return
     }
     combatOf(ctx).handle(msg)
