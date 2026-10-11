@@ -133,7 +133,7 @@ export class AppContext {
       reparent: (eid, parentId) => runtime.reparent(eid, parentId),
       query: (filter) => runtime.queryEntities(filter),
       getEntity: (id) => runtime.getEntity(id),
-      nearby: (pos, radius) => runtime.nearbyEntities(pos, radius),
+      nearby: (pos, radius) => runtime.nearbyEntities(pos, nonNeg(radius, '[AppContext] world.nearby: radius')),
       sendToEntity: (entityId, msg) => runtime.fireEvent?.(entityId, 'onMessage', msg),
       applyImpulse: (entityId, impulse, worldPoint) => runtime.applyImpulseToEntity(entityId, impulse, worldPoint),
       setVelocity: (entityId, velocity) => runtime.setEntityVelocity(entityId, velocity),
@@ -158,7 +158,8 @@ export class AppContext {
       send: (pid, msg) => runtime.sendToPlayer(pid, msg),
       broadcast: (msg) => runtime.broadcastToPlayers(msg),
       broadcastNearby: (pos, radius, msg) => {
-        const r2 = radius * radius
+        const r = nonNeg(radius, '[AppContext] players.broadcastNearby: radius')
+        const r2 = r * r
         for (const p of runtime.getPlayers()) {
           const pp = p.state?.position; if (!pp) continue
           const dx = pp[0]-pos[0], dy = pp[1]-pos[1], dz = pp[2]-pos[2]
@@ -182,9 +183,10 @@ export class AppContext {
         return () => { if (!this._disposed) unwatch() }
       },
       nearestOtherPlayer: (playerId, radius) => {
+        const r = nonNeg(radius, '[AppContext] players.nearestOtherPlayer: radius')
         const me = runtime.getPlayerById(playerId) || runtime.getPlayers().find(p => p.id === playerId)
         const pos = me?.state?.position; if (!pos) return null
-        const r2 = radius * radius; let best = null, bestD = r2
+        const r2 = r * r; let best = null, bestD = r2
         for (const p of runtime.getPlayers()) {
           if (p.id === playerId) continue
           const pp = p.state?.position; if (!pp) continue

@@ -70,7 +70,7 @@ export interface WorldAPI {
   getEntity(id: string): Entity | null;
   destroy(id: string): void;
   query(filter?: EntityFilter): Entity[];
-  nearby(position: Vector3, radius: number): Entity[];
+  nearby(position: Vector3, radius: NonNegFinite): Entity[];
 
   attach(entityId: string, appName: string): void;
   detach(entityId: string): void;
@@ -127,7 +127,7 @@ export interface PlayersAPI {
 
   send(playerId: string, message: any): void;
   broadcast(message: any): void;
-  broadcastNearby(position: Vector3, radius: number, message: any): void;
+  broadcastNearby(position: Vector3, radius: NonNegFinite, message: any): void;
 
   setPosition(playerId: string, position: Vector3): void;
 
@@ -145,7 +145,7 @@ export interface PlayersAPI {
   detachEntity(entityId: string): void;
 
   onPlayerContact(radius: NonNegFinite, callback: (playerIdA: string, playerIdB: string) => void): () => void;
-  nearestOtherPlayer(playerId: string, radius: number): Player | null;
+  nearestOtherPlayer(playerId: string, radius: NonNegFinite): Player | null;
 }
 
 export interface PlayerAppearance {
