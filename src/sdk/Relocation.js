@@ -42,15 +42,46 @@ export function snapToGround(ctx, x, hintY, z, clearance, snap = 'first') {
   return Number.isFinite(hintY) ? [x, hintY, z] : null
 }
 
-export function probeSpawnGroundY(ctx, sp) {
+export const SPAWN_HOLD_REASON = {
+  HEIGHTFIELD_NOT_LANDED: 'heightfield-collider-not-landed',
+  STATIC_COLLIDERS_PENDING: 'static-colliders-pending-near',
+  NO_RAYCAST: 'no-raycast-capability',
+  RAY_MISSED_GROUND: 'ray-missed-ground',
+}
+
+function spawnHoldOutcome(y, reason) {
+  if (Number.isFinite(y)) return { y, reason: null }
+  if (!reason) throw new Error('spawn hold: a groundless outcome must name its reason')
+  return { y: null, reason }
+}
+
+export function probeSpawnHoldGround(ctx, sp, { rejoin = false } = {}) {
+  if (terrainFieldMissingAt(ctx, sp)) return spawnHoldOutcome(null, SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED)
+  if (staticCollidersPendingNear(ctx, sp)) return spawnHoldOutcome(null, SPAWN_HOLD_REASON.STATIC_COLLIDERS_PENDING)
+  return rejoin ? spawnRejoinGround(ctx, sp) : spawnSurfaceGround(ctx, sp)
+}
+
+function spawnSurfaceGround(ctx, sp) {
   const physics = ctx.physics
-  if (!physics || typeof physics.raycast !== 'function') return null
+  if (!physics || typeof physics.raycast !== 'function') return spawnHoldOutcome(null, SPAWN_HOLD_REASON.NO_RAYCAST)
   const standingOffset = ctx.physicsIntegration?.standingCentreY?.(0)
-  return spawnSurfaceY((o, d, l) => physics.raycast(o, d, l), sp, {
+  const y = spawnSurfaceY((o, d, l) => physics.raycast(o, d, l), sp, {
     standingOffset: standingOffset > 0 ? standingOffset : FALLBACK_STANDING_OFFSET,
     terrainY: terrainY(physics, sp[0], sp[2]),
     radius: ctx.physicsIntegration?.config?.capsuleRadius || 0,
   })
+  return spawnHoldOutcome(y, SPAWN_HOLD_REASON.RAY_MISSED_GROUND)
+}
+
+function spawnRejoinGround(ctx, sp) {
+  const physics = ctx.physics
+  if (!physics || typeof physics.raycast !== 'function') return spawnHoldOutcome(null, SPAWN_HOLD_REASON.NO_RAYCAST)
+  const r = physics.raycast([sp[0], sp[1], sp[2]], [0, -1, 0], SNAP_RAY_LENGTH)
+  return spawnHoldOutcome(r && r.hit ? r.position?.[1] : null, SPAWN_HOLD_REASON.RAY_MISSED_GROUND)
+}
+
+export function probeSpawnGroundY(ctx, sp) {
+  return spawnSurfaceGround(ctx, sp).y
 }
 
 export function spawnClearanceM(ctx, x, y, z) {
@@ -102,35 +133,40 @@ function terrainFieldMissingAt(ctx, p) {
   return !streamer.coversPosition(p[0], p[2])
 }
 
+function holdReasonText(ctx, playerId, sp, reason) {
+  const at = `(${sp[0].toFixed(0)}, ${sp[2].toFixed(0)})`
+  if (reason === SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED) return `[terrain] holding player ${playerId} at chart-local ${at}: no heightfield collider covers it yet, so it is held until its field lands (groundless players now: ${JSON.stringify(ctx._terrainStreamer.groundlessPlayers.map(p => [Math.round(p[0]), Math.round(p[1])]))})`
+  if (reason === SPAWN_HOLD_REASON.STATIC_COLLIDERS_PENDING) return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- static colliders are still pending within ${SPAWN_STATIC_WAIT_RADIUS} m, so the ground under it is not final yet`
+  if (reason === SPAWN_HOLD_REASON.NO_RAYCAST) return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- physics exposes no raycast, so no ground height can be probed`
+  return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- the ground probe found no walkable surface under it`
+}
+
 export function holdSpawnUntilGrounded(ctx, playerId, sp, { rejoin = false } = {}) {
   const player = ctx.playerManager.getPlayer(playerId)
   if (!player) return
-  let groundlessWarned = false
+  const warnedReasons = new Set()
   const probeGroundY = () => {
-    if (terrainFieldMissingAt(ctx, sp)) {
-      if (!groundlessWarned) {
-        groundlessWarned = true
-        console.warn(`[terrain] holding player ${playerId} at chart-local (${sp[0].toFixed(0)}, ${sp[2].toFixed(0)}): no heightfield collider covers it yet, so it is held until its field lands (groundless players now: ${JSON.stringify(ctx._terrainStreamer.groundlessPlayers.map(p => [Math.round(p[0]), Math.round(p[1])]))})`)
-      }
-      return null
+    const outcome = probeSpawnHoldGround(ctx, sp, { rejoin })
+    if (outcome.reason !== null && !warnedReasons.has(outcome.reason)) {
+      warnedReasons.add(outcome.reason)
+      console.warn(holdReasonText(ctx, playerId, sp, outcome.reason))
     }
-    if (staticCollidersPendingNear(ctx, sp)) return null
-    if (!rejoin) return probeSpawnGroundY(ctx, sp)
-    if (!ctx.physics || typeof ctx.physics.raycast !== 'function') return null
-    const r = ctx.physics.raycast([sp[0], sp[1], sp[2]], [0, -1, 0], SNAP_RAY_LENGTH)
-    return r && r.hit && Number.isFinite(r.position?.[1]) ? r.position[1] : null
+    return outcome.y
   }
   beginTeleportHold(player, {
     maxMs: SPAWN_HOLD_MAX_MS,
     probeGroundY,
-    onRelease: ({ groundY }) => {
+    onRelease: ({ groundY, heldMs }) => {
+      const outcome = groundY !== null ? { y: groundY, reason: null } : probeSpawnHoldGround(ctx, sp, { rejoin })
+      if (outcome.y === null) {
+        console.warn(`[spawn-hold] releasing player ${playerId} at chart-local (${sp[0].toFixed(0)}, ${sp[2].toFixed(0)}) after ${heldMs} ms without ground: ${outcome.reason}`)
+        return
+      }
       if (rejoin) return
       const p = player.state.position
       const movedDuringHold = Math.abs(p[0] - sp[0]) + Math.abs(p[1] - sp[1]) + Math.abs(p[2] - sp[2]) > SPAWN_HOLD_MOVED_EPS
       if (movedDuringHold) return
-      const y = groundY !== null ? groundY : probeSpawnGroundY(ctx, sp)
-      if (y === null) return
-      placePlayerAt(ctx, playerId, [sp[0], ctx.physicsIntegration.standingCentreY(y), sp[2]])
+      placePlayerAt(ctx, playerId, [sp[0], ctx.physicsIntegration.standingCentreY(outcome.y), sp[2]])
     },
   })
 }
