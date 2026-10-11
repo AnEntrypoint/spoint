@@ -14,6 +14,10 @@ const CROUCH_FLAG_BIT = 1
 const CROUCH_EYE_HEIGHT_M = 1.1
 const STAND_EYE_HEIGHT_M = 1.6
 
+function eyeHeightOf(local) {
+  return (local.crouch || 0) & CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
+}
+
 export function createXRSystem(renderer, scene, camera) {
   const controllerModels = new Map()
   const controllerGrips = new Map()
@@ -127,7 +131,7 @@ export function createXRSystem(renderer, scene, camera) {
         if (!xrBaseReferenceSpace) return
         const local = getPlayerState(getPlayerId())
         if (local?.position) {
-          const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
+          const eyeHeight = eyeHeightOf(local)
           offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeight, z: local.position[2] })
           camera.position.set(local.position[0], local.position[1] + eyeHeight, local.position[2])
         }
@@ -195,8 +199,7 @@ export function createXRSystem(renderer, scene, camera) {
 
   function syncVRPosition(local) {
     if (!local?.position || widgets.isTeleporting) return
-    const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
-    offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeight, z: local.position[2] })
+    offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeightOf(local), z: local.position[2] })
   }
 
   const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1
