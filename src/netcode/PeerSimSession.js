@@ -1,11 +1,5 @@
 import { LockstepTickSystem } from './LockstepTickSystem.js'
-import { createRollbackLoop } from './RollbackLoop.js'
-import { createRollbackGameLoop } from './RollbackGameLoop.js'
-import { RollbackInputTransport } from './RollbackInputTransport.js'
-import { createLockstepGameLoop } from './LockstepGameLoop.js'
-import { LockstepInputTransport } from './LockstepInputTransport.js'
-import { ConsensusVoter } from './ConsensusVoter.js'
-import { wireCheatEjection } from './CheatEjection.js'
+import { PEER_LOOP_FACTORIES } from './peerLoops.js'
 import { createWorkerBridgeProxy } from './WorkerBridgeProxy.js'
 import { checksumBodies, createChecksumFold } from './LockstepChecksum.js'
 import { resolveNetcodeProfile, PEER_SIMULATED_PROFILES } from './NetcodeProfile.js'
@@ -120,19 +114,9 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
   }
 
   const tickSystem = new LockstepTickSystem(ctx.tickRate)
-  let loop = null, transport = null, voter = null
-  if (profile.name === 'rollback') {
-    transport = new RollbackInputTransport({ bridge })
-    const rollback = createRollbackLoop({ capture, apply, windowSize: STATE_RING_TICKS })
-    loop = createRollbackGameLoop({ tickSystem, transport, rollback, roster: sorted, localPeerId: localPubkey, simulate, getLocalInput, checksumOf, observeRollback, options: profile.options })
-  }
-  if (profile.name === 'lockstep') {
-    transport = new LockstepInputTransport({ bridge })
-    voter = new ConsensusVoter({ bridge, checksumOf: liveChecksum, localPeerId: localPubkey, expectedPeerIds: sorted, checksumIntervalTicks: profile.options.checksumIntervalTicks })
-    loop = createLockstepGameLoop({ tickSystem, transport, roster: sorted, localPeerId: localPubkey, simulate: (t, dt, byPeer) => simulate(t, dt, byPeer, false), getLocalInput, voter, options: profile.options })
-    wireCheatEjection({ voter, transport: loop })
-  }
-  if (!loop) throw new Error(`[PeerSimSession] no peer loop for netcode profile '${profile.name}'`)
+  const buildPeerLoop = PEER_LOOP_FACTORIES[profile.name]
+  if (!buildPeerLoop) throw new Error(`[PeerSimSession] no peer loop for netcode profile '${profile.name}'`)
+  const { loop, transport, voter } = buildPeerLoop({ bridge, tickSystem, roster: sorted, localPeerId: localPubkey, simulate, getLocalInput, checksumOf, liveChecksum, observeRollback, capture, apply, stateRingTicks: STATE_RING_TICKS, options: profile.options })
 
   let statsTimer = null
   return {
