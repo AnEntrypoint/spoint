@@ -189,10 +189,6 @@ export function createXRSystem(renderer, scene, camera) {
     toggleSettings: widgets.toggleSettings,
     get isPresenting() { return renderer.xr.isPresenting },
     get vrSettings() { return Object.freeze({ ...vrSettings }) },
-    get xrControls() { return xrControls },
-    get arEnabled() { return xrControls.enabled },
-    getControllerModel: (h) => controllerModels.get(h),
-    getControllerGrip: (h) => controllerGrips.get(h),
-    getHandModel: (h) => handModels.get(h)
+    get arEnabled() { return xrControls.enabled }
   }
 }
