@@ -101,16 +101,42 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     return unlocked
   }
 
-  function canCastAbility(playerId, abilityId, playerLevel) {
+  const HOTKEY_SLOT_MIN = 1
+  const HOTKEY_SLOT_MAX = 9
+
+  const CAST_REFUSAL = {
+    UNKNOWN_ABILITY: 'unknown-ability',
+    LEVEL_UNPARSED: 'level-unparsed',
+    LOCKED: 'locked',
+    COOLING: 'cooling'
+  }
+
+  const BIND_REFUSAL = {
+    SLOT_OUT_OF_RANGE: 'slot-out-of-range',
+    UNKNOWN_ABILITY: 'unknown-ability'
+  }
+
+  function castRefusal(playerId, abilityId, playerLevel) {
     const ability = abilities.get(abilityId)
-    if (!ability) return false
+    if (!ability) return CAST_REFUSAL.UNKNOWN_ABILITY
+    if (!Number.isFinite(playerLevel)) return CAST_REFUSAL.LEVEL_UNPARSED
+    if (ability.unlockLevel > playerLevel) return CAST_REFUSAL.LOCKED
+    if ((getPlayerAbilityState(playerId).cooldowns.get(abilityId) || 0) > 0) return CAST_REFUSAL.COOLING
+    return null
+  }
 
-    if (Number.isFinite(playerLevel) && ability.unlockLevel > playerLevel) return false
+  function bindRefusal(hotkeyNumber, abilityId) {
+    if (!Number.isInteger(hotkeyNumber) || hotkeyNumber < HOTKEY_SLOT_MIN || hotkeyNumber > HOTKEY_SLOT_MAX) return BIND_REFUSAL.SLOT_OUT_OF_RANGE
+    if (abilityId !== null && !abilities.has(abilityId)) return BIND_REFUSAL.UNKNOWN_ABILITY
+    return null
+  }
 
-    const state = getPlayerAbilityState(playerId)
-    const cooldown = state.cooldowns.get(abilityId) || 0
-
-    return cooldown <= 0
+  function canCastAbility(playerId, abilityId, playerLevel) {
+    const refusal = castRefusal(playerId, abilityId, playerLevel)
+    if (refusal === CAST_REFUSAL.LEVEL_UNPARSED) {
+      return (getPlayerAbilityState(playerId).cooldowns.get(abilityId) || 0) <= 0
+    }
+    return refusal === null
   }
 
   function getAbilityCooldown(playerId, abilityId) {
@@ -119,17 +145,11 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function castAbility(playerId, abilityId, playerLevel) {
-    const ability = abilities.get(abilityId)
-    if (!ability) return false
-
-    if (!Number.isFinite(playerLevel) || ability.unlockLevel > playerLevel) return false
+    const refusal = castRefusal(playerId, abilityId, playerLevel)
+    if (refusal !== null) return false
 
     const state = getPlayerAbilityState(playerId)
-    const currentCooldown = state.cooldowns.get(abilityId) || 0
-
-    if (currentCooldown > 0) return false
-
-    state.cooldowns.set(abilityId, ability.cooldown)
+    state.cooldowns.set(abilityId, abilities.get(abilityId).cooldown)
     state.activeAbilities.add(abilityId)
 
     return true
@@ -152,8 +172,8 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function bindHotkey(hotkeyNumber, abilityId) {
-    if (hotkeyNumber < 1 || hotkeyNumber > 9) return false
-    if (abilityId !== null && !abilities.has(abilityId)) return false
+    const refusal = bindRefusal(hotkeyNumber, abilityId)
+    if (refusal !== null) return false
 
     hotkeys[hotkeyNumber] = abilityId
     return true
@@ -289,6 +309,8 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   return {
     getPlayerAbilityState,
     getUnlockedAbilities,
+    castRefusal,
+    bindRefusal,
     canCastAbility,
     getAbilityCooldown,
     castAbility,
