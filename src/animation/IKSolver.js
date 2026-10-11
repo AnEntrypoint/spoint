@@ -12,6 +12,13 @@ function worldDistance(from, to) {
 
 export class TwoBoneIKSolver {
   constructor(rootBone, middleBone, endBone, options = {}) {
+    if (!rootBone || !middleBone || !endBone) {
+      throw new Error('[TwoBoneIKSolver] needs a root, middle and end bone; got '
+        + `root=${rootBone === null ? 'null' : typeof rootBone}, `
+        + `middle=${middleBone === null ? 'null' : typeof middleBone}, `
+        + `end=${endBone === null ? 'null' : typeof endBone}`)
+    }
+
     this.rootBone = rootBone
     this.middleBone = middleBone
     this.endBone = endBone
@@ -21,11 +28,10 @@ export class TwoBoneIKSolver {
     this.enabled = true
     this.weight = 1.0
 
-    this.rootLength = rootBone && middleBone ? worldDistance(rootBone, middleBone) : 1
-    this.middleLength = middleBone && endBone ? worldDistance(middleBone, endBone) : 1
+    this.rootLength = worldDistance(rootBone, middleBone)
+    this.middleLength = worldDistance(middleBone, endBone)
 
     this.tolerance = options.tolerance || 0.001
-    this.maxIterations = options.maxIterations || 5
     this.useWorldSpace = options.useWorldSpace !== false
 
     this._rootWorldPos = new THREE.Vector3()
@@ -45,8 +51,6 @@ export class TwoBoneIKSolver {
 
   solve() {
     if (!this.enabled) return this
-
-    if (!this.rootBone || !this.middleBone || !this.endBone) return this
 
     const root = this.rootBone
     const middle = this.middleBone

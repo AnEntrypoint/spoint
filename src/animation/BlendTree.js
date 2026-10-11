@@ -1,9 +1,37 @@
 import * as THREE from 'three'
 
+const isEntry = (value) => typeof value === 'object' && value !== null && 'clip' in value
+
+function entry1D(element, index) {
+  if (isEntry(element)) {
+    if (element.clip === null || element.clip === undefined) {
+      throw new Error(`[BlendTree1D] clips[${index}] names no clip`)
+    }
+    return { clip: element.clip, threshold: element.threshold ?? 0 }
+  }
+  if (element === null || element === undefined) {
+    throw new Error(`[BlendTree1D] clips[${index}] is ${element}; pass a clip or build the tree with addClip(clip, threshold)`)
+  }
+  return { clip: element, threshold: 0 }
+}
+
+function entry2D(element, index) {
+  if (isEntry(element)) {
+    if (element.clip === null || element.clip === undefined) {
+      throw new Error(`[BlendTree2D] clips[${index}] names no clip`)
+    }
+    return { clip: element.clip, x: element.x ?? 0, y: element.y ?? 0 }
+  }
+  if (element === null || element === undefined) {
+    throw new Error(`[BlendTree2D] clips[${index}] is ${element}; pass a clip or build the tree with addClip(clip, x, y)`)
+  }
+  return { clip: element, x: 0, y: 0 }
+}
+
 export class BlendTree1D {
   constructor(clips = []) {
-    this.clips = clips
-    this.weights = new Array(clips.length).fill(0)
+    this.clips = clips.map(entry1D)
+    this.weights = new Array(this.clips.length).fill(0)
     this.parameter = 0
   }
 
@@ -74,8 +102,8 @@ export class BlendTree1D {
 
 export class BlendTree2D {
   constructor(clips = []) {
-    this.clips = clips
-    this.weights = new Array(clips.length).fill(0)
+    this.clips = clips.map(entry2D)
+    this.weights = new Array(this.clips.length).fill(0)
     this.posX = 0
     this.posY = 0
   }
