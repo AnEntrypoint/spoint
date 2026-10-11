@@ -4,6 +4,22 @@ const TRACER_RANGE = 100
 const DMG_DEALT_WINDOW_MS = 500
 const PREDICTED_TONE_DEDUP_MS = 400
 const KILL_CREDIT_DEDUP_MIN_MS = 2500
+const KILL_CREDIT_RTT_FACTOR = 2.5
+const MARKER_RTT_PAD_MAX_MS = 120
+const HIT_MARKER_WINDOW_MS = 150
+const HEADSHOT_MARKER_WINDOW_MS = 250
+const KILL_CONFIRM_WINDOW_MS = 1200
+const KILL_CONFIRM_WINDOW_MAX_MS = 2200
+const EXPRESSION_HOLD_MS = 500
+const _expressionUntil = new Map()
+
+const rttMs = (engine) => engine?.client?.getRTT?.() || 0
+const markerRttPadMs = (engine) => Math.min(MARKER_RTT_PAD_MAX_MS, rttMs(engine))
+const killConfirmWindowMs = (engine) => Math.min(KILL_CONFIRM_WINDOW_MAX_MS, KILL_CONFIRM_WINDOW_MS + rttMs(engine))
+const withinMs = (now, at, windowMs) => now - (at || 0) < windowMs
+const hitMarkerOn = (now, tps, engine) => withinMs(now, tps?.hitMarkerTime, HIT_MARKER_WINDOW_MS + markerRttPadMs(engine))
+const headshotMarkerOn = (now, tps, engine) => withinMs(now, tps?.headshotMarkerTime, HEADSHOT_MARKER_WINDOW_MS + markerRttPadMs(engine))
+const killConfirmOn = (now, tps, engine) => withinMs(now, tps?.killTime, killConfirmWindowMs(engine))
 
 function mobileVibrate(engine, pattern) {
   if (!engine?.mobileControls?.enabled) return
@@ -11,13 +27,25 @@ function mobileVibrate(engine, pattern) {
   navigator.vibrate(pattern)
 }
 
-function creditKill(tps, authStreak) {
+const NO_STREAK = Object.freeze({ known: false, streak: null })
+const streakFromWire = (wire) =>
+  Number.isInteger(wire) && wire >= 1 ? Object.freeze({ known: true, streak: wire }) : NO_STREAK
+
+function creditKill(tps, streak) {
   const now = Date.now()
-  tps.killTime = now; tps.kills = (tps.kills || 0) + 1
+  tps.killTime = now; tps.kills += 1
   if (typeof window !== 'undefined' && window.__funJuice) window.__funJuice.kill++
-  tps.streak = (typeof authStreak === 'number' && authStreak > 0) ? authStreak : ((now - (tps.lastKillTime || 0) < 3000) ? (tps.streak || 1) + 1 : 1)
+  tps.streak = streak.known ? streak.streak : (now - tps.lastKillTime < 3000 ? tps.streak + 1 : 1)
   tps.lastKillTime = now
   tps.juice?.tone(420, 0.28, 0.2, 760 + Math.min(4, tps.streak - 1) * 120)
+}
+
+function adoptStreak(tps, streak) {
+  if (!streak.known) return
+  const now = Date.now()
+  tps.streak = streak.streak
+  tps.killTime = now
+  tps.lastKillTime = now
 }
 
 function makeJuice() {
@@ -79,7 +107,7 @@ export const tpsGameClient = {
   setup(engine) {
     const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
     engine.scene.add(flash)
-    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, reloadDuration: 2000 }
+    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: 2000 }
     this._tps = engine._tps
     engine._tps.juice = makeJuice()
     try { engine._tps.emoteWheel = engine.createEmoteWheel?.(EMOTE_WHEEL_SLOTS) } catch (_) {}
@@ -143,9 +171,18 @@ export const tpsGameClient = {
   },
   onEvent(payload, engine) {
     const tps = engine._tps
-    if (payload.type === 'hit' && payload.target) { engine.players.setExpression(payload.target, 'angry', 0.6); setTimeout(() => engine.players.setExpression(payload.target, 'angry', 0), 500) }
+    const now = Date.now()
+    if (payload.type === 'hit' && payload.target) {
+      engine.players.setExpression(payload.target, 'angry', 0.6)
+      const angryUntil = now + EXPRESSION_HOLD_MS
+      _expressionUntil.set(payload.target, angryUntil)
+      setTimeout(() => {
+        if (_expressionUntil.get(payload.target) !== angryUntil) return
+        _expressionUntil.delete(payload.target)
+        engine.players.setExpression(payload.target, 'angry', 0)
+      }, EXPRESSION_HOLD_MS)
+    }
     if (payload.type === 'hit' && tps && payload.shooter === engine.playerId) {
-      const now = Date.now()
       tps.hitMarkerTime = now
       const dmgFresh = now - (tps.dmgDealtTime || 0) > DMG_DEALT_WINDOW_MS
       tps.lastDamageDealt = (dmgFresh ? 0 : (tps.lastDamageDealt || 0)) + (payload.damage || 0); tps.dmgDealtTime = now
@@ -154,7 +191,7 @@ export const tpsGameClient = {
       if (payload.headshot) { tps.headshotMarkerTime = now; if (window.__funJuice) window.__funJuice.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, [15, 30, 15]) }
       else { if (window.__funJuice) window.__funJuice.hit++; if (!justPredicted) tps.juice?.tone(820, 0.06, 0.18); mobileVibrate(engine, 20) }
       if (payload.pos && tps.flash) { tps.flash.position.set(payload.pos[0], payload.pos[1], payload.pos[2]); tps.flash.color.setHex(0xffffff); tps.flash.intensity = 0; tps.flashOff = now + 80 }
-      if (payload.health <= 0) { tps._killCreditVictim = payload.target; tps._killCreditAt = now; creditKill(tps) }
+      if (payload.health <= 0) { tps._killCreditVictim = payload.target; tps._killCreditAt = now; creditKill(tps, NO_STREAK) }
     }
     if (payload.type === 'hit' && tps && payload.target === engine.playerId) {
       tps.lastHitTime = Date.now(); tps.lastDamageTaken = payload.damage || 0
@@ -177,12 +214,14 @@ export const tpsGameClient = {
     if (payload.type === 'aimpunch' && engine.cam?.punch) engine.cam.punch(payload.intensity || 0.3)
     if (payload.type === 'death' && payload.victim) engine.players.setExpression(payload.victim, 'sorrow', 1.0)
     if (payload.type === 'death' && tps && payload.killer === engine.playerId && payload.victim !== engine.playerId) {
-      const dedupWin = Math.max(KILL_CREDIT_DEDUP_MIN_MS, (engine.client.getRTT?.() || 0) * 2.5)
-      if (tps._killCreditVictim === payload.victim && Date.now() - (tps._killCreditAt || 0) < dedupWin) {
-        tps._killCreditVictim = null
-        if (typeof payload.streak === 'number' && payload.streak > 0) { tps.streak = payload.streak; tps.killTime = Date.now() }
-      } else creditKill(tps, payload.streak)
-      if (typeof payload.killerKills === 'number') tps.kills = payload.killerKills
+      const dedupWin = Math.max(KILL_CREDIT_DEDUP_MIN_MS, rttMs(engine) * KILL_CREDIT_RTT_FACTOR)
+      const alreadyCredited = tps._killCreditVictim === payload.victim && Date.now() - (tps._killCreditAt || 0) < dedupWin
+      const streak = streakFromWire(payload.streak)
+      if (!alreadyCredited) creditKill(tps, streak)
+      else adoptStreak(tps, streak)
+      tps._killCreditVictim = payload.victim
+      tps._killCreditAt = Date.now()
+      if (Number.isInteger(payload.killerKills)) tps.kills = payload.killerKills
       tps.lastKillWasHeadshot = !!payload.headshot
       tps.lastKilledPlayer = payload.killerName || 'Player'
     }
@@ -211,9 +250,8 @@ export const tpsGameClient = {
     }
     const hit = tps._elHit
     if (hit) {
-      const rttPad = Math.min(120, engine.client.getRTT?.() || 0)
-      const onHs = now - tps.headshotMarkerTime < 250 + rttPad
-      const onHit = now - tps.hitMarkerTime < 150 + rttPad
+      const onHs = headshotMarkerOn(now, tps, engine)
+      const onHit = hitMarkerOn(now, tps, engine)
       const hitOn = (onHit || onHs) ? '1' : '0'
       if (tps._lastHitOn !== hitOn) { tps._lastHitOn = hitOn; hit.style.opacity = hitOn }
       const col = onHs ? '#ffcc33' : '#ffffff'
@@ -221,8 +259,8 @@ export const tpsGameClient = {
     }
     const kill = tps._elKill
     if (kill) {
-      const onKill = now - tps.killTime < Math.min(2200, 1200 + (engine.client.getRTT?.() || 0))
-      const streak = tps.streak || 0
+      const onKill = killConfirmOn(now, tps, engine)
+      const streak = tps.streak
       const killText = onKill ? (streak >= 4 ? 'MULTI KILL' : streak === 3 ? 'TRIPLE KILL' : streak === 2 ? 'DOUBLE KILL' : 'KILL') : ''
       if (tps._lastKillText !== killText) { tps._lastKillText = killText; kill.textContent = killText; kill.style.opacity = onKill ? '1' : '0' }
     }
@@ -261,10 +299,9 @@ export const tpsGameClient = {
     const reloadProgress = reloading && tps?.reloadEndTime ? Math.min(100, Math.round((1 - (tps.reloadEndTime - Date.now()) / reloadDur) * 100)) : 0
     const kills = tps?.kills ?? 0
     const now = Date.now()
-    const rttPad = Math.min(120, ctx.engine?.client?.getRTT?.() || 0)
-    const hitMarkerActive = now - (tps?.hitMarkerTime || 0) < 150 + rttPad
-    const headshot = !!(tps?.headshotMarkerTime && now - tps.headshotMarkerTime < 250 + rttPad)
-    const killConfirm = now - (tps?.killTime || 0) < 1500
+    const hitMarkerActive = hitMarkerOn(now, tps, ctx.engine)
+    const headshot = headshotMarkerOn(now, tps, ctx.engine)
+    const killConfirm = killConfirmOn(now, tps, ctx.engine)
     const renderGameHud = ctx.kit?.renderGameHud
     return {
       position: ctx.entity.position,
