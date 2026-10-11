@@ -106,6 +106,36 @@ const drive = (mod) => {
     obs.pendingBeforeLaterLevelUp = pendingIn(frozen)
     isolatedCtx.progression.addXp(700)
     obs.pendingInSnapshotAfterLaterLevelUp = pendingIn(frozen)
+
+    const stranger = mod.defineProgression({})
+    const strangerCtx = { entity: { id: 'p9' }, world: { sendToEntity: () => {} } }
+    stranger.setup(strangerCtx)
+    stranger.onPlayerJoin('p1')
+    const abilityStatesIn = (snapshot) => snapshot.abilityTree.playerStates.map((entry) => entry.playerId)
+    obs.abilityStatesBefore = abilityStatesIn(stranger.snapshotGameState({}))
+    obs.cooldownUnknownVsReady = [strangerCtx.progression.getAbilityCooldown(9999), strangerCtx.progression.getAbilityCooldown(1)]
+    obs.abilityStatesAfter = abilityStatesIn(stranger.snapshotGameState({}))
+
+    const networkIdsIn = (snapshot) => snapshot.progression.progressions.map((entry) => entry.id)
+    obs.strangerIdsBefore = networkIdsIn(stranger.snapshotGameState({}))
+    const strangerNetwork = stranger.getNetworkState('stranger')
+    obs.strangerNetwork = [
+      strangerNetwork.progression.level,
+      strangerNetwork.abilityTree.unlockedAbilities.map((ability) => ability.id),
+      strangerNetwork.abilityTree.cooldowns
+    ]
+    obs.strangerIdsAfter = networkIdsIn(stranger.snapshotGameState({}))
+
+    const echo = mod.defineProgression({})
+    const echoState = {}
+    obs.emptyRestoreIdentity = echo.restoreGameState(echoState) === echoState
+    obs.emptyRestorePayload = JSON.parse(JSON.stringify(echo.restoreGameState({})))
+    try {
+      echo.restoreGameState(undefined)
+      obs.emptyRestoreMissing = null
+    } catch (error) {
+      obs.emptyRestoreMissing = messageOf(error)
+    }
   } catch (error) {
     obs.scenarioError = messageOf(error)
   }
@@ -155,6 +185,11 @@ const evaluate = (mod, obs) => {
   record('C28', 'restoreGameState reinstates hotkey bindings from a JSON snapshot', [2, null], obs.restoredHotkeys)
   record('C29', 'isolation probe starts with three pending level-up events', 3, obs.pendingBeforeLaterLevelUp)
   record('C30', 'a snapshot taken earlier does not change when later level-ups occur', 3, obs.pendingInSnapshotAfterLaterLevelUp)
+  record('C31', 'getAbilityCooldown answers 0 for an unknown ability and for a ready one', [0, 0], obs.cooldownUnknownVsReady)
+  record('C32', 'a cooldown query registers a player the ability tree had never seen', [['p1'], ['p1', 'p9']], [obs.abilityStatesBefore, obs.abilityStatesAfter])
+  record('C33', 'getNetworkState answers for a player that never joined and registers it', [['p1'], [1, [1], []], ['p1', 'stranger']], [obs.strangerIdsBefore, obs.strangerNetwork, obs.strangerIdsAfter])
+  record('C34', 'restoreGameState echoes an empty state back as success', [true, {}], [obs.emptyRestoreIdentity, obs.emptyRestorePayload])
+  record('C35', 'restoreGameState throws on a missing state', "Cannot read properties of undefined (reading 'progression')", obs.emptyRestoreMissing)
 }
 
 const main = async () => {
