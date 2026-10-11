@@ -53,10 +53,11 @@ export function defineStatsSystem(spec = {}, appCtx) {
     const key = String(pid)
     let data = _playerData.get(key)
     if (!data) {
-      const level = Math.min(startLevel, maxLevel)
+      const floor = Math.min(startLevel, maxLevel)
+      const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(startXP, _xpForLevel(floor)))
       data = {
-        level,
-        xp: Math.max(startXP, _xpForLevel(level)),
+        level: _levelForXP(xp, floor),
+        xp,
         equipment: new Map(),
         loadouts: new Map(),
         bonuses: new Map(),
