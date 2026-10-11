@@ -54,6 +54,7 @@ export class StageLoader {
     const stage = new Stage(name, {
       relevanceRadius: worldDef.relevanceRadius || 200,
       planetRadius: stagePlanetRadius(worldDef, this._runtime?._appDefs ?? null),
+      shape: worldDef.shape ?? null,
       gravity: worldDef.gravity,
       spawnPoint: worldDef.spawnPoint,
       playerModel: worldPlayerModel(worldDef)
