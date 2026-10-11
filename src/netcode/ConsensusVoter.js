@@ -1,14 +1,13 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-const CTRL_PREFIX = 'wwlockstep:'
+import { LOCKSTEP_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
-  return CTRL_PREFIX + JSON.stringify({ type: 'checksum', tick, pubkey, checksum })
+  return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
 }
 
 function decodeCtrl(data) {
-  if (typeof data !== 'string' || !data.startsWith(CTRL_PREFIX)) return null
-  try { return JSON.parse(data.slice(CTRL_PREFIX.length)) } catch { return null }
+  return decodeControlFrame(LOCKSTEP_CTRL_PREFIX, data)
 }
 
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3

@@ -1,9 +1,7 @@
-const CTRL_PREFIX = 'wwlockstep:'
-function encodeCtrl(obj) { return CTRL_PREFIX + JSON.stringify(obj) }
-function decodeCtrl(data) {
-  if (typeof data !== 'string' || !data.startsWith(CTRL_PREFIX)) return null
-  try { return JSON.parse(data.slice(CTRL_PREFIX.length)) } catch { return null }
-}
+import { LOCKSTEP_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
+
+function encodeCtrl(obj) { return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, obj) }
+function decodeCtrl(data) { return decodeControlFrame(LOCKSTEP_CTRL_PREFIX, data) }
 
 export class LockstepInputTransport {
   constructor({ bridge, onRemoteInput = null, onRemoteDrop = null, onPeerClosed = null } = {}) {
