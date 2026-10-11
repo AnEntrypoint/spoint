@@ -5,7 +5,7 @@ import { createEcsEntityMap } from './EcsEntityMap.js'
 import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
-import { vecOK } from '../shared/vecGuard.js'
+import { vecOK, nonNeg } from '../shared/vecGuard.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { equipResolve } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
@@ -20,6 +20,9 @@ import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
 import { resolveCCD } from './AppPhysics.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
+const _nonNegOrDefault = (fallback, v, name) => {
+  try { return nonNeg(v, name) } catch { return fallback }
+}
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
 
@@ -415,8 +418,8 @@ export class AppRuntime {
     if (flag) {
       const cfg = (typeof flag === 'object') ? flag : {}
       e._interactable = true
-      e._interactRadius = (typeof cfg.radius === 'number' && cfg.radius >= 0) ? cfg.radius : (e._interactRadius ?? 3)
-      e._interactCooldown = (typeof cfg.cooldown === 'number' && cfg.cooldown >= 0) ? cfg.cooldown : (e._interactCooldown ?? 500)
+      e._interactRadius = _nonNegOrDefault(e._interactRadius ?? 3, cfg.radius, 'interactable: radius')
+      e._interactCooldown = _nonNegOrDefault(e._interactCooldown ?? 500, cfg.cooldown, 'interactable: cooldown')
       this._interactableIds.add(entityId)
     } else {
       e._interactable = false

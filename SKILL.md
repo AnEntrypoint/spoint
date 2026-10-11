@@ -219,10 +219,10 @@ ctx.physics.addColliderFromConfig({
 
 // Low-level methods (use addColliderFromConfig instead for new code)
 ctx.physics.setStatic(true) / setDynamic(true) / setKinematic(true)
-ctx.physics.setMass(kg)
+ctx.physics.setMass(kg)                                 // kg: NonNegFinite
 ctx.physics.addBoxCollider([hx,hy,hz])
-ctx.physics.addSphereCollider(radius)
-ctx.physics.addCapsuleCollider(radius, fullHeight)
+ctx.physics.addSphereCollider(radius)                   // radius: NonNegFinite
+ctx.physics.addCapsuleCollider(radius, fullHeight)      // radius, fullHeight: NonNegFinite
 ctx.physics.addTrimeshCollider()              // static-only, uses entity.model
 ctx.physics.addConvexCollider(points)         // flat [x,y,z,...], all motion types
 ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB

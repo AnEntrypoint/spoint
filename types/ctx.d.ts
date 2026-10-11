@@ -2,6 +2,9 @@
 
 import { Vector3, Vector4, Quaternion, Color, Euler, RaycastResult, ConstraintConfig } from './math';
 
+/** A scalar the running app rejects unless Number.isFinite(v) && v >= 0; enforced by nonNeg in src/shared/vecGuard.js. */
+export type NonNegFinite = number;
+
 export interface Entity {
   readonly id: string;
   readonly model?: string;
@@ -26,16 +29,16 @@ export interface PhysicsAPI {
   setDynamic(isDynamic: boolean): void;
   setKinematic(isKinematic: boolean): void;
 
-  setMass(mass: number): void;
-  setLinearDamping(value: number): void;
-  setAngularDamping(value: number): void;
+  setMass(mass: NonNegFinite): void;
+  setLinearDamping(value: NonNegFinite): void;
+  setAngularDamping(value: NonNegFinite): void;
 
   // CCD (Continuous Collision Detection) policy
   setCCDPolicy(policy: 'auto' | 'always' | 'off'): void;
 
   addBoxCollider(size: Vector3 | number, shapeKey?: string): void;
-  addSphereCollider(radius: number, shapeKey?: string): void;
-  addCapsuleCollider(radius: number, height: number, shapeKey?: string): void;
+  addSphereCollider(radius: NonNegFinite, shapeKey?: string): void;
+  addCapsuleCollider(radius: NonNegFinite, height: NonNegFinite, shapeKey?: string): void;
   addCylinderCollider(radius: number, height: number, shapeKey?: string): void;
   addTrimeshCollider(): Promise<void>;
   addConvexHullCollider(shapeKey?: string): void;
@@ -49,7 +52,7 @@ export interface PhysicsAPI {
   getVelocity(): Vector3;
   setAngularVelocity(velocity: Vector3): void;
 
-  setInteractable(radius?: number): void;
+  setInteractable(radius?: NonNegFinite): void;
 }
 
 export interface ColliderConfig {
@@ -210,9 +213,9 @@ export interface DebugUtil {
 }
 
 export interface InteractableConfig {
-  radius?: number;
+  radius?: NonNegFinite;
   prompt?: string;
-  cooldown?: number;
+  cooldown?: NonNegFinite;
 }
 
 export interface TerrainAPI {
