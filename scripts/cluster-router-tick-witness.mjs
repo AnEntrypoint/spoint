@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { RegionRouter } from '../src/sharding/RegionRouter.js'
 import { createClusterManager } from '../src/sharding/ClusterManager.js'
 import { ClusterConfigError } from '../src/shared/clusterConfig.js'
+import { createClusterRuntime } from '../src/sharding/ClusterRuntime.js'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 
 const TAG = '[cluster-router-tick]'
@@ -36,6 +37,25 @@ function expect(label, ok, detail) {
   if (ok) return
   failures.push(label)
   process.stderr.write(`${TAG} FAIL ${label}${detail === undefined ? '' : ` (${detail})`}\n`)
+}
+
+function absentClusterSurfaces(router) {
+  return ['clusters', '_clusterTick', '_clusterStats', '_clusterTimer', 'startClusterTicks', 'stopClusterTicks'].filter(name => router[name] === undefined)
+}
+
+function probeRuntime(worldDef) {
+  try {
+    const runtime = createClusterRuntime({ worldDef, serverConfig: {} })
+    return { runtime, reason: runtime === null ? 'resolver returned no config' : null }
+  } catch (error) {
+    return { runtime: null, reason: error?.code ?? `unnamed: ${error?.message}` }
+  }
+}
+
+function reportVerdict(summary) {
+  console.log(`${TAG} ${JSON.stringify(summary)}`)
+  console.log(`${TAG} RESULT: ${failures.length === 0 ? 'PASS' : 'FAIL'} ${measurements - failures.length} of ${measurements} measurements`)
+  process.exitCode = failures.length === 0 ? 0 : 1
 }
 
 const degOf = r => r * 180 / Math.PI
@@ -191,6 +211,13 @@ async function liveMain(shipped) {
     worldDef: withClusterSpec(shipped, { enabled: true }), port: PORT, cellSize: 512,
     clusterWorldFactory: stubWorldFactory(ledger),
   })
+  if (!router.clusters) {
+    const probe = probeRuntime(withClusterSpec(shipped, { enabled: true }))
+    expect('the live world def resolves a cluster runtime on its own, so a null router runtime is the router and not the world def', probe.runtime !== null, probe.reason ?? 'resolved')
+    expect('the live router builds a cluster runtime for a world def with clusters enabled', false, `RegionRouter declares none of ${absentClusterSurfaces(router).join(', ')}, so router.clusters is ${router.clusters === null ? 'null' : 'undefined'} for every world def and no cluster tick can be driven`)
+    reportVerdict({ mode: 'live', port: PORT, routerClusterArm: false, absentSurfaces: absentClusterSurfaces(router), resolverHz: probe.runtime?.config.hz ?? null })
+    return
+  }
   expect('live router takes its tick period from the resolved cluster cadence', router.clusters !== null && router.clusters.periodMs === 1000 / router.clusters.config.hz, `periodMs=${router.clusters?.periodMs}`)
   let reports = 0
   let lastEntries = []
@@ -236,9 +263,7 @@ async function liveMain(shipped) {
     if (ws) ws.close()
     await router.stop()
   }
-  console.log(`${TAG} ${JSON.stringify({ mode: 'live', port: PORT, positionReports: reports, created: ledger.created.length })}`)
-  console.log(`${TAG} RESULT: ${failures.length === 0 ? 'PASS' : 'FAIL'} ${measurements - failures.length} of ${measurements} measurements`)
-  process.exitCode = failures.length === 0 ? 0 : 1
+  reportVerdict({ mode: 'live', port: PORT, positionReports: reports, created: ledger.created.length })
 }
 
 async function main() {
@@ -253,6 +278,13 @@ async function main() {
   const shared = { now: clock, clusterWorldFactory: stubWorldFactory(ledger), cellSize: CELL_SIZE }
 
   const router = new RegionRouter({ worldDef: worldDefWith({ enabled: true }), ...shared })
+  if (!router.clusters) {
+    const probe = probeRuntime(worldDefWith({ enabled: true }))
+    expect('the sim world def resolves a cluster runtime on its own, so a null router runtime is the router and not the world def', probe.runtime !== null, probe.reason ?? 'resolved')
+    expect('the router builds a cluster runtime for a world def with clusters enabled', false, `RegionRouter declares none of ${absentClusterSurfaces(router).join(', ')}, so router.clusters is ${router.clusters === null ? 'null' : 'undefined'} for every world def and no cluster tick can be driven`)
+    reportVerdict({ mode: MODE, seconds: SECONDS, players: PLAYERS, routerClusterArm: false, absentSurfaces: absentClusterSurfaces(router), resolverConfig: probe.runtime === null ? null : { hz: probe.runtime.config.hz, linkM: probe.runtime.config.linkM, memberRadiusM: probe.runtime.config.memberRadiusM } })
+    return
+  }
   const { config, manager, coordinator, host } = router.clusters
 
   expect('cadence is inside 2-4 Hz by default', config.hz >= 2 && config.hz <= 4, `hz=${config.hz}`)
@@ -376,9 +408,7 @@ async function main() {
     clustersNow: manager.last?.clusters.length ?? 0, host: host.stats, refusals: coordinator.refusals.length,
     worldsCreated: ledger.created.length, worldsDestroyed: ledger.destroyed.length,
   }
-  console.log(`${TAG} ${JSON.stringify(summary)}`)
-  console.log(`${TAG} RESULT: ${failures.length === 0 ? 'PASS' : 'FAIL'} ${measurements - failures.length} of ${measurements} measurements`)
-  process.exitCode = failures.length === 0 ? 0 : 1
+  reportVerdict(summary)
 }
 
 main().catch(err => {
