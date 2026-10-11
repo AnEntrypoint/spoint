@@ -4,12 +4,9 @@ import { isXRSessionSupported } from './xrSessionSupport.js'
 export class XRControls {
   constructor(options = {}) {
     this.enabled = false
-    this.options = { placementMode: true, planeDetection: true, scale: 1, ...options }
+    this.options = { placementMode: true, ...options }
     this.session = null; this.referenceSpace = null; this.hitTestSource = null
-    this.planeDetected = false; this.anchorPlaced = false
-    this.anchorPosition = new THREE.Vector3(); this.anchorRotation = new THREE.Quaternion()
     this.cameraPosition = new THREE.Vector3(); this.cameraQuaternion = new THREE.Quaternion()
-    this.planes = new Map(); this.planeMeshes = []
     this.reticle = null
   }
 
@@ -23,18 +20,10 @@ export class XRControls {
     this.onSessionChange?.(active)
   }
 
-  get reticleVisible() { return this.reticle !== null && this.reticle.visible === true }
-
-  set reticleVisible(v) { if (this.reticle) this.reticle.visible = v === true }
-
   createReticle() {
     const g = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2)
     this.reticle = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x00ff00, opacity: 0.7, transparent: true, side: THREE.DoubleSide }))
     this.reticle.visible = false; return this.reticle
-  }
-
-  createPlaneMesh() {
-    return new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x00ff88, opacity: 0.2, transparent: true, side: THREE.DoubleSide }))
   }
 
   async init(renderer) {
@@ -46,27 +35,20 @@ export class XRControls {
   async start() {
     if (!this.renderer) return false
     try {
-      const init = { requiredFeatures: ['local-floor'], optionalFeatures: ['hit-test','plane-detection','anchors','dom-overlay'], domOverlay: { root: document.body } }
+      const init = { requiredFeatures: ['local-floor'], optionalFeatures: ['hit-test','anchors','dom-overlay'], domOverlay: { root: document.body } }
       this.session = await navigator.xr.requestSession('immersive-ar', init)
       this.renderer.xr.setSession(this.session); this.renderer.xr.setReferenceSpaceType('local-floor')
       this.referenceSpace = await this.session.requestReferenceSpace('local-floor')
       const viewer = await this.session.requestReferenceSpace('viewer')
       if (this.session.enabledFeatures?.includes('hit-test')) this.hitTestSource = await this.session.requestHitTestSource({ space: viewer })
       this.session.addEventListener('end', () => this.onSessionEnd())
-      this.session.addEventListener('planesdetected', e => this.onPlanesDetected(e))
       this.enabled = true; return true
     } catch (err) { console.error('[XR] Failed to start session:', err); await this.end(); this.onSessionEnd(); return false }
   }
 
   async end() { if (this.session) await this.session.end() }
 
-  onSessionEnd() { this.enabled=false; this.session=null; this.hitTestSource=null; this.planeDetected=false; this.anchorPlaced=false; this.planes.clear(); this.planeMeshes=[] }
-
-  onPlanesDetected(e) {
-    if (!this.options.planeDetection) return
-    for (const p of e.detectedPlanes) { if (!this.planes.has(p)) { const m=this.createPlaneMesh(); m.userData.plane=p; this.planes.set(p,m); this.planeMeshes.push(m) } }
-    this.planeDetected = this.planes.size > 0
-  }
+  onSessionEnd() { this.enabled=false; this.session=null; this.hitTestSource=null }
 
   showReticle(transform) {
     if (!this.reticle) return
@@ -75,36 +57,15 @@ export class XRControls {
     this.reticle.visible = true
   }
 
-  hideReticle() { if (this.reticle) this.reticle.visible = false }
-
-  placeAnchor() {
-    if (!this.reticleVisible) return false
-    this.anchorPosition.copy(this.reticle.position); this.anchorRotation.copy(this.reticle.quaternion)
-    this.anchorPlaced = true; this.hideReticle(); return true
-  }
-
-  updateSceneTransform(root) {
-    if (!root||!this.anchorPlaced) return
-    root.position.set(-this.anchorPosition.x,-this.anchorPosition.y,-this.anchorPosition.z); root.updateMatrixWorld(true)
-  }
-
-  update(frame, camera, root) {
+  update(frame) {
     if (!this.enabled||!frame) return
     const pose = frame.getViewerPose(this.referenceSpace); if (!pose) return
     const vm = new THREE.Matrix4().fromArray(pose.views[0].transform.matrix)
     vm.decompose(this.cameraPosition, this.cameraQuaternion, new THREE.Vector3())
-    if (!this.anchorPlaced && this.hitTestSource && this.options.placementMode) {
+    if (this.hitTestSource && this.options.placementMode) {
       const res = frame.getHitTestResults(this.hitTestSource)
       if (res.length > 0) { const p = res[0].getPose(this.referenceSpace); if (p) this.showReticle(p.transform) }
     }
-    if (this.anchorPlaced && root) this.updateSceneTransform(root)
-  }
-
-  getPlacementInfo() { return { placed: this.anchorPlaced, position: this.anchorPosition.toArray(), rotation: this.anchorRotation.toArray(), planeDetected: this.planeDetected } }
-
-  dispose() {
-    this.end(); this.planes.clear(); this.planeMeshes = []
-    if (this.reticle) { this.reticle.geometry.dispose(); this.reticle.material.dispose(); this.reticle=null }
   }
 }
 
