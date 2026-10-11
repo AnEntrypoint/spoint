@@ -33,6 +33,14 @@ export class ChartRangeError extends SurfaceSolveError {
   }
 }
 
+export class NoGroundHeightError extends SurfaceSolveError {
+  constructor(x, z) {
+    super(x, z, 0, 0, NaN)
+    this.name = 'NoGroundHeightError'
+    this.message = `the height sampler returned no finite height at chart-local (${x}, ${z}), so the surface solve has no ground to converge on`
+  }
+}
+
 export function guardedGroundHeight(where, heightFn, fallback) {
   return (x, z, ...rest) => {
     try { return heightFn(x, z, ...rest) } catch (e) {
@@ -132,7 +140,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     for (let k = 0; k < SURFACE_SOLVE_MAX_EVALS; k++) {
       _solveStats.evaluations++
       const h = heightAtDir(renderDirAt(x, y, z))
-      if (h == null || !Number.isFinite(h)) return null
+      if (h == null || !Number.isFinite(h)) throw new NoGroundHeightError(x, z)
       const yF = renderYOnSphere(r2, h)
       const g = yF - y
       lastG = g
@@ -176,7 +184,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     memoX[slot] = x; memoZ[slot] = z; memoEpoch[slot] = frame.chartEpoch; memoFailure[slot] = null
     try {
       const y = solveSurfaceY(x, z, sampleHeightAtDir, SURFACE_SOLVE_TOLERANCE_M, guess)
-      memoHeight[slot] = y == null ? NaN : y + offsetY
+      memoHeight[slot] = y + offsetY
       return memoHeight[slot]
     } catch (e) {
       if (!(e instanceof SurfaceSolveError)) { memoEpoch[slot] = -1; throw e }
