@@ -363,25 +363,10 @@ export function mixinTick(runtime) {
     }
     if (this._playerIndex.size > players.length) {
       const toRemove = []
-      for (const id of this._playerIndex._entities.keys()) {
+      for (const id of this._playerIndex.ids()) {
         if (!ids.has(id)) toRemove.push(id)
       }
       for (const id of toRemove) this._playerIndex.remove(id)
     }
-  }
-
-  const _nearbyIdSet = new Set()
-
-  runtime.getNearbyPlayers = function(viewerPosition, radius, allPlayers) {
-    if (!allPlayers || allPlayers.length === 0) return []
-    if (this._playerIndex.size === 0) {
-      const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]
-      const r2 = radius * radius
-      return allPlayers.filter(p => { const dx=p.position[0]-cx,dy=p.position[1]-cy,dz=p.position[2]-cz; return dx*dx+dy*dy+dz*dz<=r2 })
-    }
-    _nearbyIdSet.clear()
-    const ids = this._playerIndex.nearby(viewerPosition, radius)
-    for (let i = 0; i < ids.length; i++) _nearbyIdSet.add(ids[i])
-    return allPlayers.filter(p => _nearbyIdSet.has(p.id))
   }
 }

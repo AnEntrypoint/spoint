@@ -28,32 +28,13 @@ export class SpatialIndex {
     this._cells = new Map()
     this._idCell = new Map()
     this._entities = new Map()
+    this._anchors = new Map()
     this._relevanceRadius = resolveRelevanceRadius(config.relevanceRadius)
     this._mutations = 0
     this._geometryEpoch = 0
   }
 
-  get mutations() {
-    return this._mutations
-  }
-
-  get geometryEpoch() {
-    return this._geometryEpoch
-  }
-
-  insert(id, position) {
-    this.remove(id)
-    const px = position[0], py = position[1], pz = position[2]
-    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return
-    const point = [px, py, pz]
-    this._entities.set(id, point)
-    placeInto(this._cells, this._idCell, id, point)
-    this._mutations++
-    const n = this._entities.size
-    if (n >= 256 && (n & (n - 1)) === 0) { try { console.warn('[SpatialIndex] size=' + n) } catch (_) {} }
-  }
-
-  remove(id) {
+  _unlink(id) {
     const key = this._idCell.get(id)
     if (key === undefined) return
     const bucket = this._cells.get(key)
@@ -66,8 +47,35 @@ export class SpatialIndex {
       }
       if (bucket.length === 0) this._cells.delete(key)
     }
+  }
+
+  get mutations() {
+    return this._mutations
+  }
+
+  get geometryEpoch() {
+    return this._geometryEpoch
+  }
+
+  insert(id, position) {
+    const px = position[0], py = position[1], pz = position[2]
+    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return
+    this._unlink(id)
+    const point = [px, py, pz]
+    this._entities.set(id, point)
+    this._anchors.set(id, [px, py, pz])
+    placeInto(this._cells, this._idCell, id, point)
+    this._mutations++
+    const n = this._entities.size
+    if (n >= 256 && (n & (n - 1)) === 0) { try { console.warn('[SpatialIndex] size=' + n) } catch (_) {} }
+  }
+
+  remove(id) {
+    if (!this._idCell.has(id)) return
+    this._unlink(id)
     this._idCell.delete(id)
     this._entities.delete(id)
+    this._anchors.delete(id)
     this._mutations++
   }
 
@@ -76,15 +84,27 @@ export class SpatialIndex {
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) { this.remove(id); return }
     const existing = this._entities.get(id)
     if (!existing) { this.insert(id, position); return }
-    if (cellKey(cellCoord(px), cellCoord(pz)) !== this._idCell.get(id)) { this.insert(id, position); return }
-    const dx = existing[0] - px, dy = existing[1] - py, dz = existing[2] - pz
     existing[0] = px; existing[1] = py; existing[2] = pz
+    if (cellKey(cellCoord(px), cellCoord(pz)) !== this._idCell.get(id)) {
+      this._unlink(id)
+      placeInto(this._cells, this._idCell, id, existing)
+      this._anchors.set(id, [px, py, pz])
+      this._mutations++
+      return
+    }
+    const anchor = this._anchors.get(id)
+    const dx = anchor[0] - px, dy = anchor[1] - py, dz = anchor[2] - pz
     if (dx * dx + dy * dy + dz * dz < MOVE_TOLERANCE_SQ) return
+    anchor[0] = px; anchor[1] = py; anchor[2] = pz
     this._mutations++
   }
 
   has(id) {
     return this._entities.has(id)
+  }
+
+  ids() {
+    return this._entities.keys()
   }
 
   getPosition(id) {
@@ -212,17 +232,16 @@ export class SpatialIndex {
     this._cells.clear()
     this._idCell.clear()
     this._entities.clear()
+    this._anchors.clear()
     this._mutations++
   }
 
   rebuild() {
-    const entries = Array.from(this._entities.entries())
-    this._cells.clear()
-    this._idCell.clear()
-    this._entities.clear()
-    for (const [id, point] of entries) {
-      this.insert(id, point)
-    }
+    const cells = new Map()
+    const idCell = new Map()
+    for (const [id, point] of this._entities) placeInto(cells, idCell, id, point)
+    this._cells = cells
+    this._idCell = idCell
     this._mutations++
   }
 
@@ -230,16 +249,19 @@ export class SpatialIndex {
     const cells = new Map()
     const idCell = new Map()
     const entities = new Map()
+    const anchors = new Map()
     for (const [id] of this._entities) {
       const p = positionOf(id)
       if (!p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) continue
       const point = [p[0], p[1], p[2]]
       entities.set(id, point)
+      anchors.set(id, [p[0], p[1], p[2]])
       placeInto(cells, idCell, id, point)
     }
     this._cells = cells
     this._idCell = idCell
     this._entities = entities
+    this._anchors = anchors
     this._mutations++
   }
 
