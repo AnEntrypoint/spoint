@@ -1,4 +1,5 @@
 import { PLANET_RADIUS_M } from './planet-radius.js';
+import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 const TAN_40DEG = Math.tan(40.0 / 180.0 * Math.PI);
 const QUADTREE_DEFAULT_SIZE = PLANET_RADIUS_M;
 const QUADTREE_LEVEL_CEILING = 32;
@@ -16,7 +17,7 @@ function _levelCount(name, v) {
 export class Quadtree {
   constructor(size) {
     this.size = _positiveFinite('size', size ?? QUADTREE_DEFAULT_SIZE);
-    this.maxLevel = 20;
+    this.maxLevel = _levelCount('maxLevel', TD.maxLevel);
     this.splitDist = 1.1;
     this.distFactor = 2.0;
     this._cam = [0, 0, 0];
