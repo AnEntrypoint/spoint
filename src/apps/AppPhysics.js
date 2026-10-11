@@ -55,8 +55,9 @@ function colliderFailure(what, cause) {
 }
 
 async function _addTrimeshColliderImpl(ent, runtime) {
-  ent.collider = { type: 'trimesh', model: ent.model }
   const isNode = typeof process !== 'undefined' && process.versions?.node
+  if (isNode && ent.model && runtime._physics && ent.collider?.type === 'trimesh') return
+  ent.collider = { type: 'trimesh', model: ent.model }
   if (isNode && ent.model && runtime._physics) {
     const sc = scaleOf(ent)
     try {

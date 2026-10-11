@@ -158,7 +158,8 @@ export function createEditorHandlers(ctx) {
     }
     if (type === 'none') { entity.collider = null; return }
     const finish = (bid) => { entity._physicsBodyId = bid; appRuntime._physicsBodyToEntityId?.set(bid, entity.id) }
-    const toBox = () => { entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }; finish(ctx.physics.addBody('box', [0.5, 0.5, 0.5], entity.position, 'static', { rotation: entity.rotation })) }
+    const motion = entity.bodyType === 'dynamic' || entity.bodyType === 'kinematic' ? entity.bodyType : 'static'
+    const toBox = () => { entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }; finish(ctx.physics.addBody('box', [0.5, 0.5, 0.5], entity.position, motion, { rotation: entity.rotation })) }
     const preventUnhandledRejection = (p) => { p.catch(() => {}) }
     const failColliderBuild = (what, cause) => {
       const err = colliderBuildError(what, cause)
@@ -192,8 +193,8 @@ export function createEditorHandlers(ctx) {
       )
       return
     }
-    if (type === 'sphere') { entity.collider = { type: 'sphere', radius: 0.5 }; finish(ctx.physics.addBody('sphere', 0.5, entity.position, 'static', { rotation: entity.rotation })); return }
-    if (type === 'capsule') { entity.collider = { type: 'capsule', radius: 0.3, height: 1.8 }; finish(ctx.physics.addBody('capsule', [0.3, 0.9], entity.position, 'static', { rotation: entity.rotation })); return }
+    if (type === 'sphere') { entity.collider = { type: 'sphere', radius: 0.5 }; finish(ctx.physics.addBody('sphere', 0.5, entity.position, motion, { rotation: entity.rotation })); return }
+    if (type === 'capsule') { entity.collider = { type: 'capsule', radius: 0.3, height: 1.8 }; finish(ctx.physics.addBody('capsule', [0.3, 0.9], entity.position, motion, { rotation: entity.rotation })); return }
     toBox()
   }
 

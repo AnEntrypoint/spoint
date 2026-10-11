@@ -373,6 +373,7 @@ export class PhysicsWorld {
       let inflight = this._trimeshInflight.get(key)
       if (!inflight) {
         inflight = buildTrimeshShape(J, glbPath, scale).then(built => {
+          built.shape.AddRef()
           this._trimeshCache.set(key, built.shape)
           this._trimeshInflight.delete(key)
           return built

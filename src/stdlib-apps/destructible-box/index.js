@@ -1,5 +1,5 @@
 import { createDestructible } from '../../../apps/_lib/destructible.js'
-import { validateDestructibleSpec } from '../../behaviours/destructibleSpec.js'
+import { validateDestructibleSpec } from '../../../apps/_lib/destructibleSpec.js'
 
 export default {
   server: {
