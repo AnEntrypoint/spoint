@@ -26,10 +26,9 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   card.className = 'panel ds-247420 vi-card'
   uiRoot.appendChild(card)
 
+  let phase = 'idle'
   let session = null
-  let joined = false
   let muted = true
-  let destroyed = false
 
   const pubkeyToPlayerId = new Map()
   const playerIdToPubkey = new Map()
@@ -40,20 +39,20 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   let proximityTimer = null
 
   const render = () => {
-    if (destroyed) return
-    const participants = session ? session.getParticipants() : []
+    if (phase === 'destroyed') return
+    const participants = phase === 'joined' ? session.getParticipants() : []
     const localTeam = getLocalTeam()
     applyDiff(card, [
       h('div', { class: 'vi-h' }, [
         h('span', {}, 'Voice'),
-        joined && localTeam != null
+        phase === 'joined' && localTeam != null
           ? C.Btn({ onClick: onToggleTeamChannel, children: [teamChannelTeamId !== null ? 'Team only' : 'Everyone'] })
           : null,
-        joined
+        phase === 'joined'
           ? C.Btn({ onClick: onToggleMute, children: [muted ? 'Unmute' : 'Mute'] })
           : C.Btn({ primary: true, onClick: onJoin, children: ['Join Voice'] })
       ]),
-      joined
+      phase === 'joined'
         ? h('div', { class: 'vi-list' }, participants.map(p =>
             h('div', { class: 'vi-row' + (p.isMuted ? ' muted' : '') }, [
               h('span', { class: 'vi-dot' + (p.isSpeaking ? ' speaking' : '') }),
@@ -112,7 +111,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   }
 
   function updateProximity() {
-    if (destroyed || !engineCtx || !peerAudio.size) return
+    if (phase === 'destroyed' || !engineCtx || !peerAudio.size) return
     const lid = engineCtx.playerId
     const localMesh = lid != null ? engineCtx.players.getMesh(lid) : null
     const filterTeam = teamChannelTeamId
@@ -172,7 +171,9 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     session.addEventListener('error', ({ detail }) => { console.warn('[voice]', detail.message) })
     session.addEventListener('peer-closed', ({ detail }) => teardownPeerAudio(detail.peerPubkey))
     session.addEventListener('disconnected', () => {
-      joined = false; muted = true
+      if (phase !== 'connecting' && phase !== 'joined') return
+      phase = 'idle'
+      muted = true
       stopProximityLoop()
       for (const pk of Array.from(peerAudio.keys())) teardownPeerAudio(pk)
       render()
@@ -192,23 +193,27 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
 
   async function onJoin(e) {
     e?.preventDefault?.()
+    if (phase !== 'idle') return
+    phase = 'connecting'
     try {
       const s = await ensureSession()
       await s.connect(VOICE_CHANNEL, { displayName: getBridge()?.pubkey?.slice(0, 8) || 'Guest' })
-      joined = true
+      if (phase !== 'connecting') return
       s.setMuted(false)
       muted = false
+      phase = 'joined'
       announceIdentity()
       startProximityLoop()
       render()
     } catch (err) {
+      if (phase === 'connecting') phase = 'idle'
       console.warn('[voice] join failed:', err?.message || err)
     }
   }
 
   function onToggleMute(e) {
     e?.preventDefault?.()
-    if (!session) return
+    if (phase !== 'joined') return
     session.toggleMic()
   }
 
@@ -223,7 +228,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
 
   return {
     node: card,
-    get joined() { return !destroyed && joined },
+    get joined() { return phase === 'joined' },
     onVoiceIdentity(playerId, pubkey) {
       if (playerId == null || !pubkey) return
       pubkeyToPlayerId.set(pubkey, playerId)
@@ -235,7 +240,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
       render()
     },
     async destroy() {
-      destroyed = true
+      phase = 'destroyed'
       stopProximityLoop()
       for (const pk of Array.from(peerAudio.keys())) teardownPeerAudio(pk)
       if (audioCtx && audioCtx.state !== 'closed') { try { audioCtx.close() } catch (_) {} }
