@@ -1,0 +1,5 @@
+INFO anchor-elevation=0 true-height=4000 dir-angle-from-anchor=10.00deg
+INFO unrefined-seed-pair=[467547.883,-1002659.67] ray-miss=17233.4m
+INFO refined-pair=[475058.638,-1018766.537] ray-miss=0.0000m gap-from-seed=17772.0m
+checks=18 failed=0
+RESULT: PASS

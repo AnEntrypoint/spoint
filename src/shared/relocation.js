@@ -40,6 +40,7 @@ function rayMissM(frame, d, x, y, z) {
 }
 
 export function dirToLocalXZ(frame, dir, heightAt) {
+  if (typeof heightAt !== 'function') throw new TypeError('teleport dir needs a heightAt sampler: without terrain height the local xz is an unrefined seed, not a hit')
   const { dir: d } = parseDir3(dir, 'teleport dir')
   if (!(dot(d, frame.up) > MIN_UP_DOT)) return null
   const seedReader = typeof frame.cpuElevationAtDir === 'function' ? frame.cpuElevationAtDir : frame.elevationAtDir
@@ -47,8 +48,6 @@ export function dirToLocalXZ(frame, dir, heightAt) {
   let elevation = Number.isFinite(dirElevation) ? dirElevation : frame.anchorHeight
   const de = dot(d, frame.east), dn = dot(d, frame.north)
   const seed = frame.radius + elevation
-  let x = seed * de, z = seed * dn
-  if (typeof heightAt !== 'function') return [x, z]
   const probe = (s) => {
     const px = s * de, pz = s * dn
     const y = heightAt(px, pz)
@@ -57,7 +56,7 @@ export function dirToLocalXZ(frame, dir, heightAt) {
     if (!Number.isFinite(e)) return null
     return { s: frame.radius + e, x: px, z: pz, y }
   }
-  let bestX = x, bestZ = z, bestMiss = Infinity
+  let bestX = seed * de, bestZ = seed * dn, bestMiss = Infinity
   let s = seed, prevS = 0, prevG = 0
   let lo = 0, hi = 0, gLo = 0
   for (let i = 0; i < ELEVATION_BRACKET_PASSES; i++) {
