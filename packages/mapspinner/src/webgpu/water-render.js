@@ -147,11 +147,15 @@ export class WaterOcclusionProbe {
     if (idx < 0) return this.lastSampleCount
     const buf = this.stagingBuffers[idx]
     this._stagingBusy[idx] = true
-    await buf.mapAsync(GPUMapMode.READ)
-    const arr = new BigUint64Array(buf.getMappedRange().slice(0))
-    buf.unmap()
-    this._stagingBusy[idx] = false
-    this.lastSampleCount = arr[0]
+    let mapped = false
+    try {
+      await buf.mapAsync(GPUMapMode.READ)
+      mapped = true
+      this.lastSampleCount = new BigUint64Array(buf.getMappedRange().slice(0))[0]
+    } finally {
+      if (mapped) buf.unmap()
+      this._stagingBusy[idx] = false
+    }
     return this.lastSampleCount
   }
 }
