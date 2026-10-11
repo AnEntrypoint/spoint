@@ -87,7 +87,7 @@ export function defineProgression(spec = {}) {
 
         canCastAbility(abilityId) {
           const level = this.getLevel()
-          return abilityTree.canCastAbility(ctx.entity.id, abilityId)
+          return abilityTree.canCastAbility(ctx.entity.id, abilityId, level)
         },
 
         getAbilityCooldown(abilityId) {
