@@ -9,6 +9,7 @@ import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint, holdSpawnUntilGrounded, rankSpawnPointsByWalkingRoom } from './Relocation.js'
 import { playerDefault } from '../shared/worldDefaults.js'
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { chartHandshakeFields, currentChartEpoch, resolveEpochTransfer, reexpressInputEntries, reexpressShot, createChartResyncReply, chartWireStatsOf } from './chartWire.js'
 
 const MAX_TRACKED_RTT_MS = 10000
@@ -85,7 +86,6 @@ export function createConnectionHandlers(ctx) {
   }
 
   function playersInInterest(players, position, relevanceRadius, selfId) {
-    if (!(relevanceRadius > 0)) return players
     const near = new Set(appRuntime.nearbyPlayerIds(position, relevanceRadius))
     return players.filter(p => p.id === selfId || near.has(p.id))
   }
@@ -99,8 +99,8 @@ export function createConnectionHandlers(ctx) {
     client.isEditor = !readEditorTokenIfNodeRuntime()
     connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate, version: WIRE_PROTOCOL_VERSION, structHash: WIRE_STRUCT_HASH, ...chartHandshakeFields(ctx) })
     sendWorldDefAndModules(playerId)
-    const relevanceRadius = ctx.currentWorldDef?.relevanceRadius || 0
-    const snapEntities = relevanceRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, relevanceRadius) : appRuntime.getSnapshot()
+    const relevanceRadius = resolveRelevanceRadius(ctx.currentWorldDef?.relevanceRadius)
+    const snapEntities = appRuntime.getSnapshotForPlayer(sp, relevanceRadius)
     const playerSnap = networkState.getSnapshot()
     const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playersInInterest(playerSnap.players, sp, relevanceRadius, playerId), entities: snapEntities.entities }
     connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined), chartEpoch: currentChartEpoch(ctx.physics) })
@@ -380,8 +380,8 @@ export function createConnectionHandlers(ctx) {
       connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken, tickRate: ctx.tickRate, position: sp, health, structHash: WIRE_STRUCT_HASH, ...chartHandshakeFields(ctx) })
       sendWorldDefAndModules(newId)
       const snap = networkState.getSnapshot()
-      const recoveryRadius = ctx.currentWorldDef?.relevanceRadius || 0
-      const ents = recoveryRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, recoveryRadius) : appRuntime.getSnapshot()
+      const recoveryRadius = resolveRelevanceRadius(ctx.currentWorldDef?.relevanceRadius)
+      const ents = appRuntime.getSnapshotForPlayer(sp, recoveryRadius)
       connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: playersInInterest(snap.players, sp, recoveryRadius, newId), entities: ents.entities }), tick: tickSystem.currentTick, chartEpoch: currentChartEpoch(ctx.physics) })
       appRuntime.broadcastMessage({ type: 'player_join', playerId: newId, reconnected: true })
       emitter.emit('playerJoin', { id: newId, reconnected: true })

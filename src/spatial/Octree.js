@@ -1,3 +1,5 @@
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
+
 const CELL_SIZE = 32
 
 function cellCoord(v) {
@@ -16,7 +18,7 @@ export class SpatialIndex {
     this._cells = new Map()
     this._idCell = new Map()
     this._entities = new Map()
-    this._relevanceRadius = config.relevanceRadius || 200
+    this._relevanceRadius = resolveRelevanceRadius(config.relevanceRadius)
     this._mutations = 0
   }
 
@@ -234,6 +236,6 @@ export class SpatialIndex {
   }
 
   set relevanceRadius(v) {
-    this._relevanceRadius = v
+    this._relevanceRadius = resolveRelevanceRadius(v)
   }
 }

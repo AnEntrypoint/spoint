@@ -20,6 +20,7 @@ import { EventLog } from '../netcode/EventLog.js'
 import { IDBAdapter } from '../storage/IDBAdapter.js'
 import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { createPeerSimSession } from '../netcode/PeerSimSession.js'
 import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
 import { guardedGroundHeight } from '../terrain/PlanetFrame.js'
@@ -122,7 +123,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   _transformRing = allocateRingBuffer(TRANSFORM_RING_CAPACITY)
   const transformRingWriter = _transformRing ? new TransformRingWriter(_transformRing.sab, _transformRing.capacity) : null
   ctx.transformRingWriter = transformRingWriter
-  ctx._tickHandlerArgs = ({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => worldDef.relevanceRadius || 0, getNetcodeConfig: () => worldDef.netcode || null,  getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
+  ctx._tickHandlerArgs = ({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => resolveRelevanceRadius(worldDef.relevanceRadius), getNetcodeConfig: () => worldDef.netcode || null,  getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
   ctx.setTickHandler(createTickHandler(ctx._tickHandlerArgs))
   ctx.onClientConnect = createConnectionHandlers(ctx).onClientConnect
 

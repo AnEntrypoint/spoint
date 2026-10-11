@@ -11,6 +11,7 @@ import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
@@ -215,7 +216,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
   const curGroup = snapshotSeq % snapGroups
   const clientSeq = Math.floor(snapshotSeq / snapGroups)
   const activeStage = stageLoader ? stageLoader.getActiveStage() : null
-  const relevanceRadius = activeStage ? activeStage.spatial.relevanceRadius : (getRelevanceRadius ? getRelevanceRadius() : 0)
+  const relevanceRadius = resolveRelevanceRadius(activeStage ? activeStage.spatial.relevanceRadius : (getRelevanceRadius ? getRelevanceRadius() : undefined))
   const planetRadius = activeStage ? (activeStage.spatial.planetRadius || 0) : 0
 
   if (relevanceRadius > 0) {

@@ -1,4 +1,5 @@
 import { SpatialIndex } from '../spatial/Octree.js'
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 
 function resolvedPlanetRadius(stageName, declared) {
   if (declared == null || declared === 0) return 0
@@ -12,7 +13,7 @@ export class Stage {
   constructor(name, config = {}) {
     this.name = name
     this.entityIds = new Set()
-    this.spatial = new SpatialIndex({ relevanceRadius: config.relevanceRadius || 200 })
+    this.spatial = new SpatialIndex({ relevanceRadius: resolveRelevanceRadius(config.relevanceRadius) })
     this.spatial.planetRadius = resolvedPlanetRadius(name, config.planetRadius)
     this.gravity = config.gravity || null
     this.spawnPoint = config.spawnPoint || null

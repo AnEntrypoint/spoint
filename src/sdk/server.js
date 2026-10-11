@@ -18,6 +18,7 @@ import { AppLoader } from '../apps/AppLoader.js'
 import { StageLoader } from '../stage/StageLoader.js'
 import { createTickHandler } from './TickHandler.js'
 import { installAoiCodeEpoch } from './TickHandlerAOI.js'
+import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { EventEmitter } from '../protocol/EventEmitter.js'
 import { EventBus } from '../apps/EventBus.js'
 import { EventLog } from '../netcode/EventLog.js'
@@ -76,7 +77,7 @@ function buildTickHandler(ctx) {
     lagCompensator: ctx.lagCompensator, physics: ctx.physics, appRuntime: ctx.appRuntime,
     connections: ctx.connections, movement: ctx.movement, stageLoader: ctx.stageLoader,
     eventLog: ctx.eventLog, tickRate: ctx.tickRate,
-    getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0,
+    getRelevanceRadius: () => resolveRelevanceRadius(ctx.currentWorldDef?.relevanceRadius),
     getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,
     getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null,
     getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null,
@@ -89,7 +90,7 @@ export function wireServerHandlers(ctx) {
   const worldPath = ctx.config?.worldPath || null
   const worldConfigUrl = worldPath ? pathToFileURL(worldPath).href : null
   const onAutoSave = () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) }
-  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave })
+  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => resolveRelevanceRadius(ctx.currentWorldDef?.relevanceRadius), getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave })
   ctx.reloadHandlers = reloadHandlers
   ctx.rebuildTickHandler = () => ctx.setTickHandler(buildTickHandler(ctx))
   ctx.rebuildTickHandler()
