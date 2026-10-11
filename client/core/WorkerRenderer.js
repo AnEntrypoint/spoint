@@ -85,6 +85,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       stopRequestedAtMs: null,
       stoppedMessage: null,
       lastError: null,
+      lastRefusal: null,
       lastStats: null
     }
   }
@@ -186,7 +187,8 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
           finishStop(record, msg)
           if (onStopped) onStopped(msg)
         } else if (msg.type === 'error') {
-          record.lastError = msg
+          if (record.state === 'running') record.lastRefusal = msg
+          else record.lastError = msg
           if (onError) onError(msg)
           if (!settled) { settled = true; clearTimeout(timer); reject(new Error('worker init error: ' + msg.message)) }
         }
