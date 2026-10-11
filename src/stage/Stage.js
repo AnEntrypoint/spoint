@@ -68,7 +68,11 @@ export class Stage {
   }
 
   getRelevantEntitiesHorizontal(position, radius) {
-    return this.spatial.nearbyCylinder(position, radius || this.spatial.relevanceRadius, this.relevanceRing(radius).halfHeight)
+    const ring = this.relevanceRing(radius)
+    if (ring.spherical) {
+      throw new TypeError(`[stage] stage "${this.name}" got a horizontal relevance query at planetRadius ${ring.radius}: a horizontal query is the flat ring's own shape, so a planet-centred stage answers getRelevantEntitiesForCell and never this one`)
+    }
+    return this.spatial.nearbyCylinder(position, ring.radius, ring.halfHeight)
   }
 
   getRelevantEntitiesForCell(position, radius) {
