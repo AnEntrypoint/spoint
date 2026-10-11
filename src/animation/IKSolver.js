@@ -10,6 +10,40 @@ function worldDistance(from, to) {
   return from.getWorldPosition(new THREE.Vector3()).distanceTo(to.getWorldPosition(new THREE.Vector3()))
 }
 
+const DEFAULT_TOLERANCE = 0.001
+const DEFAULT_RAY_DISTANCE = 10
+const TWO_BONE_SOLVER = 'TwoBoneIKSolver'
+const FOOT_SOLVER = 'FootIKSolver'
+
+function describe(value) {
+  if (value === null) return 'null'
+  return typeof value === 'number' ? String(value) : typeof value
+}
+
+function finiteVectorOf(value, name, solver) {
+  if (!value || typeof value !== 'object'
+    || !Number.isFinite(value.x) || !Number.isFinite(value.y) || !Number.isFinite(value.z)) {
+    throw new Error(`[${solver}] ${name} needs finite x, y and z; got ${describe(value)}`)
+  }
+  return new THREE.Vector3(value.x, value.y, value.z)
+}
+
+function positiveOptionOf(value, fallback, name, solver) {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`[${solver}] ${name} needs a finite number greater than 0; got ${describe(value)}`)
+  }
+  return value
+}
+
+function booleanOptionOf(value, fallback, name, solver) {
+  if (value === undefined) return fallback
+  if (typeof value !== 'boolean') {
+    throw new Error(`[${solver}] ${name} needs a boolean; got ${describe(value)}`)
+  }
+  return value
+}
+
 export class TwoBoneIKSolver {
   constructor(rootBone, middleBone, endBone, options = {}) {
     if (!rootBone || !middleBone || !endBone) {
@@ -31,8 +65,9 @@ export class TwoBoneIKSolver {
     this.rootLength = worldDistance(rootBone, middleBone)
     this.middleLength = worldDistance(middleBone, endBone)
 
-    this.tolerance = options.tolerance || 0.001
-    this.useWorldSpace = options.useWorldSpace !== false
+    this.tolerance = positiveOptionOf(options.tolerance, DEFAULT_TOLERANCE, 'options.tolerance', TWO_BONE_SOLVER)
+    this.useWorldSpace = booleanOptionOf(options.useWorldSpace, true, 'options.useWorldSpace', TWO_BONE_SOLVER)
+    this.solved = false
 
     this._rootWorldPos = new THREE.Vector3()
     this._middleWorldPos = new THREE.Vector3()
@@ -40,16 +75,21 @@ export class TwoBoneIKSolver {
   }
 
   setTarget(position) {
-    this.target.copy(position)
+    this.target.copy(finiteVectorOf(position, 'setTarget', TWO_BONE_SOLVER))
     return this
   }
 
   setPoleVector(vector) {
-    this.poleVector.copy(vector).normalize()
+    const direction = finiteVectorOf(vector, 'setPoleVector', TWO_BONE_SOLVER)
+    if (direction.lengthSq() === 0) {
+      throw new Error(`[${TWO_BONE_SOLVER}] setPoleVector needs a direction of non-zero length; got zero`)
+    }
+    this.poleVector.copy(direction).normalize()
     return this
   }
 
   solve() {
+    this.solved = false
     if (!this.enabled) return this
 
     const root = this.rootBone
@@ -121,22 +161,31 @@ export class TwoBoneIKSolver {
     const rootWorldNow = parentQuat.clone().multiply(root.quaternion)
     middle.quaternion.slerp(rootWorldNow.clone().invert().multiply(middleWorldTarget), this.weight)
 
+    this.solved = true
     return this
   }
 }
 
 export class FootIKSolver {
   constructor(footBone, raycastCallback, options = {}) {
+    if (!footBone || typeof footBone.getWorldPosition !== 'function') {
+      throw new Error(`[${FOOT_SOLVER}] needs a foot bone with getWorldPosition(); got ${describe(footBone)}`)
+    }
+    if (typeof raycastCallback !== 'function') {
+      throw new Error(`[${FOOT_SOLVER}] needs a raycast callback function; got ${describe(raycastCallback)}`)
+    }
     this.footBone = footBone
     this.raycastCallback = raycastCallback
     this.enabled = true
     this.weight = 1.0
-    this.rayDistance = options.rayDistance || 10
+    this.rayDistance = positiveOptionOf(options.rayDistance, DEFAULT_RAY_DISTANCE, 'options.rayDistance', FOOT_SOLVER)
     this.upDirection = new THREE.Vector3(0, 1, 0)
+    this.solved = false
   }
 
   solve() {
-    if (!this.enabled || !this.footBone || !this.raycastCallback) return this
+    this.solved = false
+    if (!this.enabled) return this
 
     const footWorld = this.footBone.getWorldPosition(new THREE.Vector3())
     const rayOrigin = footWorld.clone()
@@ -156,6 +205,7 @@ export class FootIKSolver {
     }
     this.footBone.position.add(localHeightAdjustment)
 
+    this.solved = true
     return this
   }
 }
@@ -164,10 +214,15 @@ export class IKChain {
   constructor(name = '') {
     this.name = name
     this.solvers = []
+    this.refusals = []
     this.enabled = true
   }
 
   addSolver(solver) {
+    if (!solver || typeof solver.solve !== 'function') {
+      this.refusals.push(solver)
+      return this
+    }
     this.solvers.push(solver)
     return this
   }
@@ -175,9 +230,7 @@ export class IKChain {
   solve() {
     if (!this.enabled) return this
     for (const solver of this.solvers) {
-      if (solver && typeof solver.solve === 'function') {
-        solver.solve()
-      }
+      solver.solve()
     }
     return this
   }
