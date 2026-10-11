@@ -21,7 +21,12 @@ import { installCustomVersion } from './CustomVersion.js'
 import { resolveCCD } from './AppPhysics.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 const _nonNegOrDefault = (fallback, v, name) => {
-  try { return nonNeg(v, name) } catch { return fallback }
+  if (v == null) return fallback
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+    console.warn(`[AppRuntime] ${name} must be a non-negative finite number, got ${String(v)}: using ${fallback}`)
+    return fallback
+  }
+  return v
 }
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
@@ -563,17 +568,17 @@ export class AppRuntime {
     this._unmanagedDirty = false
     return o
   }
-  nearbyPlayerIds(pos, r) { return this._playerIndex.nearby(pos, r) }
+  nearbyPlayerIds(pos, r) { if (!vecOK(pos, 3)) throw new TypeError('[AppRuntime] nearbyPlayerIds: pos must be a length-3 array of finite numbers'); nonNeg(r, '[AppRuntime] nearbyPlayerIds: radius'); return this._playerIndex.nearby(pos, r) }
 
   registerProximityWatch(entityId, radius, callback) {
-    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) throw new TypeError('[AppRuntime] registerProximityWatch: radius must be a non-negative finite number')
+    nonNeg(radius, '[AppRuntime] registerProximityWatch: radius')
     if (typeof callback !== 'function') throw new TypeError('[AppRuntime] registerProximityWatch: callback must be a function')
     this._proximityWatches.set(entityId, { radius, radius2: radius * radius, callback })
     return () => this._proximityWatches.delete(entityId)
   }
 
   registerPlayerContactWatch(appId, radius, callback) {
-    if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) throw new TypeError('[AppRuntime] registerPlayerContactWatch: radius must be a non-negative finite number')
+    nonNeg(radius, '[AppRuntime] registerPlayerContactWatch: radius')
     if (typeof callback !== 'function') throw new TypeError('[AppRuntime] registerPlayerContactWatch: callback must be a function')
     this._playerContactWatches.set(appId, { radius2: radius * radius, callback })
     return () => this._playerContactWatches.delete(appId)
@@ -617,7 +622,7 @@ export class AppRuntime {
   setPlacedModelStorage(pms) { this._placedModelStorage = pms }
   getPlayers() { return this._playerManager ? this._playerManager.getConnectedPlayers() : [] }
   getPlayerById(id) { return this._playerManager ? this._playerManager.getPlayer(id) : null }
-  getNearestPlayer(pos, r) { if (!vecOK(pos, 3) || typeof r !== 'number' || !Number.isFinite(r)) return null; const id = this._playerIndex?.nearest(pos, r); if (id != null) return this._playerManager?.getPlayer(id) || null; let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const dx=pp[0]-pos[0],dy=pp[1]-pos[1],dz=pp[2]-pos[2],d=dx*dx+dy*dy+dz*dz; if (d<md) { md=d; n=p } } return n }
+  getNearestPlayer(pos, r) { if (!vecOK(pos, 3)) throw new TypeError('[AppRuntime] getNearestPlayer: pos must be a length-3 array of finite numbers'); nonNeg(r, '[AppRuntime] getNearestPlayer: radius'); const id = this._playerIndex?.nearest(pos, r); if (id != null) return this._playerManager?.getPlayer(id) || null; let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const dx=pp[0]-pos[0],dy=pp[1]-pos[1],dz=pp[2]-pos[2],d=dx*dx+dy*dy+dz*dz; if (d<md) { md=d; n=p } } return n }
   broadcastToPlayers(m) { if (this._resimSuppressed) return; if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._resimSuppressed) return; if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
   setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) { pl.state.position=[...p]; this._holdPlayerOverUnloadedGround(pl, p) } } }

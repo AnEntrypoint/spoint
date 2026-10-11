@@ -495,9 +495,10 @@
   text: 'spawnSurfaceY returns one null for invalid arguments and for a valid pose with no surface found (ILLEGAL-n-r256-3 hitY half CLOSED by witness 1791689095117-500-62693c6417b6f940; only this args half remains). Live: src/shared/SpawnSurface.js:53 returns null for typeof raycast!==''function'' OR non-finite pose[1] OR standingOffset<=0 OR headroom<=0, which is indistinguishable from ''no surface''. Callers that rely on the null: src/apps/AppGameplay.js:45 passes hitbox.centerHeight (may be 0/undefined for a malformed hitbox) and falls back to terrainY at :50; src/sdk/Relocation.js:48 can hand a spawn point whose y is not finite; apps/tps-game/respawn-clearance.js:21 computes poseY from a possibly non-finite sp[1] at :20. Splitting the two causes needs a per-caller decision at those three sites, not a blind throw.'
   surface: src/shared
   principle: ILLEGAL
-  witness: 1791689095117-500-62693c6417b6f940,1791689097001-500-695c2882a66a533e
+  witness: 'prd-list dispatch 1791694175435-500-8d28ee0962cb9e62 (live, .gm/prd.yml at HEAD cd170761cf): item `id: ILLEGAL-n-r256-7`, `status: completed`, title field EMPTY -- no claim text, no file:line and no body survives on the row, so there is nothing to act on. Retirement is the merge/retire counterpart to the two rows this hop added: PARNAS-cylinder-ub2-p1 and PARNAS-ringbranch-ub2-p1 (added by prd-add 1791694246974-500-205ff9252268653d and 1791694247661-500-5ef7a9099be10ce1).'
   session_id: orch-main-r256
-  status: pending
+  status: completed
+  commit_comment: 'RETIRED (stale) ILLEGAL-n-r256-7: completed with an empty title, so no claim survives to act on. Paired with the two rows added by the PARNAS hop over src/spatial.'
 - id: HICKEY-272sub1s4sub1sub1-4
   detail: 'Merged into HICKEY-272sub1s4sub1sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are the same owe on commit ad21ca7172: -3 carries the re-witness half, this row the push half. One delivery closes both, so they are one condition. Substance now belongs on HICKEY-272sub1s4sub1sub1-3.'
   session_id: orch-main-r260-sub1-s2
@@ -630,3 +631,23 @@
   why: GUARD's proof obligation is that a guard fires when the real module runs; a witness that substitutes the module under test proves nothing about it, and the arena's own end builder at apps/fsm-arena/index.js:26 reads fsm.context.kills, which only the real runtime populates.
   witness: node scripts/fsm-arena-index-witness.mjs
   session_id: orch-main-h22-sub1
+- id: TOTALITY-w1-p-1-1
+  status: pending
+  node: TOTALITY
+  session_id: orch-main-r270-sub1-w1-p-1
+  surface: src/apps/AppRuntime.js:628 (setPlayerPosition), :690-694 (attachEntityToPlayer); src/shared/vecGuard.js
+  depends_on: DBC-n-r270-1
+  title: 'src/apps/AppRuntime.js: setPlayerPosition:628 refuses an invalid position with a silent return and attachEntityToPlayer:692 replaces an invalid offset with the default, so both answer success for input outside their domain'
+  claim: 'TOTALITY (Total Functional Programming - David Turner) over src/apps/AppRuntime.js. NODE-ONLY: filed by hop orch-main-r270-sub1-w1-p-1, not executed by it. WITNESS exec_js 1791694111360-500-af2f38c61f3fac24 against the real module: setPlayerPosition(''p1'', null) and setPlayerPosition(''p1'', [1,NaN,3]) both return with the player still at [1,2,3] -- no throw and no return value, so a caller cannot distinguish ''moved'' from ''your input was outside my domain''. WITNESS exec_js 1791694168853-500-54df9dbb43b90f6f: attachEntityToPlayer(''e2'',''p1'',null) and attachEntityToPlayer(''e3'',''p1'',[0,1]) both return true and store offset [0,1,0], byte-identical to a genuine [0,1,0] attach. Both are the same shape this hop closed at :23-29 (_nonNegOrDefault): an input outside the declared domain is answered with a value of the declared type that really means ''I refused''. Both sinks sit on the same surface as the radii this hop already parses (:571, :625), so the surface is still not total.'
+  acceptance_criteria: A live node dispatch against the real AppRuntime shows setPlayerPosition with a non-vecOK(p,3) position rejected by a named TypeError raised from src/shared/vecGuard.js (never a silent return), and attachEntityToPlayer with a non-vecOK offset rejected the same way, while setPlayerPosition('p1',[1,2,3]) and attachEntityToPlayer('e1','p1',[0,5,0]) behave exactly as at HEAD.
+  witness: exec_js 1791694111360-500-af2f38c61f3fac24 (setPlayerPosition null and [1,NaN,3] are no-ops, player stays at [1,2,3]); exec_js 1791694168853-500-54df9dbb43b90f6f (attach null/[0,1] -> true, stored offset [0,1,0])
+- id: TOTALITY-w1-p-1-2
+  acceptance_criteria: 'The hop''s src/apps/AppRuntime.js commit lands on main: a live node dispatch then shows nearbyPlayerIds([0,0,0],-5) and nearbyPlayerIds([0,0,0],NaN) raising a named TypeError (never the empty array they returned before), getNearestPlayer([0,0,0],-5) raising instead of scanning as |r|, and _hydrateInteractable with radius/cooldown -1/NaN/Infinity/''7'' still yielding 3/500 while printing one named console.warn per field. DBC-n-r270-1 is then narrowed in .gm/prd.yml to :194 (unknown ccd policy collapses to ''auto'') and :418 (Infinity admission) alone.'
+  claim: 'TOTALITY (Total Functional Programming - David Turner) over src/apps/AppRuntime.js. EXECUTED by hop orch-main-r270-sub1-w1-p-1, committed with explicit paths, NOT pushed. BEFORE witness exec_js 1791693683816-500-ba0148e45555d0e9: nearbyPlayerIds([0,0,0],-5) -> [] and nearbyPlayerIds([0,0,0],NaN) -> [] (the octree silently computes an empty set for a radius outside its domain: ''no players nearby'' and ''your radius is meaningless'' are the same answer), getNearestPlayer([0,0,0],-5) accepted the negative radius and scanned as |r|, _hydrateInteractable turned -1/NaN/Infinity/''7'' into 3/500 with zero output. AFTER witness exec_js 1791693826411-500-94af385881c1d797: :571 and :625 parse pos with vecOK and r with nonNeg (src/shared/vecGuard.js) and raise a named TypeError, matching registerProximityWatch:575 and registerPlayerContactWatch:582 which already threw; :23-29 _nonNegOrDefault is now a total function -- no try/catch control flow, and every substitution prints ''[AppRuntime] interactable: radius must be a non-negative finite number, got -1: using 3''. Both live radii on this surface come from resolveRelevanceRadius (src/shared/relevanceRadius.js), which only ever yields a positive finite number, so the tick path (src/sdk/TickHandler.js:267, src/sdk/ServerHandlers.js:89) cannot newly throw.'
+  depends_on: DBC-n-r270-1
+  node: TOTALITY
+  session_id: orch-main-r270-sub1-w1-p-1
+  status: pending
+  surface: src/apps/AppRuntime.js:23-29 (_nonNegOrDefault), :571 (nearbyPlayerIds), :625 (getNearestPlayer)
+  title: DELIVERED (uncommitted, unpushed) TOTALITY closed the nearbyPlayerIds and getNearestPlayer halves of DBC-n-r270-1 and made _nonNegOrDefault total; DBC-n-r270-1's remaining scope is :194 (ccd policy) and :418 (Infinity)
+  witness: 'exec_js 1791693683816-500-ba0148e45555d0e9 (before: [] for -5 and NaN, silent 3/500) vs exec_js 1791693826411-500-94af385881c1d797 (after: named TypeErrors, 7 named warns); exec_js 1791693984330-500-c072d0d05172d710'
