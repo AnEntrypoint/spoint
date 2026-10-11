@@ -1,6 +1,6 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-import { CONSENSUS_CTRL_PREFIX, countUnknownKind, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
+import { CONSENSUS_CTRL_PREFIX, controlFrameHandlers, countReject, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
   return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
@@ -57,16 +57,15 @@ export class ConsensusVoter {
     })
 
     this._onData = ({ detail }) => {
-      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countUnknownKind(this.stats))
+      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats))
       if (!dispatched) return
-      const { frame } = dispatched
-      if (typeof frame.tick !== 'number' || !frame.pubkey || !frame.checksum) return
+      const { frame, apply } = dispatched
       if (frame.pubkey === this.localPeerId || frame.pubkey !== detail.peerPubkey) return
-      this._ingestRemoteChecksum(frame.tick, frame.pubkey, frame.checksum)
+      apply(frame, detail.peerPubkey)
     }
     this.bridge.data.addEventListener('data', this._onData)
 
-    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0 }
+    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0, rejects: {} }
   }
 
   tick(tick) {
