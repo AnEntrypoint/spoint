@@ -44,18 +44,24 @@ function recordBytes(schema, input) {
   return RECORD_FIXED_BYTES + (hasAnalog ? ANALOG_BYTES : 0) + schema.axes.length * AXIS_BYTES
 }
 
+function finiteField(name, value) {
+  if (value === undefined) return 0
+  if (Number.isFinite(value)) return value
+  throw new RangeError(`[InputCodec] input record field "${name}" is not a finite number (got ${typeof value} ${String(value)})`)
+}
+
 function quantYaw(yaw) {
-  const y = Number.isFinite(yaw) ? yaw : 0
+  const y = finiteField('yaw', yaw)
   return Math.round(((y % TAU + TAU) % TAU) / TAU * YAW_STEPS) % YAW_STEPS
 }
 
 function quantPitch(pitch) {
-  const p = Number.isFinite(pitch) ? Math.max(-HALF_PI, Math.min(HALF_PI, pitch)) : 0
+  const p = Math.max(-HALF_PI, Math.min(HALF_PI, finiteField('pitch', pitch)))
   return Math.round(p * PITCH_SCALE)
 }
 
-function quantAnalog(v) {
-  const a = Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0
+function quantAnalog(name, v) {
+  const a = Math.max(-1, Math.min(1, finiteField(name, v)))
   return Math.round(a * ANALOG_SCALE)
 }
 
@@ -68,15 +74,15 @@ function writeRecord(view, off, schema, sequence, input) {
   view.setUint32(off + 4, bits >>> 0, true)
   view.setUint16(off + 8, quantYaw(input.yaw), true)
   view.setInt16(off + 10, quantPitch(input.pitch), true)
-  view.setUint8(off + 12, Math.max(0, Math.min(255, input.expr | 0)))
+  view.setUint8(off + 12, Math.max(0, Math.min(255, finiteField('expr', input.expr) | 0)))
   view.setUint8(off + 13, hasAnalog ? FLAG_ANALOG : 0)
   off += RECORD_FIXED_BYTES
   if (hasAnalog) {
-    view.setInt8(off, quantAnalog(input.analogForward))
-    view.setInt8(off + 1, quantAnalog(input.analogRight))
+    view.setInt8(off, quantAnalog('analogForward', input.analogForward))
+    view.setInt8(off + 1, quantAnalog('analogRight', input.analogRight))
     off += ANALOG_BYTES
   }
-  for (const a of axes) { const v = input[a]; view.setFloat32(off, Number.isFinite(v) ? v : 0, true); off += AXIS_BYTES }
+  for (const a of axes) { view.setFloat32(off, finiteField(a, input[a]), true); off += AXIS_BYTES }
   return off
 }
 

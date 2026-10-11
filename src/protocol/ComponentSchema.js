@@ -78,7 +78,7 @@ export function encodeCustomFields(schema, obj) {
       const present = obj != null && obj[name] !== undefined
       dv.setUint8(off, present ? 1 : 0); off += 1
       if (!present) { off += fieldByteSize(field); continue }
-      off = _writeField(dv, off, field, obj[name])
+      off = _writeField(dv, off, field, name, obj[name])
     }
     return buf
   }
@@ -100,7 +100,7 @@ export function encodeCustomFields(schema, obj) {
       const chunk = new Uint8Array(1 + size)
       const dv = new DataView(chunk.buffer)
       dv.setUint8(0, 1)
-      _writeField(dv, 1, field, obj[name])
+      _writeField(dv, 1, field, name, obj[name])
       parts.push(chunk)
     }
   }
@@ -111,19 +111,25 @@ export function encodeCustomFields(schema, obj) {
   return out
 }
 
-function _writeField(dv, off, field, value) {
+function _finite(name, value) {
+  if (Number.isFinite(value)) return value
+  throw new RangeError(`[ComponentSchema] field "${name}" is not a finite number (got ${typeof value} ${String(value)})`)
+}
+
+function _writeField(dv, off, field, name, value) {
   switch (field.type) {
-    case 'u8': dv.setUint8(off, Math.max(0, Math.min(255, Math.round(value))) & 0xFF); return off + 1
+    case 'u8': dv.setUint8(off, Math.max(0, Math.min(255, Math.round(_finite(name, value)))) & 0xFF); return off + 1
     case 'bool': dv.setUint8(off, value ? 1 : 0); return off + 1
     case 'enum': {
       const idx = field.enum.indexOf(String(value))
-      dv.setUint8(off, idx >= 0 ? idx : 0)
+      if (idx < 0) throw new RangeError(`[ComponentSchema] field "${name}" of type enum is ${String(value)}, outside [${field.enum.join(', ')}]`)
+      dv.setUint8(off, idx)
       return off + 1
     }
-    case 'u16': dv.setUint16(off, Math.max(0, Math.min(65535, Math.round(value))), true); return off + 2
-    case 'i16': dv.setInt16(off, Math.max(-32768, Math.min(32767, Math.round(value))), true); return off + 2
-    case 'f32': dv.setFloat32(off, value, true); return off + 4
-    case 'f64': dv.setFloat64(off, value, true); return off + 8
+    case 'u16': dv.setUint16(off, Math.max(0, Math.min(65535, Math.round(_finite(name, value)))), true); return off + 2
+    case 'i16': dv.setInt16(off, Math.max(-32768, Math.min(32767, Math.round(_finite(name, value)))), true); return off + 2
+    case 'f32': dv.setFloat32(off, _finite(name, value), true); return off + 4
+    case 'f64': dv.setFloat64(off, _finite(name, value), true); return off + 8
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
 }
