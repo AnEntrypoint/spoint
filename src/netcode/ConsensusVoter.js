@@ -1,13 +1,13 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-import { LOCKSTEP_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
+import { CONSENSUS_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
-  return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
+  return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
 }
 
 function decodeCtrl(data) {
-  return decodeControlFrame(LOCKSTEP_CTRL_PREFIX, data)
+  return decodeControlFrame(CONSENSUS_CTRL_PREFIX, data)
 }
 
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3

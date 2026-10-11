@@ -2,6 +2,12 @@ import { pack, unpack } from '../protocol/msgpack.js'
 
 const REPLICATED_KEYS_PER_RING_SLOT = 4
 
+const REPLAY_HANDLERS = new Map([
+  ['entity_spawn', (runtime, event) => runtime.spawnEntity(event.data.id, event.data.config)],
+  ['entity_destroy', (runtime, event) => runtime.destroyEntity(event.data.id)],
+  ['bus_event', (runtime, event) => runtime._eventBus?.emit(event.data.channel, event.data.data, event.meta)],
+])
+
 export class EventLog {
   constructor(config = {}) {
     this._maxSize = config.maxSize || 1000
@@ -106,12 +112,13 @@ export class EventLog {
     const events = this._toArray().filter(e => e.tick >= startTick && e.tick <= endTick)
     const result = { eventsReplayed: 0, errors: [] }
     for (const event of events) {
+      const apply = REPLAY_HANDLERS.get(event.type)
+      if (!apply) {
+        result.errors.push({ eventId: event.id, error: `unknown event type ${JSON.stringify(event.type)}` })
+        continue
+      }
       try {
-        switch (event.type) {
-          case 'entity_spawn': runtime.spawnEntity(event.data.id, event.data.config); break
-          case 'entity_destroy': runtime.destroyEntity(event.data.id); break
-          case 'bus_event': runtime._eventBus?.emit(event.data.channel, event.data.data, event.meta); break
-        }
+        apply(runtime, event)
         result.eventsReplayed++
       } catch (e) { result.errors.push({ eventId: event.id, error: e.message }) }
     }
