@@ -119,6 +119,11 @@ function storeCellBase(key, cellViewerPos, baseRelevantIds) {
   }
 }
 
+function flatCellKey(cx, cz) {
+  if (cx >= -32768 && cx <= 32767 && cz >= -32768 && cz <= 32767) return (cx * 65536 + cz) | 0
+  return `${cx},${cz}`
+}
+
 export function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
   if (planetRadius > 0) {
     const c = worldToCell(viewerPos[0], viewerPos[1], viewerPos[2], planetRadius, relevanceRadius)
@@ -127,7 +132,7 @@ export function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
     return { cellKey: packCellKey(r.face, r.cx, r.cy, cellsPerFace), cellFace: r.face, cellCx: r.cx, cellCy: r.cy, cellsPerFace }
   }
   const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
-  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: cx, cellCy: cz, cellsPerFace: 0 }
+  return { cellKey: flatCellKey(cx, cz), cellFace: -1, cellCx: cx, cellCy: cz, cellsPerFace: 0 }
 }
 
 export function solveCellViewer(face, cx, cy, planetRadius, relevanceRadius) {
@@ -201,7 +206,7 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       for (let dy = -1; dy <= 1; dy++) {
         if (dx === 0 && dy === 0) continue
         const ncx = cellCx + dx, ncy = cellCy + dy
-        addCell(-1, ncx, ncy, (ncx * 65536 + ncy) | 0)
+        addCell(-1, ncx, ncy, flatCellKey(ncx, ncy))
       }
     }
   }
