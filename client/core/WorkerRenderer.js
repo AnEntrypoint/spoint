@@ -62,26 +62,32 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   }
   const readyTimeoutMs = opts.readyTimeoutMs || 5000
 
-  let worker = null
-  let started = false
-  let run = 0
-  let acceptedSeq = 0
-  let acceptedRun = null
-  let staleGenerationRejected = 0
-  let staleRunRejected = 0
-  let outOfOrderRejected = 0
-  let unstampedAccepted = 0
-  let lastStats = null
-  let lastError = null
-  let readyAtMs = null
-  let lastFrameAtMs = null
-  let stopRequestedAtMs = null
-  let stoppedAtMs = null
-  let stoppedMessage = null
-  const stopWaiters = []
+  let current = null
+  let runCount = 0
   const onStats = opts.onStats || null
   const onError = opts.onError || null
   const onStopped = opts.onStopped || null
+
+  function createRunRecord(worker) {
+    return {
+      id: ++runCount,
+      worker,
+      state: 'starting',
+      stopWaiters: [],
+      acceptedSeq: 0,
+      acceptedRun: null,
+      staleGenerationRejected: 0,
+      staleRunRejected: 0,
+      outOfOrderRejected: 0,
+      unstampedAccepted: 0,
+      readyAtMs: null,
+      lastFrameAtMs: null,
+      stopRequestedAtMs: null,
+      stoppedMessage: null,
+      lastError: null,
+      lastStats: null
+    }
+  }
 
   function nowMs() {
     return (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now()
@@ -90,50 +96,61 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     return typeof document === 'undefined' ? true : document.hidden !== true
   }
   function runtimeState() {
+    const record = current
     return classifyWorkerRuntimeState({
-      started,
-      stopRequested: stopRequestedAtMs !== null,
-      stopped: stoppedAtMs !== null,
-      hasError: lastError !== null,
-      readyMs: readyAtMs,
-      lastFrameMs: lastFrameAtMs,
+      started: record !== null && record.state === 'running',
+      stopRequested: record !== null && record.stopRequestedAtMs !== null,
+      stopped: record !== null && record.state === 'stopped',
+      hasError: record !== null && record.lastError !== null,
+      readyMs: record === null ? null : record.readyAtMs,
+      lastFrameMs: record === null ? null : record.lastFrameAtMs,
       nowMs: nowMs(),
       pageVisible: pageVisible()
     })
   }
 
-  function acceptWorkerMessage(msg, myRun) {
-    if (myRun !== run) { staleGenerationRejected++; return false }
+  function acceptWorkerMessage(record, msg) {
+    if (record !== current) { record.staleGenerationRejected++; return false }
     const seq = Number(msg && msg.seq)
     const runStamp = Number(msg && msg.run)
     const hasSeq = Number.isFinite(seq)
     const hasRun = Number.isFinite(runStamp)
-    if (hasRun && acceptedRun !== null && runStamp < acceptedRun) { staleRunRejected++; return false }
-    if (hasSeq && seq <= acceptedSeq) { outOfOrderRejected++; return false }
-    if (!hasSeq || !hasRun) unstampedAccepted++
-    if (hasSeq) acceptedSeq = seq
-    if (hasRun && (acceptedRun === null || runStamp > acceptedRun)) acceptedRun = runStamp
+    if (hasRun && record.acceptedRun !== null && runStamp < record.acceptedRun) { record.staleRunRejected++; return false }
+    if (hasSeq && seq <= record.acceptedSeq) { record.outOfOrderRejected++; return false }
+    if (!hasSeq || !hasRun) record.unstampedAccepted++
+    if (hasSeq) record.acceptedSeq = seq
+    if (hasRun && (record.acceptedRun === null || runStamp > record.acceptedRun)) record.acceptedRun = runStamp
     return true
   }
   function orderState() {
+    if (current === null) {
+      return {
+        run: 0,
+        seq: 0,
+        workerRun: null,
+        staleGenerationRejected: 0,
+        staleRunRejected: 0,
+        outOfOrderRejected: 0,
+        unstampedAccepted: 0
+      }
+    }
     return {
-      run,
-      seq: acceptedSeq,
-      workerRun: acceptedRun,
-      staleGenerationRejected,
-      staleRunRejected,
-      outOfOrderRejected,
-      unstampedAccepted
+      run: current.id,
+      seq: current.acceptedSeq,
+      workerRun: current.acceptedRun,
+      staleGenerationRejected: current.staleGenerationRejected,
+      staleRunRejected: current.staleRunRejected,
+      outOfOrderRejected: current.outOfOrderRejected,
+      unstampedAccepted: current.unstampedAccepted
     }
   }
 
   function start() {
-    if (started) return Promise.resolve()
+    if (current !== null && current.state !== 'stopped') {
+      return Promise.reject(new Error('createWorkerRenderer: start() refused while run ' + current.id + ' is ' + current.state + ' and still holds the canvas'))
+    }
     return new Promise((resolve, reject) => {
-      stopRequestedAtMs = null
-      stoppedAtMs = null
-      stoppedMessage = null
-      lastError = null
+      let worker = null
       try {
         const workerUrl = new URL('../workers/OffscreenRenderWorker.js', import.meta.url)
         worker = new Worker(workerUrl, { type: 'module' })
@@ -141,9 +158,8 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
         reject(e); return
       }
 
-      const myRun = ++run
-      acceptedSeq = 0
-      acceptedRun = null
+      const record = createRunRecord(worker)
+      current = record
 
       let settled = false
       const timer = setTimeout(() => {
@@ -154,30 +170,30 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
       worker.onmessage = (e) => {
         const msg = e.data || {}
-        if (!acceptWorkerMessage(msg, myRun)) return
+        if (!acceptWorkerMessage(record, msg)) return
         if (msg.type === 'ready') {
-          if (!settled) { settled = true; clearTimeout(timer); readyAtMs = nowMs(); started = true; resolve() }
+          if (record.state !== 'starting') return
+          record.readyAtMs = nowMs()
+          record.state = 'running'
+          if (!settled) { settled = true; clearTimeout(timer); resolve() }
         } else if (msg.type === 'frame') {
-          lastStats = msg
-          lastFrameAtMs = nowMs()
+          if (record.state !== 'running') return
+          record.lastStats = msg
+          record.lastFrameAtMs = nowMs()
           if (onStats) onStats(msg)
         } else if (msg.type === 'stopped') {
-          stoppedAtMs = nowMs()
-          stoppedMessage = msg
-          started = false
-          if (onStopped) onStopped(msg)
           if (!settled) { settled = true; clearTimeout(timer); reject(new Error('worker stopped before ready')) }
-          const waiters = stopWaiters.splice(0, stopWaiters.length)
-          for (const waiter of waiters) waiter(msg)
+          finishStop(record, msg)
+          if (onStopped) onStopped(msg)
         } else if (msg.type === 'error') {
-          lastError = msg
+          record.lastError = msg
           if (onError) onError(msg)
           if (!settled) { settled = true; clearTimeout(timer); reject(new Error('worker init error: ' + msg.message)) }
         }
       }
       worker.onerror = (e) => {
-        lastError = { message: e.message, filename: e.filename, lineno: e.lineno }
-        if (onError) onError(lastError)
+        record.lastError = { message: e.message, filename: e.filename, lineno: e.lineno }
+        if (onError) onError(record.lastError)
         if (!settled) { settled = true; clearTimeout(timer); reject(new Error('worker onerror: ' + e.message)) }
       }
 
@@ -192,58 +208,62 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   }
 
   function resize(width, height, dpr) {
-    if (!worker || !started) return
-    worker.postMessage({ type: 'resize', width, height, dpr: dpr || (typeof window !== 'undefined' && window.devicePixelRatio) || 1 })
+    if (current === null || current.state !== 'running') return
+    current.worker.postMessage({ type: 'resize', width, height, dpr: dpr || (typeof window !== 'undefined' && window.devicePixelRatio) || 1 })
+  }
+
+  function finishStop(record, msg) {
+    if (record.state === 'stopped') return
+    record.state = 'stopped'
+    record.stoppedMessage = msg
+    try { record.worker.terminate() } catch (_) {}
+    const waiters = record.stopWaiters.splice(0, record.stopWaiters.length)
+    for (const waiter of waiters) waiter(msg)
   }
 
   function stop() {
-    if (!worker) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
-    const stopWorker = worker
-    const stopRun = run
-    stopRequestedAtMs = nowMs()
-    try { stopWorker.postMessage({ type: 'stop' }) } catch (_) {}
-    setTimeout(() => {
-      const armedWorkerIsCurrent = worker === stopWorker && run === stopRun
-      if (armedWorkerIsCurrent) { worker.terminate(); worker = null }
-      else stopWorker.terminate()
-      if (armedWorkerIsCurrent && stoppedAtMs === null) {
-        stoppedAtMs = nowMs()
-        stoppedMessage = { type: 'stop-terminated' }
-        const waiters = stopWaiters.splice(0, stopWaiters.length)
-        for (const waiter of waiters) waiter(stoppedMessage)
-      }
-    }, TERMINATE_AFTER_STOP_REQUEST_MS)
-    started = false
-    return awaitStopped()
+    const record = current
+    if (record === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
+    if (record.state === 'stopped') return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: record.stoppedMessage })
+    if (record.stopRequestedAtMs === null) {
+      record.stopRequestedAtMs = nowMs()
+      record.state = 'stopping'
+      try { record.worker.postMessage({ type: 'stop' }) } catch (_) {}
+      setTimeout(() => finishStop(record, { type: 'stop-terminated' }), TERMINATE_AFTER_STOP_REQUEST_MS)
+    }
+    return awaitStopped(undefined, record)
   }
 
-  function awaitStopped(timeoutMs) {
-    if (stoppedAtMs !== null) {
-      return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: stoppedMessage })
+  function awaitStopped(timeoutMs, record) {
+    const target = record === undefined ? current : record
+    if (target === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
+    if (target.state === 'stopped') {
+      return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: target.stoppedMessage })
     }
     const budget = Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : WORKER_STOP_CONFIRM_TIMEOUT_MS
-    const requestedAtMs = stopRequestedAtMs === null ? nowMs() : stopRequestedAtMs
+    const requestedAtMs = target.stopRequestedAtMs === null ? nowMs() : target.stopRequestedAtMs
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
-        const at = stopWaiters.indexOf(waiter)
-        if (at >= 0) stopWaiters.splice(at, 1)
+        const at = target.stopWaiters.indexOf(waiter)
+        if (at >= 0) target.stopWaiters.splice(at, 1)
         resolve({ ok: false, reason: 'stop-timeout', ms: nowMs() - requestedAtMs, message: null })
       }, budget)
       const waiter = (msg) => {
         clearTimeout(timer)
         resolve({ ok: true, reason: 'stopped', ms: nowMs() - requestedAtMs, message: msg || null })
       }
-      stopWaiters.push(waiter)
+      target.stopWaiters.push(waiter)
     })
   }
 
   function getStats() {
     const state = runtimeState()
+    const lastStats = current === null ? null : current.lastStats
     if (!lastStats) return { frame: null, ageMs: state.ageMs, stale: state.stale, state: state.state, order: orderState() }
     return { ...lastStats, ageMs: state.ageMs, stale: state.stale, state: state.state, order: orderState() }
   }
   function getOrder() { return orderState() }
-  function getLastError() { return lastError }
+  function getLastError() { return current === null ? null : current.lastError }
   function getState() { return runtimeState() }
   function isRunning() { return runtimeState().running }
 
