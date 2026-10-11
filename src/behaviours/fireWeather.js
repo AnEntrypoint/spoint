@@ -2,25 +2,38 @@ import { FIRE_MAX_WIND_COMPONENT } from '../shared/fire/fireWire.js'
 
 const WIND_AXES = 3
 
-function rainByteOf(w, config) {
-  if (!w || !Number.isFinite(w.intensity)) return 0
-  const intensity = Math.max(0, Math.min(1, w.intensity))
-  if (w.type === 'rain') return Math.round(intensity * config.rainPerIntensity)
-  if (w.type === 'snow') return Math.round(intensity * config.rainPerIntensity * config.snowRainFraction)
-  return 0
-}
+const NO_WEATHER = Object.freeze({ kind: 'no-weather', intensity: 0, wind: null })
+const UNREADABLE_WEATHER = Object.freeze({ kind: 'unreadable-weather', intensity: 0, wind: null })
 
-function windOf(w) {
-  if (!w || !Array.isArray(w.wind) || w.wind.length !== WIND_AXES) return null
+function parseWind(wind) {
+  if (!Array.isArray(wind) || wind.length !== WIND_AXES) return null
   const out = [0, 0, 0]
   for (let i = 0; i < WIND_AXES; i++) {
-    if (!Number.isFinite(w.wind[i])) return null
-    out[i] = Math.max(-FIRE_MAX_WIND_COMPONENT, Math.min(FIRE_MAX_WIND_COMPONENT, Math.round(w.wind[i])))
+    if (!Number.isFinite(wind[i])) return null
+    out[i] = Math.max(-FIRE_MAX_WIND_COMPONENT, Math.min(FIRE_MAX_WIND_COMPONENT, Math.round(wind[i])))
   }
   return out
 }
 
+function parseWeather(w) {
+  if (w === null || w === undefined) return NO_WEATHER
+  if (typeof w !== 'object') return UNREADABLE_WEATHER
+  const wind = parseWind(w.wind)
+  if (w.intensity !== undefined && !Number.isFinite(w.intensity)) return { kind: 'unreadable-weather', intensity: 0, wind }
+  const intensity = Math.max(0, Math.min(1, w.intensity ?? 0))
+  if (w.type === 'rain') return { kind: 'rain', intensity, wind }
+  if (w.type === 'snow') return { kind: 'snow', intensity, wind }
+  return { kind: 'dry-other', intensity, wind }
+}
+
+function rainByteOf(reading, config) {
+  if (reading.kind === 'rain') return Math.round(reading.intensity * config.rainPerIntensity)
+  if (reading.kind === 'snow') return Math.round(reading.intensity * config.rainPerIntensity * config.snowRainFraction)
+  return 0
+}
+
 export function createFireWeather({ config, readWeather, stepTicks, wind: initialWind = [0, 0, 0] }) {
+  let reading = NO_WEATHER
   let rain = 0
   let moisture = 0
   let emittedRain = 0
@@ -29,12 +42,11 @@ export function createFireWeather({ config, readWeather, stepTicks, wind: initia
   const emittedWind = [wind[0], wind[1], wind[2]]
 
   function advance() {
-    const w = readWeather()
-    rain = rainByteOf(w, config)
+    reading = parseWeather(readWeather())
+    rain = rainByteOf(reading, config)
     if (rain > 0) moisture = Math.min(config.maxMoisture, moisture + Math.ceil(config.wetPerStep * rain / 255))
     else moisture = Math.max(0, moisture - config.dryPerStep)
-    const next = windOf(w)
-    if (next !== null) { wind[0] = next[0]; wind[1] = next[1]; wind[2] = next[2] }
+    if (reading.wind !== null) { wind[0] = reading.wind[0]; wind[1] = reading.wind[1]; wind[2] = reading.wind[2] }
   }
 
   function pendingEmits(out) {
@@ -53,6 +65,7 @@ export function createFireWeather({ config, readWeather, stepTicks, wind: initia
       return pendingEmits(out)
     },
     get rain() { return rain },
+    get reading() { return reading },
     get moisture() { return moisture },
     get wind() { return [wind[0], wind[1], wind[2]] },
     get emittedRain() { return emittedRain },
