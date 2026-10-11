@@ -378,8 +378,8 @@ export interface AppContext {
   readonly combat: Record<string, any>;
   /** Kill-plane height under x/z: terrain height minus depth (default 20 m), or -20 without terrain. */
   fallFloorY(x: number, z: number, depth?: number): number;
-  /** Least-occupied spawn point snapped onto walkable ground; exclude(player) skips players that should not count as occupants. */
-  pickSpawnPoint(spawnPoints: number[][], opts?: { exclude?: (player: any) => boolean; minSafeDistance?: number }): number[];
+  /** Least-occupied spawn point snapped onto walkable ground; exclude(player) skips players that should not count as occupants. Contract: total over spawnPoints -- an empty list, or one with no usable point, still yields a pose and never throws; hitbox defaults to Hitscan.DEFAULT_HITBOX. */
+  pickSpawnPoint(spawnPoints: number[][], opts?: { exclude?: (player: any) => boolean; minSafeDistance?: number; hitbox?: { centerHeight?: number; radiusSq?: number; height?: number } }): number[];
   /** Debounced storage-backed value, cached per key on this context; await .ready before first read. */
   persisted<T>(key: string, initial: T, opts?: { debounceMs?: number }): { readonly ready: Promise<void>; value: T; save(): void; flush(): Promise<void> };
   /** Persistent per-scope leaderboard (asc keeps the lowest value, desc the highest), cached per key on this context. */
