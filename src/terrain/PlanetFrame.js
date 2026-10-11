@@ -47,7 +47,11 @@ function groundFailureCause(e) {
   return `solver residual ${e.residualM} m`
 }
 
-export function guardedGroundHeight(where, heightFn, fallback) {
+export const NO_GROUND_HEIGHT = null
+
+export function isNoGroundHeight(v) { return v === NO_GROUND_HEIGHT }
+
+export function guardedGroundHeight(where, heightFn, fallback = NO_GROUND_HEIGHT) {
   return (x, z, ...rest) => {
     try { return heightFn(x, z, ...rest) } catch (e) {
       if (!(e instanceof SurfaceSolveError)) throw e
