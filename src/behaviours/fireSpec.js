@@ -73,8 +73,8 @@ function rejectInvalidFields(values, rules, label) {
 function isVec3(v) { return Array.isArray(v) && v.length === 3 && v.every(Number.isFinite) }
 
 function resolveWindField(f) {
-  if (f === undefined || f === null) return null
-  if (typeof f !== 'object' || Array.isArray(f)) throw new TypeError('[fire] spec.windField must be an object')
+  if (f === undefined) return null
+  if (f === null || typeof f !== 'object' || Array.isArray(f)) throw new TypeError('[fire] spec.windField must be an object')
   rejectUnknownKeys(f, WINDFIELD_KEYS, 'spec.windField')
   const amplitude = f.amplitude ?? 4
   const periodSteps = f.periodSteps ?? 20
