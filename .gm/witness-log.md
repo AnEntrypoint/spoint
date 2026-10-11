@@ -394,3 +394,104 @@ tick 188 live=20 ceiling=20 floor=10 shortfall=0 saturated; waiting for a comple
 HOP src/apps PARSEDV 2 violations witness=1791680574843-500-4dcd5c6458dcb001; successor MILNER src/apps self-spawn BLOCKED by 20 limit, spec parked at .gm/pool/orch-main-r249.next
 tick 189 live=20 ceiling=20 floor=10 shortfall=0 done=1 (r249) launch orch-main-r264 hop=MILNER src/apps (from parked .next spec)
 MECHANISM parked .next spec + orchestrator relaunch recovers a successor blocked by the ceiling -- the pool stayed at 20 across the handoff
+2026-10-11T02:59:06.343Z | scripts/BlendTree-witness.mjs | label=honest | exit=1 | RESULT: FAIL (checks=45 correct=43 characterized=1 failed=1) :: [characterized] Blender: updateBlend does not evaluate a stored blend tree (correct would be calls > 0) | module=src/animation/BlendTree.js | module_sha256=ecc37bfc68e2a958031f3362160f21fc9d986c6bcb3b5cc3b47e00e552e5c103 | out=.gm/witness-out/BlendTree-witness-honest-2026-10-11T02-59-06-343Z-5a98322c.txt | out_sha256=fd704dea07162068b96b446f525a76b263c02fc77d013d868ef977a56e927e22 | session=unknown | row=witness-gap-BlendTree
+2026-10-11T03:04:27.868Z | scripts/BlendTree-witness.mjs | label=honest | exit=1 | RESULT: FAIL (checks=45 correct=42 characterized=1 failed=2) :: Blender: setBlendTree stores the tree and returns this | [characterized] Blender: updateBlend does not evaluate a stored blend tree (correct would be calls > 0) | module=src/animation/BlendTree.js | module_sha256=64f61a0066480479f3ad48a24e2cc543282aaa129786bec7fcba13b15a5eb465 | out=.gm/witness-out/BlendTree-witness-honest-2026-10-11T03-04-27-868Z-24b8b625.txt | out_sha256=0e625864a38012db8e30408516254d03444b67a1cb125d767c00eac3b9bde3fa | session=unknown | row=witness-gap-BlendTree
+2026-10-11T03:05:34.592Z | scripts/BlendTree-witness.mjs | label=honest | exit=1 | RESULT: FAIL (checks=45 correct=42 characterized=1 failed=2) :: Blender: setBlendTree stores the tree and returns this | [characterized] Blender: updateBlend does not evaluate a stored blend tree (correct would be calls > 0) | module=src/animation/BlendTree.js | module_sha256=ab09de8bd76c1ddbea08b5b0b60667788ab4f1d9bd5d0324e4d4e82e35daaa6a | out=.gm/witness-out/BlendTree-witness-honest-2026-10-11T03-05-34-592Z-749397d8.txt | out_sha256=7aa0cae04147b83644661f0003271abd7d760c024108e06e1c675c95fb673bef | session=unknown | row=witness-gap-BlendTree
+2026-10-11T03:14:02.699Z | gm git serial lane | PREDICT before dispatch: git_status into C:/dev/spoint while the git lane is held answers either ok with admission_waited_ms, or dispatch_starved_waiting_for_serial_lane carrying lane_position (integer >= 1, 1 = next) and lane_holder_age_ms (integer > 0); every row of C:/dev/spoint/.gm/exec-spool/.dispatch-wait.json carries the same two fields. | session=orch-main-r280 | row=gm-friction-git-serial-lane-fifo | predict_only=true
+
+2026-10-11T03:17:53.465Z | WITNESS | DRY-n-r141-1 | delivery: 38fc8636a534575c8e858659dfaac04e4bbd0069 on AnEntrypoint/spoint main, AGENTS.md line 185 1+/1- (parent a39ec5b5), verified by fetch dispatch 1791688514782-500-4b1c88f5bc160cbd HTTP 200
+tick live=21 event=refill-h22-h23parked-h24parked 2026-10-11T03:53:20.586Z
+2026-10-11T04:01:30.686Z witness=scripts/game-fsm-witness.mjs exit=0 RESULT: PASS claims=35/35 module=src/behaviours/game-fsm.js sha256=- out=-
+2026-10-11T04:04:34.862Z witness=scripts/game-fsm-witness.mjs exit=0 RESULT: PASS claims=35/35 module=src/behaviours/game-fsm.js sha256=- out=-
+tick live=20 event=done-a66e9e8da0c6c2985-done-a1b6d27ed50891387-launch-ae0f05cabedd61bd7-bake-hf 2026-10-11T04:05:14.664Z
+tick live=20 event=refill-bake-hf-h23parnas-h25minsky-r260dbc 2026-10-11T04:08:38.362Z
+tick live=20 event=refill-h26parnas-apps-tps-game-h27totality-src-sharding push-starved-x2 2026-10-11T04:17:16.880Z
+tick 3 event=done-3 live=22 2026-10-11T04:47:14Z
+tick 4 event=launch-2 live=22 2026-10-11T04:47:14Z
+2026-10-11T04:49:24.957Z | gm git serial lane | OBSERVED: agentplug c63097d222 (merged 02188c28446169dacf9478b18f07493f7751c74e) adds lane_admissible's network yield plus selfcheck-lane-network-yield; CI run 38111707190 job 114388478739 (build macos-14 aarch64-apple-darwin) printed "[selfcheck-lane-network-yield] a commit was admitted ahead of a fresh push, a push never overtook a commit ahead of it, and a push that waited out its yield budget stopped yielding and took the lane" then "witnessed live against the real GmFairnessGuard: PASS" then "RESULT: PASS"; all 8 jobs of run 38111707190 concluded success, publish included | dispatches bash 1791693322025-500-27edecdf292ca689 (whole selfcheck step log), bash 1791693417921-500-ad573f24b0485a66 (yield lines only), ci-status 1791693219424-500-531a17ef6868d905 (8/8 success) | captured_log_sha256=4269e23b5745553d6fe6422bffd6821d615c6f9ed2d5b3e186ad4d182ca5cd57 | caller rule prose landed as gm 649d389468b7004670e874301c980c772e707cbb (skills/gm-orchestrate/SKILL.md, d57a79d..649d389 on AnEntrypoint/gm main) | NOT observed in spoint: its daemon is the pre-fix local build (v0.1.272, 91ebbdff, release_build false), so C:/dev/spoint/.gm/exec-spool/.dispatch-wait.json at ts 1791693113358 still carries no lane_position/lane_holder_age_ms -- the fix is verified on the freshly built release binary in CI, not on this box's daemon | row=gm-friction-git-serial-lane-fifo | predict_only=false
+tick 5 event=done-2 live=20 2026-10-11T04:59:27.924Z
+tick 6 event=launch-3 live=23 2026-10-11T04:59:27.924Z
+2026-10-11T05:06:15.067Z witness=scripts/game-fsm-witness.mjs exit=0 RESULT: PASS claims=35/35 module=src/behaviours/game-fsm.js sha256=- out=-
+tick 7 event=done-1 live=22 2026-10-11T05:06:40.387Z
+tick 8 event=launch-1 live=23 2026-10-11T05:06:40.387Z
+note: r270-sub1 parked slice was stale (already closed by a5b54083d2e84a812); the relaunch was redirected onto its open rows
+note: stale parked slices removed (already running or closed): orch-main-r310-sub2.next orch-main-r316-sub1.next orch-main-r275.next orch-main-h21.next orch-main-h23.next orch-main-r301-sub1.next
+tick 190 event=done-1 live=24 2026-10-11T05:11:39.902Z
+tick 191 event=launch-2 live=24 2026-10-11T05:11:39.902Z
+note: PARSEDV src/netcode closed: 9feaf62d97 (tick integer gate, RollbackInputTransport.js:48), 4 rows PARSEDV-r315sub1-1..-4, 4 stale retired; successor TOTALITY src/netcode parked at .gm/pool/orch-main-r315-sub1.next
+tick 192 event=done-2 live=24 2026-10-11T05:12:41.543Z
+tick 193 event=launch-1 live=24 2026-10-11T05:12:41.543Z
+note: DBC src/shared/clusterConfig closed: 59d6263a60 unpushed, rows DBC-ub1h1-1..-3, successor LAMPORT src/sharding/ClusterRuntime.js parked at .gm/pool/orch-main-r301-sub1-sub1-h1.next (src/sharding held by WADLER a72757906aef9d4bf)
+note: MINSKY src/terrain closed: c6db604b34 unpushed (PlanetFrame.js), rows ILLEGAL-in-h25-1..-3; its successor chain (PARSEDV src/terrain -> WADLER depth 3) already ran and landed a438864021
+tick 194 event=park-1 live=24 2026-10-11T05:13:30.741Z
+note: PARSEDV src/game spawn refused by ceiling (20); parked at .gm/pool/orch-main-parsedv-game-w2.next as a ready slice for the first freed slot
+tick 195 event=done-1 live=24 2026-10-11T05:14:23.271Z
+note: PARSEDV src/behaviours closed: 4881662d16 (fireWeather.js) unpushed; gen-typings --check reports sdk-typings.generated.d.ts up to date (619 lines), so the CI gen-typings failure at 9feaf62d97 is cleared by the landed artifact
+note: parked slices retired as already-closed work: removed orch-main-r249.next; removed orch-main-sub36.next; removed orch-main-r270-sub1.next
+tick 194 event=done-15 live=19 2026-10-11T05:24:42.502Z
+tick 195 event=launch-4 live=22 2026-10-11T05:27:19.727Z
+note 195a docclaim-rs-plugkit-main-1 filed: rs-plugkit main CI red at HEAD cddd358 (2 failing runs), prior head 3f66830 green -- upstream consolidation slice, not C:/dev/gm
+- 2026-10-11T05:28:52Z OBSERVED (claim-reap, r280): agentplug 2dc6f908ccbd9e1d9972f8c9419f38bc4451a3ac (commit a46cabddfb502775911ab47d27e22f852739b01a) CI run 38114871431 job 114397688062 -- selfcheck-claim-reap printed RESULT: PASS: "an untracked claim no live dispatch owns was reaped and stopped counting against the project's in-flight cap, while the same sweep left a claim the ledger names as running alone"; the sweep wrote dispatch_orphaned for git_commit/reap-task and left git_commit/owned-task alone. dispatch ids: git_commit 1791696386843-4-b20cf7859808e7b0, git_push 1791696490092-6-72ad7712594359b3, ci-status 1791696561247-7-b1673b8d7489f2b5, bash 1791696661560-11-828e02f90cfe8ef1, fs_read 1791696694508-500-1104e5ed6ea9e747
+- 2026-10-11 PREDICT (claim-reap, r280, recorded before the push): the release workflow lane-selfcheck step builds the runner and runs the new selfcheck, which reaps the untracked claim (claim removed, out-file dispatch_orphaned written) and leaves the claim the ledger names as running, printing RESULT: PASS. MATCHED by the OBSERVED line above.
+tick 196 event=done-2 live=17 2026-10-11T05:39:15.784Z
+tick 197 event=done-4 live=17 2026-10-11T05:41:33.267Z
+tick 198 event=launch-4 live=21 2026-10-11T05:41:33.267Z
+tick 199 event=done-batch-13 live=15 20261011T055208Z
+tick 200 event=launch-5 live=21 2026-10-11T06:05:40.828Z
+tick 201 event=done-1 live=20 2026-10-11T06:14:10.105Z
+tick 202 event=done-7 live=22 2026-10-11T06:17:35.767Z
+tick 203 event=done-1 live=22 2026-10-11T06:20:47.065Z
+tick 204 event=observe live=20 source=ListAgents ceiling=20 saturated=true 2026-10-11T06:21:12.740Z
+tick 205 event=done-1 live=22 2026-10-11T06:22:45.113Z
+tick 206 event=done-1 live=22 2026-10-11T06:25:13.733Z
+PREDICT (lane FIFO place on retry, r280, recorded before the publish): agentplug 3c89ac67326ebc37fc6f73c7b27c5ce79aa40efa adds re_dispatch_keeps_lane_place:true to the dispatch_starved_waiting_for_serial_lane answer and spells out in its error text that a lane place is keyed on verb+body hash, never the task id, so a byte-identical re-dispatch keeps its FIFO position while resume_task can only re-read the stored answer; CI run 38117569926 builds the runner and concludes all 8 jobs success, publish included.
+OBSERVED (lane FIFO place on retry, r280): agentplug 3c89ac67326ebc37fc6f73c7b27c5ce79aa40efa (commit 3c89ac67, build-fix c6e1bc98eea08771e5115b4bfa17908ece924a40 repairing the E0425/E0277/E0382 main break) merged and pushed as tip 2249822b11ec832d1dd28fd92266875ab50bdd65; CI run 38117569926 all 8 jobs success incl. publish. Live binary on this box is still the pre-fix build: C:/Users/user/.gm-tools/agentplug-runner.exe mtime 2026-10-11T02:12:56.177Z size 17069056 has_re_dispatch_keeps_lane_place=false has_lane_position=false, so the daemon uplift has not landed here yet and C:/dev/spoint cannot yet emit the new fields. Caller rule prose landed as gm 316273d76090c1f65fb7d7de88689be748e1e364 (skills/gm-orchestrate/SKILL.md) pushed as 6753250dadc86212c39927bb8008196f3c63ec43 author=lanmower. | dispatches: agentplug push 1791698772141-3-512d579c8725ff3d, build-fix commit 1791699263404-9-9f5ee38c7c3d9f1, push tip 2249822b 1791699455593-11-82b43a2e02ac0a67, ci-status 1791699657268-13-819e7c5000d7105b, binary baseline 1791699594991-500-1d18b23dc375d302, binary post-publish 1791699677193-500-a148e197bba66c78, binary recheck 1791700189094-500-aa26bcd41dd5ab17, skill commit 1791699758892-13-45d80cdf933ed847, skill push 1791699882201-14-81e4b29714b16a6f | row=gm-friction-git-serial-lane-fifo | session=orch-main-r280
+tick 207 event=done-1 live=23 2026-10-11T06:33:59.888Z
+tick 208 event=done-1 live=22 2026-10-11T06:35:03.599Z
+tick 209 event=done-1 live=21 2026-10-11T06:39:13.134Z
+2026-10-11T06:42:46.877Z witness=scripts/game-fsm-witness.mjs exit=1 RESULT: FAIL claims=18/35 module=src/behaviours/game-fsm.js sha256=- out=-
+2026-10-11T06:43:31.381Z witness=scripts/game-fsm-witness.mjs exit=0 RESULT: PASS claims=35/35 module=src/behaviours/game-fsm.js sha256=- out=-
+tick 210 event=done-1 live=19 2026-10-11T06:49:30.749Z
+tick 211 event=done-2 live=18 2026-10-11T06:49:30.749Z
+tick 212 event=launch-1 live=19 2026-10-11T06:49:30.749Z
+tick 213 event=launch-2 live=20 2026-10-11T06:49:30.749Z
+2026-10-11T06:52:21Z terrain-composeheight-wgsl label=wadler-before exit=0 RESULT: PASS -- 16 of 16 checks passed module_sha256=d656ed381807413a45cd226185403f300e33efe4a2c43958953af456b2ac8fb2 sha256=d89befeb81dcce9402c1bdb608554f0af603892ca58675706a4a5c9b7f81c02e out=.gm/witness-out/terrain-composeheight-wgsl-wadler-before-20261011T065221Z-3a4dfe16.txt module_sha256=d656ed381807413a45cd226185403f300e33efe4a2c43958953af456b2ac8fb2 session=orch-main-msp-dry1-wadler-wgpu row=witness-gap-terrain-composeheight-wgsl
+tick 214 event=done-1 live=20 2026-10-11T06:54:54.087Z
+tick 215 event=done-2 live=19 2026-10-11T06:54:54.087Z
+tick 216 event=launch-1 live=20 2026-10-11T06:54:54.087Z
+tick 217 event=launch-2 live=21 2026-10-11T06:54:54.087Z
+tick 218 event=done-1 live=20 2026-10-11T06:55:50.742Z
+tick 219 event=done-2 live=19 2026-10-11T06:55:50.742Z
+tick 220 event=launch-1 live=20 2026-10-11T06:55:50.742Z
+2026-10-11T06:56:01Z terrain-composeheight-wgsl label=wadler-after exit=0 RESULT: PASS -- 16 of 16 checks passed module_sha256=0e93e286c2117c3041e3412241a96241a7b238d146677fb3fa51881de3156b94 sha256=7415bd53ddf188f35b93b099e68e36a25945399074978252d63966a188b19127 out=.gm/witness-out/terrain-composeheight-wgsl-wadler-after-20261011T065601Z-b57b90dd.txt module_sha256=0e93e286c2117c3041e3412241a96241a7b238d146677fb3fa51881de3156b94 session=orch-main-msp-dry1-wadler-wgpu row=witness-gap-terrain-composeheight-wgsl
+tick event=launch live=20 ceiling=20 rows=2 pending=353 2026-10-11T06:57:34Z
+tick 221 event=done-1 live=19 2026-10-11T06:58:31.058Z
+tick 222 event=done-2 live=18 2026-10-11T06:58:31.058Z
+tick 223 event=launch-1 live=19 2026-10-11T06:58:31.058Z
+tick 224 event=ceiling-1 live=20 2026-10-11T06:58:31.058Z
+tick 225 event=done-118 live=24 2026-10-11T07:03:48.184Z
+tick 226 event=done-119 live=24 2026-10-11T07:03:48.184Z
+tick 227 event=launch-283 live=25 2026-10-11T07:03:48.184Z
+tick 228 event=ceiling-2 live=25 2026-10-11T07:03:48.184Z
+tick 229 event=launch-284 live=20 2026-10-11T07:04:51.930Z
+tick event=launch live=18 ceiling=20 rows=2 pending=341 2026-10-11T07:05:27.430Z
+2026-10-11T07:07:56.157Z | scripts/fire-duel-witness.mjs | exit=0 | RESULT: PASS claims=15/15 failed=0 | run=7aa9dec8-ad3b-4d1f-94f9-cb705cf155c7 | module=C:/dev/spoint/apps/fire-duel.js | module_sha256=5b0ea8fc5f9a0cb9c64b7640310912eceb72dfe7d83181dd43b61edaee208ca2 | witness_sha256=bde0854fb79f02de4d3c8b99562b034c66d9720fb4f7b999d7cc7be852a76dfc | out=-
+tick 230 event=ci-green live=20 sha=39211f75 run=38119969333 check=success 2026-10-11T07:08:46.701Z
+- DBC-red-w2-2 :: src/shared/relocation.js resolveTarget y+standNearY refusal :: exit=0 :: RESULT: PASS :: 2026-10-11T07:12:36Z :: dispatch 1791702555952-500-c53a382329316657
+tick 231 event=done-120 live=19 2026-10-11T07:13:46.952Z
+tick 232 event=launch-285 live=20 2026-10-11T07:13:46.953Z
+tick 233 event=ci-green live=20 sha=010cd982 run=38120412846 check=success frame-time=skipped 20261011T071927Z
+tick 234 event=gm-install-fix live=20 note=skill-assets-copied-to-claude-and-agents-installs-graph-resolves 20261011T071927Z
+tick 235 event=launch-286 live=20 slice=PARSEDV-src-behaviours-fire-js depth=3 20261011T071927Z
+tick 236 event=push live=20 sha=2fcde4bf range=ce00efbe..2fcde4bf count=3 authors=lanmower 20261011T072042Z
+tick 237 event=ci-watch-start live=20 sha=2fcde4bf 20261011T072042Z
+- DBC-red-w2-2 :: src/shared/relocation.js resolveTarget y+standNearY refusal :: exit=0 :: RESULT: PASS :: 2026-10-11T07:22:34.430Z :: dispatch 1791703334005-500-571d9127b0fddc94 :: .gm/witness-out/witness-1791703334005-500-571d9127b0fddc94.mjs
+tick 238 event=done-illegal-src-game live=19 commit=a7999d9e0c witness=19of19 rows=ILLEGAL-legal-1,ILLEGAL-legal-2 20261011T072335Z
+tick 239 event=ci-green live=20 sha=2fcde4bf run=38121014574 check=success(6m6s) frame-time=skipped
+tick 240 event=push live=20 sha=7a979751 range=f167cc0f..7a979751 count=1 authors=lanmower
+tick 241 event=done-illegal-client-xr live=18 commit=f167cc0f witness=4of4 rows=OWNERSHIP-n-r192-2-blocker-orch-main-r203,KISS-n-r209-6
+2026-10-11T07:31:31.125Z | AbilityTree-witness | module=C:\dev\spoint\src\game\AbilityTree.js | out=C:\dev\spoint\.gm\witness-out\AbilityTree-witness-hughes-pre-w509.txt | exit=1 | RESULT: FAIL
+2026-10-11T07:32:02.223Z | AbilityTree-witness | module=C:\dev\spoint\src\game\AbilityTree.js | out=C:\dev\spoint\.gm\witness-out\AbilityTree-witness-hughes-post-w509.txt | exit=0 | RESULT: PASS
+ILLEGAL-h24-s2-4 | witness exec_js (live EventTarget bridge data listener: LockstepInputTransport + RollbackInputTransport + ConsensusVoter) | exit=0 | RESULT: PASS | 2026-10-11T07:35:36.677Z | dispatch=1791704067836-500-3b4a0ba7e1509d5e | session=orch-main-gm-w2-3-w1 | module=src/netcode/controlFrame.js | checks 17/17 | remote unknown-kind / malformed-payload / foreign-prefix counted per status in stats.rejects + stats.unknownKind, no uncaught in the data listener, stats.received untouched, later good frame still received=2, local encodeControlFrame + controlFrameHandlers still throw
+tick 242 event=ci-green live=20 sha=7a979751 run=38121417199 check=success frame-time=skipped
+tick 243 event=ceiling-confirmed live=20 note=20-refusal-on-gm-gitpush-fix-spawn-parked
