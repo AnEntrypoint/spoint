@@ -94,12 +94,19 @@ export function createXRSystem(renderer, scene, camera) {
     return controllerInputSources.findIndex(s => s !== null && matches(s))
   }
 
+  function aimHandIndex() {
+    const left = aimSourceIndex(s => s.hand && s.handedness === 'left')
+    if (left >= 0) return left
+    const unlabelled = controllerInputSources.filter(s => s !== null && s.hand)
+    return unlabelled.length === 1 ? controllerInputSources.indexOf(unlabelled[0]) : -1
+  }
+
   function readAimPointer() {
     if (!renderer.xr.isPresenting) return null
     const session = renderer.xr.getSession()
     if (!session) return null
     if (handsDetected) {
-      const h = aimSourceIndex(s => s.hand && s.handedness === 'left')
+      const h = aimHandIndex()
       if (h < 0) return null
       const joints = handModels.get(h)?.hand?.joints ?? renderer.xr.getHand?.(h)?.joints
       const indexTip = joints?.['index-finger-tip']
