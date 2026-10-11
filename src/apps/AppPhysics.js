@@ -6,6 +6,18 @@ function motionType(ent) {
   return ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
 }
 
+function scaleOf(ent) {
+  return ent.scale || [1, 1, 1]
+}
+
+function scaledPoints(raw, sc) {
+  return (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
+}
+
+function bodyOptsFor(ent, mt, extra) {
+  return { mass: ent.mass, linearDamping: ent._linearDamping, angularDamping: ent._angularDamping, linearCast: resolveCCD(ent, mt), ...extra }
+}
+
 function setBodyType(ent, runtime, type) {
   if (ent.bodyType === type) return
   if (ent.bodyType === 'static') runtime._staticEntityIds?.delete(ent.id)
@@ -46,7 +58,7 @@ async function _addTrimeshColliderImpl(ent, runtime) {
   ent.collider = { type: 'trimesh', model: ent.model }
   const isNode = typeof process !== 'undefined' && process.versions?.node
   if (isNode && ent.model && runtime._physics) {
-    const sc = ent.scale || [1, 1, 1]
+    const sc = scaleOf(ent)
     try {
       const bid = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position, sc, ent.rotation || [0, 0, 0, 1])
       if (bid != null) { const deferOrRun = runtime._deferOrRun ? runtime._deferOrRun.bind(runtime) : (fn => fn()); deferOrRun(() => { if (!runtime.entities?.has?.(ent.id)) return; registerBody(ent, runtime, bid, 'static') }) }
@@ -69,6 +81,7 @@ function boxHalfExtents(s, name) {
 }
 
 export function buildPhysicsAPI(ent, runtime) {
+  const liveBodyId = () => (runtime._physics && ent._physicsBodyId !== undefined) ? ent._physicsBodyId : undefined
   const api = {
     setInteractable: (radius = 3) => {
       nonNeg(radius, 'physics.setInteractable: radius')
@@ -87,27 +100,26 @@ export function buildPhysicsAPI(ent, runtime) {
     addBoxCollider: (s, shapeKey) => {
       const half = boxHalfExtents(s, 'physics.addBoxCollider: size')
       ent.collider = { type: 'box', size: half }
-      const sc = ent.scale || [1, 1, 1]
+      const sc = scaleOf(ent)
       const he = [half[0] * sc[0], half[1] * sc[1], half[2] * sc[2]]
       const mt = motionType(ent)
-      const bodyOpts = { mass: ent.mass, linearDamping: ent._linearDamping, angularDamping: ent._angularDamping, linearCast: resolveCCD(ent, mt) }
-      if (shapeKey) bodyOpts.shapeKey = shapeKey
-      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: bodyOpts }
+      const opts = bodyOptsFor(ent, mt, shapeKey ? { shapeKey } : null)
+      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts }
       if (runtime._physics) {
-        const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, ...bodyOpts })
+        const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, ...opts })
         registerBody(ent, runtime, bid, mt)
       }
     },
     addSphereCollider: (r) => {
       nonNeg(r, 'physics.addSphereCollider: radius')
       ent.collider = { type: 'sphere', radius: r }
-      const sc = ent.scale || [1, 1, 1]
+      const sc = scaleOf(ent)
       const sr = r * Math.max(sc[0], sc[1], sc[2])
       const mt = motionType(ent)
-      const ccd = resolveCCD(ent, mt)
-      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'sphere', params: sr, motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
+      const opts = bodyOptsFor(ent, mt)
+      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'sphere', params: sr, motionType: mt, opts }
       if (runtime._physics) {
-        const bid = runtime._physics.addBody('sphere', sr, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
+        const bid = runtime._physics.addBody('sphere', sr, ent.position, mt, { rotation: ent.rotation, ...opts })
         registerBody(ent, runtime, bid, mt)
       }
     },
@@ -115,14 +127,14 @@ export function buildPhysicsAPI(ent, runtime) {
       nonNeg(r, 'physics.addCapsuleCollider: radius')
       nonNeg(h, 'physics.addCapsuleCollider: height')
       ent.collider = { type: 'capsule', radius: r, height: h }
-      const sc = ent.scale || [1, 1, 1]
+      const sc = scaleOf(ent)
       const uniformS = Math.max(sc[0], sc[1], sc[2])
       const sr = r * uniformS, sh = h * uniformS
       const mt = motionType(ent)
-      const ccd = resolveCCD(ent, mt)
-      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'capsule', params: [sr, sh / 2], motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
+      const opts = bodyOptsFor(ent, mt)
+      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'capsule', params: [sr, sh / 2], motionType: mt, opts }
       if (runtime._physics) {
-        const bid = runtime._physics.addBody('capsule', [sr, sh / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
+        const bid = runtime._physics.addBody('capsule', [sr, sh / 2], ent.position, mt, { rotation: ent.rotation, ...opts })
         registerBody(ent, runtime, bid, mt)
       }
     },
@@ -136,10 +148,10 @@ export function buildPhysicsAPI(ent, runtime) {
       const verts = points.map(x => num(x, 'physics.addConvexCollider: point'))
       ent.collider = { type: 'convex', points: verts }
       const mt = motionType(ent)
-      const ccd = resolveCCD(ent, mt)
-      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: verts, motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
+      const opts = bodyOptsFor(ent, mt)
+      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: verts, motionType: mt, opts }
       if (runtime._physics) {
-        const bid = runtime._physics.addBody('convex', verts, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
+        const bid = runtime._physics.addBody('convex', verts, ent.position, mt, { rotation: ent.rotation, ...opts })
         registerBody(ent, runtime, bid, mt)
       }
     },
@@ -147,16 +159,15 @@ export function buildPhysicsAPI(ent, runtime) {
       if (!ent.model) return
       try {
         const mesh = extractMeshFromGLB(runtime.resolveAssetPath(ent.model), meshIndex)
-        const sc = ent.scale || [1, 1, 1]
-        const raw = mesh.vertices
-        const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
+        const sc = scaleOf(ent)
+        const points = scaledPoints(mesh.vertices, sc)
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
           const mt = motionType(ent)
-          const ccd = resolveCCD(ent, mt)
           const shapeKey = scaledShapeKey(ent.model, sc)
-          if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey, linearCast: ccd } }
-          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey, linearCast: ccd })
+          const opts = bodyOptsFor(ent, mt, { shapeKey })
+          if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts }
+          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, ...opts })
           registerBody(ent, runtime, bid, mt)
         }
       } catch (err) {
@@ -174,16 +185,15 @@ export function buildPhysicsAPI(ent, runtime) {
       } catch (err) {
         throw colliderFailure(`mesh extraction from model ${ent.model}`, err)
       }
-      const sc = ent.scale || [1, 1, 1]
-      const raw = mesh.vertices
-      const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
+      const sc = scaleOf(ent)
+      const points = scaledPoints(mesh.vertices, sc)
       ent.collider = { type: 'convex', points }
       const shapeKey = shapeKeyOverride || scaledShapeKey(ent.model, sc)
       if (runtime._physics) {
-        const ccd = resolveCCD(ent, mt)
-        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey, linearCast: ccd } }
+        const opts = bodyOptsFor(ent, mt, { shapeKey })
+        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts }
         try {
-          const bid = await runtime._physics.addConvexBodyAsync(points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey, linearCast: ccd })
+          const bid = await runtime._physics.addConvexBodyAsync(points, ent.position, mt, { rotation: ent.rotation, ...opts })
           registerBody(ent, runtime, bid, mt)
         } catch (err) {
           throw colliderFailure(`convex shape build for model ${ent.model}`, err)
@@ -207,28 +217,31 @@ export function buildPhysicsAPI(ent, runtime) {
       else if (type === 'trimesh') return p.addTrimeshCollider()
     },
     addForce: (f) => {
-      if (runtime._physics && ent._physicsBodyId !== undefined) {
-        runtime._physics.addImpulse(ent._physicsBodyId, f)
+      const bodyId = liveBodyId()
+      if (bodyId !== undefined) {
+        runtime._physics.addImpulse(bodyId, f)
       } else {
         const mass = ent.mass || 1
         ent.velocity[0] += f[0] / mass; ent.velocity[1] += f[1] / mass; ent.velocity[2] += f[2] / mass
       }
     },
     setVelocity: (v) => {
-      if (runtime._physics && ent._physicsBodyId !== undefined) runtime._physics.setBodyVelocity(ent._physicsBodyId, v)
+      const bodyId = liveBodyId()
+      if (bodyId !== undefined) runtime._physics.setBodyVelocity(bodyId, v)
       ent.velocity = [...v]
     },
     setPosition: (p) => {
-      if (runtime._physics && ent._physicsBodyId !== undefined) {
-        runtime._physics.setBodyPosition(ent._physicsBodyId, p)
-        runtime._physics.setBodyVelocity(ent._physicsBodyId, [0, 0, 0])
-        runtime._physics.setBodyAngularVelocity?.(ent._physicsBodyId, [0, 0, 0])
+      const bodyId = liveBodyId()
+      if (bodyId !== undefined) {
+        runtime._physics.setBodyPosition(bodyId, p)
+        runtime._physics.setBodyVelocity(bodyId, [0, 0, 0])
+        runtime._physics.setBodyAngularVelocity?.(bodyId, [0, 0, 0])
       }
       ent.position = [...p]
     },
-    getVelocity: () => (runtime._physics && ent._physicsBodyId !== undefined) ? runtime._physics.getBodyVelocity(ent._physicsBodyId) : [...(ent.velocity || [0,0,0])],
-    getAngularVelocity: () => (runtime._physics && ent._physicsBodyId !== undefined) ? (runtime._physics.getBodyAngularVelocity?.(ent._physicsBodyId) || [0,0,0]) : [0,0,0],
-    getRotation: () => (runtime._physics && ent._physicsBodyId !== undefined) ? (runtime._physics.getBodyRotation?.(ent._physicsBodyId) || [...ent.rotation]) : [...ent.rotation],
+    getVelocity: () => { const b = liveBodyId(); return b !== undefined ? runtime._physics.getBodyVelocity(b) : [...(ent.velocity || [0,0,0])] },
+    getAngularVelocity: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyAngularVelocity?.(b) || [0,0,0]) : [0,0,0] },
+    getRotation: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyRotation?.(b) || [...ent.rotation]) : [...ent.rotation] },
     isAtRest: (eps = 0.05) => {
       const v = api.getVelocity(), a = api.getAngularVelocity()
       return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) < eps*eps && (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) < eps*eps
@@ -239,14 +252,15 @@ export function buildPhysicsAPI(ent, runtime) {
       const upY = 1 - 2*(x*x + z*z)
       return Math.acos(Math.max(-1, Math.min(1, upY)))
     },
-    setFriction: (f) => (runtime._physics && ent._physicsBodyId !== undefined) ? !!runtime._physics.setBodyFriction?.(ent._physicsBodyId, f) : false,
-    setRestitution: (r) => (runtime._physics && ent._physicsBodyId !== undefined) ? !!runtime._physics.setBodyRestitution?.(ent._physicsBodyId, r) : false,
+    setFriction: (f) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyFriction?.(b, f) : false },
+    setRestitution: (r) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyRestitution?.(b, r) : false },
     setMotionType: (motionType) => {
-      if (!runtime._physics || ent._physicsBodyId === undefined) return false
+      const bodyId = liveBodyId()
+      if (bodyId === undefined) return false
       if (motionType !== 'dynamic' && motionType !== 'kinematic' && motionType !== 'static') return false
       if (typeof runtime._physics.setBodyMotionType !== 'function') return false
-      if (motionType !== 'dynamic') runtime._physics.setBodyVelocity?.(ent._physicsBodyId, [0, 0, 0])
-      const previousId = ent._physicsBodyId
+      if (motionType !== 'dynamic') runtime._physics.setBodyVelocity?.(bodyId, [0, 0, 0])
+      const previousId = bodyId
       const liveId = runtime._physics.setBodyMotionType(previousId, motionType, {
         mass: ent.mass,
         linearDamping: ent._linearDamping,
@@ -262,7 +276,7 @@ export function buildPhysicsAPI(ent, runtime) {
       return true
     },
     getMotionType: () => ent.bodyType || 'static',
-    getBodyId: () => (ent._physicsBodyId !== undefined ? ent._physicsBodyId : null),
+    getBodyId: () => liveBodyId() ?? null,
     createVehicle: (wheelDefs, opts) => runtime.createVehicleForEntity?.(ent.id, wheelDefs, opts) ?? null,
     setVehicleInput: (forward, right, brake, handbrake) => runtime.setEntityVehicleDriverInput?.(ent.id, forward, right, brake, handbrake) ?? false,
     createTrackedVehicle: (wheelDefs, opts) => runtime.createTrackedVehicleForEntity?.(ent.id, wheelDefs, opts) ?? null,
