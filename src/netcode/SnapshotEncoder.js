@@ -7,7 +7,7 @@ import {
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
 import { packWallPlanes, unpackWallPlanes } from '../shared/wallPlaneWire.js'
-import { inputDepthFromWire } from '../shared/inputDepthWire.js'
+import { inputDepthFromWire, hasInputDepth } from '../shared/inputDepthWire.js'
 import { SNAPSHOT_ENTITY_ENC_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
@@ -38,7 +38,7 @@ export function decodeSelfBlock(me, out) {
   return out
 }
 
-function inputBufferByte(depth) { return Math.max(0, Math.min(255, depth | 0)) }
+function inputBufferByte(depth) { return hasInputDepth(depth) ? depth : null }
 
 const _playerEncPool = new Map()
 const _playerEncMap = new Map()
