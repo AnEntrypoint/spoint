@@ -52,7 +52,7 @@ export class Stage {
   }
 
   getNearbyEntities(position, radius) {
-    return this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
+    return this.getRelevantEntities(position, radius)
   }
 
   getRelevantEntities(position, radius) {
@@ -61,6 +61,12 @@ export class Stage {
 
   getRelevantEntitiesHorizontal(position, radius) {
     return this.spatial.nearbyHorizontal(position, radius || this.spatial.relevanceRadius)
+  }
+
+  getRelevantEntitiesForCell(position, radius) {
+    return this.spatial.planetRadius > 0
+      ? this.getRelevantEntities(position, radius)
+      : this.getRelevantEntitiesHorizontal(position, radius)
   }
 
 

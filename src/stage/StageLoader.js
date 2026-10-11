@@ -134,4 +134,9 @@ export class StageLoader {
     if (!this._activeStage) return []
     return this._activeStage.getRelevantEntitiesHorizontal(position, radius)
   }
+
+  getRelevantEntitiesForCell(position, radius) {
+    if (!this._activeStage) return []
+    return this._activeStage.getRelevantEntitiesForCell(position, radius)
+  }
 }
