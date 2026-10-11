@@ -51,11 +51,9 @@ export declare class AppContext {
         getAngularVelocity: () => any;
         getRotation: () => any;
         isAtRest: (eps?: number) => boolean;
-        tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
         setMotionType: (motionType: any) => boolean;
-        getMotionType: () => any;
         getBodyId: () => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
         setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
@@ -125,11 +123,9 @@ export declare class AppContext {
         getAngularVelocity: () => any;
         getRotation: () => any;
         isAtRest: (eps?: number) => boolean;
-        tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
         setMotionType: (motionType: any) => boolean;
-        getMotionType: () => any;
         getBodyId: () => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
         setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
