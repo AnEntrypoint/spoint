@@ -3,6 +3,17 @@ const BATCH_WINDOW_MS = 50
 
 function _now() { return typeof performance !== 'undefined' ? performance.now() : Date.now() }
 
+const TRANSPORT_OPS = 'ops'
+const TRANSPORT_SEND = 'send'
+
+function _transportOf(record) {
+  if (!record || typeof record !== 'object') return null
+  const hasUndo = typeof record.undoOp === 'function'
+  const hasRedo = typeof record.redoOp === 'function'
+  if (hasUndo !== hasRedo) return null
+  return hasUndo ? TRANSPORT_OPS : TRANSPORT_SEND
+}
+
 function _describeRecord(r) {
   if (r.desc) return r.desc
   const after = r.after || {}
@@ -27,8 +38,18 @@ export function createEditHistory({ send, onToast, onChange, onPush } = {}) {
   let _lastPushAt = null
   const _toast = (msg) => { try { onToast && onToast(msg) } catch (_) {} }
   const _notify = () => { try { onChange && onChange() } catch (_) {} }
+  const _apply = (r, direction) => {
+    if (r.transport === TRANSPORT_OPS) (direction === 'undo' ? r.undoOp : r.redoOp)(r)
+    else send(r.entityId, direction === 'undo' ? r.before : r.after)
+  }
   return {
     push(record) {
+      const transport = _transportOf(record)
+      if (transport === null) {
+        _toast('Refused history record: undoOp and redoOp are either both functions or both absent')
+        return false
+      }
+      record.transport = transport
       const t = _now()
       const top = undoStack[undoStack.length - 1]
       if (top && _lastPushAt !== null && (t - _lastPushAt) <= BATCH_WINDOW_MS) {
@@ -43,13 +64,14 @@ export function createEditHistory({ send, onToast, onChange, onPush } = {}) {
       _lastPushAt = t
       redoStack.length = 0
       _notify()
+      return true
     },
     undo() {
       const entry = undoStack.pop()
       if (!entry) return false
       _lastPushAt = null
       redoStack.push(entry)
-      for (let i = entry.records.length - 1; i >= 0; i--) { const r = entry.records[i]; if (r.undoOp) r.undoOp(r); else send(r.entityId, r.before) }
+      for (let i = entry.records.length - 1; i >= 0; i--) _apply(entry.records[i], 'undo')
       _toast('Undid: ' + entry.name)
       _notify()
       return true
@@ -59,7 +81,7 @@ export function createEditHistory({ send, onToast, onChange, onPush } = {}) {
       if (!entry) return false
       _lastPushAt = null
       undoStack.push(entry)
-      for (const r of entry.records) { if (r.redoOp) r.redoOp(r); else send(r.entityId, r.after) }
+      for (const r of entry.records) _apply(r, 'redo')
       _toast('Redid: ' + entry.name)
       _notify()
       return true
