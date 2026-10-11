@@ -45,7 +45,7 @@ export class RollbackInputTransport {
 
   _handleFrame(detail) {
     const msg = decodeCtrl(detail?.data)
-    if (!msg || typeof msg.tick !== 'number') return
+    if (!msg || !Number.isInteger(msg.tick)) return
     const from = detail.peerPubkey
     if (!from || from === this.myPubkey) return
     if (msg.type === 'checksum') {
