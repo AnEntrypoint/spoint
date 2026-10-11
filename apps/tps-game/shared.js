@@ -1,22 +1,13 @@
 import { rayVsCapsule, hitHeightRatio, normalizeShotDirection, DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
+import { DEFAULT_COMBAT } from '../../src/behaviours/combat.js'
+
+export const COMBAT_CONFIG = DEFAULT_COMBAT
 
 export const POWERUP_DEFS = [
   { type: 'damage', color: 0xff3344, emissive: 0xaa0000, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 1, damageMultiplier: 2 } },
   { type: 'speed', color: 0x33aaff, emissive: 0x0044aa, buff: { duration: 20, speedMultiplier: 1.5, fireRateMultiplier: 1, damageMultiplier: 1 } },
   { type: 'rapid', color: 0xffcc33, emissive: 0xaa6600, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 2, damageMultiplier: 1 } },
 ]
-export const COMBAT_CONFIG = {
-  respawnTime: 1.5,
-  health: 100,
-  damagePerHit: 20,
-  headshotMultiplier: 2.5,
-  headshotZone: 0.7,
-  hitKnockback: 4,
-  shootKnockback: 2,
-  magazineSize: 30,
-  reloadTime: 2000,
-  spawnInvulnMs: 1500
-}
 
 export const POWERUP_RESPAWN_MS = 15000
 export const FIRE_SPEC = {
@@ -34,8 +25,7 @@ export const FIRE_SPEC = {
   gameplay: { damageEveryTicks: 15, statusDamagePerSec: 6, burnStatusSeconds: 4, smokeBlockDepth: 1, smokeHeightM: 30, eyeHeightM: 1.6, explosionImpulse: 12 },
   firebreaks: { kinds: ['road', 'river'], water: true },
 }
-const PREDICT_RANGE_M = 1000
-const DEFAULT_HEADSHOT_ZONE = 0.7
+const PREDICT_RANGE_M = COMBAT_CONFIG.range
 
 const EMOTES = Object.freeze({
   wave: { label: 'Bow', clip: 'Bow' },
@@ -56,15 +46,22 @@ export const EMOTE_WHEEL_SLOTS = Object.freeze(
 
 export const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
 
+const headshotZoneOf = (zone) => {
+  const z = zone === undefined ? COMBAT_CONFIG.headshotZone : zone
+  if (!Number.isFinite(z) || z < 0 || z > 1) throw new RangeError(`[combat] headshotZone must be a number in [0,1], got ${String(zone)}`)
+  return z
+}
+
 export function predictHit(origin, dir, players, selfId, headshotZone) {
   const direction = normalizeShotDirection(dir)
   if (!isFiniteVec3(origin) || !direction || !Array.isArray(players)) return null
+  const zone = headshotZoneOf(headshotZone)
   for (const p of players) {
     if (!p || String(p.id) === String(selfId) || !isFiniteVec3(p.position)) continue
     if ((p.health ?? COMBAT_CONFIG.health) <= 0) continue
     const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
     if (!hit) continue
-    return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= (headshotZone ?? DEFAULT_HEADSHOT_ZONE) }
+    return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= zone }
   }
   return null
 }
