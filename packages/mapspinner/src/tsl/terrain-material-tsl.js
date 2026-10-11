@@ -11,12 +11,12 @@ import { createTslOps } from './ops-tsl.js'
 import { terrainAlbedoClimate, surfaceSplat } from './surface-splat-tsl.js'
 import { createSculptOverrideTSL } from './sculpt-tsl.js'
 import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
+import { ATM_BOTTOM as ATM_BOTTOM_KM } from '../atmosphere-transmittance-lut.js'
 
 const FD_TAPS = 5
 const QUARTER_PI = 0.7853981634
 const WET_DARKEN = 0.65
 const NORMAL_TOWARD_UP = 0.05
-const ATM_BOTTOM_KM = 6360.0
 const SKIRT_MIN_M = 30.0
 const SKIRT_PATCH_FRAC = 0.06
 const TEX_WARP_FREQ = 450.0

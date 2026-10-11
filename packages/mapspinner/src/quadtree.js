@@ -1,5 +1,6 @@
+import { PLANET_RADIUS_M } from './planet-radius.js';
 const TAN_40DEG = Math.tan(40.0 / 180.0 * Math.PI);
-const QUADTREE_DEFAULT_SIZE = 6360000.0;
+const QUADTREE_DEFAULT_SIZE = PLANET_RADIUS_M;
 const QUADTREE_LEVEL_CEILING = 32;
 
 function _positiveFinite(name, v) {
@@ -93,7 +94,7 @@ export class Quadtree {
     this._cull = (cull != null) ? cull : null;
     this._altitudeDistTerm = Math.max(this._camAlt / this.distFactor, 0.0);
     const _horizon = Math.sqrt(2.0 * this.size * Math.max(this._camAlt, 0.0));
-    this._nearProtectRadius = Math.max(this._camAlt * 2.0, _horizon * 0.2, 10000.0 * (this.size / 6360000.0));
+    this._nearProtectRadius = Math.max(this._camAlt * 2.0, _horizon * 0.2, 10000.0 * (this.size / QUADTREE_DEFAULT_SIZE));
     const _altLog = Math.log2(Math.max(this._camAlt, 5000.0) / 5000.0);
     this._farCoarsenFloor = Math.max(0.30, Math.min(0.60, 0.60 - _altLog * 0.05));
     this._recurse(0, 0, 0, -this.size, -this.size, 2.0 * this.size);

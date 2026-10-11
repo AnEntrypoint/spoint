@@ -1,8 +1,9 @@
 import { MapspinnerPipelineCache } from './pipeline-cache.js'
+import { ATM_BOTTOM } from '../atmosphere-transmittance-lut.js'
 
 export const ATMOSPHERE_CORE_WGSL = `
 const ATM_PI: f32 = 3.14159265358979;
-const ATM_BOTTOM: f32 = 6360.0;
+const ATM_BOTTOM: f32 = ${ATM_BOTTOM.toFixed(1)};
 const ATM_TOP: f32 = 6500.0;
 const ATM_RAYLEIGH_H: f32 = 18.0;
 const ATM_MIE_H: f32 = 4.0;
