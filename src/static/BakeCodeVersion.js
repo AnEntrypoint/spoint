@@ -55,6 +55,7 @@ function presetInputs() {
 
 export const BAKE_INPUTS_MINIMAP_BAKE = [
   '../../scripts/bake-minimap.mjs',
+  '../../scripts/lib/witness-args.mjs',
   '../terrain/PlanetFrame.js',
   '../shared/terrainConfig.js',
   '../shared/MinimapBiome.js',
@@ -80,6 +81,7 @@ export const BAKE_INPUTS_MINIMAP_BAKE = [
 export const BAKE_INPUTS_HEIGHTFIELD_BAKE = [
   '../../scripts/bake-heightfield.mjs',
   '../../scripts/lib/gpu-eval.mjs',
+  '../../scripts/lib/witness-args.mjs',
   '../terrain/PlanetFrame.js',
   '../sdk/WorldLocator.js',
   '../shared/terrainConfig.js',
@@ -117,6 +119,7 @@ export const BAKE_INPUTS_SNAPSHOT_ENTITY_ENC = [
   '../shared/fnv1a.js',
   '../protocol/ComponentSchema.js',
   '../shared/groundNormalWire.js',
+  '../shared/inputDepthWire.js',
   '../shared/wallPlaneWire.js',
 ]
 
