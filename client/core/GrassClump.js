@@ -50,8 +50,8 @@ export function makeClumpAlphaTexture() {
     blades.push({
       baseX,
       height: 0.5 + 0.48 * (1 - Math.abs(outward) * 0.55) * (0.65 + 0.35 * rand()),
-      lean: outward * (0.12 + 0.2 * rand()) + (rand() - 0.5) * 0.06,
-      curve: (rand() - 0.5) * 0.22 + outward * 0.1,
+      lean: outward * (0.03 + 0.05 * rand()) + (rand() - 0.5) * 0.02,
+      curve: (rand() - 0.5) * 0.06 + outward * 0.02,
       halfWidth: 0.03 + 0.022 * rand(),
       shade: 0.62 + 0.38 * rand()
     })

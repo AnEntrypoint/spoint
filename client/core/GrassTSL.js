@@ -115,7 +115,7 @@ export function makeGrassMaterialTSL(wind) {
     const bendXZ = bendField(instWorldXZ)
     transformed.x.addAssign(bendXZ.x.mul(gw))
     transformed.z.addAssign(bendXZ.y.mul(gw))
-    transformed.y.subAssign(bendXZ.length().mul(gw).mul(0.35))
+    transformed.y.subAssign(bendXZ.length().mul(gw).mul(0.12))
 
     const scorch = scorchField(instWorldXZ).toVar()
     const scorchScale = mix(1.0, uGrassScorchShrink, scorch)
@@ -129,7 +129,7 @@ export function makeGrassMaterialTSL(wind) {
 
     vScorch = varying(scorch, 'vScorch')
     vFieldXZ = varying(instWorldXZ, 'vFieldXZ')
-    const flatNormalGeometry = normalize(mix(normalize(normalGeometry), vec3(0.0, 1.0, 0.0), 0.75))
+    const flatNormalGeometry = normalize(mix(normalize(normalGeometry), vec3(0.0, 1.0, 0.0), 0.35))
     vWorldNormal = varying(normalize(modelWorldMatrix.mul(vec4(instanceMatrixNode.mul(vec4(flatNormalGeometry, 0.0)).xyz, 0.0)).xyz), 'vWorldNormal')
 
     return instanceMatrixNode.mul(vec4(transformed, 1.0)).xyz

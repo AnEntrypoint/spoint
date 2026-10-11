@@ -40,6 +40,12 @@ export function makeWind() {
   }
 }
 
+export function setGrassSun(wind, sun) {
+  wind.uSunDir.value.set(sun.dir[0], sun.dir[1], sun.dir[2]).normalize()
+  wind.uSunColor.value.setHex(sun.sunColor)
+  wind.uAmbient.value.setHex(sun.ambientColor)
+}
+
 export function makeGrassMaterial(wind) {
   const material = new THREE.ShaderMaterial({
     fog: true,
@@ -117,7 +123,7 @@ export function makeGrassMaterial(wind) {
         }
         transformed.x += bendXZ.x * gw;
         transformed.z += bendXZ.y * gw;
-        transformed.y -= length(bendXZ) * gw * 0.35;
+        transformed.y -= length(bendXZ) * gw * 0.12;
         float scorch = 0.0;
         for (int di = 0; di < ${MAX_DECALS}; di++) {
           if (di >= uDecalCount) break;
@@ -134,7 +140,7 @@ export function makeGrassMaterial(wind) {
         float gDist = length(gWXZ - uCamPosXZ);
         float gFade = 1.0 - smoothstep(uGrassRing * 0.7, uGrassRing, gDist);
         transformed.y *= gFade; transformed.x *= mix(0.5, 1.0, gFade); transformed.z *= mix(0.5, 1.0, gFade);
-        vec3 flatNormal = normalize(mix(normalize(normal), vec3(0.0, 1.0, 0.0), 0.75));
+        vec3 flatNormal = normalize(mix(normalize(normal), vec3(0.0, 1.0, 0.0), 0.35));
         vWorldNormal = normalize(mat3(instanceMatrix) * mat3(modelMatrix) * flatNormal);
         vec4 instPos = instanceMatrix * vec4(transformed, 1.0);
         vFieldXZ = instPos.xz;
