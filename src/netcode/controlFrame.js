@@ -34,11 +34,6 @@ export function parseControlFrame(prefix, data) {
   return { status: 'accepted', frame }
 }
 
-export function decodeControlFrame(prefix, data) {
-  const parsed = parseControlFrame(prefix, data)
-  return parsed.status === 'accepted' ? parsed.frame : null
-}
-
 export function controlFrameHandlers(prefix, handlers) {
   const kinds = FRAME_KINDS_BY_PREFIX.get(prefix)
   if (!kinds) throw new Error(`controlFrameHandlers: no control protocol registered for prefix "${prefix}"`)

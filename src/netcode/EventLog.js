@@ -8,6 +8,14 @@ const REPLAY_HANDLERS = new Map([
   ['bus_event', (runtime, event) => runtime._eventBus?.emit(event.data.channel, event.data.data, event.meta)],
 ])
 
+export const EVENT_LOG_KINDS = [...REPLAY_HANDLERS.keys()]
+
+export function parseEventKind(type) {
+  return REPLAY_HANDLERS.has(type)
+    ? { status: 'replayable', kind: type }
+    : { status: 'no-replay-arm', kind: type }
+}
+
 export class EventLog {
   constructor(config = {}) {
     this._maxSize = config.maxSize || 1000
@@ -26,6 +34,7 @@ export class EventLog {
       tick: meta.tick || 0,
       timestamp: Date.now(),
       type,
+      kindStatus: parseEventKind(type).status,
       data,
       meta: { actor: meta.actor || null, reason: meta.reason || null, context: meta.context || null, sourceApp: meta.sourceApp || null, sourceEntity: meta.sourceEntity || null, causalEventId: meta.causalEventId || null, ...meta }
     }
@@ -76,6 +85,7 @@ export class EventLog {
       tick: event.tick || 0,
       timestamp: Date.now(),
       type: event.type,
+      kindStatus: parseEventKind(event.type).status,
       data: event.data,
       meta: { ...event.meta, crossShard: false, originRegion, originId: event.id, originTick: event.tick, originTimestamp: event.timestamp }
     }
@@ -103,7 +113,7 @@ export class EventLog {
   static deserialize(json) {
     const arr = unpack(json)
     const log = new EventLog({ maxSize: Math.max(arr.length, 1000) })
-    for (const e of arr) log._buf[log._head++] = e
+    for (const e of arr) log._buf[log._head++] = { ...e, kindStatus: parseEventKind(e.type).status }
     log._count = arr.length
     log._head = log._head % log._maxSize
     log._nextId = arr.length > 0 ? arr[arr.length - 1].id + 1 : 1
@@ -118,9 +128,11 @@ export class EventLog {
     const replayable = []
     for (const event of this._toArray()) {
       if (event.tick < startTick || event.tick > endTick) continue
-      const apply = REPLAY_HANDLERS.get(event.type)
-      if (apply) { replayable.push({ event, apply }); continue }
-      result.errors.push({ eventId: event.id, error: `unknown event type ${JSON.stringify(event.type)}` })
+      if (event.kindStatus !== 'replayable') {
+        result.errors.push({ eventId: event.id, error: `unknown event type ${JSON.stringify(event.type)}` })
+        continue
+      }
+      replayable.push({ event, apply: REPLAY_HANDLERS.get(event.type) })
     }
     for (const { event, apply } of replayable) {
       try {
