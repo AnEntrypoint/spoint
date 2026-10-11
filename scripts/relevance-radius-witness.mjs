@@ -116,7 +116,7 @@ async function runAoiRingArm() {
     ticks++
     const liveRadius = stage ? stage.spatial.relevanceRadius : 0
     const active = runtime._stageLoader ? runtime._stageLoader.getActiveStage() : null
-    recentTicks.push({ tick: ticks, liveRadius, activeRadius: active ? active.spatial.relevanceRadius : null, sameStage: active === stage, epoch: aoi.aoiCellBaseEpoch(), baseComputes: aoiRingWork.cellBaseComputes })
+    recentTicks.push({ tick: ticks, liveRadius, activeRadius: active ? active.spatial.relevanceRadius : null, sameStage: active === stage, epoch: aoi.aoiCellBaseEpoch()?.key ?? 'none', baseComputes: aoiRingWork.cellBaseComputes })
     if (recentTicks.length > 8) recentTicks.shift()
     if (aoi.aoiCellBaseCacheSize() > maxCellBaseCache) maxCellBaseCache = aoi.aoiCellBaseCacheSize()
     for (const [, c] of _spatialCache) {
@@ -129,7 +129,7 @@ async function runAoiRingArm() {
           const cached = new Set(c.baseRelevantIds), now = new Set(fresh)
           const onlyCached = [...cached].filter(id => !now.has(id))
           const onlyFresh = [...now].filter(id => !cached.has(id))
-          mismatchSamples.push({ tick: ticks, liveRadius, epoch: aoi.aoiCellBaseEpoch(), cached: cached.size, fresh: now.size, onlyCached, onlyFresh, recent: recentTicks.slice() })
+          mismatchSamples.push({ tick: ticks, liveRadius, epoch: aoi.aoiCellBaseEpoch()?.key ?? 'none', cached: cached.size, fresh: now.size, onlyCached, onlyFresh, recent: recentTicks.slice() })
         }
       }
     }

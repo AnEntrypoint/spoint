@@ -52,7 +52,9 @@ export { aoiRingWork }
 
 const _cellBaseCache = new Map()
 let _aoiCodeEpoch = ''
-let _aoiCellBaseEpoch = ''
+let _aoiCellBaseEpoch = null
+
+const AOI_CODE_EPOCH_LEN = 16
 
 export function aoiCodeEpoch() {
   return _aoiCodeEpoch
@@ -72,13 +74,13 @@ export async function installAoiCodeEpoch() {
   const sources = ['./TickHandlerAOI.js', '../terrain/CubeSphereCells.js', '../spatial/Octree.js', '../apps/AppRuntime.js', '../stage/Stage.js']
   const digest = crypto.createHash('sha256')
   for (const rel of sources) digest.update(fs.readFileSync(new URL(rel, import.meta.url)))
-  const epoch = digest.digest('hex').slice(0, 16)
+  const epoch = digest.digest('hex').slice(0, AOI_CODE_EPOCH_LEN)
   if (_aoiCodeEpoch !== epoch) { _aoiCodeEpoch = epoch; _cellBaseCache.clear() }
   return epoch
 }
 
 export function invalidateAoiCellBaseCache() {
-  _aoiCellBaseEpoch = ''
+  _aoiCellBaseEpoch = null
   _cellBaseCache.clear()
 }
 
@@ -87,31 +89,41 @@ export function disableAoiCellBaseCache() {
   invalidateAoiCellBaseCache()
 }
 
+function parseAoiCellBaseEpoch(codeEpoch, mutations, relevanceRadius, planetRadius) {
+  if (codeEpoch.length !== AOI_CODE_EPOCH_LEN) return null
+  if (!Number.isInteger(mutations) || mutations < 0) return null
+  if (!Number.isFinite(relevanceRadius) || relevanceRadius <= 0) return null
+  if (!Number.isFinite(planetRadius) || planetRadius < 0) return null
+  const key = `${codeEpoch}|${mutations}|${relevanceRadius}|${planetRadius}`
+  if (_aoiCellBaseEpoch !== null && _aoiCellBaseEpoch.key === key) return _aoiCellBaseEpoch
+  return Object.freeze({ codeEpoch, mutations, relevanceRadius, planetRadius, key })
+}
+
 export function setAoiCellBaseEpoch(relevanceRadius, planetRadius, appRuntime) {
   const spatial = appRuntime?._stageLoader?._activeStage?.spatial
   const mutations = spatial ? spatial.mutations : null
-  _aoiCellBaseEpoch = (_aoiCodeEpoch && mutations !== null)
-    ? `${_aoiCodeEpoch}|${mutations}|${relevanceRadius}|${planetRadius}`
-    : ''
-  if (_aoiCellBaseEpoch === '') {
+  _aoiCellBaseEpoch = parseAoiCellBaseEpoch(_aoiCodeEpoch, mutations, relevanceRadius, planetRadius)
+  if (_aoiCellBaseEpoch === null) {
     aoiRingWork.epochDrops += _cellBaseCache.size
     _cellBaseCache.clear()
   }
 }
 
 function readCellBase(key) {
-  if (_aoiCellBaseEpoch === '') return null
+  const epoch = _aoiCellBaseEpoch
+  if (epoch === null) return null
   const hit = _cellBaseCache.get(key)
   if (!hit) return null
-  if (hit.epoch !== _aoiCellBaseEpoch) { _cellBaseCache.delete(key); aoiRingWork.epochDrops++; return null }
+  if (hit.epoch !== epoch) { _cellBaseCache.delete(key); aoiRingWork.epochDrops++; return null }
   _cellBaseCache.delete(key)
   _cellBaseCache.set(key, hit)
   return hit
 }
 
 function storeCellBase(key, cellViewerPos, baseRelevantIds) {
-  if (_aoiCellBaseEpoch === '') return
-  _cellBaseCache.set(key, { epoch: _aoiCellBaseEpoch, cellViewerPos, baseRelevantIds })
+  const epoch = _aoiCellBaseEpoch
+  if (epoch === null) return
+  _cellBaseCache.set(key, { epoch, cellViewerPos, baseRelevantIds })
   if (_cellBaseCache.size > AOI_CELL_BASE_MAX) {
     const oldest = _cellBaseCache.keys().next().value
     _cellBaseCache.delete(oldest)
