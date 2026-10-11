@@ -98,7 +98,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         const fractalGHL = frame.groundHeightLocal
         const ph = baker && createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY: cfg.offsetY || 0, fallbackFn: fractalGHL, blocking: false })
         if (ph) {
-          frame.groundHeightLocal = (x, z) => ph.heightFn(x, z)
+          frame.registerGroundSource('gpu-patch', (x, z, yGuess) => ph.heightFn(x, z, yGuess))
           frame.cpuHeightDivergentFromGround = true
           frame._fractalGroundHeightLocal = fractalGHL
           if (typeof ph.heightFnOrNull === 'function') frame._patchHeightOrNull = ph.heightFnOrNull
