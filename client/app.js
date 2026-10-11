@@ -2356,7 +2356,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       if (ud._vatActive) { _crowdVAT?.release(id); ud._vatActive = false; mesh.visible = true }
     }
     if (!mesh.visible && id!==lid) continue
-    let _animLodSkip=false, _vrmFeaturesSkip=false, _playerD2=0
+    let animStep=frameDt, _animLodSkip=false, _vrmFeaturesSkip=false, _playerD2=0
     if (id!==lid) {
       const dx=mesh.position.x-cp.x,dy=mesh.position.y-cp.y,dz=mesh.position.z-cp.z
       const d2=_playerD2=dx*dx+dy*dy+dz*dz
@@ -2369,12 +2369,12 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
           ps._idParity=_idParity
         }
         if ((_frameParity^_idParity)!==0) { ps._animAcc=acc; _animLodSkip=true; _vrmFeaturesSkip=true }
-        else { ps._animAcc=0; frameDt=acc }
+        else { ps._animAcc=0; animStep=acc }
       }
     }
     if (_animLodSkip) continue
     if (anim.setWeapon) { const wn=equipNameOf(_equipment, ps.weapon||0); if (wn) anim.setWeapon(wn) }
-    try { anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,(ps.crouch||0)&CROUCH_FLAG_BIT,mesh.rotation.y) }
+    try { anim.update(animStep,ps.velocity,ps.onGround,ps.health,ps._aiming||false,(ps.crouch||0)&CROUCH_FLAG_BIT,mesh.rotation.y) }
     catch (_animErr) { if (id===lid) window.__animErr={msg:_animErr&&_animErr.message,stack:_animErr&&_animErr.stack,vel:ps.velocity&&ps.velocity.slice()} }
     if (id===lid&&(window.__wantAnimProbe||_showStats)&&anim.getDebug) { const _vx=ps.velocity?.[0]||0,_vz=ps.velocity?.[2]||0; window.__animProbe={...anim.getDebug(),speed:Math.sqrt(_vx*_vx+_vz*_vz),onGround:ps.onGround} }
     const ly=id===lid?cam.yaw:ps.lookYaw
@@ -2383,7 +2383,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2))
       const vx=ps.velocity?.[0]||0,vz=ps.velocity?.[2]||0
       const speed2=vx*vx+vz*vz
-      mesh.rotation.y+=df*Math.min(1,speed2<0.25?40*frameDt:5*frameDt)
+      mesh.rotation.y+=df*Math.min(1,speed2<0.25?40*animStep:5*animStep)
       if (speed2>=0.25) {
         let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2))
         if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65
@@ -2391,19 +2391,19 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2))
       if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity)
     }
-    if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt)
+    if (anim.applyBoneOverrides) anim.applyBoneOverrides(animStep)
     if (vrm) {
       const _gateSpring = id!==lid && vrm.springBoneManager && _playerD2>_springBoneLodD2
       if (_gateSpring) {
         const _sbm=vrm.springBoneManager; vrm.springBoneManager=null
-        try { vrm.update(frameDt) } finally { vrm.springBoneManager=_sbm }
+        try { vrm.update(animStep) } finally { vrm.springBoneManager=_sbm }
         _springBoneLodSkipped++
       } else {
-        vrm.update(frameDt)
+        vrm.update(animStep)
         if (id!==lid && vrm.springBoneManager) _springBoneLodUpdated++
       }
     }
-    if (!_vrmFeaturesSkip) pm.updateVRMFeatures(id,frameDt,sceneGraph.getTarget(id),id!==lid)
+    if (!_vrmFeaturesSkip) pm.updateVRMFeatures(id,animStep,sceneGraph.getTarget(id),id!==lid)
     if (id!==lid&&ps.lookPitch!==undefined) { const f=pm.playerExpressions.get(id); if (f&&!f._headBone&&vrm?.humanoid) f._headBone=vrm.humanoid.getNormalizedBoneNode('head'); if (f?._headBone) f._headBone.rotation.x=-(ps.lookPitch||0)*0.6 }
     if (id!==lid) {
       const f=pm.playerExpressions.get(id)
@@ -2442,7 +2442,6 @@ const STEER_VISUAL_MAX = 0.55
 const STEER_LERP = 0.15
 const STEER_PER_YAW_RATE = 0.42
 function tickVehicleWheels(frameDt) {
-  if (frameDt <= 0) return
   for (const group of el._vehicleEntities) {
     const hubs = group.userData.vehicleWheels; if (!hubs || !hubs.length) continue
     const id = group.userData.entityId
@@ -2467,6 +2466,12 @@ let _vramMirrorAt = -1e9
 const VRAM_STATS_MIRROR_INTERVAL_MS = 250
 const DEFAULT_RELEVANCE_RADIUS_M = 200
 const REMOTE_PLAYER_VIS_MARGIN_M = 10
+const FRAME_STEP = Object.freeze({ unit: 's', min: 0.001, max: 0.1 })
+function frameStepSeconds(nowMs, prevFrameMs) {
+  const seconds = (nowMs - prevFrameMs) / 1000
+  if (!Number.isFinite(seconds)) throw new RangeError('frame step: non-finite clock reading ' + nowMs + ' - ' + prevFrameMs)
+  return seconds < FRAME_STEP.min ? FRAME_STEP.min : seconds > FRAME_STEP.max ? FRAME_STEP.max : seconds
+}
 function buildFrameSectionNodes() {
   return [
     {
@@ -2475,7 +2480,7 @@ function buildFrameSectionNodes() {
       debugMirrors: ['lerpFactor'],
       run(ctx) {
         const now = ctx.now
-        ctx.res.frameDt = Math.min(Math.max((now - lastFrameTime) / 1000, 0.001), 0.1)
+        ctx.res.frameDt = frameStepSeconds(now, lastFrameTime)
         lastFrameTime = now
         _frameParity ^= 1
         runtimeStats.onFrame(now)
@@ -2748,8 +2753,8 @@ function animate(ts) {
   _graphCtx.now = now
   if (!renderer.isWebGPURenderer) renderer.resetState()
   frameGraph.run(_graphCtx)
-  decalSystem.tick(_graphCtx.res.frameDt || 0.016)
-  if (damageNumbers) damageNumbers.update(Math.max(4, Math.round((_graphCtx.res.frameDt || 0.016) * 1000)))
+  decalSystem.tick(_graphCtx.res.frameDt)
+  if (damageNumbers) damageNumbers.update(Math.max(4, Math.round(_graphCtx.res.frameDt * 1000)))
   _graphCtx.sun = sun
   _graphCtx.terrainBackdrop = terrainBackdrop; _graphCtx.vegetation = vegetation; _graphCtx.rocks = rocks; _graphCtx.grass = grass
   _graphCtx.modelPool = modelPool; _graphCtx.sceneOcclusion = sceneOcclusion
