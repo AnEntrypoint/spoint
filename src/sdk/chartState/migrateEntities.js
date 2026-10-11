@@ -9,11 +9,32 @@ function rotationArrayOf(rotation) {
 }
 
 
+const ENTITY_BASIS_FIELDS = [
+  ['position', 'point'],
+  ['velocity', 'vector'],
+  ['rotation', 'quat'],
+  ['_spawnPosition', 'point'],
+]
+
 function reexpressEntityTransform(pass, entity) {
-  pass.point(entity.position)
-  pass.vector(entity.velocity)
-  entity.rotation = pass.transfer.quat(rotationArrayOf(entity.rotation))
-  pass.point(entity._spawnPosition)
+  let walked = 0
+  for (const [field, kind] of ENTITY_BASIS_FIELDS) {
+    const value = entity[field]
+    if (!value) continue
+    if (kind === 'quat') { entity.rotation = pass.transfer.quat(rotationArrayOf(value)); continue }
+    walked++
+    if (kind === 'point') pass.point(value)
+    else pass.vector(value)
+  }
+  return walked
+}
+
+
+// The pass transforms each array once, by identity, so an entity whose basis-owned array was already
+// transformed under another entity keeps its old-basis value while everything around it moves.
+function assertBasisFieldsWalked(entity, walked, movedBy) {
+  if (movedBy === walked) return
+  throw new Error(`chart re-anchor walked ${movedBy} of ${walked} basis-owned fields on entity ${entity.id}: two entities share one basis-owned array, so the second stays on the old chart`)
 }
 
 
@@ -42,19 +63,14 @@ function createStaticTransformer(transfer) {
 }
 
 
-function isDynamicNow(entity) {
-  return entity.bodyType === 'dynamic' && entity._bodyTier !== 'kinematic'
-}
-
-
 function hasBody(entity) {
   return entity._physicsBodyId !== undefined
 }
 
 
-function moveBody(physics, pass, bodyId, position, rotation, dynamic) {
+function moveBody(physics, pass, bodyId, position, rotation) {
   physics.setBodyTransform(bodyId, position, rotation)
-  if (!dynamic || !physics.isBodyActive(bodyId)) return false
+  if (!physics.isBodyActive(bodyId)) return false
   const angular = [...physics.getBodyAngularVelocity(bodyId)]
   pass.vector(angular)
   physics.setBodyAngularVelocity(bodyId, angular)
@@ -63,8 +79,7 @@ function moveBody(physics, pass, bodyId, position, rotation, dynamic) {
 
 
 function reexpressRootBody(physics, pass, entity) {
-  const dynamic = isDynamicNow(entity)
-  const moved = moveBody(physics, pass, entity._physicsBodyId, entity.position, entity.rotation, dynamic)
+  const moved = moveBody(physics, pass, entity._physicsBodyId, entity.position, entity.rotation)
   if (moved && entity.velocity) physics.setBodyVelocity(entity._physicsBodyId, entity.velocity)
 }
 
@@ -75,7 +90,7 @@ function reexpressChildBody(physics, pass, entity) {
   const rotation = [...physics.getBodyRotation(bodyId)]
   const velocity = [...physics.getBodyVelocity(bodyId)]
   pass.point(position); pass.rotation(rotation); pass.vector(velocity)
-  const moved = moveBody(physics, pass, bodyId, position, rotation, isDynamicNow(entity))
+  const moved = moveBody(physics, pass, bodyId, position, rotation)
   if (moved) physics.setBodyVelocity(bodyId, velocity)
 }
 
@@ -210,7 +225,9 @@ export function createEntityMigrator({ appRuntime, staticBudgetMs }) {
         if (physics && hasBody(entity)) statics.push(entity)
         continue
       }
-      reexpressEntityTransform(pass, entity)
+      const targetsBefore = pass.distinctTargets
+      const walked = reexpressEntityTransform(pass, entity)
+      assertBasisFieldsWalked(entity, walked, pass.distinctTargets - targetsBefore)
       if (physics && entity._physicsBodyId !== undefined) {
         reexpressRootBody(physics, pass, entity)
         counts.bodiesMoved++
