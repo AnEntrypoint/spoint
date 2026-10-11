@@ -77,12 +77,12 @@ export class ByteBudgetLRU {
 export const fileCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 export const transformedCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 
-const _contentHashCache = new Map()
+const _contentHashCache = new WeakMap()
 export function contentHashETag(fp, raw, mtime) {
-  const cached = _contentHashCache.get(fp)
-  if (cached && cached.mtime === mtime) return cached.hash
+  const cached = _contentHashCache.get(raw)
+  if (cached && cached.fp === fp && cached.mtime === mtime && cached.len === raw.length) return cached.hash
   const hex = fnv1aBytes(raw).toString(16)
-  _contentHashCache.set(fp, { mtime, hash: hex })
+  _contentHashCache.set(raw, { fp, mtime, len: raw.length, hash: hex })
   return hex
 }
 export function isNodeModulesPath(fp) {
