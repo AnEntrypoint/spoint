@@ -120,15 +120,16 @@ function runChecks(M, Patch) {
     return { ok, detail: `own_property=${own} shared_frame_swapped=${shared} frame.groundSource=${frame.groundSource}` }
   })
 
-  guarded('P10-the-patch-adapter-reports-no-ground-as-NaN-not-SurfaceSolveError', () => {
+  guarded('P10-the-patch-adapter-throws-NoGroundHeightError-and-marks-missing', () => {
     const frame = freshFrame(M)
     frame._patchHeightOrNull = () => null
     const h = Patch.createExactPatchFrame(frame)
-    let y = 'threw'
-    let threw = false
-    try { y = h.placementFrame.groundHeightLocal(0, 0) } catch (e) { threw = true }
-    const ok = threw === false && Number.isNaN(y) && h.missing === true
-    return { ok, detail: `y=${y} threw=${threw} missing=${h.missing}` }
+    let name = 'none'
+    let isSolve = false
+    let isNoGround = false
+    try { h.placementFrame.groundHeightLocal(0, 0) } catch (e) { name = e.name; isSolve = e instanceof SurfaceSolveError; isNoGround = e instanceof M.NoGroundHeightError }
+    const ok = isSolve && isNoGround && h.missing === true
+    return { ok, detail: `threw=${name} instanceof SurfaceSolveError=${isSolve} instanceof NoGroundHeightError=${isNoGround} missing=${h.missing}` }
   })
 
   guarded('P11-guardedGroundHeight-converts-a-thrown-solve-error-to-null-but-passes-NaN-through', () => {
@@ -163,6 +164,16 @@ function runChecks(M, Patch) {
     const names = frame.groundSources
     const ok = names.length === 4 && frame.groundSource === 'substituted' && frame.groundHeightLocal(0, 0) === 3
     return { ok, detail: `names=${JSON.stringify(names)} current=${frame.groundSource}` }
+  })
+
+  guarded('P15-the-guarded-port-converts-the-patch-adapter-throw-to-NO_GROUND_HEIGHT', () => {
+    const frame = freshFrame(M)
+    frame._patchHeightOrNull = () => null
+    const h = Patch.createExactPatchFrame(frame)
+    const guarded = guardedGroundHeight('witness patch adapter', (x, z) => h.placementFrame.groundHeightLocal(x, z))
+    const got = guarded(0, 0)
+    const ok = got === NO_GROUND_HEIGHT && h.missing === true
+    return { ok, detail: `guarded(0,0)=${got} missing=${h.missing}` }
   })
 }
 
