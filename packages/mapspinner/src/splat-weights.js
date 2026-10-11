@@ -1,5 +1,6 @@
 import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js'
 import { compileSnoise3 } from './tsl/ops-jsgen.js'
+import { assertHashVersion } from './tsl/height-spec.js'
 export { HASH_VERSION_FLOAT } from './tsl/height-spec.js'
 
 const SAND_REGION_SLOPE = [0.18, 0.55]
@@ -15,7 +16,7 @@ const smoothstep = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a),
 const mix = (a, b, t) => a + (b - a) * t
 
 export function createSplatWeights({ hashVersion }) {
-  const snoise3 = compileSnoise3({ hashVersion })
+  const snoise3 = compileSnoise3({ hashVersion: assertHashVersion(hashVersion) })
   const srLo = Math.max(TD.slopeRock[0], 0.05), srHi = Math.max(TD.slopeRock[1], srLo + 0.25)
   const sn = TD.snowEdges
   const out = { grass: 0, rock: 0, sand: 0, snow: 0 }
