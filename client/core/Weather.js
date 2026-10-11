@@ -179,16 +179,15 @@ export function createWeather(opts = {}) {
 
   let _lastCamYaw = NaN
   const RAIN_BILLBOARD_YAW_EPS_RAD = 0.02
-  const NO_TERRAIN_GROUND_Y = -1e6
-  const NO_GROUND_BELOW_Y = -1e5
-  const hasGroundY = (y) => Number.isFinite(y) && y > NO_GROUND_BELOW_Y
+  const NO_GROUND_Y = NaN
+  const hasGroundY = Number.isFinite
 
   const GH_CANARY_MS = 500
   let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
   let _ghEpoch = -1, _ghHash = null
 
   const _guardedExactGround = guardedGroundHeight('weather ground grid', (x, z) => (frame && typeof frame.groundHeightLocal === 'function') ? frame.groundHeightLocal(x, z) : NaN)
-  const _exactGround = (x, z) => { const h = _guardedExactGround(x, z); return isNoGroundHeight(h) ? NO_TERRAIN_GROUND_Y : h }
+  const _exactGround = (x, z) => { const h = _guardedExactGround(x, z); return isNoGroundHeight(h) ? NO_GROUND_Y : h }
 
   const _groundGrid = createGroundNodeGrid(_exactGround)
 
@@ -211,12 +210,11 @@ export function createWeather(opts = {}) {
 
   function _groundHeight(x, z) {
     _groundSamples++
-    if (!frame || typeof frame.groundHeightLocal !== 'function') return NO_TERRAIN_GROUND_Y
+    if (!frame || typeof frame.groundHeightLocal !== 'function') return NO_GROUND_Y
     if (!Number.isFinite(_ghCanaryX)) {
       _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = _exactGround(x, z); _ghCanaryAt = performance.now()
     }
-    const gh = _groundGrid.heightAt(x, z)
-    return Number.isFinite(gh) ? gh : NO_TERRAIN_GROUND_Y
+    return _groundGrid.heightAt(x, z)
   }
 
   function _respawnDroplet(i, cx, cy, cz) {
