@@ -2,6 +2,8 @@ import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 
 const CELL_SIZE = 32
 
+const MOVE_TOLERANCE_SQ = 1.0
+
 function cellCoord(v) {
   return Math.floor(v / CELL_SIZE)
 }
@@ -61,21 +63,15 @@ export class SpatialIndex {
   }
 
   update(id, position) {
+    const px = position[0], py = position[1], pz = position[2]
+    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) { this.remove(id); return }
     const existing = this._entities.get(id)
-    if (existing) {
-      const dx = existing[0] - position[0], dy = existing[1] - position[1], dz = existing[2] - position[2]
-      if (dx * dx + dy * dy + dz * dz < 1.0) return
-      const px = position[0], pz = position[2]
-      if (!Number.isFinite(px) || !Number.isFinite(position[1]) || !Number.isFinite(pz)) { this.remove(id); return }
-      const newKey = cellKey(cellCoord(px), cellCoord(pz))
-      const oldKey = this._idCell.get(id)
-      if (newKey === oldKey) {
-        existing[0] = px; existing[1] = position[1]; existing[2] = pz
-        this._mutations++
-        return
-      }
-    }
-    this.insert(id, position)
+    if (!existing) { this.insert(id, position); return }
+    if (cellKey(cellCoord(px), cellCoord(pz)) !== this._idCell.get(id)) { this.insert(id, position); return }
+    const dx = existing[0] - px, dy = existing[1] - py, dz = existing[2] - pz
+    if (dx * dx + dy * dy + dz * dz < MOVE_TOLERANCE_SQ) return
+    existing[0] = px; existing[1] = py; existing[2] = pz
+    this._mutations++
   }
 
   has(id) {
