@@ -61,8 +61,8 @@ export function snapshotChart(frame) {
 }
 
 export function reanchorChartFor({ frame, lattice, dir, thresholdDeg = CHART_REANCHOR_ANGLE_DEG, cellTrigger = false }) {
-  if (typeof frame.reanchor !== 'function') return null
-  if (!lattice) return null
+  if (typeof frame.reanchor !== 'function') throw new TypeError('chart re-anchor needs a frame carrying reanchor(target)')
+  if (!lattice) throw new TypeError('chart re-anchor needs an anchor lattice: a frame that cannot be re-anchored must not report "no re-anchor needed"')
   if (cellTrigger ? !chartNeedsReanchorForCell(lattice, frame, dir) : !chartNeedsReanchor(frame, dir, thresholdDeg)) return null
   const before = snapshotChart(frame)
   const target = chartAnchorForDir(lattice, dir)

@@ -47,6 +47,7 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
       return null
     }
     const shift = reanchorChartFor({ frame, lattice, dir: decision.centroidDir, cellTrigger: true })
+    if (!shift) return null
     reanchorCount++
     const event = { ...shift, decision, epoch: frame.chartEpoch }
     for (const { migrate } of terrainMigrators) migrate(event)

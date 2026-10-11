@@ -238,3 +238,55 @@
   text: 'No duplicate: the existing row witness-gap-ClientHudMinimapPlacements (prd.yml line 32031, status completed) covers only witness coverage and is silent on this encoding; regex scan of .gm/prd.yml dispatch 1791679901677-500-97ac8a0c32129dc1.'
   witness: 'node import of client/hud/MinimapPlacements.js fails: Cannot find module ''C:\src\terrain\VegPlacement.js'' (dispatch 1791679945550-500-60dd00708f39afca), a browser-bundled root-relative specifier, so this hop could not close it live.'
   session_id: orch-main-r250
+- id: ILLEGAL-n-r256-1
+  action: return null (or throw) for an unresolvable name so 0 means only 'explicitly unarmed', and update AppRuntime.js:661-667 plus the witness in the same change
+  blocker: scripts/equipment-witness.mjs:47,48 pins equipCodeOf(LIST,'axe')===0 and equipCodeOf([],'sword')===0, so the fix moves the module, the caller and that witness together
+  claim: src/shared/equipment.js:3-7 maps three distinct causes (equipment not an array, name not a non-empty string, name absent from the list) onto EQUIP_UNARMED (0), which is also the code for a deliberately unarmed player, so 'unarmed' and 'could not resolve the name' are the same value
+  evidence: 'the only production caller re-derives the distinction out of band: src/apps/AppRuntime.js:664 `if (code === EQUIP_UNARMED && name)`, i.e. the difference lives in the truthiness of an argument the function already consumed; a caller that omits that guard silently disarms the player'
+  session_id: orch-main-r256
+  principle: ILLEGAL
+  status: pending
+  surface: src/shared
+  title: equipCodeOf represents an unresolvable weapon name as unarmed
+  witness: 1791680450162-500-5fab493a725e7c82
+- id: ILLEGAL-n-r256-2
+  title: worldMobileButtons makes a declared-empty button set unrepresentable and drops declared buttons silently
+  principle: ILLEGAL
+  surface: src/shared
+  status: pending
+  claim: 'src/shared/worldDefaults.js:46 `return out.length > 0 ? out : DEFAULT_MOBILE_BUTTONS.map(...)` turns a world that declares `input.mobileButtons: []` into a world with three default buttons, so ''no mobile buttons'' cannot be expressed; lines 37, 38 and 42 `continue` on a malformed entry, a duplicate action and a full 3x3 grid, so a declared button can vanish with no signal'
+  evidence: 'live read of the module: an empty declared array is an Array, so the `!Array.isArray(declared)` branch at line 32 is not taken; the loop yields nothing and the length check silently substitutes the default three'
+  action: fall back to the default only when mobileButtons is undeclared (undefined), and reject (not drop) a malformed or duplicate entry and a declaration that exceeds the 3x3 grid
+  witness: 1791680450162-500-5fab493a725e7c82
+  callers: client/app.js:667, client/app.js:671, client/hud/MobileControlsUI.js:57
+  session_id: orch-main-r256
+- id: ILLEGAL-n-r256-3
+  title: SpawnSurface admits a malformed ray hit as a walkable surface and returns one null for two causes
+  principle: ILLEGAL
+  surface: src/shared
+  status: pending
+  claim: src/shared/SpawnSurface.js:11 `hitY` returns null both for 'the ray missed' and for 'the hit carried no finite position', and columnSurfaces breaks on that null (line 27), so one unreadable hit ends the column scan exactly as an empty column would; src/shared/SpawnSurface.js:15-17 `walkable` returns true when the hit has no normal at all, so missing data defaults to the permissive answer; src/shared/SpawnSurface.js:53 returns the same null for 'no surface found' and for 'bad arguments'
+  evidence: 'read of the module: `!n || !Number.isFinite(n[1]) || n[1] >= MIN_UP_NORMAL_Y` makes an absent normal walkable, and `r && r.hit && Number.isFinite(...)` collapses a miss and a malformed hit'
+  action: make a raycast result with a hit but no finite position or no normal a distinct failure (throw or a tagged result) instead of folding it into 'miss'/'walkable'
+  witness: 1791680450162-500-5fab493a725e7c82
+  session_id: orch-main-r256
+- id: ILLEGAL-n-r256-4
+  title: createChartAnchorLattice encodes one invalid-config class two ways
+  principle: ILLEGAL
+  surface: src/shared
+  status: pending
+  claim: src/shared/chartAnchor.js:13 returns null for a non-finite or non-positive radius while line 14 throws for anchorsPerFace < 1, so the same class (an invalid lattice request) has two encodings and every caller re-derives which one it got
+  evidence: src/shared/clusterConfig.js:38-39 and src/terrain/ChartReanchorService.js:5-6 each write `if (!lattice) throw ...` to convert the silent null back into the failure it already was
+  action: pick one encoding for an invalid lattice request (throw a named error at both lines) and delete the caller-side re-derivation
+  witness: 1791680450162-500-5fab493a725e7c82
+  session_id: orch-main-r256
+- id: ILLEGAL-n-r256-5
+  title: chartAnchorDecision returns overlapping shapes discriminated by a field's absence
+  principle: ILLEGAL
+  surface: src/shared
+  status: pending
+  claim: 'src/shared/chartReanchorPolicy.js:32-47 returns four shapes: null (no players, same anchor, below hysteresis), {refusal:''players-straddle-the-planet''} with no worstPlayerAngleDeg, {refusal:''party-spread-exceeds-walkable-chart'', worstPlayerAngleDeg, walkableLimitDeg}, and the success {anchorDir, centroidDir, gainDeg, worstPlayerAngleDeg}; success and one refusal share worstPlayerAngleDeg, so callers discriminate out of band'
+  evidence: src/terrain/ChartReanchorService.js:38 tests `decision.worstPlayerAngleDeg === undefined` to decide whether the refusal carries an angle, and line 35 tests `decision.refusal` to tell refusal from success; a decision with neither anchorDir nor refusal is representable and would be treated as success
+  action: return a tagged union ({kind:'stay'|'reanchor'|'refusal', ...}) so 'accepted with no anchorDir' and 'refused with no reason' are unrepresentable
+  witness: 1791680450162-500-5fab493a725e7c82
+  session_id: orch-main-r256
