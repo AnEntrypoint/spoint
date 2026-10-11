@@ -152,14 +152,13 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }
 
-  function updateTeleportArc(handsDetected, handModels) {
+  function updateTeleportArc(handsDetected) {
     if (!renderer.xr.isPresenting || !teleportArc || !settings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
     const session = renderer.xr.getSession(); if (!session) return
     let origin = null, direction = null, triggerTeleport = false
     if (handsDetected) {
-      const lh = handModels?.get(0)
-      if (lh) {
-        const j = lh.hand.joints
+      const j = renderer.xr.getHand?.(0)?.joints
+      if (j) {
         if (j?.['index-finger-tip']) {
           j['index-finger-tip'].getWorldPosition(_tmp1); j['index-finger-tip'].getWorldDirection(_tmp2)
           origin = _tmp1.clone(); direction = _tmp2.clone().multiplyScalar(-1)

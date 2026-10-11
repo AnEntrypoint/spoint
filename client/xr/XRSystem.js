@@ -175,7 +175,7 @@ export function createXRSystem(renderer, scene, camera) {
       widgets.updateWristUI(local.health ?? 100, stats.ammo ?? '', stats.reloading === true)
     }
     if (now % 100 < 16) updateControllerVisibility()
-    widgets.updateTeleportArc(handsDetected, handModels, xrBaseReferenceSpace)
+    widgets.updateTeleportArc(handsDetected)
     widgets.updateFade(dt)
     const isMoving = inVR && local?.velocity ? Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2) > 0.5 : false
     widgets.updateVignette(dt, isMoving)
