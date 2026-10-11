@@ -7,13 +7,28 @@ export function regionIdFor(x, z, cellSize = DEFAULT_CELL_SIZE) {
   return `${rx},${rz}`
 }
 
-function parseRegionId(regionId) {
+export const REGION_ID_MALFORMED = 'region-id-not-two-integers'
+
+const REGION_ID_PATTERN = /^-?\d+,-?\d+$/
+
+function regionIdRefusal(regionId, reason) {
+  const err = new Error(`[region-grid] ${reason}: region id ${JSON.stringify(regionId)} is not "<int>,<int>"`)
+  err.code = reason
+  return err
+}
+
+export function parseRegionId(regionId) {
+  if (typeof regionId !== 'string' || !REGION_ID_PATTERN.test(regionId)) {
+    return { ok: false, reason: REGION_ID_MALFORMED, regionId }
+  }
   const [rx, rz] = regionId.split(',').map(Number)
-  return { rx, rz }
+  return { ok: true, rx, rz }
 }
 
 function regionBounds(regionId, cellSize = DEFAULT_CELL_SIZE) {
-  const { rx, rz } = parseRegionId(regionId)
+  const parsed = parseRegionId(regionId)
+  if (!parsed.ok) throw regionIdRefusal(regionId, parsed.reason)
+  const { rx, rz } = parsed
   return {
     minX: rx * cellSize, maxX: (rx + 1) * cellSize,
     minZ: rz * cellSize, maxZ: (rz + 1) * cellSize
