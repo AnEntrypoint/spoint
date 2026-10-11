@@ -12,6 +12,15 @@ const _benderAuthTmp = { x: 0, y: 0, z: 0 }
 const GRASS_BEND_MAX_RADIUS_M = 60
 const ALTITUDE_INDEPENDENT_NEAR_M = 0.3
 
+let _hostNearFarRejectedOnce = false
+const hostNearFarOf = (near, far) =>
+  (near > 0 && Number.isFinite(near) && Number.isFinite(far) && far > near) ? { near, far } : null
+const _rejectHostNearFar = (near, far) => {
+  if (_hostNearFarRejectedOnce) return
+  _hostNearFarRejectedOnce = true
+  console.error(`[render-graph] host-near-far rejected near=${near} far=${far}; the pair it publishes must satisfy 0 < near < far, so the previous pair stays in force`)
+}
+
 let _vcCtx = null
 const _setModelPoolBudget = n => _vcCtx.modelPool.setOcclusionQueryBudget(n)
 const _setTerrainBudget = n => _vcCtx.terrainBackdrop.setOcclusionQueryBudget(n)
@@ -49,8 +58,10 @@ export function buildRenderSectionNodes() {
         const wantNear = ALTITUDE_INDEPENDENT_NEAR_M
         const terrainSceneFar = ctx.terrainBackdrop.sceneFarHint ? ctx.terrainBackdrop.sceneFarHint() : 0
         const wantFar = Math.min(Math.max(vegFar, 100, terrainSceneFar), distToCenter)
-        ctx.res.hostNearFar = { near: wantNear, far: wantFar }
-        if (typeof window !== 'undefined') window.__hostNearFar = ctx.res.hostNearFar
+        const pair = hostNearFarOf(wantNear, wantFar)
+        if (!pair) { _rejectHostNearFar(wantNear, wantFar); return }
+        ctx.res.hostNearFar = pair
+        if (typeof window !== 'undefined') window.__hostNearFar = pair
       },
     },
 
