@@ -85,7 +85,8 @@ ctx.defineGameFSM({
 
 Per-state keys (all optional except as routing requires):
 
-- `enter(ctx, fsm)` / `exit(ctx, fsm)` — run on state entry/exit (xstate entry/exit actions).
+- `enter(ctx, fsm)` / `exit(ctx, fsm)` — run on state entry/exit (xstate entry/exit actions). `entry` is accepted as an alias of `enter`.
+- Any other per-state key is rejected at build time — the handled set is exactly `enter`, `entry`, `exit`, `tick`, `on`, `after`, `final`, `type`.
 - `tick(ctx, dt, fsm)` — run by `fsm.tick(dt)` only while this state is active. Forward `dt` from the app's `update(ctx, dt)`.
 - `on: { EVENT: target }` — event transition. `target` may be a state name or `{ target, guard, action }`.
 - `after: { ms: target }` — timed transition. `target` may also be an **array** of `{ target, guard }` candidates; the first whose guard passes wins (put a bare-target candidate last as the fall-through).

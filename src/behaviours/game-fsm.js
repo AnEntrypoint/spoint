@@ -9,7 +9,7 @@ if (_bareXstateSpecifierResolvable) {
 }
 const { setup, createActor, assign } = _xstate
 
-const HOOK_KEYS = ['enter', 'exit', 'tick']
+const STATE_KEYS = ['enter', 'entry', 'exit', 'tick', 'on', 'after', 'final', 'type']
 
 function validateSpec(spec) {
   if (!spec || typeof spec !== 'object') throw new Error('[game-fsm] spec must be an object')
@@ -25,6 +25,9 @@ function validateSpec(spec) {
   const targetsOf = (def) => (Array.isArray(def) ? def : [def]).map(d => typeof d === 'string' ? d : d?.target).filter(Boolean)
   for (const name of names) {
     const st = states[name] || {}
+    for (const k of Object.keys(st)) {
+      if (!STATE_KEYS.includes(k)) throw new Error(`[game-fsm] state "${name}" declares unknown key "${k}" (handled: ${STATE_KEYS.join(', ')})`)
+    }
     for (const [evt, def] of Object.entries(st.on || {})) {
       for (const target of targetsOf(def)) {
         if (!names.includes(target)) throw new Error(`[game-fsm] state "${name}" event "${evt}" targets unknown state "${target}"`)
@@ -79,9 +82,10 @@ export function defineGameFSM(spec, appCtx) {
     const xs = {}
     if (st.final === true || st.type === 'final') xs.type = 'final'
 
-    if (typeof st.enter === 'function') {
+    const enterHook = st.enter ?? st.entry
+    if (typeof enterHook === 'function') {
       const an = `enter_${name}`
-      actions[an] = () => st.enter(getAppCtx(), getRuntime())
+      actions[an] = () => enterHook(getAppCtx(), getRuntime())
       xs.entry = an
     }
     if (typeof st.exit === 'function') {
