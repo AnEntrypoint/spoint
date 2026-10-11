@@ -5,6 +5,7 @@ export function createFirebreakFuel({ baseClassAt, breaks, frame, lattice, terra
   const heightAt = breaks.heightAt ?? terrain.heightAt
   const seaLevelAt = breaks.seaLevelAt ?? terrain.seaLevelAt
   const kindAt = breaks.kindAt ?? terrain.kindAt
+  if (breaks.water && (heightAt === null || seaLevelAt === null)) throw new TypeError('[fire] firebreaks.water needs both a height and a sea-level sampler: pass spec.firebreaks.heightAt and spec.firebreaks.seaLevelAt, or expose terrainHeightAt and seaLevelAt on the app ctx, or declare spec.firebreaks.water: false')
 
   function localXZ(face, I, J, out) {
     lattice.cellCentreDir(face, I, J, centre)
@@ -24,7 +25,7 @@ export function createFirebreakFuel({ baseClassAt, breaks, frame, lattice, terra
     const x = xz[0], z = xz[1]
     for (const c of breaks.cleared) if (Math.hypot(x - c.center[0], z - c.center[1]) <= c.radiusM) return 0
     if (kindAt !== null && breaks.kinds.size > 0) { const k = kindAt(x, z); if (k != null && breaks.kinds.has(k)) return 0 }
-    if (breaks.water && heightAt !== null && seaLevelAt !== null) {
+    if (breaks.water) {
       const h = heightAt(x, z), sea = seaLevelAt(x, z)
       if (Number.isFinite(h) && Number.isFinite(sea) && h < sea) return 0
     }
