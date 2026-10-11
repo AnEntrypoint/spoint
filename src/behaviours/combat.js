@@ -16,6 +16,18 @@ export const DEFAULT_COMBAT = Object.freeze({
   range: 1000
 })
 
+export const UNKNOWN_HEALTH = Object.freeze({
+  known: false,
+  get hp() {
+    throw new TypeError('[combat] health is unattested: branch on known before reading hp')
+  }
+})
+
+export function readHealth(state) {
+  const hp = state?.health
+  return Number.isFinite(hp) ? { known: true, hp } : UNKNOWN_HEALTH
+}
+
 const CONFIG_RULES = Object.freeze({
   respawnTime: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
   health: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
@@ -188,7 +200,8 @@ export function defineCombat(spec = {}, ctx = null) {
     if (!target || !target.state) return false
     if (respawning.has(target.id)) return false
     if ((invuln.get(target.id) ?? 0) > Date.now()) return false
-    return (target.state.health ?? config.health) > 0
+    const vitals = readHealth(target.state)
+    return vitals.known && vitals.hp > 0
   }
 
   function applyKill(shooterId, targetId, damage, headshot) {
@@ -210,7 +223,9 @@ export function defineCombat(spec = {}, ctx = null) {
   function isAlive(playerId) {
     if (respawning.has(playerId)) return false
     const player = ctx.players.getById(playerId)
-    return player?.state ? (player.state.health ?? config.health) > 0 : false
+    if (!player?.state) return false
+    const vitals = readHealth(player.state)
+    return vitals.known && vitals.hp > 0
   }
 
   function fire(msg) {
@@ -252,7 +267,9 @@ export function defineCombat(spec = {}, ctx = null) {
     const hitRatio = ctx.combat.hitHeightRatio(proj, tp)
     const headshot = hitRatio >= config.headshotZone
     const damage = headshot ? Math.round(baseDamage * config.headshotMultiplier) : baseDamage
-    const newHp = Math.max(0, (target.state.health ?? config.health) - damage)
+    const vitals = readHealth(target.state)
+    if (!vitals.known) throw new TypeError(`[combat] fire on target ${target.id} whose health no authority attested`)
+    const newHp = Math.max(0, vitals.hp - damage)
     target.state.health = newHp
     ctx.eventLog?.record('hit_registered', {
       attackerId: shooterId, targetId: target.id, damage, headshot, lethal: newHp <= 0, resultHealth: newHp,
@@ -324,12 +341,16 @@ export function defineCombat(spec = {}, ctx = null) {
       for (const [pid, buff] of buffs) {
         if (now >= buff.expiresAt) { buffs.delete(pid); ctx.players.send(pid, { type: 'buff_expired' }); continue }
         const player = ctx.players.getById(pid)
-        if (player?.state) player.state.health = Math.min(config.health, (player.state.health ?? config.health) + config.health * config.buffRegenFractionPerSec * dt)
+        if (player?.state) {
+          const vitals = readHealth(player.state)
+          if (vitals.known) player.state.health = Math.min(config.health, vitals.hp + config.health * config.buffRegenFractionPerSec * dt)
+        }
       }
       const allPlayers = ctx.players.getAll()
       for (const player of allPlayers) {
         if (!player.state || respawning.has(player.id)) continue
-        if ((player.state.health ?? config.health) <= 0) continue
+        const fallVitals = readHealth(player.state)
+        if (fallVitals.known && fallVitals.hp <= 0) continue
         const pos = player.state.position
         if (pos && !player.state.onGround && pos[1] < ctx.fallFloorY(pos[0], pos[2], config.fallKillDepth)) {
           const t = (fallTimers.get(player.id) || 0) + dt

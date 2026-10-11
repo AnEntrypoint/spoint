@@ -1,7 +1,8 @@
 import { rayVsCapsule, hitHeightRatio, normalizeShotDirection, DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
-import { DEFAULT_COMBAT } from '../../src/behaviours/combat.js'
+import { DEFAULT_COMBAT, readHealth } from '../../src/behaviours/combat.js'
 
 export const COMBAT_CONFIG = DEFAULT_COMBAT
+export { readHealth }
 
 export const POWERUP_DEFS = [
   { type: 'damage', color: 0xff3344, emissive: 0xaa0000, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 1, damageMultiplier: 2 } },
@@ -58,7 +59,8 @@ export function predictHit(origin, dir, players, selfId, headshotZone) {
   const zone = headshotZoneOf(headshotZone)
   for (const p of players) {
     if (!p || String(p.id) === String(selfId) || !isFiniteVec3(p.position)) continue
-    if ((p.health ?? COMBAT_CONFIG.health) <= 0) continue
+    const vitals = readHealth(p)
+    if (vitals.known && vitals.hp <= 0) continue
     const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
     if (!hit) continue
     return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= zone }

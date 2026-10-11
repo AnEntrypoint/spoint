@@ -1,4 +1,4 @@
-import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG, isFiniteVec3 } from './shared.js'
+import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG, isFiniteVec3, readHealth } from './shared.js'
 
 const TRACER_RANGE = 100
 const DMG_DEALT_WINDOW_MS = 500
@@ -15,6 +15,8 @@ const EXPRESSION_HOLD_MS = 500
 const CROSSHAIR_RECOIL_WINDOW_MS = 130
 const DMG_TAKEN_WINDOW_MS = 450
 const DAMAGE_FLASH_WINDOW_MS = 220
+const LOW_HP_VIGNETTE_THRESHOLD = 30
+const HEADSHOT_VIBRATE_PATTERN_MS = Object.freeze([15, 30, 15])
 const _expressionUntil = new Map()
 
 const rttMs = (engine) => engine?.client?.getRTT?.() || 0
@@ -33,13 +35,12 @@ const localPlayerOf = (engine) => {
   const serverMirror = Array.isArray(players) ? players.find(p => p && p.id === playerId) ?? null : null
   const predicted = client?.getLocalState?.() ?? null
   const motionRecord = predicted ?? serverMirror
-  const vitalsRecord = serverMirror ?? predicted
   return {
     id: motionRecord?.id ?? playerId,
     position: isFiniteVec3(motionRecord?.position) ? motionRecord.position : null,
     velocity: isFiniteVec3(motionRecord?.velocity) ? motionRecord.velocity : null,
     onGround: motionRecord?.onGround === true,
-    health: Number.isFinite(vitalsRecord?.health) ? vitalsRecord.health : COMBAT_CONFIG.health
+    vitals: readHealth(serverMirror)
   }
 }
 
@@ -127,7 +128,7 @@ export const tpsGameClient = {
   setup(engine) {
     const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
     engine.scene.add(flash)
-    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, magazineSize: COMBAT_CONFIG.magazineSize, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: 2000 }
+    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: COMBAT_CONFIG.magazineSize, magazineSize: COMBAT_CONFIG.magazineSize, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: COMBAT_CONFIG.reloadTime }
     this._tps = engine._tps
     engine._tps.juice = makeJuice()
     try { engine._tps.emoteWheel = engine.createEmoteWheel?.(EMOTE_WHEEL_SLOTS) } catch (_) {}
@@ -209,10 +210,11 @@ export const tpsGameClient = {
       tps.lastDamageDealt = (dmgFresh ? 0 : (tps.lastDamageDealt || 0)) + (payload.damage || 0); tps.dmgDealtTime = now
       const justPredicted = withinMs(now, tps._predHitAt, PREDICTED_TONE_DEDUP_MS)
       tps._predHitAt = 0
-      if (payload.headshot) { tps.headshotMarkerTime = now; if (jz) jz.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, [15, 30, 15]) }
+      if (payload.headshot) { tps.headshotMarkerTime = now; if (jz) jz.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, HEADSHOT_VIBRATE_PATTERN_MS) }
       else { if (jz) jz.hit++; if (!justPredicted) tps.juice?.tone(820, 0.06, 0.18); mobileVibrate(engine, 20) }
       if (payload.pos && tps.flash) { tps.flash.position.set(payload.pos[0], payload.pos[1], payload.pos[2]); tps.flash.color.setHex(0xffffff); tps.flash.intensity = 0; tps.flashOff = now + 80 }
-      if (payload.health <= 0) { tps._killCreditVictim = payload.target; tps._killCreditAt = now; creditKill(tps, NO_STREAK) }
+      const victimVitals = readHealth(payload)
+      if (victimVitals.known && victimVitals.hp <= 0) { tps._killCreditVictim = payload.target; tps._killCreditAt = now; creditKill(tps, NO_STREAK) }
     }
     if (payload.type === 'hit' && tps && payload.target === engine.playerId) {
       tps.lastHitTime = Date.now(); tps.lastDamageTaken = payload.damage || 0
@@ -252,13 +254,13 @@ export const tpsGameClient = {
     if (payload.type === 'hazard_damage' && tps && payload.playerId === engine.playerId) { tps.lastHitTime = Date.now(); tps.juice?.tone(150, 0.1, 0.14) }
     if (payload.type === 'buff_applied' && tps) { tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000, fireRate: payload.fireRate || 1 }; tps.buffFlashAt = Date.now(); tps.juice?.tone(300, 0.18, 0.16, 600) }
     if (payload.type === 'buff_expired' && tps) { tps.boost = null; tps.juice?.tone(440, 0.16, 0.12, 200) }
-    if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadDuration = payload.duration || 2000; tps.reloadEndTime = Date.now() + tps.reloadDuration; tps.juice?.tone(280, 0.05, 0.13); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
-    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = payload.ammo ?? tps.magazineSize ?? 30; tps.juice?.tone(520, 0.05, 0.14) }
+    if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadDuration = payload.duration || COMBAT_CONFIG.reloadTime; tps.reloadEndTime = Date.now() + tps.reloadDuration; tps.juice?.tone(280, 0.05, 0.13); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
+    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = payload.ammo ?? tps.magazineSize ?? COMBAT_CONFIG.magazineSize; tps.juice?.tone(520, 0.05, 0.14) }
   },
   onFrame(dt, engine) {
     const tps = engine._tps; if (!tps) return
     const now = Date.now()
-    engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || 30}`)
+    engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || COMBAT_CONFIG.magazineSize}`)
     engine.hud?.stat?.('reloading', tps.reloading)
     if (tps.boost && remainingMs(now, tps.boost.expiresAt) <= 0) tps.boost = null
     if (tps.flash && tps.flashOff && remainingMs(now, tps.flashOff) <= 0) { tps.flash.intensity = 0; tps.flashOff = 0 }
@@ -299,9 +301,9 @@ export const tpsGameClient = {
       tps._fallVy = og ? 0 : vy; tps._wasOnGround = og
     }
     if (vig) {
-      const hp = lp.health
+      const vitals = lp.vitals
       const dmgFlash = withinMs(now, tps.lastHitTime, DAMAGE_FLASH_WINDOW_MS) ? 0.32 : 0
-      const lowHp = hp > 0 && hp < 30 ? 0.12 + 0.06 * Math.sin(now / 180) : 0
+      const lowHp = vitals.known && vitals.hp > 0 && vitals.hp < LOW_HP_VIGNETTE_THRESHOLD ? 0.12 + 0.06 * Math.sin(now / 180) : 0
       const op = String(Math.min(0.4, Math.max(dmgFlash, lowHp)))
       if (tps._lastVigOp !== op) { tps._lastVigOp = op; vig.style.opacity = op }
     }
@@ -310,13 +312,13 @@ export const tpsGameClient = {
     const h = ctx.h; if (!h) return { position: ctx.entity.position }
     const s = ctx.state || {}
     const local = localPlayerOf(ctx.engine)
-    const hp = local.health
+    const vitals = local.vitals
     const tps = ctx.engine?._tps
     const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
     const ammo = tps?.ammo ?? 0
     const magazine = COMBAT_CONFIG.magazineSize
     const reloading = tps?.reloading ?? false
-    const reloadDur = tps?.reloadDuration || 2000
+    const reloadDur = tps?.reloadDuration || COMBAT_CONFIG.reloadTime
     const reloadProgress = reloading && tps?.reloadEndTime ? Math.min(100, Math.round((1 - (tps.reloadEndTime - Date.now()) / reloadDur) * 100)) : 0
     const kills = tps?.kills ?? 0
     const now = Date.now()
@@ -327,7 +329,9 @@ export const tpsGameClient = {
     return {
       position: ctx.entity.position,
       custom: { game: s.map, mode: s.mode, kills },
-      ui: renderGameHud ? renderGameHud(h, { hp, ammo, magazine, reloading, reloadProgress, boostSec, kills, hitMarkerActive, headshot, killConfirm }) : null
+      ui: renderGameHud && vitals.known
+        ? renderGameHud(h, { hp: vitals.hp, ammo, magazine, reloading, reloadProgress, boostSec, kills, hitMarkerActive, headshot, killConfirm })
+        : null
     }
   }
 }
