@@ -78,8 +78,8 @@ export class SpatialIndex {
     if (!existing) { this.insert(id, position); return }
     if (cellKey(cellCoord(px), cellCoord(pz)) !== this._idCell.get(id)) { this.insert(id, position); return }
     const dx = existing[0] - px, dy = existing[1] - py, dz = existing[2] - pz
-    if (dx * dx + dy * dy + dz * dz < MOVE_TOLERANCE_SQ) return
     existing[0] = px; existing[1] = py; existing[2] = pz
+    if (dx * dx + dy * dy + dz * dz < MOVE_TOLERANCE_SQ) return
     this._mutations++
   }
 
