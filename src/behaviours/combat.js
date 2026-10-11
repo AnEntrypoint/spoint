@@ -51,6 +51,13 @@ function rejectInvalidFields(values, rules, label) {
   }
 }
 
+function parseSender(msg) {
+  const fromClient = msg.senderId !== undefined
+  const raw = fromClient ? msg.senderId : msg.playerId
+  const valid = (typeof raw === 'string' && raw) || (typeof raw === 'number' && Number.isFinite(raw))
+  return valid ? { id: raw, fromClient } : null
+}
+
 function powerupColor(def) {
   return { mesh: 'box', color: def.color, emissive: def.emissive, emissiveIntensity: 0.7, light: def.color, lightIntensity: 0.9, lightRange: 6, spin: 1.6, hover: 0.35, powerup: def.type }
 }
@@ -367,29 +374,31 @@ export function defineCombat(spec = {}, ctx = null) {
 
     handle(msg) {
       if (!msg) return false
-      const playerId = msg.senderId ?? msg.playerId
-      if (msg.type === 'player_join') {
-        const p = ctx.players.getById(msg.playerId)
+      const sender = parseSender(msg)
+      if (!sender) return false
+      const playerId = sender.id
+      if (msg.type === 'player_join' && !sender.fromClient) {
+        const p = ctx.players.getById(playerId)
         if (p?.state && !msg.reconnected) p.state.health = config.health
-        if (!msg.reconnected || !playerStats.has(msg.playerId)) {
-          const saved = scoreboard.value[statsKeyOf(msg.playerId)]
+        if (!msg.reconnected || !playerStats.has(playerId)) {
+          const saved = scoreboard.value[statsKeyOf(playerId)]
           const restored = v => (Number.isFinite(v) ? v : 0)
-          playerStats.set(msg.playerId, { kills: restored(saved?.kills), deaths: restored(saved?.deaths), damage: restored(saved?.damage) })
+          playerStats.set(playerId, { kills: restored(saved?.kills), deaths: restored(saved?.deaths), damage: restored(saved?.damage) })
         }
-        ammo.set(msg.playerId, config.magazineSize)
-        reloading.delete(msg.playerId)
+        ammo.set(playerId, config.magazineSize)
+        reloading.delete(playerId)
         return true
       }
-      if (msg.type === 'player_leave') {
-        persistStat(msg.playerId)
-        playerStats.delete(msg.playerId); respawning.delete(msg.playerId)
-        fallTimers.delete(msg.playerId); ammo.delete(msg.playerId); reloading.delete(msg.playerId); invuln.delete(msg.playerId)
-        killStreaks.delete(msg.playerId); buffs.delete(msg.playerId)
+      if (msg.type === 'player_leave' && !sender.fromClient) {
+        persistStat(playerId)
+        playerStats.delete(playerId); respawning.delete(playerId)
+        fallTimers.delete(playerId); ammo.delete(playerId); reloading.delete(playerId); invuln.delete(playerId)
+        killStreaks.delete(playerId); buffs.delete(playerId)
         return true
       }
-      if (msg.type === 'player_teleport' && msg.senderId === undefined) {
-        fallTimers.delete(msg.playerId)
-        if (respawning.delete(msg.playerId)) { const p = ctx.players.getById(msg.playerId); if (p?.state) p.state.health = config.health }
+      if (msg.type === 'player_teleport' && !sender.fromClient) {
+        fallTimers.delete(playerId)
+        if (respawning.delete(playerId)) { const p = ctx.players.getById(playerId); if (p?.state) p.state.health = config.health }
         return true
       }
       if (msg.type === 'reload') {
@@ -399,7 +408,7 @@ export function defineCombat(spec = {}, ctx = null) {
         ctx.players.send(playerId, { type: 'reload_start', duration: config.reloadTime })
         return true
       }
-      if (msg.type === 'fire') { fire({ ...msg, shooterId: msg.senderId ?? msg.shooterId }); return true }
+      if (msg.type === 'fire') { fire({ ...msg, shooterId: playerId }); return true }
       return false
     },
 
