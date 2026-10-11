@@ -1,15 +1,8 @@
 import * as THREE from 'three'
-import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { commitGroundSample, NO_GROUND_SAMPLE } from './GroundSample.js'
 
-const _groundAt = (() => {
-  const guarded = guardedGroundHeight('camera altitude ground', (x, z) => window.__terrain.frame.groundHeightLocal(x, z))
-  let lastGround = 0
-  return (x, z) => {
-    const g = guarded(x, z)
-    if (!isNoGroundHeight(g)) lastGround = g
-    return lastGround
-  }
-})()
+const sampleGround = guardedGroundHeight('camera altitude ground', (x, z) => window.__terrain.frame.groundHeightLocal(x, z))
 const camTarget = new THREE.Vector3()
 const camRaycaster = new THREE.Raycaster()
 const camDir = new THREE.Vector3()
@@ -62,21 +55,27 @@ export function createCameraController(camera, scene) {
   const editAccelHz = 5, editBoostRate = 1.6, editBoostMax = 6
   let editBoost = 1
   const ALT_SPEED_MIN = 1, ALT_SPEED_MAX = 40, ALT_SPEED_K = 2.2
-  let _lastAltSampleX = Infinity, _lastAltSampleZ = Infinity, _cachedAltMul = ALT_SPEED_MIN
+  let _lastAltSampleX = Infinity, _lastAltSampleZ = Infinity, _cachedAltMul = ALT_SPEED_MIN, _groundSampled = false
   const ALT_SAMPLE_EPS2 = 4
+  function _groundSampleAt(x, z) {
+    const frame = typeof window !== 'undefined' && window.__terrain && window.__terrain.frame
+    if (!frame) return NO_GROUND_SAMPLE
+    const fo = typeof window !== 'undefined' && window.__floatingOrigin
+    const ax = fo ? x + fo.getShift().x : x, az = fo ? z + fo.getShift().z : z
+    return commitGroundSample(sampleGround, ax, az)
+  }
   function _editAltitudeSpeedMul(x, y, z) {
     const dx = x - _lastAltSampleX, dz = z - _lastAltSampleZ
     if (dx * dx + dz * dz > ALT_SAMPLE_EPS2) {
       _lastAltSampleX = x; _lastAltSampleZ = z
-      let ground = 0
-      const f = typeof window !== 'undefined' && window.__terrain && window.__terrain.frame
-      if (f) {
-        const fo = typeof window !== 'undefined' && window.__floatingOrigin
-        const ax = fo ? x + fo.getShift().x : x, az = fo ? z + fo.getShift().z : z
-        ground = _groundAt(ax, az)
+      const sample = _groundSampleAt(x, z)
+      if (!sample.empty) {
+        _groundSampled = true
+        const alt = Math.max(0, y - sample.y)
+        _cachedAltMul = Math.max(ALT_SPEED_MIN, Math.min(ALT_SPEED_MAX, ALT_SPEED_K * Math.sqrt(alt)))
+      } else if (!_groundSampled) {
+        _cachedAltMul = ALT_SPEED_MIN
       }
-      const alt = Math.max(0, y - ground)
-      _cachedAltMul = Math.max(ALT_SPEED_MIN, Math.min(ALT_SPEED_MAX, ALT_SPEED_K * Math.sqrt(alt)))
     }
     return _cachedAltMul
   }
