@@ -92,6 +92,7 @@ function readRecord(view, off, schema, end) {
   input.expr = view.getUint8(off + 12)
   const flags = view.getUint8(off + 13)
   off += RECORD_FIXED_BYTES
+  if (flags & ~FLAG_ANALOG) throw new RangeError(`[InputCodec] input record flags 0x${flags.toString(16)} set bits no flag is declared for`)
   if (flags & FLAG_ANALOG) {
     if (off + ANALOG_BYTES > end) throw new RangeError('[InputCodec] truncated analog axes')
     input.analogForward = view.getInt8(off) / ANALOG_SCALE
@@ -99,7 +100,11 @@ function readRecord(view, off, schema, end) {
     off += ANALOG_BYTES
   }
   if (off + axes.length * AXIS_BYTES > end) throw new RangeError('[InputCodec] truncated extra axes')
-  for (const a of axes) { const v = view.getFloat32(off, true); input[a] = Number.isFinite(v) ? v : 0; off += AXIS_BYTES }
+  for (const a of axes) {
+    const v = view.getFloat32(off, true); off += AXIS_BYTES
+    if (!Number.isFinite(v)) throw new RangeError(`[InputCodec] extra axis "${a}" is not a finite f32`)
+    input[a] = v
+  }
   return { sequence, data: input, next: off }
 }
 
