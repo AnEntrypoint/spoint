@@ -345,6 +345,11 @@ export declare class AppContext {
         readonly weather: {
             step(simTick: any, out: any): any;
             readonly rain: number;
+            readonly reading: Readonly<{
+                kind: "no-weather";
+                intensity: 0;
+                wind: null;
+            }>;
             readonly moisture: number;
             readonly wind: number[];
             readonly emittedRain: number;
@@ -547,10 +552,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
-            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
+            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};
