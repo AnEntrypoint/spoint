@@ -1,0 +1,11 @@
+PASS main HEAD resolves to a 40-hex sha :: f8e76f8f59d8fcfede35374cd94c5fdac605db0b chore: auto-bump version to 0.1.1582 [skip ci]
+PASS main has CI runs :: 20 runs
+PASS latest run on main is completed :: native-check completed
+PASS latest run on main is success :: native-check success cd52a22740ce2beaef912ded01a302347fd3fdb5
+PASS native-check success on main tip cd52a22 :: success
+PASS release success on main tip cd52a22 :: success
+PASS every red run on main is the filed broken sha cddd358 :: release@cddd358:failure, native-check@cddd358:failure
+PASS cas.rs at main HEAD defines cas_retry_write_verified :: E0425 cause absent at HEAD
+PASS prd.rs at main HEAD calls cas::cas_retry_write_verified :: 2 call sites
+PASS fix 126a362 is an ancestor of main HEAD :: {"behind_by":0,"status":"ahead"}
+RESULT: PASS
