@@ -7,6 +7,9 @@ export class DesyncDetector {
     if (!Array.isArray(expectedPeerIds) || expectedPeerIds.length === 0) {
       throw new Error('[DesyncDetector] expectedPeerIds (the full peer roster for this lockstep session) is required')
     }
+    if (!Number.isInteger(checksumIntervalTicks) || checksumIntervalTicks < 1) {
+      throw new Error(`[DesyncDetector] checksumIntervalTicks must be a positive integer, got ${checksumIntervalTicks}`)
+    }
     this.checksumIntervalTicks = checksumIntervalTicks
     this.expectedPeerIds = [...expectedPeerIds]
     this.onDesync = onDesync
