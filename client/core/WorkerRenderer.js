@@ -204,6 +204,12 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       const armedWorkerIsCurrent = worker === stopWorker && run === stopRun
       if (armedWorkerIsCurrent) { worker.terminate(); worker = null }
       else stopWorker.terminate()
+      if (armedWorkerIsCurrent && stoppedAtMs === null) {
+        stoppedAtMs = nowMs()
+        stoppedMessage = { type: 'stop-terminated' }
+        const waiters = stopWaiters.splice(0, stopWaiters.length)
+        for (const waiter of waiters) waiter(stoppedMessage)
+      }
     }, TERMINATE_AFTER_STOP_REQUEST_MS)
     started = false
     return awaitStopped()
