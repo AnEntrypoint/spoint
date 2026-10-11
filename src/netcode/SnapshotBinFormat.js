@@ -7,7 +7,7 @@ export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
 
 export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
 export function clampI32Pos(v) { return Math.max(-2147483647, Math.min(2147483647, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
-export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * WIRE_UNITS_PER_METER))) }
+export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((Number.isFinite(v) ? v : 1) * WIRE_UNITS_PER_METER))) }
 
 function putI32(b, o, v) { b[o] = v & 0xFF; b[o + 1] = (v >> 8) & 0xFF; b[o + 2] = (v >> 16) & 0xFF; b[o + 3] = (v >> 24) & 0xFF }
 function getI32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) / WIRE_UNITS_PER_METER }

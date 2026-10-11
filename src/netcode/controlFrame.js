@@ -6,7 +6,7 @@ const integer = (v) => Number.isInteger(v)
 const positiveInteger = (v) => Number.isInteger(v) && v >= 1
 const text = (v) => typeof v === 'string'
 const list = (v) => Array.isArray(v)
-const number = (v) => typeof v === 'number'
+const number = (v) => typeof v === 'number' && Number.isFinite(v)
 const truthy = (v) => !!v
 
 const FRAME_CONTRACTS = new Map([
