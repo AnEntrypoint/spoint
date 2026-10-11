@@ -1,9 +1,9 @@
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from '../shared/fnv1a.js'
 
-export const WIRE_STRUCTURES = [
-  ['type', 'payload'],
-  ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots', 'me', 'chartEpoch']
-]
+export const WIRE_STRUCTURES = Object.freeze([
+  Object.freeze(['type', 'payload']),
+  Object.freeze(['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots', 'me', 'chartEpoch'])
+])
 
 function _computeStructHash() {
   let hash = FNV1A_32_OFFSET_BASIS
@@ -15,6 +15,15 @@ function _computeStructHash() {
 }
 
 export const WIRE_STRUCT_HASH = _computeStructHash()
+
+const WIRE_STRUCT_HASH_RE = /^[0-9a-f]{1,8}$/
+
+export function parseWireStructHash(value) {
+  if (value === undefined || value === null) return { kind: 'absent', value }
+  if (typeof value !== 'string') return { kind: 'malformed', reason: 'wire-struct-hash-not-a-string', value }
+  if (!WIRE_STRUCT_HASH_RE.test(value)) return { kind: 'malformed', reason: 'wire-struct-hash-not-a-hex32', value }
+  return { kind: 'hash', hash: value }
+}
 
 const _isNode = typeof process !== 'undefined' && process.versions?.node
 
