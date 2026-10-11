@@ -34,7 +34,12 @@ export class ClusterConfigError extends Error {
 
 export function resolveClusterConfig(spec, { radius, relevanceRadius = 200, maxWeaponRangeM = 0 }) {
   if (!spec || spec.enabled !== true) return null
+  if (!(Number.isFinite(radius) && radius > 0)) throw new ClusterConfigError('cluster-needs-planet-radius', `radius ${JSON.stringify(radius ?? null)} is not a positive finite number: every limit below is an angle or a chord over one sphere of this radius, and a radius that is not a number turns each of those limits into a comparison against NaN that never refuses, so the resolver refuses it at the boundary instead of letting the anchor lattice raise downstream with no world named`)
+  if (!(Number.isFinite(relevanceRadius) && relevanceRadius > 0)) throw new ClusterConfigError('cluster-relevance-radius-not-positive-finite', `relevanceRadius ${JSON.stringify(relevanceRadius ?? null)} is not a positive finite number: it sets the ring reach the link has to cover, so a value that is not a number leaves that limit comparing against NaN and never refusing`)
+  if (!(Number.isFinite(maxWeaponRangeM) && maxWeaponRangeM >= 0)) throw new ClusterConfigError('cluster-weapon-range-not-finite', `maxWeaponRangeM ${JSON.stringify(maxWeaponRangeM ?? null)} is not a finite non-negative number: the link has to cover it, so a value that is not a number leaves that limit comparing against NaN and never refusing`)
   const anchorsPerFace = spec.anchorsPerFace ?? CHART_ANCHORS_PER_FACE
+  if (!(Number.isInteger(anchorsPerFace) && anchorsPerFace >= 1)) throw new ClusterConfigError('cluster-anchors-per-face-below-one', `anchorsPerFace ${JSON.stringify(anchorsPerFace)} is not an integer of at least 1: the chart anchor lattice cuts each face into that many anchors per side, so anything else is a lattice that cannot be cut`)
+  if (spec.memberRadiusM != null && !(Number.isFinite(spec.memberRadiusM) && spec.memberRadiusM > 0)) throw new ClusterConfigError('cluster-member-radius-not-positive-finite', `memberRadiusM ${JSON.stringify(spec.memberRadiusM)} is not a positive finite number: the stay angle it sets has to clear the walkable chart limit, so a value that is not a number leaves that limit comparing against NaN and never refusing`)
   const lattice = createChartAnchorLattice(radius, anchorsPerFace)
   const cellWorstDeg = chartAnchorCellWorstAngleDeg(lattice)
   const memberRadiusM = spec.memberRadiusM ?? radius * Math.sin(cellWorstDeg * Math.PI / 180)
