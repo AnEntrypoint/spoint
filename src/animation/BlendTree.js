@@ -36,7 +36,7 @@ export class BlendTree1D {
   }
 
   addClip(clip, threshold = 0) {
-    this.clips.push({ clip, threshold })
+    this.clips.push(entry1D({ clip, threshold }, this.clips.length))
     this.weights.push(0)
     return this
   }
@@ -109,7 +109,7 @@ export class BlendTree2D {
   }
 
   addClip(clip, x = 0, y = 0) {
-    this.clips.push({ clip, x, y })
+    this.clips.push(entry2D({ clip, x, y }, this.clips.length))
     this.weights.push(0)
     return this
   }
@@ -188,12 +188,26 @@ export class BlendTreeNode {
   }
 }
 
+const parseBlendTree = (tree) => {
+  if (typeof tree.getWeights !== 'function' || !Array.isArray(tree.clips)) {
+    throw new Error('[AnimationBlender] setBlendTree needs a blend tree exposing getWeights() and a clips array; got '
+      + `getWeights=${typeof tree.getWeights}, clips=${Array.isArray(tree.clips) ? 'array' : typeof tree.clips}`)
+  }
+  return tree.clips.map((entry, index) => {
+    if (!entry || entry.clip === null || entry.clip === undefined) {
+      throw new Error(`[AnimationBlender] blend tree clips[${index}] names no clip`)
+    }
+    return { clip: entry.clip }
+  })
+}
+
 export class AnimationBlender {
   constructor(mixer, clips = []) {
     this.mixer = mixer
     this.clips = new Map()
     this.actions = new Map()
     this.blendTree = null
+    this.blendEntries = null
     this.currentBlend = 'idle'
     this.fadeTime = 0.3
     this.playbackSpeed = 1.0
@@ -252,24 +266,36 @@ export class AnimationBlender {
   }
 
   setBlendTree(tree) {
-    this.blendTree = tree
+    const entries = tree === null || tree === undefined ? null : parseBlendTree(tree)
+    this._releaseBlendEntries()
+    this.blendTree = tree === undefined ? null : tree
+    this.blendEntries = entries
+    return this
+  }
+
+  _releaseBlendEntries() {
+    const entries = this.blendEntries
+    this.blendEntries = null
+    if (!entries) return this
+    for (const entry of entries) {
+      const action = this.mixer.clipAction(entry.clip)
+      action.weight = 0
+      action.stop()
+    }
     return this
   }
 
   updateBlend(dt = 0) {
-    if (this.blendTree) this._applyBlendTree(this.blendTree)
+    if (this.blendEntries) this._applyBlendTree(this.blendTree)
     this.mixer.update(dt)
     return this
   }
 
   _applyBlendTree(tree) {
     const weights = tree.getWeights()
-    tree.clips.forEach((entry, index) => {
-      if (!entry || !entry.clip) {
-        throw new Error('[AnimationBlender] blend tree entries must be added with addClip(clip, ...)')
-      }
+    this.blendEntries.forEach((entry, index) => {
       const action = this.mixer.clipAction(entry.clip)
-      action.weight = weights[index]
+      action.weight = weights[index] || 0
       if (!action.enabled) action.reset()
       action.play()
     })
