@@ -695,7 +695,9 @@
   session_id: orch-main-r250
 - id: csproto-1
   SESSION_ID: orch-main-cs-protocol
+  description: 'msgpack.js:5 and TickHandler.js:160. Live witnesses 1791695660637-500-e76ed0e6cb395d0a (struct1_len=10), 1791695715028-500-d5a1cb6b165de194 (_packPayload literal at TickHandler.js:160) and 1791695717748-500-9433eef22b912a2f (round-trip key order) show the list is 10 keys: seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch. AGENTS.md''s netcode bullet names only 8 and is stale. Correct at the next AGENTS.md compaction, which folds .gm/pool/comment-sweep-src-protocol.md.'
   session_id: orch-main-cs-protocol
+  title: 'src/protocol: WIRE_STRUCTURES[1] has 10 keys, AGENTS.md''s 8-key citation is stale'
   status: pending
 - id: csproto-3
   SESSION_ID: orch-main-cs-protocol
@@ -739,3 +741,13 @@
   title: 'src/protocol: msgName and isUnreliable return null, not false, for an unregistered message id'
   session_id: orch-main-cs-protocol
   status: pending
+- id: docclaim-dpr-auto-1
+  SESSION_ID: orch-main-r275-w1
+  status: completed
+  severity: LOW
+  surface: AGENTS.md (doc-claim rerun, spoint)
+  title: 'docclaim rerun: dpr-auto-registry-default-true-enables-adaptive-dpr -- refuted by current AGENTS.md:178'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev (retired by e28fa3e97b with 'premise refuted').
+  text: 'Claim: the dprAuto registry key defaults to true, enabling adaptive DPR. Re-derived against the CURRENT AGENTS.md after e28fa3e97b: AGENTS.md:178 states ''`dprAuto` defaults `false` (`client/core/RenderControls.js`), matching every preset''. Live code agrees: client/core/RenderControls.js:11 ''{ key: ''''dprAuto'''', group: ''''resolution'''', type: ''''boolean'''', default: false,''. Claim refuted; nothing in the current doc asserts it. No edit to AGENTS.md (read-only slice; 17 concurrent hops cite it).'
+  witness: 'codesearch 1791695708383-500-721fe8837176de1b (literal __dprAuto in AGENTS.md, 1 hit, line 178, exhaustive); codesearch 1791695831229-500-bea0dea3676bceaf (literal dprAuto in client/core/RenderControls.js, line 11 ''default: false''); bash 1791695750532-500-da44ea8de7f724a4 (scripts/verify-doc-claims-witness.mjs -> RESULT: PASS exit 0, default-value claims checked: 1); exec_js 1791695663960-500-87ee88d6dae0c94a (stems config-lock/dirty-filter/git-push/dpr-auto/docclaim absent from spoint, gm and gm-wt-r280 prd.yml); exec_js 1791695382075-500-30a45286bd9475ca (six row ids absent from every C:/dev/*/.gm/prd.yml)'
+  session_id: orch-main-r275-w1
