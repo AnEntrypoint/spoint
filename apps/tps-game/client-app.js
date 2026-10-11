@@ -150,9 +150,8 @@ export const tpsGameClient = {
         engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: dir })
         if (engine.cam?.punch) engine.cam.punch(0.15)
         mobileVibrate(engine, 12)
-        const lp = engine.client.getLocalState?.()
         const knockback = COMBAT_CONFIG.shootKnockback
-        if (lp && lp.velocity && dir) { lp.velocity[0] -= dir[0] * knockback; lp.velocity[2] -= dir[2] * knockback }
+        if (local.velocity && dir) { local.velocity[0] -= dir[0] * knockback; local.velocity[2] -= dir[2] * knockback }
         const animator = engine.players.getAnimator(engine.playerId)
         if (animator) animator.shoot()
         tps.flash.color.setHex(0xffaa00); tps.flash.position.set(pos[0], pos[1] + 0.5, pos[2]); tps.flash.intensity = 0; tps.flash.distance = 0; tps.flashOff = Date.now() + 60
