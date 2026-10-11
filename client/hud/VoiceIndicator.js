@@ -36,7 +36,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   const peerAudio = new Map()
   let audioCtx = null
   let teamsByPlayer = new Map()
-  let teamChannelOn = false
+  let teamChannelTeamId = null
   let proximityTimer = null
 
   const render = () => {
@@ -47,7 +47,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
       h('div', { class: 'vi-h' }, [
         h('span', {}, 'Voice'),
         joined && localTeam != null
-          ? C.Btn({ onClick: onToggleTeamChannel, children: [teamChannelOn ? 'Team only' : 'Everyone'] })
+          ? C.Btn({ onClick: onToggleTeamChannel, children: [teamChannelTeamId !== null ? 'Team only' : 'Everyone'] })
           : null,
         joined
           ? C.Btn({ onClick: onToggleMute, children: [muted ? 'Unmute' : 'Mute'] })
@@ -115,7 +115,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     if (destroyed || !engineCtx || !peerAudio.size) return
     const lid = engineCtx.playerId
     const localMesh = lid != null ? engineCtx.players.getMesh(lid) : null
-    const localTeam = teamChannelOn ? getLocalTeam() : null
+    const filterTeam = teamChannelTeamId
     for (const [peerPubkey, a] of peerAudio) {
       const pid = pubkeyToPlayerId.get(peerPubkey)
       let gain = 1
@@ -134,8 +134,8 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
           else gain = 1 - (dist - PROXIMITY_NEAR_M) / (PROXIMITY_FAR_M - PROXIMITY_NEAR_M)
         }
       }
-      if (teamChannelOn && localTeam != null && pid != null) {
-        if (teamsByPlayer.get(pid) !== localTeam) gain = 0
+      if (filterTeam != null && pid != null) {
+        if (teamsByPlayer.get(pid) !== filterTeam) gain = 0
       }
       if (Number.isFinite(gain)) {
         try { a.gainNode.gain.value = gain } catch (_) {}
@@ -214,8 +214,8 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
 
   function onToggleTeamChannel(e) {
     e?.preventDefault?.()
-    teamChannelOn = !teamChannelOn
-    if (!teamChannelOn) updateProximity()
+    teamChannelTeamId = teamChannelTeamId === null ? getLocalTeam() : null
+    if (teamChannelTeamId === null) updateProximity()
     render()
   }
 
@@ -231,6 +231,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     },
     onScoreboard(scores) {
       teamsByPlayer = parseScoreboard(scores)
+      if (teamChannelTeamId !== null) teamChannelTeamId = getLocalTeam()
       render()
     },
     async destroy() {
