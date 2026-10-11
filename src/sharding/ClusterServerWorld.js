@@ -16,7 +16,14 @@ function freePort() {
 export function chartLocalSpawnOf(anchorDir, radius, dir) {
   const { up, east, north } = anchorBasis(anchorDir)
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-  const k = radius / dot(dir, up)
+  const towardUp = dot(dir, up)
+  if (!(towardUp > 0)) {
+    const err = new Error(`cluster-spawn-dir-off-chart: direction [${dir}] meets the cluster anchor [${anchorDir}] at dot ${towardUp}, and the anchor's tangent plane has a finite chart-local point only for directions in the anchor's own hemisphere -- on the horizon it yields ${radius / towardUp} and behind it folds the far hemisphere onto the anchor`)
+    err.name = 'ClusterSpawnDirError'
+    err.code = 'cluster-spawn-dir-off-chart'
+    throw err
+  }
+  const k = radius / towardUp
   return [dot(dir, east) * k, SPAWN_ABOVE_GROUND_M - 0.5 * ((dot(dir, east) * k) ** 2 + (dot(dir, north) * k) ** 2) / radius, dot(dir, north) * k]
 }
 
