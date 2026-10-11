@@ -48,14 +48,24 @@ function sortedKeys(object) {
   return Object.keys(object).sort()
 }
 
+
+function refusalMessageOf(observe) {
+  try {
+    observe()
+    return ''
+  } catch (error) {
+    return String(error?.message ?? '')
+  }
+}
+
 async function driveModule(modulePath) {
   const { RegionIPCTransport } = await import(pathToFileURL(modulePath).href)
   measure('module.exportsRegionIPCTransport', 'function', () => typeof RegionIPCTransport)
 
   const channel = fakeRouterChannel()
-  const transport = new RegionIPCTransport('p7', channel.sendToRouter)
+  const transport = new RegionIPCTransport(7, channel.sendToRouter)
   measure('construct.type', 'region-ipc', () => transport.type)
-  measure('construct.routerPlayerId', 'p7', () => transport.routerPlayerId)
+  measure('construct.routerPlayerId', 7, () => transport.routerPlayerId)
   measure('construct.ready', true, () => transport.ready)
   measure('construct.isOpen', true, () => transport.isOpen)
 
@@ -64,43 +74,43 @@ async function driveModule(modulePath) {
   measure('send.routerFrameCount', 1, () => channel.frames.length)
   measure('send.frameKeys', ['dataB64', 'routerPlayerId', 'type'], () => sortedKeys(channel.frames[0]))
   measure('send.frameType', 'WORKER_FRAME', () => channel.frames[0].type)
-  measure('send.frameRouterPlayerId', 'p7', () => channel.frames[0].routerPlayerId)
+  measure('send.frameRouterPlayerId', 7, () => channel.frames[0].routerPlayerId)
   measure('send.frameDataB64', 'AAEC+v8=', () => channel.frames[0].dataB64)
   measure('send.routerDecodedBytes', [0, 1, 2, 250, 255], () => routerDecodeBytes(channel.frames[0]))
 
   const windowChannel = fakeRouterChannel()
-  new RegionIPCTransport('p7', windowChannel.sendToRouter).send(new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2]).subarray(2, 5))
+  new RegionIPCTransport(7, windowChannel.sendToRouter).send(new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2]).subarray(2, 5))
   measure('send.subarrayViewDecodedBytes', [7, 6, 5], () => routerDecodeBytes(windowChannel.frames[0]))
 
   const float32Channel = fakeRouterChannel()
-  new RegionIPCTransport('p7', float32Channel.sendToRouter).send(new Float32Array([1.5, 2.5]))
+  new RegionIPCTransport(7, float32Channel.sendToRouter).send(new Float32Array([1.5, 2.5]))
   measure('send.float32ArrayDecodedBytes', [0, 0, 192, 63, 0, 0, 32, 64], () => routerDecodeBytes(float32Channel.frames[0]))
 
   const float32WindowChannel = fakeRouterChannel()
-  new RegionIPCTransport('p7', float32WindowChannel.sendToRouter).send(new Float32Array([1.5, 2.5, 3.5]).subarray(1))
+  new RegionIPCTransport(7, float32WindowChannel.sendToRouter).send(new Float32Array([1.5, 2.5, 3.5]).subarray(1))
   measure('send.float32SubarrayViewDecodedBytes', [0, 0, 32, 64, 0, 0, 96, 64], () => routerDecodeBytes(float32WindowChannel.frames[0]))
 
   const dataViewWindowChannel = fakeRouterChannel()
-  new RegionIPCTransport('p7', dataViewWindowChannel.sendToRouter).send(new DataView(new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2]).buffer, 2, 3))
+  new RegionIPCTransport(7, dataViewWindowChannel.sendToRouter).send(new DataView(new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2]).buffer, 2, 3))
   measure('send.dataViewWindowDecodedBytes', [7, 6, 5], () => routerDecodeBytes(dataViewWindowChannel.frames[0]))
 
   const dataViewFullChannel = fakeRouterChannel()
-  new RegionIPCTransport('p7', dataViewFullChannel.sendToRouter).send(new DataView(new Uint8Array([1, 2, 3]).buffer))
+  new RegionIPCTransport(7, dataViewFullChannel.sendToRouter).send(new DataView(new Uint8Array([1, 2, 3]).buffer))
   measure('send.dataViewFullDecodedBytes', [1, 2, 3], () => routerDecodeBytes(dataViewFullChannel.frames[0]))
 
   const bufferChannel = fakeRouterChannel()
-  const bufferTransport = new RegionIPCTransport('p7', bufferChannel.sendToRouter)
+  const bufferTransport = new RegionIPCTransport(7, bufferChannel.sendToRouter)
   bufferTransport.send(new Uint8Array([9, 8, 7]).buffer)
   measure('send.arrayBufferDecodedBytes', [9, 8, 7], () => routerDecodeBytes(bufferChannel.frames[0]))
   bufferTransport.send('hi')
   measure('send.stringDecodedBytes', [104, 105], () => routerDecodeBytes(bufferChannel.frames[1]))
 
-  const brokenChannel = new RegionIPCTransport('p8', () => { throw new Error('channel gone') })
+  const brokenChannel = new RegionIPCTransport(8, () => { throw new Error('channel gone') })
   const brokenReturn = brokenChannel.send(new Uint8Array([1]))
   measure('send.routerThrowReturnsFalse', false, () => brokenReturn)
 
   const closedChannel = fakeRouterChannel()
-  const closedTransport = new RegionIPCTransport('p9', closedChannel.sendToRouter)
+  const closedTransport = new RegionIPCTransport(9, closedChannel.sendToRouter)
   closedTransport.close()
   const afterCloseReturn = closedTransport.send(new Uint8Array([1, 2]))
   measure('send.afterCloseReturnsFalse', false, () => afterCloseReturn)
@@ -113,7 +123,7 @@ async function driveModule(modulePath) {
   measure('close.routerFrameCount', 2, () => channel.frames.length)
   measure('close.frameKeys', ['routerPlayerId', 'type'], () => sortedKeys(lastFrame()))
   measure('close.frameType', 'CLIENT_CLOSE_FROM_WORKER', () => lastFrame().type)
-  measure('close.frameRouterPlayerId', 'p7', () => lastFrame().routerPlayerId)
+  measure('close.frameRouterPlayerId', 7, () => lastFrame().routerPlayerId)
   measure('close.closeEventCount', 1, () => closeEvents.length)
   measure('close.readyAfterClose', false, () => transport.ready)
   measure('close.isOpenAfterClose', false, () => transport.isOpen)
@@ -131,13 +141,13 @@ async function driveModule(modulePath) {
   }
 
   const deliveredCloseChannel = fakeRouterChannel()
-  const deliveredClose = new RegionIPCTransport('p14', deliveredCloseChannel.sendToRouter)
+  const deliveredClose = new RegionIPCTransport(14, deliveredCloseChannel.sendToRouter)
   measure('close.returnValueWhenDelivered', true, () => deliveredClose.close())
   measure('close.returnValueWhenAlreadyClosed', false, () => deliveredClose.close())
   measure('close.deliveredFrameCount', 1, () => deliveredCloseChannel.frames.length)
 
   const throwingCloseEvents = []
-  const throwingCloseChannel = new RegionIPCTransport('p13', () => { throw new Error('channel gone') })
+  const throwingCloseChannel = new RegionIPCTransport(13, () => { throw new Error('channel gone') })
   throwingCloseChannel.on('close', () => throwingCloseEvents.push('close'))
   const throwingCloseReturns = []
   measure('closeRouterThrow.doesNotThrow', 'returned', () => { throwingCloseReturns.push(throwingCloseChannel.close()); return 'returned' })
@@ -149,7 +159,7 @@ async function driveModule(modulePath) {
   measure('closeRouterThrow.closeEventCountAfterSecondClose', 1, () => throwingCloseEvents.length)
 
   const invalidChannel = fakeRouterChannel()
-  const invalidTransport = new RegionIPCTransport('p15', invalidChannel.sendToRouter)
+  const invalidTransport = new RegionIPCTransport(15, invalidChannel.sendToRouter)
   measure('send.numberInputThrowsTypeError', 'TypeError', () => thrownKind(() => invalidTransport.send(42)))
   measure('send.nullInputThrowsTypeError', 'TypeError', () => thrownKind(() => invalidTransport.send(null)))
   measure('send.objectInputThrowsTypeError', 'TypeError', () => thrownKind(() => invalidTransport.send({})))
@@ -163,7 +173,7 @@ async function driveModule(modulePath) {
   measure('send.invalidInputLeavesTransportOpen', true, () => invalidTransport.ready)
 
   const inboundChannel = fakeRouterChannel()
-  const inbound = new RegionIPCTransport('p7', inboundChannel.sendToRouter)
+  const inbound = new RegionIPCTransport(7, inboundChannel.sendToRouter)
   const inboundBuffers = []
   inbound.on('message', (buffer) => inboundBuffers.push(buffer))
   inbound.deliver('AAEC+v8=')
@@ -179,10 +189,10 @@ async function driveModule(modulePath) {
 
   const everyByte = Array.from({ length: 256 }, (_, value) => value)
   const roundTripChannel = fakeRouterChannel()
-  new RegionIPCTransport('p1', roundTripChannel.sendToRouter).send(Uint8Array.from(everyByte))
+  new RegionIPCTransport(1, roundTripChannel.sendToRouter).send(Uint8Array.from(everyByte))
   measure('roundTrip.routerDecodesEveryByte', everyByte, () => routerDecodeBytes(roundTripChannel.frames[0]))
   const routerBytes = Array.from(Buffer.from(roundTripChannel.frames[0]?.dataB64 ?? '', 'base64'))
-  const echoed = new RegionIPCTransport('p1', () => {})
+  const echoed = new RegionIPCTransport(1, () => {})
   const echoedBuffers = []
   echoed.on('message', (buffer) => echoedBuffers.push(buffer))
   echoed.deliver(Buffer.from(routerBytes).toString('base64'))
@@ -190,9 +200,33 @@ async function driveModule(modulePath) {
 
   const firstChannel = fakeRouterChannel()
   const secondChannel = fakeRouterChannel()
-  new RegionIPCTransport('p1', firstChannel.sendToRouter).send(new Uint8Array([1]))
-  new RegionIPCTransport('p2', secondChannel.sendToRouter).send(new Uint8Array([2]))
-  measure('route.routerPlayerIdTagsEachFrame', ['p1', 'p2'], () => [firstChannel.frames[0].routerPlayerId, secondChannel.frames[0].routerPlayerId])
+  new RegionIPCTransport(1, firstChannel.sendToRouter).send(new Uint8Array([1]))
+  new RegionIPCTransport(2, secondChannel.sendToRouter).send(new Uint8Array([2]))
+  measure('route.routerPlayerIdTagsEachFrame', [1, 2], () => [firstChannel.frames[0].routerPlayerId, secondChannel.frames[0].routerPlayerId])
+
+function constructOutcome(id) {
+  try {
+    const transport = new RegionIPCTransport(id, () => {})
+    return { ok: true, routerPlayerId: transport.routerPlayerId }
+  } catch (error) {
+    return { ok: false, code: error?.code ?? null }
+  }
+}
+  measure('construct.outcomeIntegerId', { ok: true, routerPlayerId: 7 }, () => constructOutcome(7))
+  measure('construct.outcomeLowestRouterId', { ok: true, routerPlayerId: 1 }, () => constructOutcome(1))
+  measure('construct.outcomeStringId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome('p7'))
+  measure('construct.outcomeZeroId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome(0))
+  measure('construct.outcomeNegativeId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome(-1))
+  measure('construct.outcomeFractionalId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome(1.5))
+  measure('construct.outcomeNullId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome(null))
+  measure('construct.outcomeMissingId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome(undefined))
+  measure('construct.outcomeObjectId', { ok: false, code: 'router-player-id-malformed' }, () => constructOutcome({}))
+  measure('construct.refusalNamesTheRouterIdSpace', true, () => refusalMessageOf(() => new RegionIPCTransport('p7', () => {})).includes('routerPlayerId'))
+  const untaggedChannel = fakeRouterChannel()
+  measure('construct.refusedIdBuildsNoTransport', 0, () => {
+    try { new RegionIPCTransport('p7', untaggedChannel.sendToRouter).send(new Uint8Array([1])) } catch (_) { }
+    return untaggedChannel.frames.length
+  })
 }
 
 function reportVerdict() {

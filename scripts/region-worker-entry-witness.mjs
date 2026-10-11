@@ -12,10 +12,11 @@ const POLL_MS = 10
 const STUB_SERVER_SOURCE = `
 const calls = globalThis.__regionWorkerEntryStub = {
   createServerDeps: [], loadAll: 0, watchAll: 0, onTick: 0, start: 0, stageLoads: [],
-  addPlayer: [], onClientConnect: [], transports: [], transportFrames: [],
+  addPlayer: [], onClientConnect: [], transports: [], transportFrames: [], addClient: [], sends: [],
   reset() {
     this.createServerDeps = []; this.loadAll = 0; this.watchAll = 0; this.onTick = 0; this.start = 0; this.stageLoads = []
     this.addPlayer = []; this.onClientConnect = []; this.transports = []; this.transportFrames = []
+    this.addClient = []; this.sends = []
   }
 }
 export async function createServerDeps(config, tickRate) {
@@ -35,7 +36,7 @@ export async function createServerDeps(config, tickRate) {
   }
   return {
     tickSystem, appLoader, stageLoader,
-    appRuntime: { entities: new Map() },
+    appRuntime: { entities: new Map(), getSnapshot: () => ({ entities: [] }) },
     playerManager: {
       players: new Map(),
       getPlayerCount: () => 0, getConnectedPlayers: () => [], getPlayer: () => null,
@@ -44,7 +45,11 @@ export async function createServerDeps(config, tickRate) {
         return calls.addPlayer.length
       }
     },
-    connections: { flushAll() {}, send() {}, broadcast() {}, addClient() {}, getClient: () => null },
+    connections: {
+      flushAll() {}, broadcast() {}, getClient: () => null,
+      send(id, msg, payload) { calls.sends.push({ id, msg, payload }) },
+      addClient(id, transport) { calls.addClient.push({ id, routerPlayerId: transport?.routerPlayerId ?? null }); return { sessionToken: null } }
+    },
     networkState: { addPlayer() {}, removePlayer() {}, getSnapshot: () => ({ tick: 0, timestamp: 0, players: [] }) },
     physicsIntegration: { addPlayerCollider() {}, removePlayerCollider() {}, setPlayerPosition() {} },
     lagCompensator: { clearPlayerHistory() {} },
@@ -183,25 +188,68 @@ async function readyChecks() {
 async function connectChecks() {
   stub().reset()
   const before = sent.length
-  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 'router-1', requestId: 5 })
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 7, requestId: 5 })
   expect('connect: the region stays silent until it has minted an id', sent.length - before, 0)
-  expect('connect: the joining transport reaches the server under its router id', stub().onClientConnect, ['router-1'])
-  process.emit('message', { type: 'CLIENT_FRAME', routerPlayerId: 'router-1', dataB64: Buffer.from('hello').toString('base64') })
+  expect('connect: the joining transport reaches the server under its router id', stub().onClientConnect, [7])
+  process.emit('message', { type: 'CLIENT_FRAME', routerPlayerId: 7, dataB64: Buffer.from('hello').toString('base64') })
   expect('connect: a frame arriving before the id is minted still reaches the transport', stub().transportFrames, ['hello'])
   const answered = await settle(() => sent.length > before)
   expect('connect: the region answers the connect request once the id is minted', answered, true)
   expect('connect: CLIENT_CONNECTED carries the request id and the minted local id', sent[before], { type: 'CLIENT_CONNECTED', region: '0,0', requestId: 5, localPlayerId: 1 })
-  expect('connect: the id is minted through the player manager, not guessed', stub().addPlayer, [{ routerPlayerId: 'router-1', options: { position: [0, 5, 0] } }])
-  process.emit('message', { type: 'CLIENT_DISCONNECT', routerPlayerId: 'router-1' })
+  expect('connect: the id is minted through the player manager, not guessed', stub().addPlayer, [{ routerPlayerId: 7, options: { position: [0, 5, 0] } }])
+  process.emit('message', { type: 'CLIENT_DISCONNECT', routerPlayerId: 7 })
   expect('connect: a disconnect closes the transport it was handed', stub().transports[0].ready, false)
 }
 
+async function refusedConnectChecks() {
+  stub().reset()
+  const before = sent.length
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 'router-1', requestId: 9 })
+  expect('refused connect: a string id is answered CLIENT_CONNECT_REFUSED, never silently dropped', sent[before], {
+    type: 'CLIENT_CONNECT_REFUSED', region: '0,0', requestId: 9, routerPlayerId: 'router-1',
+    code: 'router-player-id-malformed',
+    error: '[region-ipc] router-player-id-malformed: routerPlayerId "router-1" is not a router-minted player id'
+  })
+  expect('refused connect: no transport is built for a refused id', stub().onClientConnect, [])
+  expect('refused connect: the refused id never reaches the player manager', stub().addPlayer, [])
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 0, requestId: 10 })
+  expect('refused connect: router id 0 is refused too, ids start at 1', sent[before + 1]?.code, 'router-player-id-malformed')
+  expect('refused connect: each refusal answers exactly once', sent.length - before, 2)
+}
+
+async function handoffChecks() {
+  stub().reset()
+  const before = sent.length
+  process.emit('message', {
+    type: 'ACCEPT_HANDOFF', localPlayerId: 5, routerPlayerId: 9, fromRegion: '1,0',
+    state: { position: [1, 2, 3], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], health: 100, name: 'mover' },
+    sessionToken: 'stub-token'
+  })
+  const answered = await settle(() => sent.length > before)
+  expect('handoff: the region answers ACCEPT_HANDOFF once the player is admitted', answered, true)
+  expect('handoff: HANDOFF_ACCEPTED names both local ids and the session token', sent[before], { type: 'HANDOFF_ACCEPTED', region: '0,0', fromRegion: '1,0', routerPlayerId: 9, oldLocalPlayerId: 5, newLocalPlayerId: 1, sessionToken: 'stub-token' })
+  const ack = stub().sends.find(entry => entry.payload && 'localPlayerId' in entry.payload)
+  expect('handoff: RECONNECT_ACK carries the minted id as localPlayerId and as playerId', { id: ack.id, playerId: ack.payload.playerId, localPlayerId: ack.payload.localPlayerId }, { id: 1, playerId: 1, localPlayerId: 1 })
+
+  stub().reset()
+  const beforeRefused = sent.length
+  process.emit('message', {
+    type: 'ACCEPT_HANDOFF', localPlayerId: 6, routerPlayerId: 'router-2', fromRegion: '1,0',
+    state: { position: [1, 2, 3], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], health: 100, name: 'mover' }
+  })
+  expect('handoff: a malformed router id is answered HANDOFF_REFUSED, never a crash', sent.slice(beforeRefused), [{
+    type: 'HANDOFF_REFUSED', region: '0,0', fromRegion: '1,0', routerPlayerId: 'router-2', localPlayerId: 6,
+    code: 'router-player-id-malformed',
+    error: '[region-ipc] router-player-id-malformed: routerPlayerId "router-2" is not a router-minted player id'
+  }])
+  expect('handoff: a refused handoff admits no player', stub().addPlayer, [])
+}
 async function main() {
   await import(pathToFileURL(MODULE_PATH).href)
   expect('boot: WORKER_BOOTING with this pid is the only message on import', sent, [{ type: 'WORKER_BOOTING', pid: process.pid }])
   const beforePreInit = sent.length
   process.emit('message', { type: 'STATS_REQUEST', requestId: 1 })
-  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 'pre-init', requestId: 2 })
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 99, requestId: 2 })
   expect('pre-INIT: STATS_REQUEST and CLIENT_CONNECT get no reply', sent.length - beforePreInit, 0)
   console.error = (...args) => { consoleErrors.push(args) }
   try {
@@ -211,6 +259,8 @@ async function main() {
   }
   await readyChecks()
   await connectChecks()
+  await refusedConnectChecks()
+  await handoffChecks()
 }
 
 main().then(finish, error => {

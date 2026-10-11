@@ -2,7 +2,7 @@ import { PredictionEngine } from './PredictionEngine.js'
 import { SnapshotTimeline } from './SnapshotTimeline.js'
 import { ClockSync } from './ClockSync.js'
 import { MSG, WIRE_PROTOCOL_VERSION, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
-import { WIRE_STRUCT_HASH } from '../protocol/msgpack.js'
+import { WIRE_STRUCT_HASH, parseWireStructHash } from '../protocol/msgpack.js'
 import { createInputSchema, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 import { createCollisionMirror } from './CollisionMirror.js'
 import { playerDefault } from '../shared/worldDefaults.js'
@@ -130,17 +130,19 @@ export class MessageHandler {
   }
 
   _checkStructHash(structHash) {
-    if (structHash === undefined) return
-    this._structMismatch = structHash !== WIRE_STRUCT_HASH
+    const parsed = parseWireStructHash(structHash)
+    if (parsed.kind === 'absent') return
+    const reason = parsed.kind === 'malformed' ? ` (${parsed.reason})` : ''
+    this._structMismatch = parsed.kind === 'malformed' || parsed.hash !== WIRE_STRUCT_HASH
     if (this._structMismatch) {
-      console.error(`[client] WIRE STRUCT-TABLE MISMATCH: server hash ${structHash} vs client hash ${WIRE_STRUCT_HASH} - msgpackr structure ids disagree, snapshots/messages WILL be misdecoded; hard-reload the stale side`)
+      console.error(`[client] WIRE STRUCT-TABLE MISMATCH: server hash ${structHash}${reason} vs client hash ${WIRE_STRUCT_HASH} - msgpackr structure ids disagree, snapshots/messages WILL be misdecoded; hard-reload the stale side`)
     }
   }
 
   _handleReconnect(payload, snapProc) {
     this._checkStructHash(payload.structHash)
     const oldPlayerId = this._playerId
-    this._playerId = payload.playerId
+    this._playerId = payload.localPlayerId ?? payload.playerId
     snapProc?.clear()
     this._timeline.reset()
     if (oldPlayerId) this._callbacks.onPlayerLeft?.(oldPlayerId)
