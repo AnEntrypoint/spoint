@@ -51,6 +51,13 @@ const EFFECT_KEYS = ['ssao', 'bloom', 'ssr']
 
 function _num(v, fallback) { return Number.isFinite(v) ? v : fallback }
 
+const _declared = k => RenderControls.controls.find(c => c.key === k) || {}
+const _declaredDefault = k => { const d = _declared(k).default; return typeof d === 'number' ? d : 0 }
+function _inDeclaredRange(k, v) {
+  const c = _declared(k)
+  return Math.max(c.min == null ? -Infinity : c.min, Math.min(c.max == null ? Infinity : c.max, v))
+}
+
 export function createQualityGovernor(opts = {}) {
   const write = typeof opts.write === 'function' ? opts.write : (k, v) => RenderControls.set(k, v)
   const read = typeof opts.read === 'function' ? opts.read : k => RenderControls.get(k)
@@ -78,8 +85,8 @@ export function createQualityGovernor(opts = {}) {
 
   function captureBase() {
     base = {
-      maxLevel: Math.max(2, Math.min(22, _num(read('maxLevel'), 11))),
-      splitFactor: Math.max(0.05, _num(read('splitFactor'), 0.25)),
+      maxLevel: _inDeclaredRange('maxLevel', _num(read('maxLevel'), _declaredDefault('maxLevel'))),
+      splitFactor: _inDeclaredRange('splitFactor', _num(read('splitFactor'), _declaredDefault('splitFactor'))),
       vegLeafOff: read('vegLeafOff') === true,
       ssao: read('ssao') === true,
       bloom: read('bloom') === true,
@@ -92,8 +99,8 @@ export function createQualityGovernor(opts = {}) {
     if (i <= 0) return { maxLevel: base.maxLevel, splitFactor: base.splitFactor, vegLeafOff: base.vegLeafOff, ssao: base.ssao, bloom: base.bloom, ssr: base.ssr }
     const t = QUALITY_TIERS[Math.min(MAX_TIER, i)]
     const out = {
-      maxLevel: Math.max(2, Math.min(22, Math.min(base.maxLevel, t.maxLevel))),
-      splitFactor: Math.max(0.05, Math.min(base.splitFactor, t.splitFactor)),
+      maxLevel: _inDeclaredRange('maxLevel', Math.min(base.maxLevel, t.maxLevel)),
+      splitFactor: _inDeclaredRange('splitFactor', Math.min(base.splitFactor, t.splitFactor)),
       vegLeafOff: base.vegLeafOff || t.vegLeafOff,
     }
     for (const k of EFFECT_KEYS) out[k] = false
