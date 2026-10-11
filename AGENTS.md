@@ -55,7 +55,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - A witness needing the server to act on a client message passes `--params=multiplayer` (`?singleplayer` sees `players:0`, acks `ok:false`). A harness returning uncompared `{expected, got}` passes either way: one `expect()` per measurement.
 - One `gl.getError()` code covers distinct bugs (1282 = feedback-loop, sampler-type-mismatch AND insufficient-buffer-size): read the driver's console string off a cache-disabled reload.
 - Live GL: `window`/`document` only via `page.evaluate()` in a capture-prefixed script; pin file:line via `addInitScript` wrapping `drawElementsInstanced` (drain, then `gl.getError()`); editor via `app.clientMachine.send('TOGGLE_EDITOR')`.
-- `scripts/lib/`: `head-vs-worktree.mjs`, `gm-dispatch.mjs`, `witness-audit.mjs`. `witness-audit.mjs --gate` = gpu-free arm of `npm run check`: per-file per-check counts vs committed `.witness-audit-baseline.json`; fails on an absent check id or a higher count.
+- `scripts/lib/`: `head-vs-worktree.mjs`, `gm-dispatch.mjs`, `witness-audit.mjs`. `witness-audit.mjs --gate` = gpu-free arm of `npm run check`, HIGH tier only: per-file per-check counts vs committed `.witness-audit-baseline.json`; fails on an absent check id or a higher count. The LOW tier (`empty-catch`, `swallowed-error`) is advisory -- printed under `--all`, never written to the baseline, so a low count rising never fails it. `--gate`/`--write-baseline` audit committed tracked scripts; without either the run walks the worktree, so `--all` alone sees a different file set.
 
 ## Entry points
 
