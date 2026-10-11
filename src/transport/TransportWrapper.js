@@ -4,6 +4,10 @@ export const SEND_ACCEPTED = true
 
 export const SEND_REJECTED = false
 
+export const LIFECYCLE_CONNECTING = 'connecting'
+export const LIFECYCLE_OPEN = 'open'
+export const LIFECYCLE_CLOSED = 'closed'
+
 export class SendContractError extends Error {
   constructor(detail) {
     super(detail)
@@ -16,15 +20,15 @@ export class TransportWrapper extends EventEmitter {
   constructor() {
     super()
     this.type = 'base'
-    this._ready = false
+    this.lifecycle = LIFECYCLE_CONNECTING
   }
 
   get ready() {
-    return this._ready
+    return this.lifecycle === LIFECYCLE_OPEN
   }
 
   set ready(open) {
-    this._ready = Boolean(open)
+    this.lifecycle = open ? LIFECYCLE_OPEN : LIFECYCLE_CLOSED
   }
 
   get isOpen() {
