@@ -1,7 +1,8 @@
 import { SpatialIndex } from '../spatial/Octree.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
+import { resolveStageShape } from './stageShapes.js'
 
-export const FLAT_RING_HALF_HEIGHT_M = Infinity
+export { FLAT_RING_HALF_HEIGHT_M } from './stageShapes.js'
 
 function resolvedPlanetRadius(stageName, declared) {
   if (declared == null || declared === 0) return 0
@@ -17,6 +18,7 @@ export class Stage {
     this.entityIds = new Set()
     this.spatial = new SpatialIndex({ relevanceRadius: resolveRelevanceRadius(config.relevanceRadius) })
     this.spatial.planetRadius = resolvedPlanetRadius(name, config.planetRadius)
+    this.shape = resolveStageShape(this.spatial.planetRadius, config.shape)
     this.gravity = config.gravity || null
     this.spawnPoint = config.spawnPoint || null
     this.playerModel = config.playerModel || null
@@ -58,9 +60,7 @@ export class Stage {
   }
 
   relevanceRing(radius) {
-    const r = radius || this.spatial.relevanceRadius
-    if (this.spatial.planetRadius > 0) return { spherical: true, radius: r, halfHeight: r }
-    return { spherical: false, radius: r, halfHeight: FLAT_RING_HALF_HEIGHT_M }
+    return this.shape.ring(radius || this.spatial.relevanceRadius)
   }
 
   getRelevantEntities(position, radius) {
@@ -68,18 +68,11 @@ export class Stage {
   }
 
   getRelevantEntitiesHorizontal(position, radius) {
-    const ring = this.relevanceRing(radius)
-    if (ring.spherical) {
-      throw new TypeError(`[stage] stage "${this.name}" got a horizontal relevance query at planetRadius ${ring.radius}: a horizontal query is the flat ring's own shape, so a planet-centred stage answers getRelevantEntitiesForCell and never this one`)
-    }
-    return this.spatial.nearbyCylinder(position, ring.radius, ring.halfHeight)
+    return this.shape.horizontalQuery(this, position, radius || this.spatial.relevanceRadius)
   }
 
   getRelevantEntitiesForCell(position, radius) {
-    const ring = this.relevanceRing(radius)
-    return ring.spherical
-      ? this.getRelevantEntities(position, ring.radius)
-      : this.getRelevantEntitiesHorizontal(position, ring.radius)
+    return this.shape.cellQuery(this, position, radius || this.spatial.relevanceRadius)
   }
 
 
