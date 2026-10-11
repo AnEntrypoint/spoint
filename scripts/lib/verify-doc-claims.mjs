@@ -46,24 +46,24 @@ const BASENAME_PIN = {
 };
 
 const LINE_TOKEN = {
-  'src/spatial/Octree.js#65': '< 1.0',
-  'src/spatial/Octree.js#111': 'nearbyHorizontal',
-  'src/shared/clusterConfig.js#8': 'JOLT_WASM_HEAP_BYTES',
-  'src/shared/clusterConfig.js#35': 'return null',
-  'src/shared/clusterConfig.js#38,43,44,46,48,50': 'ClusterConfigError',
+  // `distSq < 1.0` and `nearbyHorizontal` no longer occur in src/spatial/Octree.js,
+  // so those two pins are retired in FOLD_CORRECTED rather than repointed.
+  'src/shared/clusterConfig.js#9': 'JOLT_WASM_HEAP_BYTES',
+  'src/shared/clusterConfig.js#35': 'resolveClusterConfig',
+  'src/shared/clusterConfig.js#27,30,37': 'ClusterConfigError',
   'src/stage/Stage.js#13': 'planetRadiusMeters',
-  'src/stage/Stage.js#61': 'getRelevantEntitiesHorizontal',
-  'src/stage/StageLoader.js#15': 'resolveClusterConfig',
-  'src/stage/StageLoader.js#21': 'planetRadius',
-  'src/stage/StageLoader.js#110': 'getRelevantEntitiesHorizontal',
-  'src/sdk/TickHandlerAOI.js#136': 'planetRadius',
+  'src/stage/Stage.js#63': 'getRelevantEntitiesHorizontal',
+  'src/stage/StageLoader.js#4': 'resolveClusterConfig',
+  'src/stage/StageLoader.js#5': 'planetRadius',
+  'src/stage/StageLoader.js#135': 'getRelevantEntitiesHorizontal',
+  'src/sdk/TickHandlerAOI.js#74': 'planetRadius',
   'src/shared/worldResolve.js#33': 'planetRadius',
-  'src/apps/AppContext.js#387': 'defineFire',
+  'src/apps/AppContext.js#11': 'defineFire',
   'packages/mapspinner/src/tsl/sky-tsl.js#89': 'marchRadiance',
-  'packages/mapspinner/src/tsl/surface-splat-tsl.js#116': 'gFar',
-  'packages/mapspinner/src/tsl/surface-splat-tsl.js#133': 'texFarFade',
-  'packages/mapspinner/src/tsl/planet-tsl.js#117': 'castShadow',
-  'packages/mapspinner/src/tsl/planet-tsl.js#193': 'addUpdateRange',
+  'packages/mapspinner/src/tsl/surface-splat-tsl.js#108': 'gFar',
+  'packages/mapspinner/src/tsl/surface-splat-tsl.js#73': 'texFarFade',
+  'packages/mapspinner/src/tsl/planet-tsl.js#28': 'WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS',
+  'packages/mapspinner/src/tsl/planet-tsl.js#180': 'addUpdateRange',
   'packages/mapspinner/src/tsl/planet-tsl.js#232-270': 'function frame',
   'packages/mapspinner/src/tsl/planet-tsl.js#260': 'fsCheap',
   'packages/mapspinner/src/tsl/terrain-material-tsl.js#195': 'outputNode',
@@ -73,17 +73,16 @@ const LINE_TOKEN = {
   'client/core/TerrainBackdrop.js#43': 'planet-tsl',
   'client/core/TerrainBackdrop.js#46-47': 'planet-orchestrator',
   'client/core/Weather.js#168': 'SNOW_GROUND_RESAMPLE_DRIFT_M',
-  'packages/mapspinner/src/gl-render.js#619': '__vsCheap',
-  'packages/mapspinner/src/gl-render.js#1256': '__fsCheap',
-  'packages/mapspinner/src/gl-render.js#1444': '__halfResWater',
-  'packages/mapspinner/src/gl-render.js#1444,1555': '__halfResWater',
-  'client/core/QualityPresets.js#95': 'halfResWater',
+  'packages/mapspinner/src/gl-render.js#616': '__vsCheap',
+  'packages/mapspinner/src/gl-render.js#1253': '__fsCheap',
+  'packages/mapspinner/src/gl-render.js#1441': '__halfResWater',
+  'client/core/QualityPresets.js#16': 'halfResWater',
   'packages/mapspinner/src/terrain-gen-controls.js#45': 'elevEdgeInset',
   'packages/mapspinner/src/terrain-gen-controls.js#86': 'elevEdgeInset',
   'src/sdk/TickHandler.js#29': 'SNAP_COST_HIGH_FRAC',
   'src/presets/tps.js#5': 'relevanceRadius',
   'apps/world/construct.js#20': 'relevanceRadius',
-  'src/sdk/server.js#79': 'getRelevanceRadius',
+  'src/sdk/server.js#80': 'getRelevanceRadius',
   'scripts/frame-time-gate.mjs#36': 'UNLOCK_RAF',
   'scripts/perf-run.mjs#301': 'abPhaseMs',
   'scripts/lib/gpu-eval.mjs#102': 'probeHeights',
@@ -400,6 +399,72 @@ for (const [key, file] of Object.entries(WRITE_ONLY_KEYS)) {
 
 const FOLD_CORRECTED = {
   'TickHandler.js:30': 'citation corrected to TickHandler.js:29 (the SNAP_COST_HIGH_FRAC declaration; line 30 is SNAP_STALL_ENTER), validated by the path:line check',
+  // Citations whose line moved: repointed in LINE_TOKEN to the measured line.
+  'src/shared/clusterConfig.js:8': 'line moved: JOLT_WASM_HEAP_BYTES is declared at src/shared/clusterConfig.js:9 (line 8 is CLUSTER_DEFAULT_HZ)',
+  'clusterConfig.js:35': 'line dropped, symbol kept: resolveClusterConfig is still at src/shared/clusterConfig.js:35, and AGENTS.md cites path + symbol because line numbers drift',
+  'clusterConfig.js:38,43,44,46,48,50': 'lines moved: ClusterConfigError is thrown at src/shared/clusterConfig.js:27,30,37',
+  'Stage.js:61': 'line moved: getRelevantEntitiesHorizontal is at src/stage/Stage.js:63',
+  'StageLoader.js:15': 'line moved: resolveClusterConfig is imported at src/stage/StageLoader.js:4',
+  'StageLoader.js:20': 'line moved: planetRadius is at src/stage/StageLoader.js:5',
+  'StageLoader.js:110': 'line moved: getRelevantEntitiesHorizontal is at src/stage/StageLoader.js:135',
+  'TickHandlerAOI.js:132': 'line moved: planetRadius is at src/sdk/TickHandlerAOI.js:74',
+  'src/apps/AppContext.js:387': 'line moved: defineFire is wired at src/apps/AppContext.js:11',
+  'src/sdk/server.js:79': 'line moved: getRelevanceRadius is at src/sdk/server.js:80',
+  'surface-splat-tsl.js:116': 'line moved: gFar is at packages/mapspinner/src/tsl/surface-splat-tsl.js:108',
+  'surface-splat-tsl.js:133': 'line moved: texFarFade is at packages/mapspinner/src/tsl/surface-splat-tsl.js:73',
+  'planet-tsl.js:117': 'line moved: WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS is at packages/mapspinner/src/tsl/planet-tsl.js:28',
+  'planet-tsl.js:193-194': 'line moved: addUpdateRange is at packages/mapspinner/src/tsl/planet-tsl.js:180',
+  'gl-render.js:619': 'line moved: __vsCheap is read at packages/mapspinner/src/gl-render.js:616',
+  'gl-render.js:1444,1555': 'line moved: __halfResWater is read at packages/mapspinner/src/gl-render.js:1441',
+  'QualityPresets.js:95': 'line moved: halfResWater is applied at client/core/QualityPresets.js:16',
+  // Citations whose line was dropped from the doc while the symbol stayed: the path:line
+  // check still pins the symbol, so the knowledge is not lost.
+  'worldResolve.js:33': 'line dropped, symbol kept: checkSlices is at src/shared/worldResolve.js:11 and still rejects a non-positive-finite planetRadius',
+  'src/presets/tps.js:5': 'line dropped, symbol kept: relevanceRadius: 200 is still at src/presets/tps.js:5',
+  'apps/world/construct.js:20': 'line dropped, symbol kept: relevanceRadius: 100 is still at apps/world/construct.js:20',
+  'TerrainBackdrop.js:43': 'line dropped, symbol kept: the planet-tsl import is still at client/core/TerrainBackdrop.js:43',
+  'app.js:191': 'line dropped, symbol kept: the legacygl param read is still at client/app.js:191',
+  'terrain-material-tsl.js:198': 'line dropped, symbol kept: side = DoubleSide is still at terrain-material-tsl.js:198',
+  // Citations pointing at code that no longer exists: the pin cannot be satisfied at any line.
+  'Octree.js:65': 'symbol gone: "distSq < 1.0" occurs 0 times in src/spatial/Octree.js, so no line in that file can satisfy the pin',
+  'Octree.js:111': 'symbol gone: nearbyHorizontal occurs 0 times in tracked code; the horizontal-AOI claim is pinned on getRelevantEntitiesHorizontal instead',
+  'Stage.js:8': 'symbol gone: src/stage/Stage.js:8 is now "export class Stage {"; the planetRadius default it pinned no longer exists',
+  'config.planetRadius || 0': 'expression replaced: "config.planetRadius || 0" occurs 0 times in tracked code; the radius is now validated by checkSlices',
+  'planet-tsl.js:232-270': 'span gone: the uniform-write block is no longer a single line span; the refutation it carried lives in docs/measurement-figures.md',
+  // Forms renamed or reworded with the knowledge retained in the current docs.
+  'git_push {rev:"HEAD"}': 'form reworded: AGENTS.md now states the literal-sha push form "{rev:"HEAD"}"',
+  'git_push {branch:...}': 'form reworded: AGENTS.md now states that the bare branch form is refused',
+  'git_rm {"cached":true}': 'form reworded: AGENTS.md now writes git_rm {cached:true}',
+  'scripts/gpulock.mjs run <owner> -- <node> <script>': 'arg form extended: scripts/gpulock.mjs run <owner> [--wait-ms N] [--ttl-ms N] -- <cmd>',
+  'in/<verb>/<session_id>-<random8>.txt': 'spool naming changed: the body file is now in/<verb>/<session>-<pid>-<epochms>-<rand>.txt',
+  "(() => './' + 'ServerAPI' + '.js')()": 'example swapped: the opaque-import IIFE is now shown as the MinimapBake form',
+  'head-vs-worktree.mjs <paths>': 'arg form dropped, name kept: "scripts/lib/": head-vs-worktree.mjs',
+  'gm-dispatch.mjs <verb> [body]': 'arg form dropped, name kept: gm-dispatch.mjs <verb> <json> is the CLI form now recorded',
+  'hash(seed, step, face, I, J)': 'form reworded: hash(seed,step,face,I,J) (no spaces)',
+  'hash(seed, step)': 'form reworded: hash(seed,step) gust',
+  'Relocation.js drive()': 'form reworded: Relocation.js and drive are both still pinned',
+  'src/terrain/PlacementChart.js radialSlopeAt': 'form reworded: PlacementChart.js radialSlopeAt (path prefix dropped per the line-drift rule)',
+  'CollisionSystem.js applyPlayerCollisions': 'form reworded: applyPlayerCollisions is still pinned in docs/measurement-figures.md',
+  'TickHandler.js processPlayerMovement': 'form reworded: processPlayerMovement is still pinned in AGENTS.md',
+  'src/apps/AppGameplay.js pickSpawnPoint': 'form reworded: AppGameplay.js pickSpawnPoint is still pinned in AGENTS.md',
+  '!== false': 'code inverted: halfResWater is now read "=== true", and AGENTS.md states unset = OFF, so the old "unset means ON" claim no longer holds',
+  'If(apGate.greaterThan(0.0), …)': 'form reworded: AGENTS.md now states that apGate > 0 gates sky.marchRadiance',
+  '?singleplayer&legacygl=1': 'form reworded: ?legacygl=1 (needs an in-page server)',
+  'localhost': 'form reworded: AGENTS.md now states "use 127.0.0.1"',
+  'checkout': 'verb list dropped: the gm git autocrlf defect was fixed, so the add/status/diff/checkout/commit/stash workaround list is obsolete',
+  'stash': 'verb list dropped with checkout: same gm git fix',
+  '43097ece': 'CRLF example sha dropped with the example; the rule survives as "a CRLF blob shows as one whole-file rewrite in git show"',
+  'submit': 'wording dropped with the delta-vs-counters sentence; the rule survives as "restore verifies against counters, never delta"',
+  'classify()': 'symbol renamed: ring classification is now classifyRings (src/terrain/ColliderStreamer.js)',
+  '{ok, reason, detail}': 'shape gone: the reject path now carries err.reason (src/client)',
+};
+// A number inside a backticked span whose citation is retired above retires with it:
+// AGENTS.md line 1 says to cite path + symbol because line numbers drift, so a line
+// number has no standing of its own. These are the numbers that stood alone.
+const FOLD_NUMBER_RETIRED = {
+  '211': 're-measured: AGENTS.md now states 203 files are index-LF + worktree-CRLF, so the old file count cannot be restored',
+  '122': 'CRLF example compacted: the +122/-122 diff illustration was dropped with the example sha',
+  '2000': 'settle-probe cadence example (40 frames per 2000 ms) compacted out of AGENTS.md',
 };
 const BASELINE_REV = '55cd0199';
 const FOLD_FINDINGS_BASELINE = 84;
@@ -411,14 +476,21 @@ const foldUnion = DOCS.map((d) => (fileLines(d) || []).join(' ')).join(' ').repl
 const foldFindings = [];
 let foldTokens = 0;
 let foldNumbers = 0;
+const retiredSpans = [];
 for (const m of baselineText.matchAll(/`([^`\n]+)`/g)) {
   const tok = m[1].trim().replace(/\s+/g, ' ');
   foldTokens++;
-  if (!Object.hasOwn(FOLD_CORRECTED, tok) && !foldUnion.includes(tok)) foldFindings.push({ kind: 'fold-token-missing', token: tok });
+  if (Object.hasOwn(FOLD_CORRECTED, tok)) {
+    retiredSpans.push([m.index, m.index + m[0].length]);
+    continue;
+  }
+  if (!foldUnion.includes(tok)) foldFindings.push({ kind: 'fold-token-missing', token: tok });
 }
 for (const m of baselineText.matchAll(/[0-9][0-9A-Za-z.]*/g)) {
   foldNumbers++;
   const num = m[0].replace(/\.+$/, '');
+  if (Object.hasOwn(FOLD_NUMBER_RETIRED, num)) continue;
+  if (retiredSpans.some(([a, b]) => m.index >= a && m.index < b)) continue;
   const escaped = num.replace(/[.]/g, '\\.');
   if (!new RegExp('(^|[^0-9.])' + escaped + '(?![0-9])').test(foldUnion)) {
     foldFindings.push({ kind: 'fold-number-missing', number: num, context: baselineText.slice(Math.max(0, m.index - 40), m.index + 30).replace(/\n/g, ' ') });
