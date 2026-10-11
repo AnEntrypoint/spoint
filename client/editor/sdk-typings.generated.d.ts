@@ -44,7 +44,7 @@ export declare class AppContext {
         addConvexFromModel: (meshIndex?: number) => void;
         addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
         addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
-        addForce: (f: any) => void;
+        addForce: (f: any) => any;
         setVelocity: (v: any) => void;
         setPosition: (p: any) => void;
         getVelocity: () => any;
@@ -116,7 +116,7 @@ export declare class AppContext {
         addConvexFromModel: (meshIndex?: number) => void;
         addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
         addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
-        addForce: (f: any) => void;
+        addForce: (f: any) => any;
         setVelocity: (v: any) => void;
         setPosition: (p: any) => void;
         getVelocity: () => any;
