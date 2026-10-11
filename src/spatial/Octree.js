@@ -197,7 +197,7 @@ export class SpatialIndex {
           if (!p) continue
           const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz
           const d2 = dx * dx + dy * dy + dz * dz
-          if (d2 <= bestD2) { bestD2 = d2; bestId = id }
+          if (d2 < bestD2 || (d2 === bestD2 && (bestId === null || String(id) < String(bestId)))) { bestD2 = d2; bestId = id }
         }
       }
     }
