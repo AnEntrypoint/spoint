@@ -556,7 +556,7 @@ const docRows = [];
     if (line.startsWith('## ')) {
       seenHeading = true;
       section = line.slice(3).trim();
-      isOpenQuestion = /^## .*Open questions/.test(line);
+      isOpenQuestion = /^## 13\. /.test(line);
       enclosingProvenance = null;
     }
     const row = parseDocRow(line, section, isOpenQuestion, seenHeading, enclosingProvenance);

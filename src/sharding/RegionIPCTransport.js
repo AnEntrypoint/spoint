@@ -1,5 +1,6 @@
 import { TransportWrapper } from '../transport/TransportWrapper.js'
-import { messageRefusal } from './ShardingRefusal.js'
+import { messageRefusal, routerPlayerIdRefusal } from './ShardingRefusal.js'
+import { parseRouterPlayerId } from './RegionRouter.js'
 
 function frameBytesOf(data) {
   if (typeof data === 'string') return Buffer.from(data)
@@ -11,8 +12,10 @@ function frameBytesOf(data) {
 export class RegionIPCTransport extends TransportWrapper {
   constructor(routerPlayerId, sendToRouter) {
     super()
+    const parsed = parseRouterPlayerId(routerPlayerId)
+    if (!parsed.ok) throw routerPlayerIdRefusal(routerPlayerId, parsed.reason)
     this.type = 'region-ipc'
-    this.routerPlayerId = routerPlayerId
+    this.routerPlayerId = parsed.routerPlayerId
     this._sendToRouter = sendToRouter
     this.ready = true
     this.lastRefusal = null

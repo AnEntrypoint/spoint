@@ -2,7 +2,10 @@ export const FIELD_TYPES = Object.freeze({
   u8: 'u8', u16: 'u16', i16: 'i16', f32: 'f32', f64: 'f64', bool: 'bool', string: 'string', enum: 'enum'
 })
 
+const MAX_ENUM_VALUES = 256
+const MAX_STRING_BYTES = 65535
 const VARIABLE_BYTE_SIZE = null
+
 function fieldByteSize(field) {
   switch (field.type) {
     case 'u8': case 'bool': case 'enum': return 1
@@ -21,7 +24,13 @@ export function validateSchema(schema) {
     if (!Object.hasOwn(FIELD_TYPES, field.type)) throw new TypeError(`[ComponentSchema] field "${name}" has unknown type: ${field.type}`)
     if (field.type === 'enum') {
       if (!Array.isArray(field.enum) || field.enum.length === 0) throw new TypeError(`[ComponentSchema] enum field "${name}" needs a non-empty enum: string[]`)
-      if (field.enum.length > 256) throw new TypeError(`[ComponentSchema] enum field "${name}" exceeds 256 values (1-byte index)`)
+      if (field.enum.length > MAX_ENUM_VALUES) throw new TypeError(`[ComponentSchema] enum field "${name}" exceeds ${MAX_ENUM_VALUES} values (1-byte index)`)
+      const declared = new Set()
+      for (const member of field.enum) {
+        if (typeof member !== 'string' || member.length === 0) throw new TypeError(`[ComponentSchema] enum field "${name}" declares the member ${String(member)}, which no string value can encode to`)
+        if (declared.has(member)) throw new TypeError(`[ComponentSchema] enum field "${name}" declares the member "${member}" twice`)
+        declared.add(member)
+      }
     }
     if (field.tier != null && field.tier !== 'full' && field.tier !== 'reduced') {
       throw new TypeError(`[ComponentSchema] field "${name}" tier must be 'full' or 'reduced'`)
@@ -30,18 +39,52 @@ export function validateSchema(schema) {
   return schema
 }
 
-export function defineComponentSchema(schema) {
-  validateSchema(schema)
+function _deepFreezeSchema(schema) {
+  for (const field of Object.values(schema)) {
+    if (field.type === 'enum') Object.freeze(field.enum)
+    Object.freeze(field)
+  }
   return Object.freeze(schema)
 }
 
+const _validatedSchemas = new WeakSet()
+
+export function defineComponentSchema(schema) {
+  validateSchema(schema)
+  const frozen = _deepFreezeSchema(schema)
+  _validatedSchemas.add(frozen)
+  return frozen
+}
+
+function _requireValidatedSchema(schema) {
+  if (_validatedSchemas.has(schema)) return schema
+  validateSchema(schema)
+  return schema
+}
+
 const _registry = new Map()
+const _registryShape = new Map()
+
+function _canonicalShape(schema) {
+  const names = Object.keys(schema).sort()
+  return JSON.stringify(names.map((name) => {
+    const field = schema[name]
+    const head = [name, field.type, field.tier ?? null]
+    return field.type === 'enum' ? [...head, field.enum] : head
+  }))
+}
 
 export function registerComponentSchema(name, schema) {
   if (!name || typeof name !== 'string') throw new TypeError('[ComponentSchema] registerComponentSchema: name must be a non-empty string')
-  validateSchema(schema)
-  _registry.set(name, schema)
-  return schema
+  const frozen = defineComponentSchema(schema)
+  const shape = _canonicalShape(frozen)
+  const bound = _registryShape.get(name)
+  if (bound !== undefined && bound !== shape) {
+    throw new TypeError(`[ComponentSchema] registerComponentSchema: name "${name}" is already bound to a different schema shape`)
+  }
+  _registry.set(name, frozen)
+  _registryShape.set(name, shape)
+  return frozen
 }
 
 export function getComponentSchema(name) { return _registry.get(name) || null }
@@ -63,6 +106,7 @@ function decodeStringUtf8(bytes) {
 }
 
 export function encodeCustomFields(schema, obj) {
+  _requireValidatedSchema(schema)
   const names = Object.keys(schema)
   let hasString = false
   for (const name of names) { if (schema[name].type === 'string') { hasString = true; break } }
@@ -89,12 +133,15 @@ export function encodeCustomFields(schema, obj) {
     const present = obj != null && obj[name] !== undefined
     if (!present) { parts.push(new Uint8Array(1 + (field.type === 'string' ? 0 : fieldByteSize(field)))); continue }
     if (field.type === 'string') {
-      const strBytes = encodeStringUtf8(String(obj[name]))
+      const value = obj[name]
+      if (typeof value !== 'string') throw new TypeError(`[ComponentSchema] field "${name}" of type string is ${typeof value}, not string`)
+      const strBytes = encodeStringUtf8(value)
+      if (strBytes.length > MAX_STRING_BYTES) throw new RangeError(`[ComponentSchema] field "${name}" encodes to ${strBytes.length} UTF-8 bytes, over the declared ${MAX_STRING_BYTES}`)
       const head = new Uint8Array(3)
       const hdv = new DataView(head.buffer)
       hdv.setUint8(0, 1)
-      hdv.setUint16(1, Math.min(65535, strBytes.length), true)
-      parts.push(head, strBytes.subarray(0, Math.min(65535, strBytes.length)))
+      hdv.setUint16(1, strBytes.length, true)
+      parts.push(head, strBytes)
     } else {
       const size = fieldByteSize(field)
       const chunk = new Uint8Array(1 + size)
@@ -116,18 +163,29 @@ function _finite(name, value) {
   throw new RangeError(`[ComponentSchema] field "${name}" is not a finite number (got ${typeof value} ${String(value)})`)
 }
 
+function _integerInRange(name, value, lo, hi) {
+  const v = _finite(name, value)
+  const rounded = Math.round(v)
+  if (rounded < lo || rounded > hi) throw new RangeError(`[ComponentSchema] field "${name}" is ${v}, outside the declared ${lo}..${hi}`)
+  return rounded
+}
+
 function _writeField(dv, off, field, name, value) {
   switch (field.type) {
-    case 'u8': dv.setUint8(off, Math.max(0, Math.min(255, Math.round(_finite(name, value)))) & 0xFF); return off + 1
-    case 'bool': dv.setUint8(off, value ? 1 : 0); return off + 1
+    case 'u8': dv.setUint8(off, _integerInRange(name, value, 0, 255)); return off + 1
+    case 'bool': {
+      if (typeof value === 'string') throw new TypeError(`[ComponentSchema] field "${name}" of type bool is the string ${JSON.stringify(value)}, which is truthy and would encode as true`)
+      dv.setUint8(off, value ? 1 : 0); return off + 1
+    }
     case 'enum': {
-      const idx = field.enum.indexOf(String(value))
+      if (typeof value !== 'string') throw new RangeError(`[ComponentSchema] field "${name}" of type enum is ${typeof value} ${String(value)}, not one of [${field.enum.join(', ')}]`)
+      const idx = field.enum.indexOf(value)
       if (idx < 0) throw new RangeError(`[ComponentSchema] field "${name}" of type enum is ${String(value)}, outside [${field.enum.join(', ')}]`)
       dv.setUint8(off, idx)
       return off + 1
     }
-    case 'u16': dv.setUint16(off, Math.max(0, Math.min(65535, Math.round(_finite(name, value)))), true); return off + 2
-    case 'i16': dv.setInt16(off, Math.max(-32768, Math.min(32767, Math.round(_finite(name, value)))), true); return off + 2
+    case 'u16': dv.setUint16(off, _integerInRange(name, value, 0, 65535), true); return off + 2
+    case 'i16': dv.setInt16(off, _integerInRange(name, value, -32768, 32767), true); return off + 2
     case 'f32': dv.setFloat32(off, _finite(name, value), true); return off + 4
     case 'f64': dv.setFloat64(off, _finite(name, value), true); return off + 8
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
@@ -141,9 +199,17 @@ function _refusal(bytes, off, need, what) {
   return new RangeError(`[ComponentSchema] ${what} needs ${need} byte(s) at offset ${off}, ${bytes.length - off} remain`)
 }
 
+function _asBytes(buf) {
+  if (buf instanceof Uint8Array) return buf
+  if (ArrayBuffer.isView(buf)) return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+  if (buf instanceof ArrayBuffer) return new Uint8Array(buf)
+  throw new TypeError(`[ComponentSchema] decodeCustomFields needs a Uint8Array or ArrayBuffer, got ${buf === null ? 'null' : typeof buf}`)
+}
+
 export function decodeCustomFields(schema, buf) {
+  _requireValidatedSchema(schema)
   const names = Object.keys(schema)
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  const bytes = _asBytes(buf)
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const out = {}
   let off = 0

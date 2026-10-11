@@ -10,6 +10,10 @@ const WATCHDOG_MS = 60000
 const { RegionRouter, playerIdentity, handoffTo, parseRouterPlayerId, parseLocalPlayerId, parseSessionToken,
   ROUTER_PLAYER_ID_MALFORMED, LOCAL_PLAYER_ID_MALFORMED, SESSION_TOKEN_MALFORMED } = await import(pathToFileURL(MODULE_PATH).href)
 
+const GRID_PATH = join(REPO_ROOT, 'src/sharding/RegionGrid.js')
+const { regionIdFor, REGION_COORDS_NOT_FINITE, REGION_CELL_SIZE_NOT_POSITIVE } =
+  await import(pathToFileURL(GRID_PATH).href)
+
 const TOK = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
 const TOK2 = '0123456789abcdef0123456789abcdef'
 const TOK3 = 'fedcba9876543210fedcba9876543210'
@@ -185,8 +189,43 @@ async function handoffChecks() {
   expect('handoff: a frame after the crossing reaches the new region under its router id', east.frames, [{ routerPlayerId: 1, data: 'frame-after-handoff' }])
 }
 
+function mintedOrRefusal(x, z, cellSize) {
+  try {
+    return { minted: regionIdFor(x, z, cellSize) }
+  } catch (error) {
+    return { code: error?.code ?? null }
+  }
+}
+
+async function spawnEdgeChecks() {
+  expect('spawn edge: a finite spawn still mints its region', mintedOrRefusal(10, 10), { minted: '0,0' })
+  expect('spawn edge: a NaN x mints nothing, it is refused by name at the producer', mintedOrRefusal(NaN, 5), { code: REGION_COORDS_NOT_FINITE })
+  expect('spawn edge: a NaN z is refused the same way', mintedOrRefusal(5, NaN), { code: REGION_COORDS_NOT_FINITE })
+  expect('spawn edge: an infinity is not a coordinate', mintedOrRefusal(Infinity, 5), { code: REGION_COORDS_NOT_FINITE })
+  expect('spawn edge: an absent coordinate is refused, not minted as NaN', mintedOrRefusal(undefined, undefined), { code: REGION_COORDS_NOT_FINITE })
+  expect('spawn edge: a cell size that is not positive is refused by its own name', mintedOrRefusal(10, 10, 0), { code: REGION_CELL_SIZE_NOT_POSITIVE })
+  expect('spawn edge: no refusal is the string NaN,0', JSON.stringify([mintedOrRefusal(NaN, 5), mintedOrRefusal(5, NaN)]).includes('NaN,0'), false)
+
+  const router = new RegionRouter({ worldDef: { spawnPoint: [10, 5, 10] }, port: 0 })
+  const worker = stubWorker(router, '0,0', [7])
+  const sock = fakeSocket()
+  const lines = refusedLines(() => router._onSocketConnect(sock, [NaN, 5, 0]))
+  await new Promise(r => setImmediate(r))
+  expect('spawn edge: a socket whose spawn mints no region is closed, not admitted', sock.readyState, 3)
+  expect('spawn edge: the refused spawn registers no player', router.players.size, 0)
+  expect('spawn edge: no region is asked to admit it', worker.received.filter(m => m.type === 'CLIENT_CONNECT'), [])
+  expect('spawn edge: the refusal names the coordinate space', lines.some(l => l.includes(REGION_COORDS_NOT_FINITE)), true)
+
+  const defRouter = new RegionRouter({ worldDef: { spawnPoint: [NaN, 5, 10] }, port: 0 })
+  const defWorker = stubWorker(defRouter, '0,0', [7])
+  const defSock = fakeSocket()
+  await defRouter._onSocketConnect(defSock, undefined)
+  expect('spawn edge: a world spawn point that is not finite refuses the connection too', [defSock.readyState, defRouter.players.size, defWorker.received.length], [3, 0, 0])
+}
+
 await typeChecks()
 await twoClientsOneRegion()
 await unadmittedClients()
 await handoffChecks()
+await spawnEdgeChecks()
 finish()

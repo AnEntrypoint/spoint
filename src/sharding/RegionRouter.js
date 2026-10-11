@@ -7,13 +7,16 @@ import { existsSync } from 'node:fs'
 import { createStaticHandler } from '../sdk/StaticHandler.js'
 import { buildStaticDirs } from '../sdk/server.js'
 import {
-  parseRegionId, regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
+  parseRegionId, parseRegionCoords, regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
 import { resolveAppsDirs } from '../sdk/ServerBoot.js'
 import {
   dispatchMessage, messageTable, refusalText,
-  RegionWorkerRefusedError, RegionSiblingRefusedError, WORKER_REFUSED
+  ClientConnectRefusedError, RegionWorkerRefusedError, RegionSiblingRefusedError,
+  WORKER_REFUSED, ROUTER_PLAYER_ID_MALFORMED, CLIENT_CONNECT_REFUSED, HANDOFF_REFUSED
 } from './ShardingRefusal.js'
+
+export { ROUTER_PLAYER_ID_MALFORMED }
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const WORKER_ENTRY = join(SDK_ROOT, 'src/sharding/RegionWorkerEntry.js')
@@ -35,7 +38,6 @@ export function handoffTo(toRegion, fromRegion, fromLocalId) {
   return { toRegion, fromRegion, fromLocalId }
 }
 
-export const ROUTER_PLAYER_ID_MALFORMED = 'router-player-id-malformed'
 export const LOCAL_PLAYER_ID_MALFORMED = 'local-player-id-malformed'
 export const SESSION_TOKEN_MALFORMED = 'session-token-malformed'
 
@@ -79,10 +81,12 @@ export class RegionRouter {
       ['WORKER_BOOTING', () => {}],
       ['WORKER_READY', (msg, regionId) => this.workers.get(regionId)?._resolveReady?.()],
       ['CLIENT_CONNECTED', msg => this._settlePending(msg.requestId, msg)],
+      [CLIENT_CONNECT_REFUSED, msg => this._handleClientConnectRefused(msg)],
       ['WORKER_FRAME', (msg, regionId) => this._forwardToClient(regionId, msg)],
       ['CLIENT_CLOSE_FROM_WORKER', (msg, regionId) => this._closeClient(regionId, msg)],
       ['BOUNDARY_CROSSING', (msg, regionId) => this._handleBoundaryCrossing(regionId, msg)],
       ['HANDOFF_ACCEPTED', msg => this._handleHandoffAccepted(msg)],
+      [HANDOFF_REFUSED, msg => this._handleHandoffRefused(msg)],
       ['EVENT_REPLICATE', (msg, regionId) => this._handleEventReplicate(regionId, msg)],
       ['STATS', msg => this._settlePending(msg.requestId, msg)],
       [WORKER_REFUSED, (msg, regionId) => this._handleWorkerRefused(regionId, msg)],
@@ -272,6 +276,29 @@ export class RegionRouter {
     this.workers.get(msg.fromRegion)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', routerPlayerId: entry.routerId })
   }
 
+  _handleClientConnectRefused(msg) {
+    const parsed = parseRouterPlayerId(msg.routerPlayerId)
+    const code = typeof msg.code === 'string' ? msg.code : ROUTER_PLAYER_ID_MALFORMED
+    if (!parsed.ok) {
+      refuseWorkerMessage(msg.region ?? null, parsed.reason, { type: msg.type, routerPlayerId: msg.routerPlayerId ?? null })
+      return
+    }
+    refuseWorkerMessage(msg.region ?? null, code, { requestId: msg.requestId ?? null, routerPlayerId: parsed.routerPlayerId, error: msg.error ?? null })
+    this._refusePending(msg.requestId, new ClientConnectRefusedError(code, msg.error ?? null))
+    const player = this.players.get(parsed.routerPlayerId)
+    if (player?.socket) player.socket.close()
+  }
+
+  _handleHandoffRefused(msg) {
+    const parsed = parseRouterPlayerId(msg.routerPlayerId)
+    const player = parsed.ok ? this.players.get(parsed.routerPlayerId) : null
+    if (player) player.handoff = null
+    refuseWorkerMessage(msg.region ?? null, typeof msg.code === 'string' ? msg.code : ROUTER_PLAYER_ID_MALFORMED, {
+      fromRegion: msg.fromRegion ?? null, localPlayerId: msg.localPlayerId ?? null,
+      routerPlayerId: parsed.ok ? parsed.routerPlayerId : null, error: msg.error ?? null
+    })
+  }
+
   _handleEventReplicate(originRegion, msg) {
     for (const [regionId, entry] of this.workers) {
       if (regionId === originRegion || !entry.ready) continue
@@ -283,7 +310,13 @@ export class RegionRouter {
     const routerId = this._nextRouterPlayerId++
     const spawnPoints = this.worldDef.spawnPoints?.length ? this.worldDef.spawnPoints : (this.worldDef.spawnPoint ? [this.worldDef.spawnPoint] : [[0, 5, 0]])
     const sp = initialPosition || spawnPoints[Math.floor(Math.random() * spawnPoints.length)]
-    const region = authoritativeRegionFor(sp[0], sp[2], this.cellSize)
+    const coords = parseRegionCoords(sp?.[0], sp?.[2], this.cellSize)
+    if (!coords.ok) {
+      console.error(`[router] refused connection: spawn point ${JSON.stringify(sp ?? null)} mints no region (${coords.reason})`)
+      socket.close()
+      return
+    }
+    const region = coords.regionId
     const entry = this.workers.get(region)
     if (!entry || !entry.ready) {
       console.error(`[router] no live region worker for spawn region ${region} -- closing connection`)

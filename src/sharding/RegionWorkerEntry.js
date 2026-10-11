@@ -8,12 +8,13 @@ import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { createServerDeps, wireServerHandlers, buildStaticDirs } from '../sdk/server.js'
 import { RegionIPCTransport } from './RegionIPCTransport.js'
 import {
-  regionBoundsWithGhost, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
+  regionBoundsWithGhost, parseRegionCoords, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
 import { worldTickRate, DEFAULT_GRAVITY, DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
 import { resolveAppsDirs } from '../sdk/ServerBoot.js'
 import {
-  dispatchMessage, errorRefusal, messageTable, refusalText, WORKER_NOT_INITIALIZED, WORKER_REFUSED
+  dispatchMessage, errorRefusal, messageTable, refusalText,
+  WORKER_NOT_INITIALIZED, WORKER_REFUSED, ROUTER_PLAYER_ID_MALFORMED, CLIENT_CONNECT_REFUSED, HANDOFF_REFUSED
 } from './ShardingRefusal.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -125,7 +126,13 @@ function checkHandoffs() {
   for (const player of ctx.playerManager.getConnectedPlayers()) {
     const pos = player.state.position
     if (!pos) continue
-    const cur = authoritativeRegionFor(pos[0], pos[2], cellSize)
+    const coords = parseRegionCoords(pos[0], pos[2], cellSize)
+    if (!coords.ok) {
+      refusalLine(regionId, coords.reason, 'BOUNDARY_CHECK')
+      console.error(`[region-worker ${regionId || '?'}] player ${player.id} holds position ${JSON.stringify(pos)} -- no boundary check`)
+      continue
+    }
+    const cur = coords.regionId
     const prev = lastRegionForPlayer.get(player.id)
     if (prev === undefined) { lastRegionForPlayer.set(player.id, cur); continue }
     if (cur !== prev && cur !== regionId) {
@@ -145,7 +152,15 @@ function checkHandoffs() {
 }
 
 function acceptHandoff({ localPlayerId, routerPlayerId, fromRegion, state, sessionToken }) {
-  const transport = new RegionIPCTransport(routerPlayerId, send)
+  let transport
+  try {
+    transport = new RegionIPCTransport(routerPlayerId, send)
+  } catch (error) {
+    const code = error?.code || ROUTER_PLAYER_ID_MALFORMED
+    refusalLine(regionId, code, 'ACCEPT_HANDOFF')
+    send({ type: HANDOFF_REFUSED, region: regionId, fromRegion, routerPlayerId: routerPlayerId ?? null, localPlayerId: localPlayerId ?? null, code, error: error?.message ?? String(error) })
+    return
+  }
   transports.set(routerPlayerId, transport)
   const playerConfig = ctx.currentWorldDef?.player || {}
   const newId = ctx.playerManager.addPlayer(transport, {
@@ -157,7 +172,7 @@ function acceptHandoff({ localPlayerId, routerPlayerId, fromRegion, state, sessi
   const client = ctx.connections.addClient(newId, transport)
   client.sessionToken = sessionToken || ctx.sessions.create(newId, ctx.playerManager.getPlayer(newId).state)
   ctx.connections.send(newId, MSG.RECONNECT_ACK, {
-    playerId: newId, tick: ctx.tickSystem.currentTick, sessionToken: client.sessionToken,
+    playerId: newId, localPlayerId: newId, tick: ctx.tickSystem.currentTick, sessionToken: client.sessionToken,
     tickRate: ctx.tickRate, position: state.position, health: state.health, structHash: WIRE_STRUCT_HASH
   })
   const worldDefForClient = { ...ctx.currentWorldDef }
@@ -202,7 +217,15 @@ async function handleInit(msg) {
 }
 
 function handleClientConnect(msg) {
-  const transport = new RegionIPCTransport(msg.routerPlayerId, send)
+  let transport
+  try {
+    transport = new RegionIPCTransport(msg.routerPlayerId, send)
+  } catch (error) {
+    const code = error?.code || ROUTER_PLAYER_ID_MALFORMED
+    refusalLine(regionId, code, msg?.type)
+    send({ type: CLIENT_CONNECT_REFUSED, region: regionId, requestId: msg.requestId ?? null, routerPlayerId: msg.routerPlayerId ?? null, code, error: error?.message ?? String(error) })
+    return
+  }
   transports.set(msg.routerPlayerId, transport)
   pendingClientConnects.set(transport, msg.requestId)
   ctx.onClientConnect(transport)

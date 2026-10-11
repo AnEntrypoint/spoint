@@ -19,10 +19,7 @@ export function buildConvexShape(J, params, shapeCache, cacheKey) {
   return { shape, cached: false, sr }
 }
 
-export function buildMeshShape(J, params, shapeCache, cacheKey) {
-  if (cacheKey && shapeCache.has(cacheKey)) return { shape: shapeCache.get(cacheKey), cached: true, sr: null }
-  const { vertices, indices } = params
-  const triangleCount = indices.length / 3
+function createMeshShapeFromTriangles(J, vertices, indices, triangleCount, failurePrefix, failureSuffix) {
   const triangles = new J.TriangleList(); triangles.resize(triangleCount)
   const f3 = new J.Float3(0, 0, 0)
   for (let t = 0; t < triangleCount; t++) {
@@ -34,9 +31,16 @@ export function buildMeshShape(J, params, shapeCache, cacheKey) {
   if (!sr.IsValid()) {
     const err = sr.GetError().c_str()
     J.destroy(sr)
-    throw new Error(`[buildMeshShape] MeshShapeSettings.Create() failed: ${err} (${triangleCount} triangles)`)
+    throw new Error(`${failurePrefix}: ${err}${failureSuffix}`)
   }
-  const shape = sr.Get()
+  return { shape: sr.Get(), sr }
+}
+
+export function buildMeshShape(J, params, shapeCache, cacheKey) {
+  if (cacheKey && shapeCache.has(cacheKey)) return { shape: shapeCache.get(cacheKey), cached: true, sr: null }
+  const { vertices, indices } = params
+  const triangleCount = indices.length / 3
+  const { shape, sr } = createMeshShapeFromTriangles(J, vertices, indices, triangleCount, '[buildMeshShape] MeshShapeSettings.Create() failed', ` (${triangleCount} triangles)`)
   if (cacheKey) shapeCache.set(cacheKey, shape)
   return { shape, cached: false, sr }
 }
@@ -65,18 +69,6 @@ export async function buildTrimeshShape(J, glbPath, scale) {
   const keptCount = keptTriangles.length / 3
   const droppedDegenerate = triangleCount - keptCount
   if (droppedDegenerate) console.warn(`[trimesh] dropped ${droppedDegenerate} degenerate (zero-area) triangle(s) from ${glbPath}`)
-  const triangles = new J.TriangleList(); triangles.resize(keptCount)
-  const f3 = new J.Float3(0, 0, 0)
-  for (let t = 0; t < keptCount; t++) {
-    const tri = triangles.at(t)
-    for (let v = 0; v < 3; v++) { const idx = keptTriangles[t*3+v]; f3.x = vertices[idx*3]; f3.y = vertices[idx*3+1]; f3.z = vertices[idx*3+2]; tri.set_mV(v, f3) }
-  }
-  const settings = new J.MeshShapeSettings(triangles), sr = settings.Create()
-  J.destroy(f3); J.destroy(triangles); J.destroy(settings)
-  if (!sr.IsValid()) {
-    const err = sr.GetError().c_str()
-    J.destroy(sr)
-    throw new Error(`[buildTrimeshShape] MeshShapeSettings.Create() failed for ${glbPath}: ${err} (${keptCount} kept of ${triangleCount} triangles)`)
-  }
-  return { shape: sr.Get(), sr, triangleCount: keptCount }
+  const { shape, sr } = createMeshShapeFromTriangles(J, vertices, keptTriangles, keptCount, `[buildTrimeshShape] MeshShapeSettings.Create() failed for ${glbPath}`, ` (${keptCount} kept of ${triangleCount} triangles)`)
+  return { shape, sr, triangleCount: keptCount }
 }

@@ -1,10 +1,35 @@
 export const DEFAULT_CELL_SIZE = 512
 export const DEFAULT_GHOST_MARGIN = 32
 
+export const REGION_COORDS_NOT_FINITE = 'region-coords-not-finite'
+export const REGION_CELL_SIZE_NOT_POSITIVE = 'region-cell-size-not-positive'
+
+function finiteOrNull(n) {
+  return Number.isFinite(n) ? n : null
+}
+
+export function parseRegionCoords(x, z, cellSize = DEFAULT_CELL_SIZE) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return { ok: false, reason: REGION_COORDS_NOT_FINITE, x: finiteOrNull(x), z: finiteOrNull(z) }
+  }
+  if (!Number.isFinite(cellSize) || cellSize <= 0) {
+    return { ok: false, reason: REGION_CELL_SIZE_NOT_POSITIVE, cellSize: finiteOrNull(cellSize) }
+  }
+  return { ok: true, regionId: `${Math.floor(x / cellSize)},${Math.floor(z / cellSize)}` }
+}
+
+function regionCoordsRefusal(x, z, cellSize, reason) {
+  const err = new Error(
+    `[region-grid] ${reason}: coords (${JSON.stringify(x)}, ${JSON.stringify(z)}) over cellSize ${JSON.stringify(cellSize)} mint no region id`
+  )
+  err.code = reason
+  return err
+}
+
 export function regionIdFor(x, z, cellSize = DEFAULT_CELL_SIZE) {
-  const rx = Math.floor(x / cellSize)
-  const rz = Math.floor(z / cellSize)
-  return `${rx},${rz}`
+  const parsed = parseRegionCoords(x, z, cellSize)
+  if (!parsed.ok) throw regionCoordsRefusal(x, z, cellSize, parsed.reason)
+  return parsed.regionId
 }
 
 export const REGION_ID_MALFORMED = 'region-id-not-two-integers'

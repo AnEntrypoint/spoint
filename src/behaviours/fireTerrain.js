@@ -25,7 +25,7 @@ export function createFirebreakFuel({ baseClassAt, breaks, frame, lattice, terra
     if (base === 0 || !localXZ(face, I, J, xz)) return base
     const x = xz[0], z = xz[1]
     for (const c of breaks.cleared) if (Math.hypot(x - c.center[0], z - c.center[1]) <= c.radiusM) return 0
-    if (kindAt !== null && breaks.kinds.size > 0) { const k = kindAt(x, z); if (k != null && breaks.kinds.has(k)) return 0 }
+    if (breaks.kinds.size > 0) { const k = kindAt(x, z); if (k != null && breaks.kinds.has(k)) return 0 }
     if (breaks.water) {
       const h = heightAt(x, z), sea = seaLevelAt(x, z)
       if (Number.isFinite(h) && Number.isFinite(sea) && h < sea) return 0

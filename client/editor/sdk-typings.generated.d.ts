@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: a17bb18e273faee6df0db29e6aeea3f8347ff437ebea9e62bde2cafc6f5385fb
+// source digest: adc31f3e2df943a9af25bd9cfb0a5f449c04b7c2fc7bd3b71a999ce63d18d973
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 export declare class AppContext {
@@ -51,7 +51,6 @@ export declare class AppContext {
         getVelocity: () => any;
         getAngularVelocity: () => any;
         getRotation: () => any;
-        isAtRest: (eps?: number) => boolean;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
         setMotionType: (motionType: any) => boolean;
@@ -123,7 +122,6 @@ export declare class AppContext {
         getVelocity: () => any;
         getAngularVelocity: () => any;
         getRotation: () => any;
-        isAtRest: (eps?: number) => boolean;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
         setMotionType: (motionType: any) => boolean;
@@ -276,11 +274,11 @@ export declare class AppContext {
         send(type: any, payload: any): {
             ok: boolean;
             reason: string;
-            event: any;
+            event: string;
             state: any;
         } | {
             ok: boolean;
-            event: any;
+            event: string;
             state: any;
             reason?: undefined;
         };
@@ -626,6 +624,9 @@ export declare class AppContext {
             readonly rebuildCount: number;
             readonly busy: boolean;
             readonly maxFields: any;
+            readonly lastError: any;
+            readonly lastRefusal: any;
+            readonly refusalCount: number;
         } | null>;
     };
 }

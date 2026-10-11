@@ -43,6 +43,13 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
 
 const chebyshev = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]))
 
+export const HEIGHTFIELD_REFUSALS = Object.freeze({
+  cap: 'heightfield-cap',
+  heap: 'wasm-heap-reserve',
+  jolt: 'jolt-rejected-field',
+  threw: 'pass-threw',
+})
+
 function assignPlayers(players, fields, half) {
   const owner = new Array(players.length).fill(-1)
   const load = new Array(fields.length).fill(0)
@@ -86,7 +93,13 @@ export function createTerrainStreamer(opts = {}) {
   const fields = []
   const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
   let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0, lastError = null
-  let lattice = null
+  let lattice = null, refusalCount = 0, lastRefusal = null
+
+  function refuse(name, message) {
+    refusalCount++
+    lastRefusal = { name, message, total: refusalCount }
+    return lastRefusal
+  }
 
   function validCenters() {
     const raw = getCenters()
@@ -158,7 +171,7 @@ export function createTerrainStreamer(opts = {}) {
     if (disposed) return null
     if (!g || stale()) { staleEpochDiscards++; return null }
     const bodyId = physics.addHeightField(g.samples, gridN, [gridSpacing, 1, gridSpacing], [cornerX, 0, cornerZ])
-    if (bodyId == null) { console.error('[terrain] streamer: Jolt rejected field'); return null }
+    if (bodyId == null) { refuse(HEIGHTFIELD_REFUSALS.jolt, `physics.addHeightField returned no body id for the field at (${cornerX},${cornerZ})`); console.error('[terrain] streamer: Jolt rejected field'); return null }
     if (lattice) placeBody(bodyId, cornerX, cornerZ)
     return { bodyId, center: [cornerX + half, cornerZ + half], N: gridN, samples: g.samples, epoch: epochAtStart, lattice: latticeAtStart, reused: g.reused, solved: g.solved, wallMs: _now() - t0, sampleMs: g.sampleMs }
   }
@@ -199,12 +212,14 @@ export function createTerrainStreamer(opts = {}) {
     while (need && !disposed) {
       if (fields.length >= maxFields) retireUnowned(players)
       if (fields.length >= maxFields) {
+        refuse(HEIGHTFIELD_REFUSALS.cap, `heightfield cap ${maxFields} reached with ${need.uncovered} player(s) uncovered and ${fields.length} field(s) resident`)
         if (!capWarned) { console.warn(`[terrain] streamer: ${need.uncovered} player(s) uncovered, heightfield cap ${maxFields} reached`); capWarned = true }
         break
       }
       const heap = typeof physics.wasmHeapBytes === 'function' ? physics.wasmHeapBytes() : null
       const reserve = reserveFreeBytes()
       if (heap && heap.free - fieldWasmBytes < reserve) {
+        refuse(HEIGHTFIELD_REFUSALS.heap, `wasm heap has ${heap.free} of ${heap.total} B free shared by ${heap.worlds ?? 1} world(s), ${reserve} B stay reserved, ${need.uncovered} player(s) uncovered`)
         if (!capWarned) { console.error(`[terrain] streamer: refusing a new heightfield, the Jolt wasm heap has ${heap.free} of ${heap.total} B free shared by ${heap.worlds ?? 1} world(s) and ${reserve} B stay reserved for the rest of this world; ${fields.length} fields resident, ${need.uncovered} player(s) uncovered`); capWarned = true }
         break
       }
@@ -305,7 +320,8 @@ export function createTerrainStreamer(opts = {}) {
     const run = queue.then(async () => {
       if (disposed || !heightFn) return null
       busy = true
-      try { return await work() } catch (e) { lastError = e; console.error('[terrain] streamer error:', e?.message || e); return null } finally { busy = false }
+      lastRefusal = null
+      try { return await work() } catch (e) { lastError = e; refuse(HEIGHTFIELD_REFUSALS.threw, e?.message || String(e)); console.error('[terrain] streamer error:', e?.message || e); return null } finally { busy = false }
     })
     queue = run
     return run
@@ -374,5 +390,8 @@ export function createTerrainStreamer(opts = {}) {
     get rebuildCount() { return rebuildCount },
     get busy() { return busy },
     get maxFields() { return maxFields },
+    get lastError() { return lastError },
+    get lastRefusal() { return lastRefusal },
+    get refusalCount() { return refusalCount },
   }
 }

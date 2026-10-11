@@ -23,6 +23,21 @@ function placeInto(cells, idCell, id, point) {
   idCell.set(id, key)
 }
 
+function refuseQuery(label, argument, value) {
+  const shown = typeof value === 'number' ? String(value) : JSON.stringify(value)
+  throw new TypeError(`[SpatialIndex] ${label} got ${argument} ${shown}: a relevance query is a finite centre with a finite non-negative extent, so an absent, non-numeric, NaN, infinite or negative one is not a query`)
+}
+
+function parseQueryCentre(label, position) {
+  if (position != null && Number.isFinite(position[0]) && Number.isFinite(position[1]) && Number.isFinite(position[2])) return [position[0], position[1], position[2]]
+  return refuseQuery(label, 'centre', position)
+}
+
+function parseQueryExtent(label, argument, value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  return refuseQuery(label, argument, value)
+}
+
 export class SpatialIndex {
   constructor(config = {}) {
     this._cells = new Map()
@@ -113,12 +128,13 @@ export class SpatialIndex {
   }
 
   nearby(position, radius, out) {
+    const [cx, cy, cz] = parseQueryCentre('nearby', position)
+    const r = parseQueryExtent('nearby', 'radius', radius)
     const results = out || []
     if (out) results.length = 0
-    const cx = position[0], cy = position[1], cz = position[2]
-    const r2 = radius * radius
-    const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
-    const minCz = cellCoord(cz - radius), maxCz = cellCoord(cz + radius)
+    const r2 = r * r
+    const minCx = cellCoord(cx - r), maxCx = cellCoord(cx + r)
+    const minCz = cellCoord(cz - r), maxCz = cellCoord(cz + r)
     for (let gx = minCx; gx <= maxCx; gx++) {
       for (let gz = minCz; gz <= maxCz; gz++) {
         const bucket = this._cells.get(cellKey(gx, gz))
@@ -136,17 +152,18 @@ export class SpatialIndex {
   }
 
   nearbyCylinder(position, radius, halfHeight, out) {
-    if (typeof halfHeight !== 'number' || !(halfHeight >= 0)) {
+    const [cx, cy, cz] = parseQueryCentre('nearbyCylinder', position)
+    const r = parseQueryExtent('nearbyCylinder', 'radius', radius)
+    if (typeof halfHeight !== 'number' || !Number.isFinite(halfHeight) || halfHeight < 0) {
       const shown = typeof halfHeight === 'number' ? String(halfHeight) : JSON.stringify(halfHeight)
-      throw new TypeError(`[SpatialIndex] nearbyCylinder got halfHeight ${shown}: a relevance cylinder carries its vertical extent as an argument, so an absent, non-numeric, NaN or negative one is not a query`)
+      throw new TypeError(`[SpatialIndex] nearbyCylinder got halfHeight ${shown}: a relevance cylinder carries its vertical extent as an argument, so an absent, non-numeric, NaN, infinite or negative one is not a query`)
     }
     const results = out || []
     if (out) results.length = 0
-    const cx = position[0], cy = position[1], cz = position[2]
-    const r2 = radius * radius
+    const r2 = r * r
     const h2 = halfHeight * halfHeight
-    const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
-    const minCz = cellCoord(cz - radius), maxCz = cellCoord(cz + radius)
+    const minCx = cellCoord(cx - r), maxCx = cellCoord(cx + r)
+    const minCz = cellCoord(cz - r), maxCz = cellCoord(cz + r)
     for (let gx = minCx; gx <= maxCx; gx++) {
       for (let gz = minCz; gz <= maxCz; gz++) {
         const bucket = this._cells.get(cellKey(gx, gz))
@@ -202,11 +219,12 @@ export class SpatialIndex {
   }
 
   nearest(position, radius) {
-    const cx = position[0], cy = position[1], cz = position[2]
+    const [cx, cy, cz] = parseQueryCentre('nearest', position)
+    const r = parseQueryExtent('nearest', 'radius', radius)
     let bestId = null
-    let bestD2 = radius * radius
-    const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
-    const minCz = cellCoord(cz - radius), maxCz = cellCoord(cz + radius)
+    let bestD2 = r * r
+    const minCx = cellCoord(cx - r), maxCx = cellCoord(cx + r)
+    const minCz = cellCoord(cz - r), maxCz = cellCoord(cz + r)
     for (let gx = minCx; gx <= maxCx; gx++) {
       for (let gz = minCz; gz <= maxCz; gz++) {
         const bucket = this._cells.get(cellKey(gx, gz))

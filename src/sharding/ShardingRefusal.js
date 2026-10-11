@@ -1,6 +1,9 @@
 export const MESSAGE_TYPE_UNKNOWN = 'message-type-unknown'
 export const WORKER_NOT_INITIALIZED = 'worker-not-initialized'
 export const WORKER_REFUSED = 'WORKER_REFUSED'
+export const ROUTER_PLAYER_ID_MALFORMED = 'router-player-id-malformed'
+export const CLIENT_CONNECT_REFUSED = 'CLIENT_CONNECT_REFUSED'
+export const HANDOFF_REFUSED = 'HANDOFF_REFUSED'
 
 export function messageRefusal(code, detail) {
   return { ok: false, code, detail }
@@ -26,6 +29,22 @@ export function errorRefusal(error) {
 
 export function refusalText(refusal) {
   return `${refusal?.name ?? 'Error'} ${refusal?.code ?? '(no code)'}: ${refusal?.error ?? ''}`
+}
+
+export function routerPlayerIdRefusal(value, code = ROUTER_PLAYER_ID_MALFORMED) {
+  const err = new Error(`[region-ipc] ${code}: routerPlayerId ${JSON.stringify(value ?? null)} is not a router-minted player id`)
+  err.code = code
+  return err
+}
+
+export class ClientConnectRefusedError extends Error {
+  constructor(code, error = null) {
+    super(`region worker refused the client connect: ${code}${error ? ` -- ${error}` : ''}`)
+    this.name = 'ClientConnectRefusedError'
+    this.code = code
+    this.spointRefused = true
+    this.error = error
+  }
 }
 
 export class RegionWorkerRefusedError extends Error {

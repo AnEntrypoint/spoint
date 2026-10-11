@@ -79,7 +79,6 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       staleGenerationRejected: 0,
       staleRunRejected: 0,
       outOfOrderRejected: 0,
-      unstampedAccepted: 0,
       readyAtMs: null,
       lastFrameAtMs: null,
       stopRequestedAtMs: null,
@@ -110,17 +109,23 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     })
   }
 
+  function parseWorkerStamp(msg) {
+    if (msg === null || typeof msg !== 'object') return null
+    const seq = msg.seq
+    const run = msg.run
+    if (!Number.isInteger(seq) || seq < 1) return null
+    if (run !== 0 && run !== 1) return null
+    return { seq, run }
+  }
+
   function acceptWorkerMessage(record, msg) {
     if (record !== current) { record.staleGenerationRejected++; return false }
-    const seq = Number(msg && msg.seq)
-    const runStamp = Number(msg && msg.run)
-    const hasSeq = Number.isFinite(seq)
-    const hasRun = Number.isFinite(runStamp)
-    if (hasRun && record.acceptedRun !== null && runStamp < record.acceptedRun) { record.staleRunRejected++; return false }
-    if (hasSeq && seq <= record.acceptedSeq) { record.outOfOrderRejected++; return false }
-    if (!hasSeq || !hasRun) record.unstampedAccepted++
-    if (hasSeq) record.acceptedSeq = seq
-    if (hasRun && (record.acceptedRun === null || runStamp > record.acceptedRun)) record.acceptedRun = runStamp
+    const stamp = parseWorkerStamp(msg)
+    if (stamp === null) return false
+    if (record.acceptedRun !== null && stamp.run < record.acceptedRun) { record.staleRunRejected++; return false }
+    if (stamp.seq <= record.acceptedSeq) { record.outOfOrderRejected++; return false }
+    record.acceptedSeq = stamp.seq
+    record.acceptedRun = stamp.run
     return true
   }
   function orderState() {
@@ -131,8 +136,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
         workerRun: null,
         staleGenerationRejected: 0,
         staleRunRejected: 0,
-        outOfOrderRejected: 0,
-        unstampedAccepted: 0
+        outOfOrderRejected: 0
       }
     }
     return {
@@ -141,8 +145,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       workerRun: current.acceptedRun,
       staleGenerationRejected: current.staleGenerationRejected,
       staleRunRejected: current.staleRunRejected,
-      outOfOrderRejected: current.outOfOrderRejected,
-      unstampedAccepted: current.unstampedAccepted
+      outOfOrderRejected: current.outOfOrderRejected
     }
   }
 

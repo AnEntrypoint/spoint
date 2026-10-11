@@ -7,6 +7,14 @@ import { createDormantStatics } from './DormantStatics.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
+
+function toJoltMotionType(J, motionType) {
+  return motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+}
+
+function layerForMotionType(motionType) {
+  return motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC
+}
 let joltInstance = null
 let liveWorlds = 0
 export function livePhysicsWorldCount() { return liveWorlds }
@@ -267,8 +275,8 @@ export class PhysicsWorld {
       const reused = !!(ck && this._shapeCache.has(ck))
       const { shape: cvxShape, sr } = buildConvexShape(J, params, this._shapeCache, ck)
       if (ck) { if (reused) this._shapeReuses++; else this._shapeBuilds++ }
-      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
-      const id = this._addBody(cvxShape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
+      const mt = toJoltMotionType(J, motionType)
+      const id = this._addBody(cvxShape, position, mt, layerForMotionType(motionType), { ...opts, meta: { type: motionType, shape: shapeType } })
       if (sr) J.destroy(sr)
       return id
     }
@@ -282,8 +290,8 @@ export class PhysicsWorld {
       return id
     }
     else return null
-    const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
-    return this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
+    const mt = toJoltMotionType(J, motionType)
+    return this._addBody(shape, position, mt, layerForMotionType(motionType), { ...opts, meta: { type: motionType, shape: shapeType } })
   }
 
   _revivePooledBody(id, position, motionType, shapeType, opts = {}) {
@@ -339,15 +347,15 @@ export class PhysicsWorld {
     const born = this._captureCreationFrame(position, opts.rotation)
     if (cacheKey && this._shapeCache.has(cacheKey)) {
       this._shapeReuses++
-      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
-      return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
+      const mt = toJoltMotionType(J, motionType)
+      return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, layerForMotionType(motionType), { ...opts, meta: { type: motionType, shape: 'convex' } }))
     }
     const result = this._convexQueue.then(() => {
       const { shape, sr } = buildConvexShape(J, params, this._shapeCache, cacheKey)
       if (cacheKey && this._shapeCache.has(cacheKey)) this._shapeBuilds++
-      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+      const mt = toJoltMotionType(J, motionType)
       const placed = this._resolveCreationFrame(born)
-      const id = this._addBody(shape, placed.position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, ...(placed.rotation ? { rotation: placed.rotation } : {}), meta: { type: motionType, shape: 'convex' } })
+      const id = this._addBody(shape, placed.position, mt, layerForMotionType(motionType), { ...opts, ...(placed.rotation ? { rotation: placed.rotation } : {}), meta: { type: motionType, shape: 'convex' } })
       if (sr) J.destroy(sr)
       return id
     })
@@ -512,7 +520,7 @@ export class PhysicsWorld {
   setBodyMotionType(id, motionType, opts = {}) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt
-    const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+    const mt = toJoltMotionType(J, motionType)
     const gid = b.GetID()
     const previousMt = b.GetMotionType()
     const simulates = mt !== J.EMotionType_Static

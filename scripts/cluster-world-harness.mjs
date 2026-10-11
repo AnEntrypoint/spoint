@@ -13,7 +13,7 @@ const RELIEF = Number(args.relief ?? 0.0005)
 
 const { createClusterRuntime } = await import('../src/sharding/ClusterRuntime.js')
 const { ClusterWorldCapacityError } = await import('../src/sharding/ClusterWorldHost.js')
-const { exportPlayerHandoff, admitPlayerHandoff, applyAdmittedInputs, releaseHandoffSource, playerIdOfSession } = await import('../src/sharding/ClusterHandoff.js')
+const { exportPlayerHandoff, admitPlayerHandoff, applyAdmittedInputs, releaseHandoffSource, parsePlayerIdOfSession } = await import('../src/sharding/ClusterHandoff.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
 const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const { createChartAnchorLattice, snapshotChart, createChartTransfer } = await import('../src/shared/chartAnchor.js')
@@ -443,7 +443,7 @@ async function scenarioHandoff() {
     const yawBefore = rec.heading.yaw
     releaseHandoffSource(srcWorld.server, rec.localId, { url: dstWorld.url, sessionToken: admitted.token, clusterId: dstWorld.clusterId })
     log(`  source released, client follows CLUSTER_HANDOFF to ${dstWorld.url}`)
-    await until(() => playerIdOfSession(dstWorld.server, admitted.token) !== null, 30000, 'handoff session joined')
+    await until(() => parsePlayerIdOfSession(dstWorld.server, admitted.token).ok === true, 30000, 'handoff session joined')
     const localId = applyAdmittedInputs(dstWorld.server, admitted.token, admitted.lastInput)
     log(`  joined as ${localId}`)
     const restored = restoredInitial.get(dstWorld.clusterId) ?? null
@@ -593,7 +593,7 @@ async function scenarioTilt() {
   const localShiftM = Math.hypot(admitted.state.position[0] - exported.state.position[0], admitted.state.position[2] - exported.state.position[2])
   const look = admitted.transfer.look(client.heading.yaw, client.heading.pitch)
   releaseHandoffSource(worldA.server, client.client.playerId, { url: worldB.url, sessionToken: admitted.token, clusterId: 2 })
-  await until(() => playerIdOfSession(worldB.server, admitted.token) !== null, 30000, 'tilt: session joined the destination world')
+  await until(() => parsePlayerIdOfSession(worldB.server, admitted.token).ok === true, 30000, 'tilt: session joined the destination world')
   const localId = applyAdmittedInputs(worldB.server, admitted.token, admitted.lastInput)
   let grounded = false
   for (let probe = 0; probe < 10 && !grounded; probe++) {

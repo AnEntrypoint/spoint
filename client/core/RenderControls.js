@@ -14,6 +14,8 @@ const CONTROLS = [
     doc: 'Force DPR auto-adaptation off (pin the current pixel ratio).' },
   { key: 'dpr', group: 'resolution', type: 'number', default: null,
     doc: 'Read-only mirror of the current effective device-pixel-ratio (set by the DPR adaptation loop).' },
+  { key: 'dprStats', group: 'resolution', type: 'object', default: null,
+    doc: 'Read-only mirror of the DPR controller state (FrameMetrics.js createDprController): {scale, applied, deviceMax, avgMs}. Separate from the dpr knob so the number mirror keeps one writer: the controller publishes its object under this name and never overwrites window.__dpr.' },
   { key: 'vdrsAuto', group: 'resolution', type: 'boolean', default: false,
     doc: 'Adaptive TERRAIN internal-render-resolution controller (see FrameMetrics.js createTerrainVdrsController) -- the genuine render-at-N%-present-at-100% decouple, distinct from dprAuto: drives mapspinner\'s own vdrs/vdrsScale FBO+upscale mechanism under sustained frame-time pressure, WITHOUT touching renderer.setPixelRatio, so the canvas/THREE draw resolution and the final presented frame both stay full native resolution while only the terrain pass (the dominant per-pixel cost) renders fewer pixels. Default off, opt-in, same discipline as dprAuto.' },
   { key: 'vdrsOff', group: 'resolution', type: 'boolean', default: false,
@@ -127,7 +129,7 @@ const CONTROLS = [
     doc: 'Number of full horizontal+vertical separable-blur passes applied to the bright-pass texture. Higher = smoother/wider glow, more GPU cost.' },
 
   { key: 'fsr1', group: 'fsr1', type: 'boolean', default: false,
-    doc: 'FSR1-style (EASU edge-adaptive upsample + RCAS contrast-adaptive sharpen) post-process pass, gated to only run while window.__dpr.scale < 1 (createDprController has actually downscaled the drawing buffer -- no-op at native resolution). Composited last, after bloom/ssr. Device-tier default: off (opt-in companion to dprAuto).' },
+    doc: 'FSR1-style (EASU edge-adaptive upsample + RCAS contrast-adaptive sharpen) post-process pass, gated to only run while window.__dprStats.scale < 1 (createDprController has actually downscaled the drawing buffer -- no-op at native resolution). Composited last, after bloom/ssr. Device-tier default: off (opt-in companion to dprAuto).' },
   { key: 'fsr1Sharpness', group: 'fsr1', type: 'number', default: 0.5,
     doc: 'RCAS sharpen strength, 0 (soft, EASU output only) to 1 (maximum contrast-adaptive sharpen, matches AMD reference RCAS weight range). Anti-ringing clamped per-pixel by local min/max contrast, same as the real FSR1 RCAS formula -- will not oversharpen already-flat regions.' },
 

@@ -118,15 +118,23 @@ export function createColliderStreamer(spec = {}) {
   const _getCentersRaw = cfg.getCenters
   const _getCenterRaw = cfg.getCenter
   let excludePlacement = cfg.excludePlacement
+  function admittedCentre(c, where) {
+    if (!Array.isArray(c) || c.length !== 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) {
+      throw new TypeError(`${logTag} collider centre ${where} is ${JSON.stringify(c)}: a centre must be [finiteX, finiteZ]`)
+    }
+    return [c[0], c[1]]
+  }
   function getCenters() {
     if (_getCentersRaw) {
       const cs = _getCentersRaw()
-      if (Array.isArray(cs)) return cs.filter(c => Array.isArray(c) && c.length === 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]))
-      return []
+      if (cs === null || cs === undefined) return []
+      if (!Array.isArray(cs)) throw new TypeError(`${logTag} getCenters returned ${Object.prototype.toString.call(cs)}: it must return an array of [finiteX, finiteZ] centres or nothing`)
+      return cs.map((c, i) => admittedCentre(c, `${i} of ${cs.length} from getCenters`))
     }
     if (_getCenterRaw) {
       const c = _getCenterRaw()
-      return (Array.isArray(c) && c.length === 2 && Number.isFinite(c[0]) && Number.isFinite(c[1])) ? [c] : []
+      if (c === null || c === undefined) return []
+      return [admittedCentre(c, 'from getCenter')]
     }
     return []
   }

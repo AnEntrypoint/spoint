@@ -164,7 +164,7 @@ function writeRecord(view, off, schema, sequence, input, cases) {
   view.setUint32(off + 4, bits >>> 0, true)
   view.setUint16(off + 8, quantYaw(input.yaw), true)
   view.setInt16(off + 10, quantPitch(input.pitch, cases), true)
-  view.setUint8(off + 12, bounds('expr', finiteField('expr', input.expr) | 0, 0, 255, cases))
+  view.setUint8(off + 12, bounds('expr', finiteField('expr', input.expr), 0, 255, cases))
   view.setUint8(off + 13, hasAnalog ? FLAG_ANALOG : 0)
   off += RECORD_FIXED_BYTES
   if (hasAnalog) {

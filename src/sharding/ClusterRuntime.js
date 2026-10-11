@@ -1,13 +1,13 @@
 import { resolveTerrainConfig } from '../shared/terrainConfig.js'
-import { resolveClusterConfig } from '../shared/clusterConfig.js'
+import { resolveClusterConfig, declaredWeaponRangeM } from '../shared/clusterConfig.js'
 import { createClusterManager } from './ClusterManager.js'
 import { createClusterWorldHost } from './ClusterWorldHost.js'
 import { createClusterCoordinator } from './ClusterCoordinator.js'
 import { createClusterServerWorldFactory } from './ClusterServerWorld.js'
 
-export function createClusterRuntime({ worldDef, serverConfig, onHandoff = null, now = () => performance.now() }) {
+export function createClusterRuntime({ worldDef, appDefs = null, serverConfig, onHandoff = null, now = () => performance.now() }) {
   const tcfg = resolveTerrainConfig(worldDef)
-  const config = tcfg ? resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius ?? 200, maxWeaponRangeM: worldDef.maxWeaponRangeM ?? 0 }) : null
+  const config = tcfg ? resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius ?? 200, maxWeaponRangeM: declaredWeaponRangeM(worldDef, appDefs) }) : null
   if (!config) return null
   const manager = createClusterManager({ config, now })
   const factory = createClusterServerWorldFactory({ baseWorldDef: worldDef, serverConfig })

@@ -238,10 +238,6 @@ export function buildPhysicsAPI(ent, runtime) {
     getVelocity: () => { const b = liveBodyId(); return b !== undefined ? runtime._physics.getBodyVelocity(b) : [...(ent.velocity || [0,0,0])] },
     getAngularVelocity: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyAngularVelocity?.(b) || [0,0,0]) : [0,0,0] },
     getRotation: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyRotation?.(b) || [...ent.rotation]) : [...ent.rotation] },
-    isAtRest: (eps = 0.05) => {
-      const v = api.getVelocity(), a = api.getAngularVelocity()
-      return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) < eps*eps && (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) < eps*eps
-    },
     setFriction: (f) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyFriction?.(b, f) : false },
     setRestitution: (r) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyRestitution?.(b, r) : false },
     setMotionType: (motionType) => {

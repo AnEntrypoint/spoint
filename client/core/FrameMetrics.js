@@ -139,7 +139,7 @@ export function createDprController() {
     else if (avg < FRAME_BUDGET_144HZ_MS * RAISE_BELOW_BUDGET && scale < MAX) scale = Math.min(MAX, scale + STEP)
     const want = +(deviceMax * scale).toFixed(3)
     if (want !== applied) { try { renderer.setPixelRatio(want); applied = want } catch (_) {} }
-    if (typeof window !== 'undefined') window.__dpr = { scale: +scale.toFixed(2), applied, deviceMax, avgMs: +avg.toFixed(2) }
+    if (typeof window !== 'undefined') window.__dprStats = { scale: +scale.toFixed(2), applied, deviceMax, avgMs: +avg.toFixed(2) }
   }
   return { tick }
 }

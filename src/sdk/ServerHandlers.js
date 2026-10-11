@@ -17,6 +17,39 @@ const MAX_TRACKED_RTT_MS = 10000
 const PROBE_SOCKET_IDLE_CLOSE_MS = 10000
 const SERVER_ONLY_APP_EVENT_TYPES = new Set(['player_join', 'player_leave', 'player_teleport', 'damage'])
 
+const SOCKET_ADMISSION = Object.freeze({
+  AUTH_RESPONSE: 'auth-response',
+  MIGRATE: 'migrate',
+  NEW_PLAYER: 'new-player',
+})
+
+const ADMISSION_REFUSAL = Object.freeze({
+  AUTH_REQUIRED: 'auth-required',
+  UNDECODABLE: 'undecodable-first-message',
+})
+
+function admitFirstMessage(data, authPending) {
+  let message
+  try { message = unpack(data) } catch (e) { return { refusal: ADMISSION_REFUSAL.UNDECODABLE } }
+  if (authPending) {
+    return message?.type === MSG.NOSTR_AUTH_RESPONSE
+      ? { way: SOCKET_ADMISSION.AUTH_RESPONSE, message }
+      : { refusal: ADMISSION_REFUSAL.AUTH_REQUIRED }
+  }
+  return message?.type === MSG.MIGRATE
+    ? { way: SOCKET_ADMISSION.MIGRATE, message }
+    : { way: SOCKET_ADMISSION.NEW_PLAYER, message }
+}
+
+function refuseAdmission(transport, refusal) {
+  if (refusal === ADMISSION_REFUSAL.AUTH_REQUIRED) {
+    try { transport.send(pack({ type: MSG.NOSTR_AUTH_CHALLENGE, payload: { error: 'auth required' } })) } catch {}
+  } else {
+    console.warn(`[connection] refused socket admission: ${refusal}`)
+  }
+  try { transport.close() } catch {}
+}
+
 const CHART_WARN_INTERVAL_MS = 1000
 const MAX_TRACKED_WARN_CLIENTS = 1024
 const lastChartWarnAt = new Map()
@@ -189,13 +222,12 @@ export function createConnectionHandlers(ctx) {
 
     const peek = (data) => {
       transport.off('message', peek)
-      let msg
-      try { msg = unpack(data) } catch (e) { _replayFirstMessage(_joinNewPlayer(transport), data); return }
-
-      if (authPending && msg?.type === MSG.NOSTR_AUTH_RESPONSE) {
+      const admission = admitFirstMessage(data, authPending)
+      joined = true
+      if (admission.refusal) { refuseAdmission(transport, admission.refusal); return }
+      if (admission.way === SOCKET_ADMISSION.AUTH_RESPONSE) {
         authPending = false
-        joined = true
-        nostrAuthServer.verifyResponse(transport, msg.payload).then(result => {
+        nostrAuthServer.verifyResponse(transport, admission.message.payload).then(result => {
           if (result.ok) {
             transport._nostrPubkey = result.pubkey || null
             _joinNewPlayer(transport)
@@ -206,16 +238,7 @@ export function createConnectionHandlers(ctx) {
         }).catch(() => { try { transport.close() } catch {} })
         return
       }
-
-      if (authPending) {
-        joined = true
-        try { transport.send(pack({ type: MSG.NOSTR_AUTH_CHALLENGE, payload: { error: 'auth required' } })) } catch {}
-        try { transport.close() } catch {}
-        return
-      }
-
-      joined = true
-      if (msg?.type === MSG.MIGRATE) { _handleMigrate(transport, msg); return }
+      if (admission.way === SOCKET_ADMISSION.MIGRATE) { _handleMigrate(transport, admission.message); return }
       _replayFirstMessage(_joinNewPlayer(transport), data)
     }
     transport.on('message', peek)

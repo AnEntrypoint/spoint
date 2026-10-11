@@ -59,36 +59,37 @@ async function main() {
 
   emit(last(), { type: 'frame', frame: 1 })
   let o = a.getOrder()
-  check('A2 no seq and no run is accepted', o.unstampedAccepted === 1 && o.staleRunRejected === 0 && o.outOfOrderRejected === 0, JSON.stringify(o))
+  check('A2 a message with no seq or run is dropped uncounted', o.seq === 1 && o.staleRunRejected === 0 && o.outOfOrderRejected === 0, JSON.stringify(o))
 
   emit(last(), { type: 'frame', seq: 2, run: 9999, frame: 2 })
   o = a.getOrder()
-  check('A3 run from a generation that does not exist is accepted', o.workerRun === 9999 && o.seq === 2 && o.staleGenerationRejected === 0, JSON.stringify(o))
+  check('A3 a run from a generation no worker can produce is dropped uncounted', o.workerRun === 1 && o.seq === 1 && o.staleRunRejected === 0 && o.outOfOrderRejected === 0, JSON.stringify(o))
 
-  emit(last(), { type: 'frame', seq: 3, run: 5, frame: 3 })
+  emit(last(), { type: 'frame', seq: 2, run: 1, frame: 2 })
   o = a.getOrder()
-  check('A4 lower run dropped', o.staleRunRejected === 1 && o.workerRun === 9999, JSON.stringify(o))
+  check('A4 the next stamped frame is accepted', o.seq === 2 && o.workerRun === 1, JSON.stringify(o))
 
-  emit(last(), { type: 'frame', seq: 2, run: 9999, frame: 4 })
+  emit(last(), { type: 'frame', seq: 3, run: 0, frame: 3 })
   o = a.getOrder()
-  check('A5 replayed seq dropped', o.outOfOrderRejected === 1, JSON.stringify(o))
+  check('A5 lower run dropped', o.staleRunRejected === 1 && o.seq === 2, JSON.stringify(o))
 
-  emit(last(), { type: 'frame', seq: 0, run: 9999 })
+  emit(last(), { type: 'frame', seq: 2, run: 1, frame: 4 })
   o = a.getOrder()
-  check('A6 seq 0 dropped', o.outOfOrderRejected === 2, JSON.stringify(o))
+  check('A6 replayed seq dropped', o.outOfOrderRejected === 1, JSON.stringify(o))
+
+  emit(last(), { type: 'frame', seq: 0, run: 1 })
+  o = a.getOrder()
+  check('A7 seq 0 dropped uncounted', o.outOfOrderRejected === 1 && o.seq === 2, JSON.stringify(o))
 
   emit(last(), { type: 'frame', seq: null, run: null })
-  o = a.getOrder()
-  check('A7 null seq and null run count as stamped zero, dropped as stale run', o.staleRunRejected === 2 && o.unstampedAccepted === 1, JSON.stringify(o))
-
   emit(last(), 'not-an-object')
   o = a.getOrder()
-  check('A8 a non-object payload is accepted as unstamped', o.unstampedAccepted === 2, JSON.stringify(o))
+  check('A8 null stamps and bare payloads are dropped uncounted', o.staleRunRejected === 1 && o.outOfOrderRejected === 1 && o.seq === 2, JSON.stringify(o))
 
-  emit(last(), { type: 'ready', seq: 9, run: 9999 })
-  check('A9 a second ready on one run is a no-op', a.getState().state === 'live', JSON.stringify(a.getState()))
+  emit(last(), { type: 'ready', seq: 9, run: 1 })
+  check('A9 a second ready on one run is a no-op', a.getState().state === 'live' && a.getOrder().seq === 9, JSON.stringify(a.getState()))
 
-  emit(last(), { type: 'stopped', seq: 10, run: 9999 })
+  emit(last(), { type: 'stopped', seq: 10, run: 1 })
   check('A10 stopped observed', a.getState().state === 'stopped' && a.getState().running === false, JSON.stringify(a.getState()))
   const st = a.getStats()
   check('A11 getStats after stopped keeps the last accepted frame', st.frame === 2 && st.order.run === 1, JSON.stringify(st))
@@ -147,7 +148,7 @@ async function main() {
   check('E2 a dead run disorder is unreachable from the new run', afterRestart.outOfOrderRejected === 0 && afterRestart.run === 2, JSON.stringify(afterRestart))
 
   await sleep(400)
-  console.log(failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL (' + failures + ')')  
+  console.log(failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL (' + failures + ')')
   process.exitCode = failures === 0 ? 0 : 1
 }
 
