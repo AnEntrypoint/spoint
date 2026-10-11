@@ -864,6 +864,15 @@
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
   status: pending
+- id: WADLER-aoi-positionofentity-m2-s1
+  title: src/sdk/TickHandlerAOI.js _positionOfEntity collapses 'index has no such entity' and 'entity carries no position' into one bare null on the AOI hot path
+  surface: src/sdk
+  principle: WADLER
+  session: orch-main-spatial-m2-s1
+  depth: 3
+  witness_dispatch_id: 1791704798268-500-c5a508fb9d3f6d5
+  session_id: orch-main-spatial-m2-s1
+  status: pending
 - id: CHARTEST-est-s1-4
   claim: 'CHARTEST characterization, surface src/terrain. Where there is no ground the port''s own contract requires a thrown SurfaceSolveError, and the cpu-solve source does that (witnessed: ChartRangeError instanceof SurfaceSolveError, check P03). The patch adapter does not: client/core/ExactPatchFrame.js:7-9 returns NaN and sets `missing`. Witnessed live (check P10) placementFrame.groundHeightLocal(0,0) === NaN with threw=false, missing=true. NaN is not a SurfaceSolveError, so guardedGroundHeight (src/terrain/PlanetFrame.js:54-65) does not convert it: check P11 records throwing(1,2)=null but nanning(1,2)=NaN. The NaN then travels: src/terrain/PlacementChart.js:80-81 `const y = groundAt(x,z); if (!Number.isFinite(y)) return NaN`, so surfaceAlongDir silently returns NaN for the whole shot, and src/terrain/FieldLattice.js:30-31 substitutes GROUND_FALLBACK_Y only for a throw. Two encodings of ''no ground'' cross one port.'
   notes: 'CLOSE (not by this hop): one encoding -- the patch adapter throws NoGroundHeightError (already exported, src/terrain/PlanetFrame.js:36) instead of returning NaN, and `missing` stays the placement-side bookkeeping flag it already is. Pin first: this row is the pin. Merged rather than re-filed: the guardedGroundHeight fallback half is already carried by PARSEDV-sub1-5-1 (retired) and PARSEDV-sub1-5-2 (pending), so no new row duplicates it. Related, not duplicate: GUARD-succ1-2 (call sites with no guard) -- a guard does not help while the value is NaN, which is exactly what this row pins.'
@@ -871,4 +880,31 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P10 y=NaN threw=false missing=true; check P11 throwing(1,2)=null nanning(1,2)=NaN; contrast check P03 threw=ChartRangeError instanceof SurfaceSolveError=true'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
+  status: pending
+- id: WADLER-staticcache-readcacheentry-m2-s1
+  depth: 3
+  principle: WADLER
+  session: orch-main-spatial-m2-s1
+  surface: src/sdk
+  title: src/sdk/StaticCache.js readCacheEntry collapses four distinct refusals (entry files absent, codeVersion/src/stamp mismatch, byte-length mismatch, fnv1a hash mismatch, plus a thrown parse) into one bare null
+  witness_dispatch_id: 1791705050847-500-11e0349d20177369
+  session_id: orch-main-spatial-m2-s1
+  status: pending
+- id: WADLER-relocation-probegroundy-m2-s1
+  depth: 3
+  principle: WADLER
+  session: orch-main-spatial-m2-s1
+  surface: src/sdk
+  title: src/sdk/Relocation.js probeGroundY collapses four distinct spawn-hold outcomes (heightfield collider not landed, static colliders pending near, no raycast capability, ray missed ground) into one bare null that holdSpawnUntilGrounded cannot name
+  witness_dispatch_id: 1791705050847-500-11e0349d20177369
+  session_id: orch-main-spatial-m2-s1
+  status: pending
+- id: WADLER-octree-mutations-contract-m2-s1
+  depth: 3
+  principle: WADLER
+  session: orch-main-spatial-m2-s1
+  surface: src/spatial
+  title: src/spatial/Octree.js get mutations states no licence contract and set relevanceRadius rewrites the query geometry every Stage.js reader uses without bumping any of the six mutation sites, so src/sdk's epoch cannot tell a geometry change from a population change
+  witness_dispatch_id: 1791705050847-500-11e0349d20177369
+  session_id: orch-main-spatial-m2-s1
   status: pending

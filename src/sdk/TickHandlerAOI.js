@@ -39,9 +39,16 @@ const aoiRingWork = {
   neighbourCellsCalls: 0,
   cellBaseComputes: 0,
   cellBaseHits: 0,
+  cellBaseMisses: 0,
+  cellBaseStaleDrops: 0,
+  cellBaseUnusable: 0,
   statefulQueries: 0,
   evictions: 0,
   epochDrops: 0,
+  epochRefusedCodeEpochNotInstalled: 0,
+  epochRefusedMutationsNotACount: 0,
+  epochRefusedRelevanceRadiusNotPositive: 0,
+  epochRefusedPlanetRadiusNegative: 0,
 }
 
 export function resetAoiRingWork() {
@@ -50,11 +57,45 @@ export function resetAoiRingWork() {
 
 export { aoiRingWork }
 
+export const AOI_EPOCH_CASE = Object.freeze({
+  unset: 'unset',
+  disabled: 'disabled',
+  unrepresentable: 'unrepresentable',
+  active: 'active',
+})
+
+export const AOI_EPOCH_REFUSAL = Object.freeze({
+  codeEpochNotInstalled: 'codeEpochNotInstalled',
+  mutationsNotACount: 'mutationsNotACount',
+  relevanceRadiusNotPositive: 'relevanceRadiusNotPositive',
+  planetRadiusNegative: 'planetRadiusNegative',
+})
+
+export const AOI_EPOCH_RADIUS_SOURCE = Object.freeze({
+  index: 'index',
+  caller: 'caller',
+  callerAgainstIndex: 'callerAgainstIndex',
+})
+
+export const AOI_CELL_BASE_CASE = Object.freeze({
+  hit: 'hit',
+  miss: 'miss',
+  stale: 'stale',
+  unusable: 'unusable',
+})
+
 const _cellBaseCache = new Map()
 let _aoiCodeEpoch = ''
-let _aoiCellBaseEpoch = null
 
 const AOI_CODE_EPOCH_LEN = 16
+
+const AOI_EPOCH_UNSET = Object.freeze({ case: AOI_EPOCH_CASE.unset, key: null })
+const AOI_EPOCH_DISABLED = Object.freeze({ case: AOI_EPOCH_CASE.disabled, key: null })
+const AOI_CELL_BASE_MISS = Object.freeze({ case: AOI_CELL_BASE_CASE.miss })
+const AOI_CELL_BASE_STALE = Object.freeze({ case: AOI_CELL_BASE_CASE.stale })
+const AOI_CELL_BASE_UNUSABLE = Object.freeze({ case: AOI_CELL_BASE_CASE.unusable })
+
+let _aoiCellBaseEpoch = AOI_EPOCH_UNSET
 
 export function aoiCodeEpoch() {
   return _aoiCodeEpoch
@@ -80,41 +121,79 @@ export async function installAoiCodeEpoch() {
 }
 
 export function invalidateAoiCellBaseCache() {
-  _aoiCellBaseEpoch = null
+  _aoiCellBaseEpoch = AOI_EPOCH_UNSET
   _cellBaseCache.clear()
 }
 
 export function disableAoiCellBaseCache() {
   _aoiCodeEpoch = ''
   invalidateAoiCellBaseCache()
+  _aoiCellBaseEpoch = AOI_EPOCH_DISABLED
 }
 
-function parseAoiCellBaseEpoch(codeEpoch, mutations, relevanceRadius, planetRadius) {
-  if (codeEpoch.length !== AOI_CODE_EPOCH_LEN) return null
-  if (!Number.isInteger(mutations) || mutations < 0) return null
-  if (!Number.isFinite(relevanceRadius) || relevanceRadius <= 0) return null
-  if (!Number.isFinite(planetRadius) || planetRadius < 0) return null
-  const key = `${codeEpoch}|${mutations}|${relevanceRadius}|${planetRadius}`
-  if (_aoiCellBaseEpoch !== null && _aoiCellBaseEpoch.key === key) return _aoiCellBaseEpoch
-  return Object.freeze({ codeEpoch, mutations, relevanceRadius, planetRadius, key })
+function aoiEpochRefused(refusal) {
+  return Object.freeze({ case: AOI_EPOCH_CASE.unrepresentable, refusal, key: null })
+}
+
+function aoiRadiusSource(indexRadius, relevanceRadius) {
+  if (indexRadius === null) return AOI_EPOCH_RADIUS_SOURCE.caller
+  return indexRadius === relevanceRadius ? AOI_EPOCH_RADIUS_SOURCE.index : AOI_EPOCH_RADIUS_SOURCE.callerAgainstIndex
+}
+
+function parseAoiCellBaseEpoch(codeEpoch, mutations, relevanceRadius, planetRadius, indexRadius) {
+  if (codeEpoch.length !== AOI_CODE_EPOCH_LEN) return aoiEpochRefused(AOI_EPOCH_REFUSAL.codeEpochNotInstalled)
+  if (!Number.isInteger(mutations) || mutations < 0) return aoiEpochRefused(AOI_EPOCH_REFUSAL.mutationsNotACount)
+  if (!Number.isFinite(relevanceRadius) || relevanceRadius <= 0) return aoiEpochRefused(AOI_EPOCH_REFUSAL.relevanceRadiusNotPositive)
+  if (!Number.isFinite(planetRadius) || planetRadius < 0) return aoiEpochRefused(AOI_EPOCH_REFUSAL.planetRadiusNegative)
+  const key = `${codeEpoch}|${mutations}|${relevanceRadius}|${planetRadius}|${indexRadius}`
+  if (_aoiCellBaseEpoch.case === AOI_EPOCH_CASE.active && _aoiCellBaseEpoch.key === key) return _aoiCellBaseEpoch
+  return Object.freeze({
+    case: AOI_EPOCH_CASE.active,
+    key,
+    codeEpoch,
+    mutations,
+    relevanceRadius,
+    planetRadius,
+    indexRadius,
+    radiusSource: aoiRadiusSource(indexRadius, relevanceRadius),
+  })
+}
+
+const AOI_EPOCH_REFUSAL_COUNTER = {
+  [AOI_EPOCH_REFUSAL.codeEpochNotInstalled]: 'epochRefusedCodeEpochNotInstalled',
+  [AOI_EPOCH_REFUSAL.mutationsNotACount]: 'epochRefusedMutationsNotACount',
+  [AOI_EPOCH_REFUSAL.relevanceRadiusNotPositive]: 'epochRefusedRelevanceRadiusNotPositive',
+  [AOI_EPOCH_REFUSAL.planetRadiusNegative]: 'epochRefusedPlanetRadiusNegative',
+}
+
+function countAoiEpochRefusal(epoch) {
+  const counter = AOI_EPOCH_REFUSAL_COUNTER[epoch.refusal]
+  if (counter !== undefined) aoiRingWork[counter]++
 }
 
 export function setAoiCellBaseEpoch(relevanceRadius, planetRadius, appRuntime) {
   const spatial = appRuntime?._stageLoader?._activeStage?.spatial
   const mutations = spatial ? spatial.mutations : null
-  _aoiCellBaseEpoch = parseAoiCellBaseEpoch(_aoiCodeEpoch, mutations, relevanceRadius, planetRadius)
-  if (_aoiCellBaseEpoch === null) {
+  const indexRadius = spatial && Number.isFinite(spatial.relevanceRadius) ? spatial.relevanceRadius : null
+  _aoiCellBaseEpoch = parseAoiCellBaseEpoch(_aoiCodeEpoch, mutations, relevanceRadius, planetRadius, indexRadius)
+  if (_aoiCellBaseEpoch.case !== AOI_EPOCH_CASE.active) {
     aoiRingWork.epochDrops += _cellBaseCache.size
     _cellBaseCache.clear()
+    countAoiEpochRefusal(_aoiCellBaseEpoch)
   }
 }
 
 function readCellBase(key) {
   const epoch = _aoiCellBaseEpoch
-  if (epoch === null) return null
+  if (epoch.case !== AOI_EPOCH_CASE.active) { aoiRingWork.cellBaseUnusable++; return AOI_CELL_BASE_UNUSABLE }
   const hit = _cellBaseCache.get(key)
-  if (!hit) return null
-  if (hit.epoch !== epoch) { _cellBaseCache.delete(key); aoiRingWork.epochDrops++; return null }
+  if (hit === undefined) { aoiRingWork.cellBaseMisses++; return AOI_CELL_BASE_MISS }
+  if (hit.epoch !== epoch) {
+    _cellBaseCache.delete(key)
+    aoiRingWork.epochDrops++
+    aoiRingWork.cellBaseStaleDrops++
+    return AOI_CELL_BASE_STALE
+  }
   _cellBaseCache.delete(key)
   _cellBaseCache.set(key, hit)
   return hit
@@ -122,8 +201,8 @@ function readCellBase(key) {
 
 function storeCellBase(key, cellViewerPos, baseRelevantIds) {
   const epoch = _aoiCellBaseEpoch
-  if (epoch === null) return
-  _cellBaseCache.set(key, { epoch, cellViewerPos, baseRelevantIds })
+  if (epoch.case !== AOI_EPOCH_CASE.active) return
+  _cellBaseCache.set(key, { case: AOI_CELL_BASE_CASE.hit, epoch, cellViewerPos, baseRelevantIds })
   if (_cellBaseCache.size > AOI_CELL_BASE_MAX) {
     const oldest = _cellBaseCache.keys().next().value
     _cellBaseCache.delete(oldest)
@@ -177,7 +256,7 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       aoiRingWork.statefulQueries += 1
       const base = readCellBase(key)
       let cvp, baseRelevantIds
-      if (base) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
+      if (base.case === AOI_CELL_BASE_CASE.hit) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
       else {
         aoiRingWork.cellBaseComputes++
         aoiRingWork.cellCentreSolves++
