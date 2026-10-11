@@ -110,11 +110,16 @@ export class SpatialIndex {
     return results
   }
 
-  nearbyHorizontal(position, radius, out) {
+  nearbyCylinder(position, radius, halfHeight, out) {
+    if (typeof halfHeight !== 'number' || !(halfHeight >= 0)) {
+      const shown = typeof halfHeight === 'number' ? String(halfHeight) : JSON.stringify(halfHeight)
+      throw new TypeError(`[SpatialIndex] nearbyCylinder got halfHeight ${shown}: a relevance cylinder carries its vertical extent as an argument, so an absent, non-numeric, NaN or negative one is not a query`)
+    }
     const results = out || []
     if (out) results.length = 0
-    const cx = position[0], cz = position[2]
+    const cx = position[0], cy = position[1], cz = position[2]
     const r2 = radius * radius
+    const h2 = halfHeight * halfHeight
     const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
     const minCz = cellCoord(cz - radius), maxCz = cellCoord(cz + radius)
     for (let gx = minCx; gx <= maxCx; gx++) {
@@ -125,8 +130,8 @@ export class SpatialIndex {
           const id = bucket[i]
           const p = this._entities.get(id)
           if (!p) continue
-          const dx = p[0] - cx, dz = p[2] - cz
-          if (dx * dx + dz * dz <= r2) results.push(id)
+          const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz
+          if (dx * dx + dz * dz <= r2 && dy * dy <= h2) results.push(id)
         }
       }
     }

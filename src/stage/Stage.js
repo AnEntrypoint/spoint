@@ -1,6 +1,8 @@
 import { SpatialIndex } from '../spatial/Octree.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 
+const FLAT_RING_HALF_HEIGHT_M = Infinity
+
 function resolvedPlanetRadius(stageName, declared) {
   if (declared == null || declared === 0) return 0
   if (!(Number.isFinite(declared) && declared > 0)) {
@@ -60,7 +62,7 @@ export class Stage {
   }
 
   getRelevantEntitiesHorizontal(position, radius) {
-    return this.spatial.nearbyHorizontal(position, radius || this.spatial.relevanceRadius)
+    return this.spatial.nearbyCylinder(position, radius || this.spatial.relevanceRadius, FLAT_RING_HALF_HEIGHT_M)
   }
 
   getRelevantEntitiesForCell(position, radius) {
