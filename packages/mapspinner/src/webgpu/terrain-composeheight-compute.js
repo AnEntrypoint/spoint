@@ -1,4 +1,5 @@
 import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
+import { parseComposeHeightInputs } from './compose-height-inputs.js'
 
 export function supportsTerrainComposeHeightCompute(device) {
   return !!device && typeof device.createComputePipeline === 'function' && typeof device.createShaderModule === 'function'
@@ -22,10 +23,7 @@ export async function computeTerrainComposeHeights(device, directions, opts, pip
   const p = pipeline || createTerrainComposeHeightPipeline(device)
 
   const o = opts || {}
-  const hpfRes = o.hpfRes | 0
-  const sculptRes = o.sculptRes | 0
-  const hpfPool = o.hpfPool instanceof Float32Array ? o.hpfPool : new Float32Array(6 * hpfRes * hpfRes * 4)
-  const sculptTex = o.sculptTex instanceof Float32Array ? o.sculptTex : new Float32Array(Math.max(1, sculptRes * sculptRes))
+  const { hpfRes, sculptRes, hpfPool, sculptTex } = parseComposeHeightInputs(o)
   const landBias = o.landBias || 0
   const beachShelfM = o.beachShelfM || 0
   const sculptActive = o.sculptActive || 0

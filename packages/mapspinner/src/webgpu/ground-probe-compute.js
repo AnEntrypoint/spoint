@@ -1,4 +1,5 @@
 import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
+import { parseComposeHeightInputs } from './compose-height-inputs.js'
 import { RELIEF_DESIGN_RADIUS_M } from '../terrain-defaults.js'
 
 export function supportsGroundProbeCompute(device) {
@@ -22,10 +23,9 @@ export class GroundProbe {
     this.pipeline = pipeline
 
     const o = opts || {}
-    this.hpfRes = o.hpfRes | 0
-    this.sculptRes = o.sculptRes | 0
-    const hpfPool = o.hpfPool instanceof Float32Array ? o.hpfPool : new Float32Array(6 * this.hpfRes * this.hpfRes * 4)
-    const sculptTex = o.sculptTex instanceof Float32Array ? o.sculptTex : new Float32Array(Math.max(1, this.sculptRes * this.sculptRes))
+    const { hpfRes, sculptRes, hpfPool, sculptTex } = parseComposeHeightInputs(o)
+    this.hpfRes = hpfRes
+    this.sculptRes = sculptRes
     this.landBias = o.landBias || 0
     this.beachShelfM = o.beachShelfM || 0
     this.sculptActive = o.sculptActive || 0

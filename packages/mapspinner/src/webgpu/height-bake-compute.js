@@ -1,4 +1,5 @@
 import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
+import { parseComposeHeightInputs } from './compose-height-inputs.js'
 import { RELIEF_DESIGN_RADIUS_M } from '../terrain-defaults.js'
 
 const BINDINGS_MARKER = '@group(0) @binding(0)'
@@ -68,10 +69,7 @@ export function bakeHeightTileTexture(device, faceFrame, bakeOffset, opts, pipel
   const p = pipeline || createHeightBakePipeline(device)
   const o = opts || {}
   const res = o.res || THC_BAKE_RES
-  const hpfRes = o.hpfRes | 0
-  const sculptRes = o.sculptRes | 0
-  const hpfPool = o.hpfPool instanceof Float32Array ? o.hpfPool : new Float32Array(6 * hpfRes * hpfRes * 4)
-  const sculptTex = o.sculptTex instanceof Float32Array ? o.sculptTex : new Float32Array(Math.max(1, sculptRes * sculptRes))
+  const { hpfRes, sculptRes, hpfPool, sculptTex } = parseComposeHeightInputs(o)
   const landBias = o.landBias || 0
   const beachShelfM = o.beachShelfM || 0
   const sculptActive = o.sculptActive || 0

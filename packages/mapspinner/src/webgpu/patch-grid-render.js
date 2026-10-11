@@ -2,6 +2,7 @@ import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
 import { MapspinnerPipelineCache, TERRAIN_PATCH_VERTEX_BUFFERS } from './pipeline-cache.js'
 import { M4 } from '../gl-render-mat4.js'
 import { THC_BAKE_RES, createHeightBakePipeline, bakeHeightTileTexture } from './height-bake-compute.js'
+import { parseComposeHeightInputs } from './compose-height-inputs.js'
 import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_WGSL } from './sky-render.js'
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 import { resolvePoolParams, resolveWetness } from '../pool-params.js'
@@ -601,8 +602,12 @@ function createBufferWithData(device, data, usage) {
 export function createComposeHeightParams(device, opts = {}) {
   const defRadius = opts.defRadius
   if (!Number.isFinite(defRadius) || defRadius <= 0) throw new TypeError('createComposeHeightParams: opts.defRadius must be a positive finite number')
-  const hpfRes = opts.hpfRes || 1
-  const sculptRes = opts.sculptRes || 1
+  const { hpfRes, sculptRes, hpfPool: hpfPoolData, sculptTex: sculptTexData } = parseComposeHeightInputs({
+    hpfRes: opts.hpfRes,
+    sculptRes: opts.sculptRes,
+    hpfPool: opts.hpfPoolData,
+    sculptTex: opts.sculptTexData,
+  })
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : defRadius / RELIEF_DESIGN_RADIUS_M
   const paramsBuf = new ArrayBuffer(16)
   new Uint32Array(paramsBuf).set([0, hpfRes, sculptRes, 0])
@@ -621,10 +626,8 @@ export function createComposeHeightParams(device, opts = {}) {
     east[0], east[1], east[2], 0,
     north[0], north[1], north[2], 0,
   ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
-  const hpfFloats = 6 * hpfRes * hpfRes * 4
-  const hpfPool = createBufferWithData(device, opts.hpfPoolData || new Float32Array(Math.max(hpfFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
-  const sculptFloats = sculptRes * sculptRes
-  const sculptTex = createBufferWithData(device, opts.sculptTexData || new Float32Array(Math.max(sculptFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
+  const hpfPool = createBufferWithData(device, hpfPoolData, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
+  const sculptTex = createBufferWithData(device, sculptTexData, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   return { paramsU, scalarA, scalarB, basis, hpfPool, sculptTex }
 }
 
