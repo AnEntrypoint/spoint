@@ -27,7 +27,13 @@ export function createInputSchema(netcodeConfig = null) {
     buttons.push(b)
   }
   if (buttons.length > MAX_INPUT_BUTTONS) throw new Error(`[InputCodec] ${buttons.length} input buttons declared, max ${MAX_INPUT_BUTTONS}`)
-  const axes = extraAxes.filter(a => typeof a === 'string' && !buttons.includes(a) && a !== 'yaw' && a !== 'pitch')
+  const axes = []
+  for (const a of extraAxes) {
+    if (typeof a !== 'string' || buttons.includes(a)) continue
+    if (RESERVED_INPUT_NAMES.has(a)) throw new Error(`[InputCodec] input axis "${a}" collides with a fixed field of every input record`)
+    if (axes.includes(a)) throw new Error(`[InputCodec] input axis "${a}" is declared twice`)
+    axes.push(a)
+  }
   return Object.freeze({ buttons: Object.freeze(buttons), axes: Object.freeze(axes) })
 }
 
