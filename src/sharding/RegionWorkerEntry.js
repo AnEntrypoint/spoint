@@ -23,6 +23,8 @@ let regionId = null
 let cellSize = DEFAULT_CELL_SIZE
 let ghostMargin = DEFAULT_GHOST_MARGIN
 const transports = new Map()
+const transportLocalIds = new Map()
+const pendingClientConnects = new Map()
 const lastRegionForPlayer = new Map()
 
 function send(msg, flushCallback) {
@@ -59,6 +61,7 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   }
   if (deps._ctxRef) deps._ctxRef.current = ctx
   wireServerHandlers(ctx)
+  reportMintedLocalIds(ctx)
   installCrossShardEventForwarding(ctx)
 
   ctx.currentWorldDef = worldDef
@@ -82,6 +85,22 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   ctx.appLoader.watchAll()
 
   send({ type: 'WORKER_READY', region: regionId, pid: process.pid })
+}
+
+function reportMintedLocalIds(ctx) {
+  const playerManager = ctx.playerManager
+  const addPlayer = playerManager.addPlayer.bind(playerManager)
+  playerManager.addPlayer = (transport, options) => {
+    const localId = addPlayer(transport, options)
+    if (!(transport instanceof RegionIPCTransport)) return localId
+    transportLocalIds.set(transport, localId)
+    const requestId = pendingClientConnects.get(transport)
+    if (requestId === undefined) return localId
+    pendingClientConnects.delete(transport)
+    lastRegionForPlayer.set(localId, regionId)
+    send({ type: 'CLIENT_CONNECTED', region: regionId, requestId, localPlayerId: localId })
+    return localId
+  }
 }
 
 function installCrossShardEventForwarding(ctx) {
@@ -125,9 +144,9 @@ function checkHandoffs() {
   }
 }
 
-function acceptHandoff({ playerId, fromRegion, state, sessionToken }) {
-  const transport = new RegionIPCTransport(playerId, send)
-  transports.set(playerId, transport)
+function acceptHandoff({ playerId, routerPlayerId, fromRegion, state, sessionToken }) {
+  const transport = new RegionIPCTransport(routerPlayerId, send)
+  transports.set(routerPlayerId, transport)
   const playerConfig = ctx.currentWorldDef?.player || {}
   const newId = ctx.playerManager.addPlayer(transport, {
     position: state.position, rotation: state.rotation, velocity: state.velocity, health: state.health, name: state.name
@@ -137,7 +156,6 @@ function acceptHandoff({ playerId, fromRegion, state, sessionToken }) {
   ctx.physicsIntegration.setPlayerPosition(newId, state.position)
   const client = ctx.connections.addClient(newId, transport)
   client.sessionToken = sessionToken || ctx.sessions.create(newId, ctx.playerManager.getPlayer(newId).state)
-  lastRegionForPlayer.set(newId, regionId)
   ctx.connections.send(newId, MSG.RECONNECT_ACK, {
     playerId: newId, tick: ctx.tickSystem.currentTick, sessionToken: client.sessionToken,
     tickRate: ctx.tickRate, position: state.position, health: state.health, structHash: WIRE_STRUCT_HASH
@@ -155,12 +173,14 @@ function acceptHandoff({ playerId, fromRegion, state, sessionToken }) {
     tick: ctx.tickSystem.currentTick
   })
   ctx.connections.flushAll()
-  send({ type: 'HANDOFF_ACCEPTED', region: regionId, fromRegion, oldPlayerId: playerId, newLocalPlayerId: newId, sessionToken: client.sessionToken })
+  send({ type: 'HANDOFF_ACCEPTED', region: regionId, fromRegion, routerPlayerId, oldPlayerId: playerId, newLocalPlayerId: newId, sessionToken: client.sessionToken })
 }
 
-function completeHandoffOut(playerId) {
-  const t = transports.get(playerId)
-  if (t) { t.ready = false; transports.delete(playerId) }
+function completeHandoffOut(routerPlayerId) {
+  const t = transports.get(routerPlayerId)
+  const playerId = t ? transportLocalIds.get(t) : undefined
+  if (t) { t.ready = false; transports.delete(routerPlayerId); transportLocalIds.delete(t) }
+  if (playerId === undefined) return
   if (ctx.playerManager.getPlayer(playerId)) {
     ctx.playerManager.removePlayer(playerId)
     ctx.networkState.removePlayer(playerId)
@@ -184,10 +204,8 @@ async function handleInit(msg) {
 function handleClientConnect(msg) {
   const transport = new RegionIPCTransport(msg.playerId, send)
   transports.set(msg.playerId, transport)
+  pendingClientConnects.set(transport, msg.requestId)
   ctx.onClientConnect(transport)
-  const localId = [...ctx.playerManager.players.keys()].pop()
-  lastRegionForPlayer.set(localId, regionId)
-  send({ type: 'CLIENT_CONNECTED', region: regionId, requestId: msg.requestId, localPlayerId: localId })
 }
 
 function handleClientFrame(msg) {
@@ -195,8 +213,11 @@ function handleClientFrame(msg) {
 }
 
 function handleClientDisconnect(msg) {
-  transports.get(msg.playerId)?.close()
+  const t = transports.get(msg.playerId)
   transports.delete(msg.playerId)
+  if (!t) return
+  transportLocalIds.delete(t)
+  t.close()
 }
 
 function handleWitnessForcePosition(msg) {
