@@ -12,6 +12,9 @@ import {
 } from './RegionGrid.js'
 import { worldTickRate, DEFAULT_GRAVITY, DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
 import { resolveAppsDirs } from '../sdk/ServerBoot.js'
+import {
+  dispatchMessage, errorRefusal, messageTable, refusalText, WORKER_NOT_INITIALIZED, WORKER_REFUSED
+} from './ShardingRefusal.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -22,8 +25,8 @@ let ghostMargin = DEFAULT_GHOST_MARGIN
 const transports = new Map()
 const lastRegionForPlayer = new Map()
 
-function send(msg) {
-  process.send(msg)
+function send(msg, flushCallback) {
+  process.send(msg, flushCallback)
 }
 
 async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
@@ -167,62 +170,92 @@ function completeHandoffOut(playerId) {
   lastRegionForPlayer.delete(playerId)
 }
 
-process.on('message', async (msg) => {
+async function handleInit(msg) {
   try {
-    if (msg.type === 'INIT') { await init(msg); return }
-    if (!ctx) return
-    if (msg.type === 'CLIENT_CONNECT') {
-      const transport = new RegionIPCTransport(msg.playerId, send)
-      transports.set(msg.playerId, transport)
-      ctx.onClientConnect(transport)
-      const localId = [...ctx.playerManager.players.keys()].pop()
-      lastRegionForPlayer.set(localId, regionId)
-      send({ type: 'CLIENT_CONNECTED', region: regionId, requestId: msg.requestId, localPlayerId: localId })
-      return
-    }
-    if (msg.type === 'CLIENT_FRAME') {
-      const t = transports.get(msg.playerId)
-      if (t) t.deliver(msg.dataB64)
-      return
-    }
-    if (msg.type === 'CLIENT_DISCONNECT') {
-      const t = transports.get(msg.playerId)
-      if (t) t.close()
-      transports.delete(msg.playerId)
-      return
-    }
-    if (msg.type === 'ACCEPT_HANDOFF') { acceptHandoff(msg); return }
-    if (msg.type === '__WITNESS_FORCE_POSITION') {
-      const player = ctx.playerManager.getPlayer(msg.playerId)
-      if (player && Array.isArray(msg.position) && msg.position.length === 3) {
-        player.state.position = [...msg.position]
-        ctx.physicsIntegration.setPlayerPosition(msg.playerId, msg.position)
-      }
-      return
-    }
-    if (msg.type === 'COMPLETE_HANDOFF_OUT') { completeHandoffOut(msg.playerId); return }
-    if (msg.type === 'EVENT_REPLICATE_IN') { applyReplicatedEvent(msg); return }
-    if (msg.type === '__WITNESS_RECORD_EVENT') {
-      const event = ctx.eventLog?.record(msg.eventType, msg.data, msg.meta || {})
-      send({ type: '__WITNESS_RECORD_EVENT_ACK', requestId: msg.requestId, event })
-      return
-    }
-    if (msg.type === '__WITNESS_QUERY_EVENTLOG') {
-      const events = ctx.eventLog?.query({ type: msg.filterType }) || []
-      send({ type: '__WITNESS_QUERY_EVENTLOG_ACK', requestId: msg.requestId, events })
-      return
-    }
-    if (msg.type === 'STATS_REQUEST') {
-      send({
-        type: 'STATS', region: regionId, requestId: msg.requestId,
-        players: ctx.playerManager.getPlayerCount(), entities: ctx.appRuntime.entities.size,
-        tick: ctx.tickSystem.currentTick
-      })
-      return
-    }
-  } catch (e) {
-    console.error(`[region-worker ${regionId || '?'}] message handler error (${msg?.type}):`, e?.stack || e?.message || e)
+    await init(msg)
+  } catch (error) {
+    const refusal = errorRefusal(error)
+    const region = msg?.region ?? regionId ?? null
+    console.error(`[region-worker ${region || '?'}] boot refused: ${refusalText(refusal)}`)
+    send({ type: WORKER_REFUSED, region, ...refusal }, () => process.exit(1))
   }
+}
+
+function handleClientConnect(msg) {
+  const transport = new RegionIPCTransport(msg.playerId, send)
+  transports.set(msg.playerId, transport)
+  ctx.onClientConnect(transport)
+  const localId = [...ctx.playerManager.players.keys()].pop()
+  lastRegionForPlayer.set(localId, regionId)
+  send({ type: 'CLIENT_CONNECTED', region: regionId, requestId: msg.requestId, localPlayerId: localId })
+}
+
+function handleClientFrame(msg) {
+  transports.get(msg.playerId)?.deliver(msg.dataB64)
+}
+
+function handleClientDisconnect(msg) {
+  transports.get(msg.playerId)?.close()
+  transports.delete(msg.playerId)
+}
+
+function handleWitnessForcePosition(msg) {
+  const player = ctx.playerManager.getPlayer(msg.playerId)
+  if (player && Array.isArray(msg.position) && msg.position.length === 3) {
+    player.state.position = [...msg.position]
+    ctx.physicsIntegration.setPlayerPosition(msg.playerId, msg.position)
+  }
+}
+
+function handleWitnessRecordEvent(msg) {
+  const event = ctx.eventLog?.record(msg.eventType, msg.data, msg.meta || {})
+  send({ type: '__WITNESS_RECORD_EVENT_ACK', requestId: msg.requestId, event })
+}
+
+function handleWitnessQueryEventLog(msg) {
+  const events = ctx.eventLog?.query({ type: msg.filterType }) || []
+  send({ type: '__WITNESS_QUERY_EVENTLOG_ACK', requestId: msg.requestId, events })
+}
+
+function handleStatsRequest(msg) {
+  send({
+    type: 'STATS', region: regionId, requestId: msg.requestId,
+    players: ctx.playerManager.getPlayerCount(), entities: ctx.appRuntime.entities.size,
+    tick: ctx.tickSystem.currentTick
+  })
+}
+
+const HANDLERS = messageTable([
+  ['INIT', handleInit],
+  ['CLIENT_CONNECT', handleClientConnect],
+  ['CLIENT_FRAME', handleClientFrame],
+  ['CLIENT_DISCONNECT', handleClientDisconnect],
+  ['ACCEPT_HANDOFF', acceptHandoff],
+  ['__WITNESS_FORCE_POSITION', handleWitnessForcePosition],
+  ['COMPLETE_HANDOFF_OUT', msg => completeHandoffOut(msg.playerId)],
+  ['EVENT_REPLICATE_IN', applyReplicatedEvent],
+  ['__WITNESS_RECORD_EVENT', handleWitnessRecordEvent],
+  ['__WITNESS_QUERY_EVENTLOG', handleWitnessQueryEventLog],
+  ['STATS_REQUEST', handleStatsRequest],
+])
+
+function refusalLine(region, code, type) {
+  console.error(`[region-worker ${region || '?'}] refused message ${JSON.stringify(type ?? null)}: ${code}`)
+}
+
+process.on('message', (msg) => {
+  if (msg?.type !== 'INIT' && !ctx) {
+    refusalLine(regionId, WORKER_NOT_INITIALIZED, msg?.type)
+    return
+  }
+  const outcome = dispatchMessage(HANDLERS, msg)
+  if (!outcome.ok) {
+    refusalLine(regionId, outcome.code, outcome.detail?.type)
+    return
+  }
+  Promise.resolve(outcome.value).catch(error => {
+    console.error(`[region-worker ${regionId || '?'}] message handler error (${msg?.type}):`, error?.stack || error?.message || error)
+  })
 })
 
 send({ type: 'WORKER_BOOTING', pid: process.pid })

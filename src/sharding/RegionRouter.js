@@ -10,6 +10,10 @@ import {
   regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
 import { resolveAppsDirs } from '../sdk/ServerBoot.js'
+import {
+  dispatchMessage, messageTable, refusalText,
+  RegionWorkerRefusedError, RegionSiblingRefusedError, WORKER_REFUSED
+} from './ShardingRefusal.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const WORKER_ENTRY = join(SDK_ROOT, 'src/sharding/RegionWorkerEntry.js')
@@ -28,6 +32,18 @@ export class RegionRouter {
     this._pendingRequests = new Map()
     this.httpServer = null
     this.wss = null
+    this._workerHandlers = messageTable([
+      ['WORKER_BOOTING', () => {}],
+      ['WORKER_READY', (msg, regionId) => this.workers.get(regionId)?._resolveReady?.()],
+      ['CLIENT_CONNECTED', msg => this._resolvePending(msg.requestId, msg)],
+      ['WORKER_FRAME', (msg, regionId) => this._forwardToClient(regionId, msg)],
+      ['CLIENT_CLOSE_FROM_WORKER', (msg, regionId) => this._closeClient(regionId, msg)],
+      ['BOUNDARY_CROSSING', (msg, regionId) => this._handleBoundaryCrossing(regionId, msg)],
+      ['HANDOFF_ACCEPTED', msg => this._handleHandoffAccepted(msg)],
+      ['EVENT_REPLICATE', (msg, regionId) => this._handleEventReplicate(regionId, msg)],
+      ['STATS', msg => this._resolvePending(msg.requestId, msg)],
+      [WORKER_REFUSED, (msg, regionId) => this._handleWorkerRefused(regionId, msg)],
+    ])
   }
 
   async spawnRegions(regionIds) {
@@ -65,54 +81,62 @@ export class RegionRouter {
         entry.ready = true
         resolve(entry)
       }
+      entry._rejectReady = (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(readyTimeout)
+        reject(error)
+      }
       proc.send({ type: 'INIT', region: regionId, worldDef: this.worldDef, cellSize: this.cellSize, ghostMargin: this.ghostMargin })
     })
   }
 
   _handleWorkerMessage(regionId, msg) {
-    const entry = this.workers.get(regionId)
-    switch (msg.type) {
-      case 'WORKER_BOOTING':
-        return
-      case 'WORKER_READY':
-        entry?._resolveReady?.()
-        return
-      case 'CLIENT_CONNECTED': {
-        const pending = this._pendingRequests.get(msg.requestId)
-        if (pending) { this._pendingRequests.delete(msg.requestId); pending.resolve(msg) }
-        return
-      }
-      case 'WORKER_FRAME': {
-        const routerId = this._localToRouterId(regionId, msg.playerId)
-        const player = routerId != null ? this.players.get(routerId) : null
-        if (player?.socket && player.socket.readyState === 1) {
-          player.socket.send(Buffer.from(msg.dataB64, 'base64'))
-        }
-        return
-      }
-      case 'CLIENT_CLOSE_FROM_WORKER': {
-        const routerId = this._localToRouterId(regionId, msg.playerId)
-        const player = routerId != null ? this.players.get(routerId) : null
-        if (player?.socket && player.socket.readyState === 1) player.socket.close()
-        return
-      }
-      case 'BOUNDARY_CROSSING':
-        this._handleBoundaryCrossing(regionId, msg)
-        return
-      case 'HANDOFF_ACCEPTED':
-        this._handleHandoffAccepted(msg)
-        return
-      case 'EVENT_REPLICATE':
-        this._handleEventReplicate(regionId, msg)
-        return
-      case 'STATS': {
-        const pending = this._pendingRequests.get(msg.requestId)
-        if (pending) { this._pendingRequests.delete(msg.requestId); pending.resolve(msg) }
-        return
-      }
-      default:
-        return
+    const outcome = dispatchMessage(this._workerHandlers, msg, regionId)
+    if (outcome.ok) return
+    console.error(`[router] refused worker message from region ${regionId}: ${outcome.code} type=${JSON.stringify(outcome.detail?.type ?? null)}`)
+  }
+
+  _handleWorkerRefused(regionId, msg) {
+    const refusal = { name: msg?.name ?? null, code: msg?.code ?? null, error: msg?.error ?? null }
+    console.error(`[router] region worker ${regionId} refused to boot: ${refusalText(refusal)}`)
+    this.workers.get(regionId)?._rejectReady?.(new RegionWorkerRefusedError(regionId, refusal))
+    for (const [id, entry] of this.workers) {
+      if (id === regionId) continue
+      entry._rejectReady?.(new RegionSiblingRefusedError(id, regionId))
     }
+    this._killAllWorkers()
+  }
+
+  _killAllWorkers() {
+    for (const entry of this.workers.values()) {
+      try { entry.proc.kill() } catch (_) { }
+    }
+    this.workers.clear()
+  }
+
+  _resolvePending(requestId, msg) {
+    const pending = this._pendingRequests.get(requestId)
+    if (!pending) return
+    this._pendingRequests.delete(requestId)
+    pending.resolve(msg)
+  }
+
+  _playerFor(regionId, localPlayerId) {
+    const routerId = this._localToRouterId(regionId, localPlayerId)
+    return routerId != null ? this.players.get(routerId) ?? null : null
+  }
+
+  _forwardToClient(regionId, msg) {
+    const player = this._playerFor(regionId, msg.playerId)
+    if (player?.socket && player.socket.readyState === 1) {
+      player.socket.send(Buffer.from(msg.dataB64, 'base64'))
+    }
+  }
+
+  _closeClient(regionId, msg) {
+    const player = this._playerFor(regionId, msg.playerId)
+    if (player?.socket && player.socket.readyState === 1) player.socket.close()
   }
 
   _localToRouterId(regionId, localPlayerId) {
@@ -128,8 +152,7 @@ export class RegionRouter {
       console.warn(`[router] boundary crossing to unspawned region ${msg.toRegion} (from ${fromRegion}, player ${msg.playerId}) -- no shard there, player stays in ${fromRegion}`)
       return
     }
-    const routerId = this._localToRouterId(fromRegion, msg.playerId)
-    const player = routerId != null ? this.players.get(routerId) : null
+    const player = this._playerFor(fromRegion, msg.playerId)
     if (!player) return
     player.pendingRegion = msg.toRegion
     player.pendingFromRegion = fromRegion
@@ -140,8 +163,7 @@ export class RegionRouter {
   }
 
   _handleHandoffAccepted(msg) {
-    const routerId = this._localToRouterId(msg.fromRegion, msg.oldPlayerId)
-    const player = routerId != null ? this.players.get(routerId) : null
+    const player = this._playerFor(msg.fromRegion, msg.oldPlayerId)
     if (!player) {
       const toEntry = this.workers.get(msg.region)
       toEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.newLocalPlayerId })
@@ -255,7 +277,6 @@ export class RegionRouter {
   async stop() {
     if (this.wss) this.wss.close()
     if (this.httpServer) this.httpServer.close()
-    for (const entry of this.workers.values()) entry.proc.kill()
-    this.workers.clear()
+    this._killAllWorkers()
   }
 }

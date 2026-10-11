@@ -1,4 +1,7 @@
 import { createClusterAssigner } from '../shared/clusterAssignment.js'
+import { messageRefusal } from './ShardingRefusal.js'
+
+const TALLY_KEY_BY_EVENT = new Map([['handoff', 'handoffs'], ['merge', 'merges'], ['drop', 'dropped']])
 
 export function createClusterManager({ config, now = () => performance.now() }) {
   if (!config) throw new Error('cluster manager needs a resolved cluster config (resolveClusterConfig returned null: clusters are not enabled)')
@@ -10,7 +13,8 @@ export function createClusterManager({ config, now = () => performance.now() }) 
   const listeners = []
   const reportedRejections = new Set()
   const periodMs = 1000 / config.hz
-  let lastStepAt = -Infinity, steps = 0, last = null, handoffs = 0, merges = 0, created = 0, dropped = 0
+  const tallies = { handoffs: 0, merges: 0, dropped: 0 }
+  let lastStepAt = -Infinity, steps = 0, last = null, created = 0
 
   function setPlayerDir(id, dir) { dirs.set(id, dir) }
   function removePlayer(id) { dirs.delete(id) }
@@ -33,9 +37,13 @@ export function createClusterManager({ config, now = () => performance.now() }) 
     reportRejections(result.rejected)
     for (const c of result.clusters) if (c.created) created++
     for (const e of result.events) {
-      if (e.type === 'handoff') handoffs++
-      else if (e.type === 'merge') merges++
-      else if (e.type === 'drop') dropped++
+      const key = TALLY_KEY_BY_EVENT.get(e?.type)
+      if (key === undefined) {
+        const refusal = messageRefusal('assignment-event-not-tallied', { type: e?.type ?? null })
+        console.warn(`[clusters] assignment event ${JSON.stringify(refusal.detail.type)} is not tallied: ${refusal.code}`)
+        continue
+      }
+      tallies[key]++
     }
     last = result
     for (const listener of listeners) listener(result)
@@ -52,6 +60,6 @@ export function createClusterManager({ config, now = () => performance.now() }) 
     dirOf: id => dirs.get(id) ?? null,
     get last() { return last },
     clusterOf: id => last?.clusterOf.get(id) ?? null,
-    get stats() { return { steps, created, handoffs, merges, dropped, players: dirs.size, clusters: last?.clusters.length ?? 0 } },
+    get stats() { return { steps, created, ...tallies, players: dirs.size, clusters: last?.clusters.length ?? 0 } },
   }
 }
