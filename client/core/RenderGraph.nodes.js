@@ -93,20 +93,19 @@ export function buildRenderSectionNodes() {
 
     {
       id: 'foliage-lod-sync',
-      reads: ['cameraSynced'],
+      reads: ['cameraSynced', 'frameDt', 'shadowMoved'],
       writes: [],
       shouldRun: ctx => !!(ctx.vegetation || ctx.rocks || ctx.grass),
       run(ctx) {
-        const _windDt = ctx.res.frameDt || 0
+        const frameDt = ctx.res.frameDt
         const veg = ctx.vegetation, rocks = ctx.rocks, grass = ctx.grass
-        if (veg && typeof veg.tickWind === 'function') { try { veg.tickWind(_windDt) } catch (_) {} }
-        if (grass && typeof grass.tickWind === 'function') { try { grass.tickWind(_windDt) } catch (_) {} }
+        if (veg && typeof veg.tickWind === 'function') { try { veg.tickWind(frameDt) } catch (_) {} }
+        if (grass && typeof grass.tickWind === 'function') { try { grass.tickWind(frameDt) } catch (_) {} }
         const pose = resolveCameraPose(ctx.camera, _camPose)
-        const shadowMoved = ctx.res.shadowMoved || false
+        const shadowMoved = ctx.res.shadowMoved
         const shadowStill = (veg && veg.castShadows) ? !shadowMoved : true
         const tick = !(ctx.placementScheduler && !ctx.placementScheduler.shouldTick(ctx.now))
         if (tick) {
-          const frameDt = ctx.res.frameDt || 0
           let vegFocus = ctx.res.vegFocus || ctx.camera.position
           if (ctx.floatingOrigin) {
             vegFocus = ctx.floatingOrigin.toAuthoritative(vegFocus, _authVegFocus)
