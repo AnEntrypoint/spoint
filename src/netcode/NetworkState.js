@@ -17,8 +17,16 @@ export class NetworkState {
       rotation: initialState.rotation || [0, 0, 0, 1],
       velocity: initialState.velocity || [0, 0, 0],
       onGround: initialState.onGround !== undefined ? initialState.onGround : false,
-      health: initialState.health || 100,
+      health: initialState.health ?? 100,
       inputSequence: 0,
+      crouch: initialState.crouch || 0,
+      lookPitch: initialState.lookPitch || 0,
+      lookYaw: initialState.lookYaw || 0,
+      expr: initialState.expr || 0,
+      weapon: initialState.weapon || 0,
+      inputBuffer: 0,
+      groundNormal: null,
+      wallNormals: null,
       lastUpdate: Date.now()
     })
   }
