@@ -223,7 +223,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
 
   return {
     node: card,
-    get joined() { return joined },
+    get joined() { return !destroyed && joined },
     onVoiceIdentity(playerId, pubkey) {
       if (playerId == null || !pubkey) return
       pubkeyToPlayerId.set(pubkey, playerId)

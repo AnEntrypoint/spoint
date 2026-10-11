@@ -182,6 +182,7 @@ export function createPlacementScanner() {
     if (breach) {
       reportContractBreach('begin', breach)
       active.fill(0)
+      for (const sc of scanners) sc.cache.clear()
       return false
     }
     for (let i = 0; i < scanners.length; i++) {
