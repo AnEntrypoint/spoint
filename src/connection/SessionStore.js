@@ -1,3 +1,5 @@
+import { mintPlayerOwner, playerIdOf, isPlayerOwner, UNBOUND_OWNER } from './playerOwner.js'
+
 function _randomHex16() {
   const arr = new Uint8Array(16)
   globalThis.crypto.getRandomValues(arr)
@@ -15,7 +17,8 @@ export class SessionStore {
     const token = _randomHex16()
     const session = {
       token,
-      playerId,
+      _owner: playerId == null ? UNBOUND_OWNER : mintPlayerOwner(playerId),
+      get playerId() { return playerIdOf(this._owner) },
       state: state ? { ...state } : {},
       createdAt: Date.now(),
       lastTouched: Date.now(),
@@ -36,6 +39,16 @@ export class SessionStore {
         session.state[k] = data.state[k]
       }
     }
+    session.lastTouched = Date.now()
+    if (!session.pinned) this._refreshExpire(token)
+    return true
+  }
+
+  rebindOwner(token, owner) {
+    const session = this.sessions.get(token)
+    if (!session) return false
+    if (!isPlayerOwner(owner)) throw new TypeError('[SessionStore] rebindOwner requires a PlayerOwner minted by the player boundary')
+    session._owner = owner
     session.lastTouched = Date.now()
     if (!session.pinned) this._refreshExpire(token)
     return true

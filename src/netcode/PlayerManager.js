@@ -1,5 +1,6 @@
 import { pack } from '../protocol/msgpack.js'
 import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
+import { mintPlayerOwner } from '../connection/playerOwner.js'
 
 const MAX_BUFFERED_INPUTS = 128
 
@@ -46,6 +47,11 @@ export class PlayerManager {
     this.inputBuffers.set(playerId, [])
     this._connectedGen++
     return playerId
+  }
+
+  ownerOf(playerId) {
+    if (!this.players.has(playerId)) throw new Error(`[playerManager] no live player ${playerId} to own`)
+    return mintPlayerOwner(playerId)
   }
 
   removePlayer(playerId) {
