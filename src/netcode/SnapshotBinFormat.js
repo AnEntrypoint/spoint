@@ -69,12 +69,14 @@ export function packQuat(rx, ry, rz, rw) {
 }
 
 export function unpackQuat(packed, out) {
+  const packedIn = packed >>> 0
   const maxIdx = (packed >>> 30) & 0x3
   const c2 = (packed & 0x3FF) / QSCALE - Math.SQRT1_2; packed = packed >>> 10
   const c1 = (packed & 0x3FF) / QSCALE - Math.SQRT1_2; packed = packed >>> 10
   const c0 = (packed & 0x3FF) / QSCALE - Math.SQRT1_2
   const sumSq = c0 * c0 + c1 * c1 + c2 * c2
-  const m = Math.sqrt(Math.max(0, 1 - sumSq))
+  if (sumSq > 1) throw new RangeError('unpackQuat: packed ' + packedIn + ' stores |three|^2 ' + sumSq + ', which no unit quaternion can have')
+  const m = Math.sqrt(1 - sumSq)
   switch (maxIdx) {
     case 0: out[1] = c0; out[2] = c1; out[3] = c2; out[0] = m; break
     case 1: out[0] = c0; out[2] = c1; out[3] = c2; out[1] = m; break

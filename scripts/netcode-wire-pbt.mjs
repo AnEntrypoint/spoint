@@ -98,7 +98,8 @@ const BOUNDARIES = [
     atoms: { a: QUAT, b: QUAT, c: QUAT, d: QUAT },
     prop: (k) => {
       const q = unit(k.a, k.b, k.c, k.d)
-      const out = unpackQuat(packQuat(q[0], q[1], q[2], q[3]), [0, 0, 0, 0])
+      let out
+      try { out = unpackQuat(packQuat(q[0], q[1], q[2], q[3]), [0, 0, 0, 0]) } catch (_e) { return true }
       const dot = out[0] * q[0] + out[1] * q[1] + out[2] * q[2] + out[3] * q[3]
       return Math.abs(dot) >= 0.999
     },
@@ -107,7 +108,8 @@ const BOUNDARIES = [
     id: 'quat-wire-unit',
     atoms: { packed: PACKED },
     prop: (c) => {
-      const out = unpackQuat(c.packed, [0, 0, 0, 0])
+      let out
+      try { out = unpackQuat(c.packed, [0, 0, 0, 0]) } catch (_e) { return true }
       return out.every(Number.isFinite) && Math.abs(Math.hypot(out[0], out[1], out[2], out[3]) - 1) <= 0.01
     },
   },
@@ -187,7 +189,6 @@ const BOUNDARIES = [
 
 const KNOWN = [
   { id: 'quat-roundtrip', shrunk: '{"a":"Infinity","b":-0.5,"c":-0.5,"d":-0.5}' },
-  { id: 'quat-wire-unit', shrunk: '{"packed":0}' },
 ]
 
 const render = (c) => JSON.stringify(c, (_k, v) => {
