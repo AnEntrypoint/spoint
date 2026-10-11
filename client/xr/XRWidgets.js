@@ -5,8 +5,10 @@ import { createRayLine } from './XRRayLine.js'
 const FADE_SPEED = 5
 const FADE_DELAY_S = 0.05
 const ARC_SEGMENTS = 20
+const ARC_STEP_S = 0.05
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
+const ARC_GROUND_Y = 0.1
 const TELEPORT_MOVE_MS = 200
 const TELEPORT_SETTLE_MS = 200
 
@@ -141,14 +143,14 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function computeParabolicArc(origin, direction) {
     const positions = teleportArc.geometry.attributes.position.array; let idx = 0, hit = null
     for (let i = 0; i < ARC_SEGMENTS; i++) {
-      const t = i * 0.05
+      const t = i * ARC_STEP_S
       const x = origin.x + direction.x * ARC_VELOCITY * t
       const y = origin.y + direction.y * ARC_VELOCITY * t + 0.5 * ARC_GRAVITY * t * t
       const z = origin.z + direction.z * ARC_VELOCITY * t
-      if (idx < positions.length) { positions[idx++] = x; positions[idx++] = y; positions[idx++] = z }
-      if (!hit && y < 0.1) {
-        const pt = (i - 1) * 0.05, py = origin.y + direction.y * ARC_VELOCITY * pt + 0.5 * ARC_GRAVITY * pt * pt
-        if (py > 0.1) { const f = (0.1 - py) / (y - py), ht = pt + f * 0.05; hit = { point: new THREE.Vector3(origin.x + direction.x * ARC_VELOCITY * ht, 0, origin.z + direction.z * ARC_VELOCITY * ht), valid: true } }
+      positions[idx++] = x; positions[idx++] = y; positions[idx++] = z
+      if (!hit && y < ARC_GROUND_Y) {
+        const pt = (i - 1) * ARC_STEP_S, py = origin.y + direction.y * ARC_VELOCITY * pt + 0.5 * ARC_GRAVITY * pt * pt
+        if (py > ARC_GROUND_Y) { const f = (ARC_GROUND_Y - py) / (y - py), ht = pt + f * ARC_STEP_S; hit = { point: new THREE.Vector3(origin.x + direction.x * ARC_VELOCITY * ht, ARC_GROUND_Y, origin.z + direction.z * ARC_VELOCITY * ht), valid: true } }
       }
     }
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit

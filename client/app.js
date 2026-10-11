@@ -2588,7 +2588,7 @@ function buildFrameSectionNodes() {
           camera.position.set(_specTmp.x - Math.sin(cam.yaw) * d, _specTmp.y + hgt, _specTmp.z - Math.cos(cam.yaw) * d)
           camera.lookAt(_specTmp.x, _specTmp.y, _specTmp.z)
         } else if (!xrSystem?.isPresenting || ctx.res.isEditorFrame) cam.update(local, pm.playerMeshes.get(lid), ctx.res.frameDt, latestInput)
-        xrSystem?.syncVRPosition(xrSystem.isPresenting ? (client.getRenderState?.(ctx.now) || local) : local); xrSystem?.update(ctx.res.frameDt, local, ctx.now)
+        xrSystem?.syncVRPosition(xrSystem.isPresenting ? (client.getRenderState?.(ctx.now) || local) : local); xrSystem?.update(ctx.res.frameDt, local)
         ctx.res.vegFocus = (cam.getEditMode() && cam.getEditCameraPosition) ? cam.getEditCameraPosition()
           : specMesh ? _specTmp
           : local && local.position ? _localFocusToRender(local.position)

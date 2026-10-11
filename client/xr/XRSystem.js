@@ -13,6 +13,8 @@ const SNAP_TURN_ANGLES = [15, 30, 45, 60, 90]
 const CROUCH_FLAG_BIT = 1
 const CROUCH_EYE_HEIGHT_M = 1.1
 const STAND_EYE_HEIGHT_M = 1.6
+const WRIST_UI_INTERVAL_S = 0.066
+const CONTROLLER_VISIBILITY_INTERVAL_S = 0.1
 
 function eyeHeightOf(local) {
   return (local.crouch || 0) & CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
@@ -25,6 +27,7 @@ export function createXRSystem(renderer, scene, camera) {
   const handModels = new Map()
   const handModelFactory = new XRHandModelFactory()
   let handsDetected = false
+  let wristUiElapsed = 0, visibilityElapsed = 0
   let xrBaseReferenceSpace = null
   let xrRebaseTimer = 0
   let arButton = null
@@ -84,7 +87,6 @@ export function createXRSystem(renderer, scene, camera) {
     }
   }
 
-  const _aimOrigin = new THREE.Vector3(), _aimDir = new THREE.Vector3()
   function readAimPointer() {
     if (!renderer.xr.isPresenting) return null
     const session = renderer.xr.getSession()
@@ -93,16 +95,18 @@ export function createXRSystem(renderer, scene, camera) {
       const joints = handModels.get(0)?.hand?.joints ?? renderer.xr.getHand?.(0)?.joints
       const indexTip = joints?.['index-finger-tip']
       if (!indexTip) return null
-      indexTip.getWorldPosition(_aimOrigin); indexTip.getWorldDirection(_aimDir).multiplyScalar(-1)
       const thumbTip = joints['thumb-tip']
-      return { origin: _aimOrigin.clone(), direction: _aimDir.clone(), trigger: thumbTip ? thumbTip.position.distanceTo(indexTip.position) < 0.02 : false }
+      return {
+        origin: indexTip.getWorldPosition(new THREE.Vector3()),
+        direction: indexTip.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1),
+        trigger: thumbTip ? thumbTip.position.distanceTo(indexTip.position) < 0.02 : false
+      }
     }
     let pointer = null, trigger = false
     for (const s of session.inputSources) {
       if (s.handedness === 'left' && s.gamepad) {
         const ctrl = renderer.xr.getController(0)
-        ctrl.getWorldPosition(_aimOrigin); ctrl.getWorldDirection(_aimDir).multiplyScalar(-1)
-        pointer = { origin: _aimOrigin.clone(), direction: _aimDir.clone(), trigger: false }
+        pointer = { origin: ctrl.getWorldPosition(new THREE.Vector3()), direction: ctrl.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1), trigger: false }
       }
       if (s.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) trigger = true
     }
@@ -203,14 +207,21 @@ export function createXRSystem(renderer, scene, camera) {
   }
 
   const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1
-  function update(dtSeconds, local, now) {
+  function update(dtSeconds, local) {
     const dt = dtSeconds >= FRAME_DT_MIN_S && dtSeconds <= FRAME_DT_MAX_S ? dtSeconds : 0
+    const step = Number.isFinite(dtSeconds) ? Math.min(Math.max(dtSeconds, 0), FRAME_DT_MAX_S) : 0
+    wristUiElapsed += step
+    visibilityElapsed += step
+    const wristUiDue = wristUiElapsed >= WRIST_UI_INTERVAL_S
+    if (wristUiDue) wristUiElapsed -= WRIST_UI_INTERVAL_S
+    const visibilityDue = visibilityElapsed >= CONTROLLER_VISIBILITY_INTERVAL_S
+    if (visibilityDue) visibilityElapsed -= CONTROLLER_VISIBILITY_INTERVAL_S
     const inVR = renderer.xr.isPresenting
-    if (inVR && local && (now % 66 < 16)) {
+    if (inVR && local && wristUiDue) {
       const stats = readHudStats()
       widgets.updateWristUI(local.health ?? 100, stats.ammo ?? '', stats.reloading === true)
     }
-    if (now % 100 < 16) updateControllerVisibility()
+    if (visibilityDue) updateControllerVisibility()
     widgets.updateTeleportArc(readAimPointer())
     widgets.updateFade(dt)
     const isMoving = inVR && local?.velocity ? Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2) > 0.5 : false
