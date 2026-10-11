@@ -1,5 +1,6 @@
 const NO_POLY = -1
 const INSIDE_EPS = 1e-3
+const WINDING_EPS = 1e-9
 const PATH_CACHE_ENTRIES = 100
 
 function cross2(ax, az, bx, bz, cx, cz) { return (bx - ax) * (cz - az) - (bz - az) * (cx - ax) }
@@ -28,6 +29,12 @@ class NavmeshQuery {
       }
       this.centroids.set([x / vs.length, y / vs.length, z / vs.length], i * 3)
       this.boxes.set([minX, maxX, minZ, maxZ], i * 4)
+      let winding2 = 0
+      for (let j = 0; j < vs.length; j++) {
+        const a = vertices[vs[j]], c = vertices[vs[(j + 1) % vs.length]]
+        winding2 += a[0] * c[2] - c[0] * a[2]
+      }
+      if (winding2 < -WINDING_EPS) throw new Error(`navmesh polygon ${i} winds clockwise in x/z (signed area ${winding2}): _contains rejects every point of a clockwise polygon, so locate() would return -1 and findPath() null for the whole navmesh -- re-bake it`)
     }
     this.pathCache = new Map()
   }
