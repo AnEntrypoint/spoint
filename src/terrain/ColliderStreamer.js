@@ -68,10 +68,56 @@ function ringMoved(centers, curCenters, moveThreshold) {
   return false
 }
 
+const isFiniteNumber = (v) => Number.isFinite(v)
+const isFinitePositive = (v) => Number.isFinite(v) && v > 0
+const isFiniteCount = (v) => Number.isFinite(v) && v >= 1
+
+function admittedNumber(key, raw, fallback, accepted, requirement) {
+  if (raw === undefined) return fallback
+  if (!accepted(raw)) throw new Error(`collider streamer spec field ${key} must be ${requirement}, got ${String(raw)}`)
+  return raw
+}
+
+function parseStreamerSpec(spec) {
+  const cap = admittedNumber('cap', spec.cap, 128, isFinitePositive, 'a finite number > 0')
+  const radius = admittedNumber('radius', spec.radius, 64, isFinitePositive, 'a finite number > 0')
+  return {
+    physics: spec.physics,
+    frame: spec.frame,
+    anchorField: spec.anchorField || null,
+    worldSeed: spec.worldSeed | 0,
+    latticeSpec: spec.latticeSpec,
+    idField: spec.idField,
+    placementsFor: spec.placementsFor,
+    bodyArgs: spec.bodyArgs,
+    setColliderIds: spec.setColliderIds,
+    excludePlacement: typeof spec.excludePlacement === 'function' ? spec.excludePlacement : null,
+    getCenters: typeof spec.getCenters === 'function' ? spec.getCenters : null,
+    getCenter: typeof spec.getCenter === 'function' ? spec.getCenter : null,
+    logTag: spec.logTag || '[collider]',
+    radius,
+    intervalMs: admittedNumber('intervalMs', spec.intervalMs, 300, isFiniteNumber, 'a finite number'),
+    rebuildAt: admittedNumber('rebuildAt', spec.rebuildAt, 0.3, isFiniteNumber, 'a finite number'),
+    cap,
+    bodiesPerChunk: admittedNumber('bodiesPerChunk', spec.bodiesPerChunk, 16, isFinitePositive, 'a finite number > 0'),
+    byteBudget: admittedNumber('byteBudget', spec.byteBudget, cap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY, isFinitePositive, 'a finite number > 0'),
+    maxCenters: Math.floor(admittedNumber('maxCenters', spec.maxCenters, DEFAULT_MAX_CENTERS, isFiniteCount, 'a finite number >= 1')),
+    maxCentersExplicit: spec.maxCenters !== undefined,
+    keepRadius: radius * KEEP_RADIUS_HYSTERESIS_FACTOR,
+    mergeRadius: radius * 0.75,
+  }
+}
+
 export function createColliderStreamer(spec = {}) {
-  const physics = spec.physics
-  const _getCentersRaw = typeof spec.getCenters === 'function' ? spec.getCenters : null
-  const _getCenterRaw = typeof spec.getCenter === 'function' ? spec.getCenter : null
+  const cfg = parseStreamerSpec(spec)
+  const {
+    physics, frame, anchorField, worldSeed, latticeSpec, idField, placementsFor, bodyArgs, setColliderIds,
+    radius, intervalMs, rebuildAt, bodiesPerChunk, maxCenters, maxCentersExplicit, keepRadius, mergeRadius,
+    cap: baseCap, byteBudget: baseByteBudget, logTag,
+  } = cfg
+  const _getCentersRaw = cfg.getCenters
+  const _getCenterRaw = cfg.getCenter
+  let excludePlacement = cfg.excludePlacement
   function getCenters() {
     if (_getCentersRaw) {
       const cs = _getCentersRaw()
@@ -84,29 +130,8 @@ export function createColliderStreamer(spec = {}) {
     }
     return []
   }
-  const frame = spec.frame, anchorField = spec.anchorField || null
-  const worldSeed = spec.worldSeed | 0
-  const radius = Number.isFinite(spec.radius) && spec.radius > 0 ? spec.radius : 64
-  const intervalMs = Number.isFinite(spec.intervalMs) ? spec.intervalMs : 300
-  const rebuildAt = Number.isFinite(spec.rebuildAt) ? spec.rebuildAt : 0.3
-  const baseCap = Number.isFinite(spec.cap) && spec.cap > 0 ? spec.cap : 128
-  const bodiesPerChunk = Number.isFinite(spec.bodiesPerChunk) && spec.bodiesPerChunk > 0 ? spec.bodiesPerChunk : 16
-  const keepRadius = radius * KEEP_RADIUS_HYSTERESIS_FACTOR
-  const mergeRadius = radius * 0.75
-  const baseByteBudget = Number.isFinite(spec.byteBudget) && spec.byteBudget > 0 ? spec.byteBudget : baseCap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY
-  const maxCentersRaw = spec.maxCenters
-  const maxCentersExplicit = Number.isFinite(maxCentersRaw) && maxCentersRaw >= 1
-  if (maxCentersRaw !== undefined && !maxCentersExplicit) console.warn(`${logTag} colliderMaxCenters ${String(maxCentersRaw)} is not a finite number >= 1, so the ${DEFAULT_MAX_CENTERS} cluster default is used instead`)
-  const maxCenters = maxCentersExplicit ? Math.floor(maxCentersRaw) : DEFAULT_MAX_CENTERS
   let effectiveCap = baseCap
   let effectiveByteBudget = baseByteBudget
-  const latticeSpec = spec.latticeSpec
-  const idField = spec.idField
-  const placementsFor = spec.placementsFor
-  const bodyArgs = spec.bodyArgs
-  const setColliderIds = spec.setColliderIds
-  let excludePlacement = typeof spec.excludePlacement === 'function' ? spec.excludePlacement : null
-  const logTag = spec.logTag || '[collider]'
 
   const live = new Map()
   const placedAt = new Map()
