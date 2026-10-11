@@ -23,7 +23,7 @@ const NO_TERRAIN = Object.freeze({ heightAt: null, seaLevelAt: null, kindAt: nul
 const ROAD_OR_RIVER = (x) => (x > 40 ? 'road' : x < 0 ? 'river' : null);
 const TERRAIN_HEIGHT = (x) => (x > 40 ? -1 : 5);
 const SEA_AT_ZERO = () => 0;
-const refusalOf = (fn) => { try { fn(); return 'constructed'; } catch (err) { return String(err && err.message).startsWith('[fire] firebreaks.water') ? 'refused' : `threw ${err && err.message}`; } };
+const refusalOf = (fn) => { try { fn(); return 'constructed'; } catch (err) { return String(err && err.message).startsWith('[fire] firebreaks.') ? 'refused' : `threw ${err && err.message}`; } };
 const DISC = (x, z, radiusM) => ({ cleared: [{ center: [x, z], radiusM }] });
 
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
@@ -113,6 +113,8 @@ function runChecks(mod, rec) {
   rec.check('kinds: an undefined kind keeps the base', classify(mod, [PROBE], { breaks: { kinds: new Set(['road']), kindAt: () => undefined } })[0], BASE);
   rec.check('kinds: breaks.kindAt takes precedence over terrain.kindAt', classify(mod, [PROBE], { breaks: { kinds: new Set(['road']), kindAt: () => 'road' }, terrain: { ...NO_TERRAIN, kindAt: () => null } })[0], 0);
   rec.check('kinds: terrain.kindAt is used when breaks.kindAt is absent', classify(mod, [PROBE], { breaks: { kinds: new Set(['road']) }, terrain: { ...NO_TERRAIN, kindAt: () => 'road' } })[0], 0);
+  rec.check('kinds: a non-empty kind set with no kind sampler is refused at construction', refusalOf(() => classify(mod, [PROBE], { breaks: { kinds: new Set(['road']) } })), 'refused');
+  rec.check('kinds: an empty kind set needs no kind sampler', classify(mod, [PROBE], { breaks: { kinds: new Set() } })[0], BASE);
 
   const water = { water: true, heightAt: TERRAIN_HEIGHT, seaLevelAt: SEA_AT_ZERO };
   rec.check('water: a cell below sea level is cleared', classify(mod, [PROBE], { breaks: water })[0], 0);
@@ -185,6 +187,7 @@ function conclude(report) {
     `module=${report.modulePath}`,
     `module_sha256=${report.moduleSha}`,
     'source=none: pure module (no imports, no browser, GPU, network or clock global); expectations are fixed values worked out from the module source',
+    'contract: a firebreaks promise that cannot be applied is refused at construction, never silently skipped -- water without a height and sea-level sampler, a non-empty kinds without a kind sampler',
     `frame: radius=${RADIUS} anchorHeight=${ANCHOR_HEIGHT} tangentScale=${TANGENT_SCALE} base=${BASE}`,
   ];
   let text = [...header, ...report.body, result, ''].join('\n');
