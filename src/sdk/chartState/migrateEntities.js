@@ -136,32 +136,60 @@ function nearAnyMover(cells, p) {
 }
 
 
+const STATIC_PLACEMENT_KINDS = ['dormant', 'near', 'budget', 'parked', 'orphan']
+
+function classifyStaticPlacement(physics, cells, entity, outOfBudget) {
+  if (physics.dormantStatics.has(entity._physicsBodyId)) return 'dormant'
+  if (nearAnyMover(cells, entity.position)) return 'near'
+  if (!outOfBudget) return 'budget'
+  return physics.bodies.has(entity._physicsBodyId) ? 'parked' : 'orphan'
+}
+
+function staticPlacementTally() {
+  const tally = {}
+  for (const kind of STATIC_PLACEMENT_KINDS) tally[kind] = 0
+  return tally
+}
+
 export function placeStaticBodies(physics, statics, movers, budgetMs) {
   const cells = indexMovers(movers)
-  const dormant = physics.dormantStatics
   const startedAt = performance.now()
   const parked = []
-  let nearMoved = 0, budgetMoved = 0, nearMs = 0
+  const tally = staticPlacementTally()
+  let nearMs = 0
   let outOfBudget = false
   for (let i = 0; i < statics.length; i++) {
     const entity = statics[i]
-    if (dormant.has(entity._physicsBodyId)) continue
-    if (nearAnyMover(cells, entity.position)) {
-      const movedAt = performance.now()
-      physics.setBodyTransform(entity._physicsBodyId, entity.position, entity.rotation)
-      nearMs += performance.now() - movedAt
-      nearMoved++
-      continue
-    }
     if (!outOfBudget && i % STATIC_BUDGET_CHECK_INTERVAL === 0 && performance.now() - startedAt >= budgetMs) outOfBudget = true
-    if (outOfBudget) { if (physics.bodies.has(entity._physicsBodyId)) parked.push({ bodyId: entity._physicsBodyId, owner: entity }); continue }
-    physics.setBodyTransform(entity._physicsBodyId, entity.position, entity.rotation)
-    budgetMoved++
+    const placement = classifyStaticPlacement(physics, cells, entity, outOfBudget)
+    switch (placement) {
+      case 'dormant': break
+      case 'near': {
+        const movedAt = performance.now()
+        physics.setBodyTransform(entity._physicsBodyId, entity.position, entity.rotation)
+        nearMs += performance.now() - movedAt
+        break
+      }
+      case 'budget': physics.setBodyTransform(entity._physicsBodyId, entity.position, entity.rotation); break
+      case 'parked': parked.push({ bodyId: entity._physicsBodyId, owner: entity }); break
+      case 'orphan': break
+      default: throw new Error(`chart re-anchor classified a static as ${placement}, which no placement branch handles`)
+    }
+    tally[placement]++
   }
   const parkStartedAt = performance.now()
-  dormant.park(parked)
+  physics.dormantStatics.park(parked)
   const finishedAt = performance.now()
-  return { nearMoved, budgetMoved, parked: parked.length, nearMs, parkMs: finishedAt - parkStartedAt, ms: finishedAt - startedAt }
+  return {
+    nearMoved: tally.near,
+    budgetMoved: tally.budget,
+    parked: parked.length,
+    dormant: tally.dormant,
+    orphaned: tally.orphan,
+    nearMs,
+    parkMs: finishedAt - parkStartedAt,
+    ms: finishedAt - startedAt,
+  }
 }
 
 
