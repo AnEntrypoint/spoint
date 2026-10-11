@@ -59,6 +59,31 @@ function extractMemberNames(dtsText) {
   return names
 }
 
+function countsOf(lines) {
+  const counts = new Map()
+  for (const line of lines) counts.set(line, (counts.get(line) ?? 0) + 1)
+  return counts
+}
+
+function sameLineMultiset(a, b) {
+  if (a.length !== b.length) return false
+  const ca = countsOf(a)
+  const cb = countsOf(b)
+  if (ca.size !== cb.size) return false
+  for (const [line, n] of ca) if (cb.get(line) !== n) return false
+  return true
+}
+
+function linesOnlyIn(from, other) {
+  const counts = countsOf(from)
+  for (const line of other) {
+    const n = counts.get(line) ?? 0
+    if (n <= 1) counts.delete(line)
+    else counts.set(line, n - 1)
+  }
+  return [...counts.keys()]
+}
+
 async function main() {
   if (!existsSync(SOURCE)) {
     console.error(`[gen-sdk-typings] source not found: ${SOURCE}`)
@@ -118,16 +143,19 @@ async function main() {
       }
       const committedLines = (committed ?? '').split('\n')
       const outputLines = output.split('\n')
+      if (sameLineMultiset(committedLines, outputLines)) {
+        console.log('[gen-sdk-typings] ' + GENERATED_OUT + ' is up to date (order-only difference; ' + outputLines.length + ' lines including header)')
+        console.log('[gen-sdk-typings] NOTE: the committed file lists the same members in a different order. tsc orders emitted members by type id, which follows module-resolution order, so the order varies between checkouts of one commit while the member set does not; regenerating cannot fix it.')
+        return
+      }
       console.error(`[gen-sdk-typings] STALE: ${GENERATED_OUT} does not match the committed ${SOURCE_REL}`)
       console.error(`[gen-sdk-typings] committed ${committed === null ? '(missing)' : committedLines.length + ' lines'} vs generated ${outputLines.length} lines`)
-      let shown = 0
-      const limit = Math.max(committedLines.length, outputLines.length)
-      for (let i = 0; i < limit && shown < 40; i++) {
-        if (committedLines[i] !== outputLines[i]) {
-          console.error(`  line ${i + 1}\n    committed: ${committedLines[i] ?? '(eof)'}\n    generated: ${outputLines[i] ?? '(eof)'}`)
-          shown++
-        }
-      }
+      const onlyCommitted = linesOnlyIn(committedLines, outputLines)
+      const onlyGenerated = linesOnlyIn(outputLines, committedLines)
+      console.error('[gen-sdk-typings] only in committed (' + onlyCommitted.length + '):')
+      for (const line of onlyCommitted.slice(0, 20)) console.error('    - ' + line)
+      console.error('[gen-sdk-typings] only in generated (' + onlyGenerated.length + '):')
+      for (const line of onlyGenerated.slice(0, 20)) console.error('    + ' + line)
       console.error('[gen-sdk-typings] fix: npm run gen-typings')
       process.exit(1)
     }
