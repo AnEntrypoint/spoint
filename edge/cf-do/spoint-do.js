@@ -1,7 +1,7 @@
 import { initJoltForEdge } from './jolt-edge-init.js'
 import { init as workerEntryInit } from '../../src/sdk/WorkerEntry.js'
 import { TransportWrapper } from '../../src/transport/TransportWrapper.js'
-import worldDef from '../../apps/world/e2e-ci-arena.js'
+import worldDef from '../../apps/world/index.js'
 
 class DurableObjectWebSocketTransport extends TransportWrapper {
   constructor(ws) {
