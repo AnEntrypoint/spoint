@@ -1,3 +1,4 @@
+import { senderOf } from '../sdk/appEventSender.js'
 export const DEFAULT_COMBAT = Object.freeze({
   respawnTime: 1.5,
   health: 100,
@@ -50,13 +51,6 @@ function rejectInvalidFields(values, rules, label) {
     if (test(values[field])) continue
     throw new TypeError(`[combat] ${label}.${field} must be ${rule}, got ${describeValue(values[field])}`)
   }
-}
-
-function parseSender(msg) {
-  const fromClient = msg.senderId !== undefined
-  const raw = fromClient ? msg.senderId : msg.playerId
-  const valid = (typeof raw === 'string' && raw) || (typeof raw === 'number' && Number.isFinite(raw))
-  return valid ? { id: raw, fromClient } : null
 }
 
 function powerupColor(def) {
@@ -375,7 +369,7 @@ export function defineCombat(spec = {}, ctx = null) {
 
     handle(msg) {
       if (!msg) return false
-      const sender = parseSender(msg)
+      const sender = senderOf(msg)
       if (!sender) return false
       const playerId = sender.id
       if (msg.type === 'player_join' && !sender.fromClient) {

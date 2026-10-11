@@ -3,6 +3,7 @@ import { resolveTarget } from '../shared/relocation.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { spawnSurfaceY } from '../shared/SpawnSurface.js'
 import { currentChartEpoch, chartWireStatsOf } from './chartWire.js'
+import { stampSender } from './appEventSender.js'
 
 const SNAP_RAY_START_ABOVE = 20
 const SNAP_RAY_LENGTH = 2000
@@ -149,7 +150,7 @@ function placePlayerAt(ctx, playerId, position) {
   playerManager.clearInputs(playerId)
   player.lastInput = null
   lagCompensator.clearPlayerHistory(playerId)
-  appRuntime.broadcastMessage({ type: 'player_teleport', playerId, position: [...position] })
+  appRuntime.broadcastMessage(stampSender({ type: 'player_teleport', playerId, position: [...position] }, { id: playerId, fromClient: false }))
 }
 
 export function probeGround(ctx, x, z, fromY) {

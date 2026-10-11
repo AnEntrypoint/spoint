@@ -1,4 +1,5 @@
 import { MSG, DISCONNECT_REASONS, WIRE_PROTOCOL_VERSION } from '../protocol/MessageTypes.js'
+import { stampSender } from './appEventSender.js'
 import { WIRE_STRUCT_HASH, unpack, pack } from '../protocol/msgpack.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { createEditorHandlers } from './EditorHandlers.js'
@@ -104,7 +105,7 @@ export function createConnectionHandlers(ctx) {
     const playerSnap = networkState.getSnapshot()
     const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playersInInterest(playerSnap.players, sp, relevanceRadius, playerId), entities: snapEntities.entities }
     connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined), chartEpoch: currentChartEpoch(ctx.physics) })
-    appRuntime.broadcastMessage({ type: 'player_join', playerId })
+    appRuntime.broadcastMessage(stampSender({ type: 'player_join', playerId }, { id: playerId, fromClient: false }))
     connections.send(playerId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
     for (const [pid, pubkey] of voiceIdentities) connections.send(playerId, MSG.APP_EVENT, { type: 'voice_identity', playerId: pid, pubkey })
     if (ctx._grassDecal && ctx._grassDecal.stampCount > 0) {
@@ -321,7 +322,7 @@ export function createConnectionHandlers(ctx) {
       if (msg.payload?.type === 'pick' && msg.payload?.entityId != null) {
         appRuntime.fireEvent(msg.payload.entityId, 'onPick', { playerId: clientId, point: msg.payload.point ?? null, entityId: msg.payload.entityId })
       }
-      const eventData = { ...msg.payload, senderId: clientId }
+      const eventData = stampSender({ ...msg.payload, senderId: clientId }, { id: clientId, fromClient: true })
       appRuntime.broadcastMessage(eventData)
       return
     }
@@ -383,7 +384,7 @@ export function createConnectionHandlers(ctx) {
       const recoveryRadius = resolveRelevanceRadius(ctx.currentWorldDef?.relevanceRadius)
       const ents = appRuntime.getSnapshotForPlayer(sp, recoveryRadius)
       connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: playersInInterest(snap.players, sp, recoveryRadius, newId), entities: ents.entities }), tick: tickSystem.currentTick, chartEpoch: currentChartEpoch(ctx.physics) })
-      appRuntime.broadcastMessage({ type: 'player_join', playerId: newId, reconnected: true })
+      appRuntime.broadcastMessage(stampSender({ type: 'player_join', playerId: newId, reconnected: true }, { id: newId, fromClient: false }))
       emitter.emit('playerJoin', { id: newId, reconnected: true })
       return
     }
@@ -436,7 +437,7 @@ export function createConnectionHandlers(ctx) {
     _abandonPendingMigration(clientId)
     const client = connections.getClient(clientId)
     if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }); sessions.release(client.sessionToken) }
-    appRuntime.broadcastMessage({ type: 'player_leave', playerId: clientId })
+    appRuntime.broadcastMessage(stampSender({ type: 'player_leave', playerId: clientId }, { id: clientId, fromClient: false }))
     physicsIntegration.removePlayerCollider(clientId)
     lagCompensator.clearPlayerHistory(clientId)
     inspector.removeClient(clientId)
