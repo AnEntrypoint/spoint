@@ -15,7 +15,6 @@ export { unpackBinRecord, packQuat, unpackQuat }
 const TAU = 2 * Math.PI, HALF_PI = Math.PI / 2
 const VEL_ZERO = [0,0,0]
 const SCALE_ONE = [1,1,1]
-const MIN_FULL_PLAYER_RECORD_LEN = 7
 const PLAYER_RECORD_FIELDS = 8
 const MIN_FULL_ENTITY_RECORD_LEN = 6
 
@@ -606,10 +605,10 @@ export class SnapshotEncoder {
     const bin = {}
     const players = data.players.map(p => {
       if (!Array.isArray(p)) return p
-      if (p.length < MIN_FULL_PLAYER_RECORD_LEN) return null
+      if (p.length < PLAYER_RECORD_FIELDS) return null
       unpackPlayerBinRecord(p[1], bin)
       const rot = unpackQuat(bin.qrot, [0,0,0,0])
-      return { id:p[0], position:[bin.px,bin.py,bin.pz], rotation:rot, velocity:[bin.vx,bin.vy,bin.vz], onGround:p[2]===1, health:p[3], crouch:p[4]||0, lookPitch:(((p[5]||0)>>8)&0xFF)/255*Math.PI-HALF_PI, lookYaw:((p[5]||0)&0xFF)/256*TAU, expr:p[6]||0, weapon:p[7]||0 }
+      return { id:p[0], position:[bin.px,bin.py,bin.pz], rotation:rot, velocity:[bin.vx,bin.vy,bin.vz], onGround:p[2]===1, health:p[3], crouch:p[4], lookPitch:((p[5]>>8)&0xFF)/255*Math.PI-HALF_PI, lookYaw:(p[5]&0xFF)/256*TAU, expr:p[6], weapon:p[7] }
     }).filter(p => p !== null)
     const entities = (data.entities||[]).map(e => {
       if (!Array.isArray(e)) return e
