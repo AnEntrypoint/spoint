@@ -1,6 +1,8 @@
-import { brushRejected, brushApplied } from './brushResult.js'
+import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
 
 export const CELL_M = 8
+
+export const PAINT_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'target carries a finite temp, humidity and erosion'])
 
 function cellKey(cx, cz) {
   const KEY_AXIS_SPAN = 1 << 23, KEY_AXIS_OFFSET = KEY_AXIS_SPAN >> 1
@@ -25,10 +27,11 @@ export function createBiomeOverride(strokes) {
   function cellCenter(cx, cz) { return [cx * CELL_M + CELL_M * 0.5, cz * CELL_M + CELL_M * 0.5] }
 
   function applyPaintBrush(x, z, radius, target, strength) {
-    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0) return brushRejected('x|z|radius')
-    if (!target || !Number.isFinite(target.temp) || !Number.isFinite(target.humidity) || !Number.isFinite(target.erosion)) return brushRejected('target')
+    const bad = brushPrecondition(PAINT_REQUIRES, [Number.isFinite(x), Number.isFinite(z), Number.isFinite(radius) && radius > 0, !!target && Number.isFinite(target.temp) && Number.isFinite(target.humidity) && Number.isFinite(target.erosion)])
+    if (bad) return bad
     const clampedStrength = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 1
-    if (clampedStrength <= 0) return brushRejected('strength')
+    const weak = brushPrecondition(STRENGTH_REQUIRES, [clampedStrength > 0])
+    if (weak) return weak
     const tgt = { temp: clamp01(target.temp), humidity: clamp01(target.humidity), erosion: clamp01(target.erosion) }
     const cx0 = Math.floor((x - radius) / CELL_M), cx1 = Math.ceil((x + radius) / CELL_M)
     const cz0 = Math.floor((z - radius) / CELL_M), cz1 = Math.ceil((z + radius) / CELL_M)
@@ -59,8 +62,7 @@ export function createBiomeOverride(strokes) {
         touched++
       }
     }
-    if (touched > 0) appliedStrokes.push({ x, z, radius, strength: clampedStrength, target: tgt })
-    return brushApplied(touched)
+    return brushApplied(appliedStrokes, touched, { x, z, radius, strength: clampedStrength, target: tgt })
   }
 
   function overrideAt(x, z) {

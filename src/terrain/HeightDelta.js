@@ -1,6 +1,11 @@
-import { brushRejected, brushApplied } from './brushResult.js'
+import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
 
 export const CELL_M = 1
+
+export const RAISE_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and non-zero'])
+export const FLATTEN_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'radius is finite and positive', 'targetHeight is finite'])
+export const CARVE_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'halfWidth is finite and positive', 'halfDepth is finite and positive', 'targetDepth is finite'])
+export const SMOOTH_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and positive'])
 
 function cellKey(cx, cz) {
   const BIG = 1 << 23, OFF = BIG >> 1
@@ -14,7 +19,8 @@ export function createHeightDelta(strokes) {
   function cellCenter(cx, cz) { return [cx * CELL_M + CELL_M * 0.5, cz * CELL_M + CELL_M * 0.5] }
 
   function applyRaiseBrush(x, z, radius, strength) {
-    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(strength) || strength === 0) return brushRejected('x|z|radius|strength')
+    const bad = brushPrecondition(RAISE_REQUIRES, [Number.isFinite(x), Number.isFinite(z), Number.isFinite(radius) && radius > 0, Number.isFinite(strength) && strength !== 0])
+    if (bad) return bad
     const cx0 = Math.floor((x - radius) / CELL_M), cx1 = Math.ceil((x + radius) / CELL_M)
     const cz0 = Math.floor((z - radius) / CELL_M), cz1 = Math.ceil((z + radius) / CELL_M)
     let touched = 0
@@ -31,17 +37,18 @@ export function createHeightDelta(strokes) {
         touched++
       }
     }
-    if (touched > 0) appliedStrokes.push({ x, z, radius, strength, brush: strength >= 0 ? 'raise' : 'lower' })
-    return brushApplied(touched)
+    return brushApplied(appliedStrokes, touched, { x, z, radius, strength, brush: strength >= 0 ? 'raise' : 'lower' })
   }
 
   function cellRaw(cx, cz) { return cells.get(cellKey(cx, cz)) || 0 }
 
   const FLATTEN_FEATHER_FRACTION = 0.3
   function applyFlattenBrush(baseHeightFn, x, z, radius, targetHeight, strength) {
-    if (typeof baseHeightFn !== 'function' || !Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(targetHeight)) return brushRejected('baseHeightFn|x|z|radius|targetHeight')
+    const bad = brushPrecondition(FLATTEN_REQUIRES, [typeof baseHeightFn === 'function', Number.isFinite(x), Number.isFinite(z), Number.isFinite(radius) && radius > 0, Number.isFinite(targetHeight)])
+    if (bad) return bad
     const clampedStrength = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 1
-    if (clampedStrength <= 0) return brushRejected('strength')
+    const weak = brushPrecondition(STRENGTH_REQUIRES, [clampedStrength > 0])
+    if (weak) return weak
     const plateauRadius = radius * (1 - FLATTEN_FEATHER_FRACTION)
     const featherSpan = radius - plateauRadius
     const cx0 = Math.floor((x - radius) / CELL_M), cx1 = Math.ceil((x + radius) / CELL_M)
@@ -64,17 +71,16 @@ export function createHeightDelta(strokes) {
         touched++
       }
     }
-    if (touched > 0) appliedStrokes.push({ x, z, radius, strength: clampedStrength, targetHeight, brush: 'flatten' })
-    return brushApplied(touched)
+    return brushApplied(appliedStrokes, touched, { x, z, radius, strength: clampedStrength, targetHeight, brush: 'flatten' })
   }
 
   const RECT_FEATHER_FRACTION = 0.15
   function applyRectangularCarve(baseHeightFn, x, z, halfWidth, halfDepth, targetDepth, strength) {
-    if (typeof baseHeightFn !== 'function' || !Number.isFinite(x) || !Number.isFinite(z)) return brushRejected('baseHeightFn|x|z')
-    if (!Number.isFinite(halfWidth) || halfWidth <= 0 || !Number.isFinite(halfDepth) || halfDepth <= 0) return brushRejected('halfWidth|halfDepth')
-    if (!Number.isFinite(targetDepth)) return brushRejected('targetDepth')
+    const bad = brushPrecondition(CARVE_REQUIRES, [typeof baseHeightFn === 'function', Number.isFinite(x), Number.isFinite(z), Number.isFinite(halfWidth) && halfWidth > 0, Number.isFinite(halfDepth) && halfDepth > 0, Number.isFinite(targetDepth)])
+    if (bad) return bad
     const clampedStrength = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 1
-    if (clampedStrength <= 0) return brushRejected('strength')
+    const weak = brushPrecondition(STRENGTH_REQUIRES, [clampedStrength > 0])
+    if (weak) return weak
     const plateauHW = halfWidth * (1 - RECT_FEATHER_FRACTION)
     const plateauHD = halfDepth * (1 - RECT_FEATHER_FRACTION)
     const featherW = halfWidth - plateauHW
@@ -101,13 +107,13 @@ export function createHeightDelta(strokes) {
         touched++
       }
     }
-    if (touched > 0) appliedStrokes.push({ x, z, halfWidth, halfDepth, targetDepth, strength: clampedStrength, brush: 'rectangularCarve' })
-    return brushApplied(touched)
+    return brushApplied(appliedStrokes, touched, { x, z, halfWidth, halfDepth, targetDepth, strength: clampedStrength, brush: 'rectangularCarve' })
   }
 
   const SMOOTH_KERNEL_CELLS = 2
   function applySmoothBrush(x, z, radius, strength) {
-    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(strength) || strength <= 0) return brushRejected('x|z|radius|strength')
+    const bad = brushPrecondition(SMOOTH_REQUIRES, [Number.isFinite(x), Number.isFinite(z), Number.isFinite(radius) && radius > 0, Number.isFinite(strength) && strength > 0])
+    if (bad) return bad
     const clampedStrength = Math.min(1, strength)
     const cx0 = Math.floor((x - radius) / CELL_M), cx1 = Math.ceil((x + radius) / CELL_M)
     const cz0 = Math.floor((z - radius) / CELL_M), cz1 = Math.ceil((z + radius) / CELL_M)
@@ -135,8 +141,7 @@ export function createHeightDelta(strokes) {
       }
     }
     for (const [key, val] of writes) cells.set(key, val)
-    if (touched > 0) appliedStrokes.push({ x, z, radius, strength: clampedStrength, brush: 'smooth' })
-    return brushApplied(touched)
+    return brushApplied(appliedStrokes, touched, { x, z, radius, strength: clampedStrength, brush: 'smooth' })
   }
 
   function deltaAt(x, z) {
