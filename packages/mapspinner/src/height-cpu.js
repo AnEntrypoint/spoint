@@ -4,6 +4,7 @@ import * as g from './glsl-rt.js'
 import { RELIEF_DESIGN_RADIUS_M, SHAPE_UNIFORM_DEFAULTS } from './terrain-defaults.js'
 import { assertHashVersion, carveChord2, HASH_VERSION_FLOAT } from './tsl/height-spec.js'
 import { compileHeightSpec } from './tsl/ops-jsgen.js'
+import { hpfFaceSampler } from './hpf-lattice.js'
 
 export const HEIGHT_UNIFORM_DEFAULTS = {
   hasHpf: 1,
@@ -39,27 +40,12 @@ export function createHeightSampler(opts = {}) {
     _faceBuf[face] = buf
     return buf
   }
-  const _quintic = (t) => t * t * t * (t * (t * 6 - 15) + 10)
+  const _faceSamp = new Array(6).fill(null)
+  const _faceSampler = (face) => _faceSamp[face] || (_faceSamp[face] = hpfFaceSampler(_faceBuf[face] || _bakeFace(face), RES))
   const hpfSample = (dir) => {
     const d = g.normalize(dir)
     const { face, fu, fv } = af.dirToFaceUV(d)
-    const buf = _faceBuf[face] || _bakeFace(face)
-    const denom = RES - 1
-    const tx = fu * denom, ty = fv * denom
-    let x0 = Math.floor(tx), y0 = Math.floor(ty)
-    const wx = _quintic(tx - x0), wy = _quintic(ty - y0)
-    if (x0 < 0) x0 = 0; else if (x0 > denom) x0 = denom
-    if (y0 < 0) y0 = 0; else if (y0 > denom) y0 = denom
-    const x1 = x0 < denom ? x0 + 1 : denom, y1 = y0 < denom ? y0 + 1 : denom
-    const out = [0, 0, 0, 0]
-    for (let c = 0; c < 4; c++) {
-      const o00 = ((y0 * RES + x0) * 4) + c, o10 = ((y0 * RES + x1) * 4) + c
-      const o01 = ((y1 * RES + x0) * 4) + c, o11 = ((y1 * RES + x1) * 4) + c
-      const a = buf[o00] + wx * (buf[o10] - buf[o00])
-      const b = buf[o01] + wx * (buf[o11] - buf[o01])
-      out[c] = a + wy * (b - a)
-    }
-    return out
+    return _faceSampler(face)(fu, fv, [0, 0, 0, 0])
   }
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
   const H = makeHeight(U, hpfSample)
