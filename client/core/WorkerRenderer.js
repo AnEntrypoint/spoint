@@ -64,6 +64,13 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
   let worker = null
   let started = false
+  let run = 0
+  let acceptedSeq = 0
+  let acceptedRun = null
+  let staleGenerationRejected = 0
+  let staleRunRejected = 0
+  let outOfOrderRejected = 0
+  let unstampedAccepted = 0
   let lastStats = null
   let lastError = null
   let readyAtMs = null
@@ -95,6 +102,31 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     })
   }
 
+  function acceptWorkerMessage(msg, myRun) {
+    if (myRun !== run) { staleGenerationRejected++; return false }
+    const seq = Number(msg && msg.seq)
+    const runStamp = Number(msg && msg.run)
+    const hasSeq = Number.isFinite(seq)
+    const hasRun = Number.isFinite(runStamp)
+    if (hasRun && acceptedRun !== null && runStamp < acceptedRun) { staleRunRejected++; return false }
+    if (hasSeq && seq <= acceptedSeq) { outOfOrderRejected++; return false }
+    if (!hasSeq || !hasRun) unstampedAccepted++
+    if (hasSeq) acceptedSeq = seq
+    if (hasRun && (acceptedRun === null || runStamp > acceptedRun)) acceptedRun = runStamp
+    return true
+  }
+  function orderState() {
+    return {
+      run,
+      seq: acceptedSeq,
+      workerRun: acceptedRun,
+      staleGenerationRejected,
+      staleRunRejected,
+      outOfOrderRejected,
+      unstampedAccepted
+    }
+  }
+
   function start() {
     if (started) return Promise.resolve()
     return new Promise((resolve, reject) => {
@@ -108,6 +140,10 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
         reject(e); return
       }
 
+      const myRun = ++run
+      acceptedSeq = 0
+      acceptedRun = null
+
       let settled = false
       const timer = setTimeout(() => {
         if (settled) return
@@ -117,6 +153,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
       worker.onmessage = (e) => {
         const msg = e.data || {}
+        if (!acceptWorkerMessage(msg, myRun)) return
         if (msg.type === 'ready') {
           if (!settled) { settled = true; clearTimeout(timer); readyAtMs = nowMs(); started = true; resolve() }
         } else if (msg.type === 'frame') {
@@ -159,9 +196,15 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
   function stop() {
     if (!worker) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
+    const stopWorker = worker
+    const stopRun = run
     stopRequestedAtMs = nowMs()
-    try { worker.postMessage({ type: 'stop' }) } catch (_) {}
-    setTimeout(() => { if (worker) { worker.terminate(); worker = null } }, TERMINATE_AFTER_STOP_REQUEST_MS)
+    try { stopWorker.postMessage({ type: 'stop' }) } catch (_) {}
+    setTimeout(() => {
+      const armedWorkerIsCurrent = worker === stopWorker && run === stopRun
+      if (armedWorkerIsCurrent) { worker.terminate(); worker = null }
+      else stopWorker.terminate()
+    }, TERMINATE_AFTER_STOP_REQUEST_MS)
     started = false
     return awaitStopped()
   }
@@ -188,12 +231,13 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
   function getStats() {
     const state = runtimeState()
-    if (!lastStats) return { frame: null, ageMs: state.ageMs, stale: state.stale, state: state.state }
-    return { ...lastStats, ageMs: state.ageMs, stale: state.stale, state: state.state }
+    if (!lastStats) return { frame: null, ageMs: state.ageMs, stale: state.stale, state: state.state, order: orderState() }
+    return { ...lastStats, ageMs: state.ageMs, stale: state.stale, state: state.state, order: orderState() }
   }
+  function getOrder() { return orderState() }
   function getLastError() { return lastError }
   function getState() { return runtimeState() }
   function isRunning() { return runtimeState().running }
 
-  return { start, resize, stop, getStats, getLastError, isRunning, getState, awaitStopped }
+  return { start, resize, stop, getStats, getOrder, getLastError, isRunning, getState, awaitStopped }
 }
