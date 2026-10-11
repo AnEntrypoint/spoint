@@ -144,7 +144,7 @@ for (const [name, id] of Object.entries(MSG)) {
 }
 
 export function msgName(id) {
-  return nameMap.get(id) || `UNKNOWN(0x${id.toString(16)})`
+  return nameMap.has(id) ? nameMap.get(id) : null
 }
 
 export const UNRELIABLE_MSGS = new Set([
@@ -153,6 +153,7 @@ export const UNRELIABLE_MSGS = new Set([
 ])
 
 export function isUnreliable(type) {
+  if (!nameMap.has(type)) return null
   return UNRELIABLE_MSGS.has(type)
 }
 
