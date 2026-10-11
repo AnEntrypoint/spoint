@@ -4,6 +4,19 @@ import { chartAnchorDecision, CHART_REANCHOR_HYSTERESIS_DEG } from './chartReanc
 export const CLUSTER_STAY_FACTOR = 1.25
 export const CLUSTER_JOIN_FACTOR = 0.8
 
+export const ASSIGNER_RADIUS_NOT_POSITIVE_FINITE = 'assigner-radius-not-positive-finite'
+export const ASSIGNER_LINK_M_NOT_POSITIVE = 'assigner-link-m-not-positive'
+export const ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE = 'assigner-member-radius-m-not-positive'
+export const ASSIGNER_FACTORS_NOT_BRACKETING_ONE = 'assigner-factors-not-bracketing-one'
+
+export class ClusterAssignerConfigError extends Error {
+  constructor(code, message) {
+    super(`${code}: ${message}`)
+    this.name = 'ClusterAssignerConfigError'
+    this.code = code
+  }
+}
+
 const byId = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a - b : (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0)
 
 function unitDir(d) {
@@ -31,9 +44,10 @@ function farthestFrom(members, centre) {
 }
 
 export function createClusterAssigner({ radius, linkM, memberRadiusM, lattice = null, hysteresisDeg = CHART_REANCHOR_HYSTERESIS_DEG, stayFactor = CLUSTER_STAY_FACTOR, joinFactor = CLUSTER_JOIN_FACTOR }) {
-  if (!(radius > 0) || !Number.isFinite(radius)) throw new Error(`cluster assigner needs a positive finite planet radius, got ${radius}`)
-  if (!(linkM > 0) || !(memberRadiusM > 0)) throw new Error(`cluster assigner needs positive linkM and memberRadiusM, got ${linkM} and ${memberRadiusM}`)
-  if (!(joinFactor < 1 && stayFactor > 1)) throw new Error(`cluster hysteresis needs joinFactor < 1 < stayFactor, got ${joinFactor} and ${stayFactor}`)
+  if (!(radius > 0) || !Number.isFinite(radius)) throw new ClusterAssignerConfigError(ASSIGNER_RADIUS_NOT_POSITIVE_FINITE, `cluster assigner needs a positive finite planet radius, got ${radius}`)
+  if (!(linkM > 0)) throw new ClusterAssignerConfigError(ASSIGNER_LINK_M_NOT_POSITIVE, `cluster assigner linkM must be a positive number of metres, got ${linkM}`)
+  if (!(memberRadiusM > 0)) throw new ClusterAssignerConfigError(ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE, `cluster assigner memberRadiusM must be a positive number of metres, got ${memberRadiusM}`)
+  if (!(joinFactor < 1 && stayFactor > 1)) throw new ClusterAssignerConfigError(ASSIGNER_FACTORS_NOT_BRACKETING_ONE, `cluster hysteresis needs joinFactor < 1 < stayFactor, got ${joinFactor} and ${stayFactor}`)
   const cosOf = m => Math.cos(Math.min(Math.PI, m / radius))
   const cosLink = cosOf(linkM), cosJoin = cosOf(memberRadiusM * joinFactor), cosStay = cosOf(memberRadiusM * stayFactor)
   const state = { nextClusterId: 1, clusterOf: new Map(), anchors: new Map() }

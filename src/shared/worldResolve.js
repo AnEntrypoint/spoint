@@ -6,7 +6,21 @@ const isNum = v => typeof v === 'number' && Number.isFinite(v)
 const isVec = (v, n) => Array.isArray(v) && v.length === n && v.every(isNum)
 const PLAYER_POSITIVE_KEYS = ['capsuleRadius', 'capsuleHalfHeight', 'crouchHalfHeight', 'mass', 'health']
 
-function reject(path, reason) { return { ok: false, path, reason } }
+export const WORLD_NOT_A_PLAIN_OBJECT = 'world-not-a-plain-object'
+export const WORLD_FIELD_INVALID = 'world-field-invalid'
+
+export class WorldResolveError extends TypeError {
+  constructor({ path, reason, code, worldName = null }) {
+    super(`[world] invalid world ${JSON.stringify(worldName ?? '(unnamed)')}: ${path || '(root)'} ${reason}`)
+    this.name = 'WorldResolveError'
+    this.code = code
+    this.path = path || ''
+    this.reason = reason
+    this.worldName = worldName ?? null
+  }
+}
+
+const reject = (path, reason) => ({ ok: false, path, reason, code: path ? WORLD_FIELD_INVALID : WORLD_NOT_A_PLAIN_OBJECT })
 
 function checkSlices(w) {
   if (!isObj(w)) return reject('', 'world definition must be a plain object (the default export of the world module)')
@@ -80,6 +94,6 @@ export function parseWorld(worldDef) {
 
 export function assertWorld(worldDef, worldName = null) {
   const r = parseWorld(worldDef)
-  if (!r.ok) throw new TypeError(`[world] invalid world ${JSON.stringify(worldName ?? worldDef?.name ?? '(unnamed)')}: ${r.path || '(root)'} ${r.reason}`)
+  if (!r.ok) throw new WorldResolveError({ path: r.path, reason: r.reason, code: r.code, worldName: worldName ?? worldDef?.name ?? null })
   return r.world
 }
