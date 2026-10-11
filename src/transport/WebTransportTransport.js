@@ -94,17 +94,21 @@ export class WebTransportTransport extends TransportWrapper {
     this.emit('send-error', { channel, data, error })
   }
 
+  _failReliableWrite(data, error) {
+    this._reportSendFailure('reliable', data, error)
+    this._handleClose()
+  }
+
   send(data) {
     if (!this.isOpen || !this.reliableWriter) return false
     try {
       const written = this.reliableWriter.write(data)
       Promise.resolve(written).catch((error) => {
-        this._reportSendFailure('reliable', data, error)
-        this._handleClose()
+        this._failReliableWrite(data, error)
       })
       return true
     } catch (error) {
-      this._reportSendFailure('reliable', data, error)
+      this._failReliableWrite(data, error)
       return false
     }
   }
