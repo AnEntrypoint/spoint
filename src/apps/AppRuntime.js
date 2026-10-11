@@ -242,12 +242,13 @@ export class AppRuntime {
   async _attachBehaviours(entityId, spec) {
     const entity = this.entities.get(entityId)
     if (!entity) return
-    validateBehaviourSpec(spec, `entity ${entityId} behaviours`)
+    const parsed = validateBehaviourSpec(spec, `entity ${entityId} behaviours`)
+    if (!parsed) return
     this._detachBehaviours(entityId)
     const ctx = this.contexts.get(entityId) || new AppContext(entity, this)
     this.contexts.set(entityId, ctx)
     const list = this._behaviourListFor(entityId)
-    for (const [name, subSpec] of Object.entries(spec)) {
+    for (const [name, subSpec] of Object.entries(parsed)) {
       let api
       try { api = BEHAVIOUR_FACTORIES[name](subSpec ?? {}, ctx) }
       catch (e) { this._logAppError(`behaviour ${name}(${entityId})`, e); continue }
@@ -266,10 +267,11 @@ export class AppRuntime {
 
   installPlayerBehaviours(spec) {
     if (!spec) return false
-    validateBehaviourSpec(spec, 'worldDef.players.behaviours')
-    const entity = this.entities.get(PLAYER_BEHAVIOUR_ENTITY_ID) || this.spawnEntity(PLAYER_BEHAVIOUR_ENTITY_ID, { behaviours: spec })
+    const parsed = validateBehaviourSpec(spec, 'worldDef.players.behaviours')
+    if (!parsed) return false
+    const entity = this.entities.get(PLAYER_BEHAVIOUR_ENTITY_ID) || this.spawnEntity(PLAYER_BEHAVIOUR_ENTITY_ID, { behaviours: parsed })
     if (!entity) return false
-    if (!this._behaviours.has(PLAYER_BEHAVIOUR_ENTITY_ID)) this._attachBehaviours(PLAYER_BEHAVIOUR_ENTITY_ID, spec).catch(e => this._logAppError('installPlayerBehaviours', e))
+    if (!this._behaviours.has(PLAYER_BEHAVIOUR_ENTITY_ID)) this._attachBehaviours(PLAYER_BEHAVIOUR_ENTITY_ID, parsed).catch(e => this._logAppError('installPlayerBehaviours', e))
     return true
   }
 
@@ -395,34 +397,11 @@ export class AppRuntime {
     this._activeDynamicIds?.delete(entityId)
     this._sleepingDynamicIds?.delete(entityId)
     this._suspendedEntityIds?.delete(entityId)
-    if (mt !== 'static') {
-      if (entity._bodyDef) {
-        entity._bodyDef.motionType = mt
-        if (entity._bodyDef.opts) entity._bodyDef.opts.linearCast = resolveCCD(entity, mt)
-      } else if (entity.model) {
-        const sc = entity.scale || [1, 1, 1]
-        const heFallback = [Math.abs(sc[0] || 1) * 0.5, Math.abs(sc[1] || 1) * 0.5, Math.abs(sc[2] || 1) * 0.5]
-        entity.collider = entity.collider || { type: 'box', size: heFallback }
-        entity._bodyDef = { shapeType: 'box', params: heFallback, motionType: mt, opts: { mass: entity.mass, linearCast: resolveCCD(entity, mt) } }
-        const modelPath = this.resolveAssetPath(entity.model)
-        if (modelPath) {
-          import('../physics/GLBLoader.js').then(({ extractAllVerticesFromGLBAsync }) => extractAllVerticesFromGLBAsync(modelPath)).then(mesh => {
-            if (!this.entities.has(entityId) || entity.bodyType !== newBodyType) return
-            const raw = mesh.vertices
-            const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
-            const bodyMt = entity._bodyDef?.motionType || mt
-            entity.collider = { type: 'convex', points }
-            entity._bodyDef = { shapeType: 'convex', params: points, motionType: bodyMt, opts: { mass: entity.mass, shapeKey: `${entity.model}|${sc[0]},${sc[1]},${sc[2]}`, linearCast: resolveCCD(entity, bodyMt) } }
-            entity._bodyActive = false
-          }).catch(e => { console.warn(`[physics] ${entity.model}: convex-hull collider resize failed (${e.message}), keeping scale-based box fallback`) })
-        }
-      } else {
-        const sc = entity.scale || [1, 1, 1]
-        const he = [Math.abs(sc[0] || 1) * 0.5, Math.abs(sc[1] || 1) * 0.5, Math.abs(sc[2] || 1) * 0.5]
-        entity.collider = entity.collider || { type: 'box', size: he }
-        entity._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: { mass: entity.mass, linearCast: resolveCCD(entity, mt) } }
-      }
-      entity._bodyActive = false
+    entity._bodyActive = false
+    if (mt === 'static') entity._bodyDef = undefined
+    else if (entity._bodyDef) {
+      entity._bodyDef.motionType = mt
+      if (entity._bodyDef.opts) entity._bodyDef.opts.linearCast = resolveCCD(entity, mt)
     }
     this._lodIds = null
     this._lodIdArr = null
