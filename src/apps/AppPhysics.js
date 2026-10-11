@@ -250,12 +250,6 @@ export function buildPhysicsAPI(ent, runtime) {
       const v = api.getVelocity(), a = api.getAngularVelocity()
       return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) < eps*eps && (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) < eps*eps
     },
-    tiltFromUpright: () => {
-      const q = api.getRotation()
-      const x=q[0], y=q[1], z=q[2], w=q[3]
-      const upY = 1 - 2*(x*x + z*z)
-      return Math.acos(Math.max(-1, Math.min(1, upY)))
-    },
     setFriction: (f) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyFriction?.(b, f) : false },
     setRestitution: (r) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyRestitution?.(b, r) : false },
     setMotionType: (motionType) => {
@@ -279,7 +273,6 @@ export function buildPhysicsAPI(ent, runtime) {
       else runtime._activeDynamicIds?.add(ent.id)
       return true
     },
-    getMotionType: () => ent.bodyType || 'static',
     getBodyId: () => liveBodyId() ?? null,
     createVehicle: (wheelDefs, opts) => runtime.createVehicleForEntity?.(ent.id, wheelDefs, opts) ?? null,
     setVehicleInput: (forward, right, brake, handbrake) => runtime.setEntityVehicleDriverInput?.(ent.id, forward, right, brake, handbrake) ?? false,
