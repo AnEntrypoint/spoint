@@ -142,10 +142,13 @@ export function mixinPhysics(runtime) {
     }
   }
 
+  const liveBodyIdOf = (runtime, e) => (!e || !runtime._physics || e._physicsBodyId === undefined) ? undefined : e._physicsBodyId
+
   runtime.applyImpulseToEntity = function(entityId, impulse, worldPoint) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics) return false
-    this._physics.addImpulse(e._physicsBodyId, impulse, worldPoint)
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined) return false
+    this._physics.addImpulse(bodyId, impulse, worldPoint)
     return true
   }
 
@@ -161,10 +164,11 @@ export function mixinPhysics(runtime) {
 
   runtime.setEntityMotionType = function(entityId, motionType) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics || typeof this._physics.setBodyMotionType !== 'function') return false
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined || typeof this._physics.setBodyMotionType !== 'function') return false
     if (motionType !== 'dynamic' && motionType !== 'kinematic' && motionType !== 'static') return false
-    if (motionType !== 'dynamic') this._physics.setBodyVelocity?.(e._physicsBodyId, [0, 0, 0])
-    const previousId = e._physicsBodyId
+    if (motionType !== 'dynamic') this._physics.setBodyVelocity?.(bodyId, [0, 0, 0])
+    const previousId = bodyId
     const liveId = this._physics.setBodyMotionType(previousId, motionType, {
       mass: e.mass,
       linearDamping: e._linearDamping,
@@ -181,36 +185,40 @@ export function mixinPhysics(runtime) {
   }
   runtime.isEntityAtRest = function(entityId, eps = 0.05) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics) return true
-    const v = this._physics.getBodyVelocity(e._physicsBodyId) || [0, 0, 0]
-    const a = this._physics.getBodyAngularVelocity?.(e._physicsBodyId) || [0, 0, 0]
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined) return true
+    const v = this._physics.getBodyVelocity(bodyId) || [0, 0, 0]
+    const a = this._physics.getBodyAngularVelocity?.(bodyId) || [0, 0, 0]
     return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) < eps*eps && (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) < eps*eps
   }
 
   runtime.setEntityGravityFactor = function(entityId, factor) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics || typeof this._physics.setBodyGravityFactor !== 'function') return false
-    this._physics.setBodyGravityFactor(e._physicsBodyId, factor)
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined || typeof this._physics.setBodyGravityFactor !== 'function') return false
+    this._physics.setBodyGravityFactor(bodyId, factor)
     return true
   }
 
   runtime.setEntityBodyActive = function(entityId, active) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics) return false
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined) return false
     if (active) {
-      if (typeof this._physics.setBodyPosition === 'function') this._physics.setBodyPosition(e._physicsBodyId, e.position)
+      if (typeof this._physics.setBodyPosition === 'function') this._physics.setBodyPosition(bodyId, e.position)
       return true
     }
-    this._physics.setBodyVelocity?.(e._physicsBodyId, [0, 0, 0])
-    this._physics.setBodyAngularVelocity?.(e._physicsBodyId, [0, 0, 0])
-    if (typeof this._physics.deactivateBody === 'function') return this._physics.deactivateBody(e._physicsBodyId)
+    this._physics.setBodyVelocity?.(bodyId, [0, 0, 0])
+    this._physics.setBodyAngularVelocity?.(bodyId, [0, 0, 0])
+    if (typeof this._physics.deactivateBody === 'function') return this._physics.deactivateBody(bodyId)
     return false
   }
 
   runtime.addEntityConstraint = function(entityIdA, entityIdB, opts) {
     const ea = this.entities.get(entityIdA), eb = this.entities.get(entityIdB)
-    if (!ea || !eb || ea._physicsBodyId === undefined || eb._physicsBodyId === undefined || !this._physics || typeof this._physics.addConstraint !== 'function') return null
-    return this._physics.addConstraint(ea._physicsBodyId, eb._physicsBodyId, opts)
+    const bodyA = liveBodyIdOf(this, ea), bodyB = liveBodyIdOf(this, eb)
+    if (bodyA === undefined || bodyB === undefined || typeof this._physics.addConstraint !== 'function') return null
+    return this._physics.addConstraint(bodyA, bodyB, opts)
   }
   runtime.removeConstraint = function(constraintId) {
     if (!this._physics || typeof this._physics.removeConstraint !== 'function') return false
@@ -219,9 +227,10 @@ export function mixinPhysics(runtime) {
 
   runtime.createVehicleForEntity = function(entityId, wheelDefs, opts) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics || typeof this._physics.createWheeledVehicle !== 'function') return null
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined || typeof this._physics.createWheeledVehicle !== 'function') return null
     if (e._vehicleId != null) { console.warn(`[vehicle] entity ${entityId} already has a vehicle (${e._vehicleId}); call destroyVehicleForEntity first`); return null }
-    const vid = this._physics.createWheeledVehicle(e._physicsBodyId, wheelDefs, opts)
+    const vid = this._physics.createWheeledVehicle(bodyId, wheelDefs, opts)
     if (vid != null) { e._vehicleId = vid; e._vehicleWheelCount = wheelDefs.length }
     return vid
   }
@@ -233,9 +242,10 @@ export function mixinPhysics(runtime) {
 
   runtime.createTrackedVehicleForEntity = function(entityId, wheelDefs, opts) {
     const e = this.entities.get(entityId)
-    if (!e || e._physicsBodyId === undefined || !this._physics || typeof this._physics.createTrackedVehicle !== 'function') return null
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined || typeof this._physics.createTrackedVehicle !== 'function') return null
     if (e._vehicleId != null) { console.warn(`[vehicle] entity ${entityId} already has a vehicle (${e._vehicleId}); call destroyVehicleForEntity first`); return null }
-    const vid = this._physics.createTrackedVehicle(e._physicsBodyId, wheelDefs, opts)
+    const vid = this._physics.createTrackedVehicle(bodyId, wheelDefs, opts)
     if (vid != null) { e._vehicleId = vid; e._vehicleWheelCount = wheelDefs.length }
     return vid
   }
@@ -267,9 +277,10 @@ export function mixinPhysics(runtime) {
     if (!e || !Array.isArray(position) || position.length < 3) return false
     e.position = [position[0], position[1], position[2]]
     if (Array.isArray(rotation) && rotation.length >= 4) e.rotation = [rotation[0], rotation[1], rotation[2], rotation[3]]
-    if (e._physicsBodyId !== undefined && this._physics && typeof this._physics.setBodyPosition === 'function') {
-      this._physics.setBodyPosition(e._physicsBodyId, e.position)
-      if (Array.isArray(rotation) && rotation.length >= 4 && typeof this._physics.setBodyRotation === 'function') this._physics.setBodyRotation(e._physicsBodyId, e.rotation)
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId !== undefined && typeof this._physics.setBodyPosition === 'function') {
+      this._physics.setBodyPosition(bodyId, e.position)
+      if (Array.isArray(rotation) && rotation.length >= 4 && typeof this._physics.setBodyRotation === 'function') this._physics.setBodyRotation(bodyId, e.rotation)
     }
     return true
   }
@@ -277,7 +288,8 @@ export function mixinPhysics(runtime) {
   runtime.setEntityVelocity = function(entityId, velocity) {
     const e = this.entities.get(entityId)
     if (!e) return false
-    if (this._physics && e._physicsBodyId !== undefined) this._physics.setBodyVelocity(e._physicsBodyId, velocity)
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId !== undefined) this._physics.setBodyVelocity(bodyId, velocity)
     e.velocity = [...velocity]
     return true
   }
