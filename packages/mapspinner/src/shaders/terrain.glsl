@@ -252,6 +252,9 @@ layout(location=3) in float iLayer;
 uniform float uMorphSplitDist;
 uniform float uMorphDistFactor;
 uniform float uMorphMaxLevel;
+uniform float uMorphNear;
+uniform float uMorphFloor;
+uniform vec3 uMorphAim[6];
 uniform float uThc;
 uniform sampler2DArray uHeightPool;
 uniform float uPoolRes;
@@ -287,26 +290,58 @@ mat3 faceFrame(float f){
     return            mat3(-1.0,0.0,0.0,  0.0,1.0,0.0,   0.0,0.0,-1.0);
 }
 
+highp vec2 morphCamLocal(highp vec3 P, mat3 F) {
+    highp float cu = dot(P, F[0]), cv = dot(P, F[1]), cc = dot(P, F[2]);
+    if (cc > 1.0) return vec2(4.0 / 3.14159265358979 * defRadius * atan(cu / cc), 4.0 / 3.14159265358979 * defRadius * atan(cv / cc));
+    return vec2(cu >= 0.0 ? defRadius : -defRadius, cv >= 0.0 ? defRadius : -defRadius);
+}
+
+highp float morphEffSplit(highp vec2 box0, highp float size, highp vec2 cam, highp vec3 aim) {
+    highp vec2 nc = clamp(cam, box0, box0 + vec2(size));
+    highp float latC = max(abs(cam.x - nc.x), abs(cam.y - nc.y));
+    highp vec2 ac = clamp(aim.xy, box0, box0 + vec2(size));
+    highp float latA = max(abs(aim.x - ac.x), abs(aim.y - ac.y));
+    if (aim.z > 0.5) latC = min(latC, latA);
+    highp float fall = 1.0 / (1.0 + max(0.0, latC - uMorphNear) / uMorphNear);
+    return uMorphSplitDist * max(uMorphFloor, fall);
+}
+
+highp float morphWeight(highp vec2 box0, highp float size, highp vec2 cam, highp float alt, highp vec3 aim) {
+    highp float dz = max(alt / uMorphDistFactor, 0.0);
+    highp float dx = min(abs(cam.x - box0.x), abs(cam.x - (box0.x + size)));
+    highp float dy = min(abs(cam.y - box0.y), abs(cam.y - (box0.y + size)));
+    highp float d = max(dz, max(dx, dy));
+    highp float a = size * morphEffSplit(box0, size, cam, aim);
+    highp float ps = 2.0 * size;
+    highp vec2 pbox = floor((box0 + defRadius) / ps + 0.25) * ps - defRadius;
+    highp float b = ps * morphEffSplit(pbox, ps, cam, aim);
+    highp float m = clamp((d - a) / max(b - a, 1e-6 * size), 0.0, 1.0);
+    return m * m * (3.0 - 2.0 * m);
+}
+
+highp vec2 parentGridPosition(highp vec2 gridCoord, highp vec2 patchOrigin, highp float patchSize) {
+    highp vec2 vertexIndex = floor(gridCoord * uGrid + 0.5);
+    highp vec2 patchIndex = floor((patchOrigin + defRadius) / patchSize + 0.5);
+    highp vec2 globalIndex = patchIndex * uGrid + vertexIndex;
+    highp vec2 pairIndex = floor(globalIndex * 0.5);
+    highp vec2 isOdd = globalIndex - pairIndex * 2.0;
+    highp vec2 pairIsOdd = pairIndex - floor(pairIndex * 0.5) * 2.0;
+    highp vec2 parentIndex = pairIndex * 2.0 + isOdd * pairIsOdd * 2.0;
+    return parentIndex * (patchSize / uGrid) - defRadius;
+}
+
 void main() {
     highp vec4 defOffset = iOffset;
     mat3 defLocalToWorld = faceFrame(iFace);
 
     highp vec2 absLocal = defOffset.xy + vertex.xy * defOffset.z;
     highp float vMorph = 0.0;
-    if (vertex.z < 0.5 && uIsWater < 0.5 && uGrid > 0.0 && uMorphSplitDist > 0.0 && defOffset.w >= 1.0 && defOffset.w < uMorphMaxLevel) {
-        highp vec3 campWorld = defCamDir * (defRadius + defCamAlt);
-        highp vec3 vtxDir0 = normalize(defLocalToWorld * vec3(faceWarp(absLocal), defRadius));
-        highp float distToCam = distance(vtxDir0 * defRadius, campWorld);
-        highp float threshold = defOffset.z * uMorphSplitDist * uMorphDistFactor;
-        highp float morphEnd = threshold * 2.0;
-        highp float m = (morphEnd - distToCam) / (morphEnd - threshold);
-        vMorph = clamp(m, 0.0, 1.0);
-        vMorph = vMorph * vMorph * (3.0 - 2.0 * vMorph);
+    if (vertex.z < 0.5 && uIsWater < 0.5 && uGrid > 0.0 && uMorphSplitDist > 0.0 && defOffset.w >= 1.0 && defOffset.w <= uMorphMaxLevel) {
+        highp vec2 camLocal = morphCamLocal(defCamDir * (defRadius + defCamAlt), defLocalToWorld);
+        vMorph = morphWeight(defOffset.xy, defOffset.z, camLocal, defCamAlt, uMorphAim[int(iFace + 0.5)]);
     }
     if (vMorph > 0.0) {
-        highp float parentCell = (2.0 * defOffset.z) / uGrid;
-        highp vec2 coarseAbs = round(absLocal / parentCell) * parentCell;
-        absLocal = mix(absLocal, coarseAbs, vMorph);
+        absLocal = mix(absLocal, parentGridPosition(vertex.xy, defOffset.xy, defOffset.z), vMorph);
     }
     highp vec2 vxy = (absLocal - defOffset.xy) / defOffset.z;
     highp vec2 faceLocal = faceWarp(absLocal);

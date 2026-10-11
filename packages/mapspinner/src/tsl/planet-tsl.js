@@ -165,6 +165,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       cull.cx = F.c[0]; cull.cy = F.c[1]; cull.cz = F.c[2]
       const lc = worldToFaceLocal(face, camWorldPos, R)
       const al = aim ? worldToFaceLocal(face, aim, R) : null
+      u.morphAim.array[face].set(al ? al[0] : 0, al ? al[1] : 0, al ? 1 : 0)
       const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
       for (let i = 0; i < leaves.length; i++) {
         const q = leaves[i]
@@ -227,6 +228,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.morphSplitDist.value = geomorphLod ? qt.splitDist : 0
     u.morphDistFactor.value = qt.distFactor
     u.morphMaxLevel.value = qt.maxLevel
+    u.morphNear.value = qt.nearProtectRadius > 0 ? qt.nearProtectRadius : 1.0
+    u.morphFloor.value = qt.farCoarsenFloor
     u.texCamFrac.value.set(wrap(camWorldPos[0]), wrap(camWorldPos[1]), wrap(camWorldPos[2]))
     if (view) {
       u.camRender.value.copy(view.cameraRenderPosition)

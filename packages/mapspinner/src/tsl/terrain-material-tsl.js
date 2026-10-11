@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu'
 import {
   Fn, Loop, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty, texture, select,
   normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, cameraViewMatrix, property, output,
+  abs, min, atan, floor,
 } from 'three/tsl'
 import { FACE_FRAME } from '../planet-orchestrator-cull.js'
 import { parentGridPosition } from './geomorph-snap-tsl.js'
@@ -55,6 +56,29 @@ export function makeSurfaceTextures({ albAll, nrmAll, matCount, sz }) {
   }
 }
 
+const morphEffSplit = (u, box0, size, cam, aim) => {
+  const nearest = clamp(cam, box0, box0.add(size))
+  const latN = max(abs(cam.x.sub(nearest.x)), abs(cam.y.sub(nearest.y)))
+  const aimNearest = clamp(aim.xy, box0, box0.add(size))
+  const latA = max(abs(aim.x.sub(aimNearest.x)), abs(aim.y.sub(aimNearest.y)))
+  const latC = select(aim.z.greaterThan(0.5), min(latN, latA), latN)
+  const fall = float(1.0).div(float(1.0).add(max(float(0.0), latC.sub(u.morphNear)).div(u.morphNear)))
+  return u.morphSplitDist.mul(max(u.morphFloor, fall))
+}
+
+const morphWeight = (u, box0, size, cam, alt, aim) => {
+  const dz = max(alt.div(u.morphDistFactor), float(0.0))
+  const dx = min(abs(cam.x.sub(box0.x)), abs(cam.x.sub(box0.x.add(size))))
+  const dy = min(abs(cam.y.sub(box0.y)), abs(cam.y.sub(box0.y.add(size))))
+  const d = max(dz, max(dx, dy))
+  const a = size.mul(morphEffSplit(u, box0, size, cam, aim))
+  const parentSize = size.mul(2.0)
+  const parentBox = floor(box0.add(u.defRadius).div(parentSize).add(0.25)).mul(parentSize).sub(u.defRadius)
+  const b = parentSize.mul(morphEffSplit(u, parentBox, parentSize, cam, aim))
+  const m = clamp(d.sub(a).div(max(b.sub(a), size.mul(1e-6))), 0.0, 1.0)
+  return m.mul(m).mul(m.mul(-2.0).add(3.0))
+}
+
 export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [], reuse = null }) {
   const placeholder = reuse ? null : makeSurfaceTextures({ albAll: new Uint8Array(16).fill(128), nrmAll: new Uint8Array([128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255]), matCount: 4, sz: 1 })
   const u = reuse ? reuse.uniforms : {
@@ -89,6 +113,9 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     morphSplitDist: uniform(0),
     morphDistFactor: uniform(1),
     morphMaxLevel: uniform(0),
+    morphNear: uniform(1.0),
+    morphFloor: uniform(1.0),
+    morphAim: uniformArray(Array.from({ length: 6 }, () => new THREE.Vector3()), 'vec3'),
     surfAlb: texture(placeholder.alb),
     surfNrm: texture(placeholder.nrm),
   }
@@ -120,14 +147,14 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     const R = u.defRadius
     const absLocal = off.xy.add(grid.xy.mul(off.z)).toVar()
     const step = off.z.mul(u.gridInv)
-    If(u.morphSplitDist.greaterThan(0.0).and(grid.z.lessThan(0.5)).and(off.w.greaterThanEqual(1.0)).and(off.w.lessThan(u.morphMaxLevel)), () => {
-      const flW = tan(absLocal.div(R).mul(QUARTER_PI)).mul(R)
-      const dW = normalize(fu.mul(flW.x).add(fv.mul(flW.y)).add(fc.mul(R)))
-      const distToCam = length(dW.mul(R).sub(u.camDir.mul(R.add(u.camAlt))))
-      const threshold = off.z.mul(u.morphSplitDist).mul(u.morphDistFactor)
-      const morphEnd = threshold.mul(2.0)
-      const m = clamp(morphEnd.sub(distToCam).div(morphEnd.sub(threshold)), 0.0, 1.0)
-      const vMorph = m.mul(m).mul(m.mul(-2.0).add(3.0))
+    If(u.morphSplitDist.greaterThan(0.0).and(grid.z.lessThan(0.5)).and(off.w.greaterThanEqual(1.0)).and(off.w.lessThanEqual(u.morphMaxLevel)), () => {
+      const P = u.camDir.mul(R.add(u.camAlt))
+      const cu = dot(P, fu), cv = dot(P, fv), cc = dot(P, fc)
+      const kR = R.mul(4.0 / Math.PI)
+      const camLocal = select(cc.greaterThan(1.0),
+        vec2(kR.mul(atan(cu.div(cc))), kR.mul(atan(cv.div(cc)))),
+        vec2(select(cu.greaterThanEqual(0.0), R, R.negate()), select(cv.greaterThanEqual(0.0), R, R.negate())))
+      const vMorph = morphWeight(u, off.xy, off.z, camLocal, u.camAlt, u.morphAim.element(face))
       absLocal.assign(mix(absLocal, parentGridPosition({ gridCoord: grid.xy, patchOrigin: off.xy, patchSize: off.z, faceHalfExtent: R, gridSize }), vMorph))
     })
     const h0 = float(0).toVar(), d0 = vec3(0).toVar()

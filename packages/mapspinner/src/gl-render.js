@@ -1342,11 +1342,15 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1f(U, chu, 'uMorphSplitDist', (cam && cam.morphSplitDist > 0) ? cam.morphSplitDist : 0.0);
     _chuSet1f(U, chu, 'uMorphDistFactor', (cam && cam.morphDistFactor > 0) ? cam.morphDistFactor : 1.0);
     _chuSet1f(U, chu, 'uMorphMaxLevel', (cam && cam.morphMaxLevel > 0) ? cam.morphMaxLevel : 0.0);
+    _chuSet1f(U, chu, 'uMorphNear', (cam && cam.morphNear > 0) ? cam.morphNear : 1.0);
+    _chuSet1f(U, chu, 'uMorphFloor', (cam && cam.morphFloor > 0) ? cam.morphFloor : 1.0);
+    gl.uniform3fv(U('uMorphAim'), (cam && cam.morphAim) ? cam.morphAim : _morphAimNone);
     _chuSet1i(U, chu, 'uHeightPool', TU.heightPool);
     _chuSet1i(U, chu, 'uSceneTex', TU.sceneTex);
     _chuSet1f(U, chu, 'uUnderwater', (_F.camDist < R - 2.0) ? 1.0 : 0.0);
   }
   const _ocEmpty = {};
+  const _morphAimNone = new Float32Array(18);
 
   function bindFrameTextures(cam, thc) {
     bindHpfTextures();

@@ -37,6 +37,10 @@ export class Quadtree {
     this.size = _positiveFinite('size', size ?? QUADTREE_DEFAULT_SIZE); this.maxLevel = _levelCount('maxLevel', maxLevel); this.distFactor = _positiveFinite('distFactor', distFactor);
   }
 
+  get nearProtectRadius() { return this._nearProtectRadius; }
+
+  get farCoarsenFloor() { return this._farCoarsenFloor; }
+
   computeSplitDist(splitFactor, viewportH, fovRad) {
     let sd = splitFactor * viewportH / 1024.0 * TAN_40DEG / Math.tan(fovRad / 2.0);
     if (!(sd >= 1.1) || !isFinite(sd)) sd = 1.1;

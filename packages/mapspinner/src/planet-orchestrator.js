@@ -133,6 +133,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
                             ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0, cx: 0, cy: 0, cz: 0,
                             R, maxElev: R * CULL_ELEV_FRAC };
   let frameStart = 0;
+  const morphAim = new Float32Array(18);
 
   function frame(camWorldPos, camTarget, fovy = 0.7, displayMode = 0, sunDir, time = 0, up, surfElev = 0, shadowInfo) {
     const sun = sunDir || (() => { const s = [0.4, 0.5, 0.75]; const sl = Math.hypot(...s); return [s[0]/sl, s[1]/sl, s[2]/sl]; })();
@@ -147,7 +148,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
       || (fwd[0]*c.fwd[0]+fwd[1]*c.fwd[1]+fwd[2]*c.fwd[2]) < c.fwdLen2*0.99999
       || displayMode !== c.displayMode;
     if (!moved) {
-      const cam2 = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel };
+      const cam2 = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, morphNear: qt.nearProtectRadius, morphFloor: qt.farCoarsenFloor, morphAim };
       render.render(c.quads, cam2, sun, time);
       const glError = (typeof window !== 'undefined' && window.__glCheck) ? render.checkGlError() : 0;
       try {
@@ -260,7 +261,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     const elSlack = Math.min(R * CULL_ELEV_FRAC, 200.0 * (R / PLANET_RADIUS_M) + altM * 0.5);
     const limbCullActive = (typeof window !== 'undefined' && window.__limbCull != null ? !!window.__limbCull : true)
       && altM > 0.5;
-    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, cullMatrix: _cm };
+    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, morphNear: qt.nearProtectRadius, morphFloor: qt.farCoarsenFloor, morphAim, cullMatrix: _cm };
     if (_pipelineQuads) {
       render.render(_pipelineQuads, cam, sun, time);
     }
@@ -268,6 +269,9 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
       const localCam = worldToFaceLocal(face, camWorldPos, R);
       const lodLocalCam = (lodRefPos === camWorldPos) ? localCam : worldToFaceLocal(face, lodRefPos, R);
       const aimLocal = aimGroundPt ? worldToFaceLocal(face, aimGroundPt, R) : null;
+      morphAim[face * 3] = aimLocal ? aimLocal[0] : 0.0;
+      morphAim[face * 3 + 1] = aimLocal ? aimLocal[1] : 0.0;
+      morphAim[face * 3 + 2] = aimLocal ? 1.0 : 0.0;
       if (cullCtx) {
         const Fc = FACE_FRAME[face];
         cullCtx.ux = Fc.u[0]; cullCtx.uy = Fc.u[1]; cullCtx.uz = Fc.u[2];
