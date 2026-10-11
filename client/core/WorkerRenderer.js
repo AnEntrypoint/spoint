@@ -133,6 +133,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       stopRequestedAtMs = null
       stoppedAtMs = null
       stoppedMessage = null
+      lastError = null
       try {
         const workerUrl = new URL('../workers/OffscreenRenderWorker.js', import.meta.url)
         worker = new Worker(workerUrl, { type: 'module' })
