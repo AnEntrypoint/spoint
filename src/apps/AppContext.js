@@ -1,6 +1,6 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
 import { buildPhysicsAPI } from './AppPhysics.js'
-import { vec3 as _vec3, vec4 as _vec4, vecOK } from '../shared/vecGuard.js'
+import { vec3 as _vec3, vec4 as _vec4, vecOK, nonNeg } from '../shared/vecGuard.js'
 import { waterlineLocalY } from '../terrain/PlanetFrame.js'
 import { defineGameFSM } from '../behaviours/game-fsm.js'
 import { defineGameMode } from '../behaviours/gamemode.js'
@@ -295,8 +295,8 @@ export class AppContext {
 
   interactable(config = {}) {
     const ent = this._entity
-    if (config.radius != null && (typeof config.radius !== 'number' || !Number.isFinite(config.radius) || config.radius < 0)) throw new TypeError('interactable: radius must be a non-negative finite number')
-    if (config.cooldown != null && (typeof config.cooldown !== 'number' || !Number.isFinite(config.cooldown) || config.cooldown < 0)) throw new TypeError('interactable: cooldown must be a non-negative finite number')
+    if (config.radius != null) nonNeg(config.radius, 'interactable: radius')
+    if (config.cooldown != null) nonNeg(config.cooldown, 'interactable: cooldown')
     if (!this._admitsRegistration('interactable')) return
     const radius = config.radius ?? 3
     const prompt = config.prompt ?? 'Press E'

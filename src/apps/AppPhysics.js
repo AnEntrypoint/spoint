@@ -1,5 +1,6 @@
 import { extractMeshFromGLB, extractMeshFromGLBAsync, extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { MSG } from '../protocol/MessageTypes.js'
+import { nonNeg } from '../shared/vecGuard.js'
 
 function motionType(ent) {
   return ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
@@ -62,19 +63,23 @@ async function _addTrimeshColliderImpl(ent, runtime) {
 export function buildPhysicsAPI(ent, runtime) {
   const api = {
     setInteractable: (radius = 3) => {
-      if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) throw new TypeError('physics.setInteractable: radius must be a non-negative finite number')
+      nonNeg(radius, 'physics.setInteractable: radius')
       ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id)
     },
     setStatic: (v) => { if (v) setBodyType(ent, runtime, 'static') },
     setDynamic: (v) => { if (v) setBodyType(ent, runtime, 'dynamic') },
     setKinematic: (v) => { if (v) setBodyType(ent, runtime, 'kinematic') },
-    setMass: (v) => { ent.mass = v },
-    setLinearDamping: (v) => { ent._linearDamping = v },
-    setAngularDamping: (v) => { ent._angularDamping = v },
-    setCCDPolicy: (v) => { ent._ccdPolicy = (v === 'always' || v === 'off') ? v : 'auto' },
+    setMass: (v) => { ent.mass = nonNeg(v, 'physics.setMass: mass') },
+    setLinearDamping: (v) => { ent._linearDamping = nonNeg(v, 'physics.setLinearDamping: linearDamping') },
+    setAngularDamping: (v) => { ent._angularDamping = nonNeg(v, 'physics.setAngularDamping: angularDamping') },
+    setCCDPolicy: (v) => {
+      if (v != null && v !== 'auto' && v !== 'always' && v !== 'off') throw new TypeError('physics.setCCDPolicy: policy must be one of auto, always, off')
+      ent._ccdPolicy = v ?? 'auto'
+    },
     addBoxCollider: (s, shapeKey) => {
-      ent.collider = { type: 'box', size: s }
       const rawHe = Array.isArray(s) ? s : [s, s, s]
+      if (rawHe.length !== 3 || rawHe.some(x => typeof x !== 'number' || !Number.isFinite(x) || x < 0)) throw new TypeError('physics.addBoxCollider: size must be a number or a length-3 array of non-negative finite numbers')
+      ent.collider = { type: 'box', size: s }
       const sc = ent.scale || [1, 1, 1]
       const he = [rawHe[0] * sc[0], rawHe[1] * sc[1], rawHe[2] * sc[2]]
       const mt = motionType(ent)
@@ -87,6 +92,7 @@ export function buildPhysicsAPI(ent, runtime) {
       }
     },
     addSphereCollider: (r) => {
+      nonNeg(r, 'physics.addSphereCollider: radius')
       ent.collider = { type: 'sphere', radius: r }
       const sc = ent.scale || [1, 1, 1]
       const sr = r * Math.max(sc[0], sc[1], sc[2])
@@ -99,6 +105,8 @@ export function buildPhysicsAPI(ent, runtime) {
       }
     },
     addCapsuleCollider: (r, h) => {
+      nonNeg(r, 'physics.addCapsuleCollider: radius')
+      nonNeg(h, 'physics.addCapsuleCollider: height')
       ent.collider = { type: 'capsule', radius: r, height: h }
       const sc = ent.scale || [1, 1, 1]
       const uniformS = Math.max(sc[0], sc[1], sc[2])
@@ -117,6 +125,7 @@ export function buildPhysicsAPI(ent, runtime) {
       return p
     },
     addConvexCollider: (points) => {
+      if (!Array.isArray(points) || points.length < 9 || points.length % 3 !== 0 || points.some(x => typeof x !== 'number' || !Number.isFinite(x))) throw new TypeError('physics.addConvexCollider: points must be a flat array of at least 9 finite numbers in [x,y,z,...] triples')
       ent.collider = { type: 'convex', points }
       const mt = motionType(ent)
       const ccd = resolveCCD(ent, mt)
