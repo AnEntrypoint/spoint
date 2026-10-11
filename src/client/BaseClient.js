@@ -3,7 +3,7 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotProcessor } from './SnapshotProcessor.js'
 import { MessageHandler } from './MessageHandler.js'
 import { createInputStepper } from './InputStepper.js'
-import { quantizeInput, tryEncodeInputPacket } from '../protocol/InputCodec.js'
+import { quantizeInput, tryEncodeInputPacket, toRejection, INPUT_CASE } from '../protocol/InputCodec.js'
 import { createChartEpochSync } from './ChartEpochSync.js'
 
 const REDUNDANT_INPUT_RECORDS = 4
@@ -51,7 +51,7 @@ export class BaseClient {
     this._lastSnapTick = 0
     this._plainInputSeq = 1
     this._plainInputs = []
-    this._clampedReported = new Set()
+    this._inputCasesReported = new Set()
     this.protocolRejected = null
     this._groundSurface = typeof config.predictionGroundSurface === 'function' ? config.predictionGroundSurface : null
     this._teleportReqSeq = 0
@@ -171,40 +171,45 @@ export class BaseClient {
     if (this.protocolRejected) return
     const schema = this._msgHandler.getInputSchema()
     const predEngine = this._msgHandler.getPredEngine()
-    const q = this._quantize(input, schema)
-    if (!q) return
+    const quantized = this._quantize(input, schema)
+    if (!quantized) return
+    for (const c of quantized.cases) this._reportInputCase(c)
     let entries
     if (this.config.predictionEnabled && predEngine) {
-      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(q, stepAt, periodMs)
+      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(quantized.data, stepAt, periodMs)
       entries = predEngine.getUnackedInputs(REDUNDANT_INPUT_RECORDS)
     } else {
       const sequence = this._plainInputSeq++
-      this._plainInputs.push({ sequence, data: q })
+      this._plainInputs.push({ sequence, data: quantized.data })
       if (this._plainInputs.length > REDUNDANT_INPUT_RECORDS) this._plainInputs.shift()
       entries = this._plainInputs
     }
     if (!entries || entries.length === 0) return
-    for (const name of q.clamped) this._reportClamped(name)
     const packet = tryEncodeInputPacket(schema, entries, this._chart.epoch ?? 0)
-    if (!packet.accepted) { this.callbacks.onMessageError('inputEncode', new Error(`[InputCodec] ${packet.reason}`)); return }
-    for (const name of packet.clamped) this._reportClamped(name)
+    if (!packet.accepted) { this._reportInputCase(packet); return }
+    for (const c of packet.cases) this._reportInputCase(c)
     this.send(MSG.INPUT, packet.bytes)
   }
 
   _quantize(input, schema) {
-    const clamped = []
+    const cases = []
     try {
-      return { data: quantizeInput(schema, input, clamped), clamped }
+      return { data: quantizeInput(schema, input, cases), cases }
     } catch (e) {
-      this.callbacks.onMessageError('inputEncode', e)
+      this._reportInputCase(toRejection(e))
       return null
     }
   }
 
-  _reportClamped(name) {
-    if (this._clampedReported.has(name)) return
-    this._clampedReported.add(name)
-    this.callbacks.onMessageError('inputClamped', new Error(`[InputCodec] input record field "${name}" is outside its declared range and was clamped, not sent as given`))
+  _reportInputCase(c) {
+    if (!c || typeof c !== 'object' || typeof c.code !== 'string') return
+    const key = `${c.code}|${c.field ?? ''}|${c.index ?? ''}`
+    if (this._inputCasesReported.has(key)) return
+    this._inputCasesReported.add(key)
+    const { code } = c
+    const error = Object.assign(new Error(c.reason ?? `input packet case ${code} has no rendering`), c)
+    this.callbacks.onMessageError('inputReject', error)
+    if (code !== INPUT_CASE.CLAMPED && code !== INPUT_CASE.DROPPED) console.error('[client] input packet refused:', error.message)
   }
 
   _onSnapshot(data, msgType) {
