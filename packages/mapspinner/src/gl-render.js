@@ -1,4 +1,4 @@
-import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
+import { RELIEF_DESIGN_RADIUS_M, TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 import { bakeTransmittanceLUT, LUT_WIDTH, LUT_HEIGHT } from './atmosphere-transmittance-lut.js';
 import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } from './atmosphere-scattering-lut.js';
 import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-decode.js';
@@ -632,7 +632,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1f(loc, cacheKey, 'uClimateRelief', g('climateRelief', TD.climateRelief));
     _chuSet1f(loc, cacheKey, 'uIsleWide',      g('isleWide', TD.isleWide));
     _chuSet1f(loc, cacheKey, 'uCarveWide',     g('carveWide', TD.carveWide));
-    _chuSet1f(loc, cacheKey, 'uReliefScale',   g('reliefScale', opts.reliefScale != null ? opts.reliefScale : R / 63600000.0));
+    _chuSet1f(loc, cacheKey, 'uReliefScale',   g('reliefScale', opts.reliefScale != null ? opts.reliefScale : R / RELIEF_DESIGN_RADIUS_M));
     const sc = _sculptState;
     _chuSet1f(loc, cacheKey, 'uSculptActive', sc ? 1.0 : 0.0);
     if (sc) {

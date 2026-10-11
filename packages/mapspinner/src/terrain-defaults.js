@@ -1,3 +1,5 @@
+export const RELIEF_DESIGN_RADIUS_M = 63600000.0
+
 export const TERRAIN_DEFAULTS = {
   splitFactor: 0.25,
   gridMeshSize: 9,

@@ -6,7 +6,8 @@ import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_W
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 import { resolvePoolParams, resolveWetness } from '../pool-params.js'
 import { buildGridGeometry, perspectiveZeroToOne } from '../patch-grid-geometry.js'
-import { resolvePlanetRadiusM } from '../planet-radius.js'
+import { PLANET_RADIUS_M, resolvePlanetRadiusM } from '../planet-radius.js'
+import { RELIEF_DESIGN_RADIUS_M } from '../terrain-defaults.js'
 
 export { buildGridGeometry, perspectiveZeroToOne }
 
@@ -89,7 +90,7 @@ fn terrainAlbedoClimate(h: f32, slope: f32, rockSlope: f32, temp: f32, humid: f3
 
 const SURFACE_SPLAT_WGSL = `
 const TEX_TILE_BASE_M: f32 = 2400.0;
-const SPLAT_DESIGN_RADIUS_M: f32 = 6360000.0;
+const SPLAT_DESIGN_RADIUS_M: f32 = ${PLANET_RADIUS_M.toFixed(1)};
 const U_TEX_NRM_K: f32 = 0.4;
 const U_TEX_MIX: f32 = 1.0;
 const U_TEX_WARP: f32 = 1.0;
@@ -602,7 +603,7 @@ export function createComposeHeightParams(device, opts = {}) {
   if (!Number.isFinite(defRadius) || defRadius <= 0) throw new TypeError('createComposeHeightParams: opts.defRadius must be a positive finite number')
   const hpfRes = opts.hpfRes || 1
   const sculptRes = opts.sculptRes || 1
-  const reliefScale = opts.reliefScale != null ? opts.reliefScale : defRadius / 63600000.0
+  const reliefScale = opts.reliefScale != null ? opts.reliefScale : defRadius / RELIEF_DESIGN_RADIUS_M
   const paramsBuf = new ArrayBuffer(16)
   new Uint32Array(paramsBuf).set([0, hpfRes, sculptRes, 0])
   new Float32Array(paramsBuf)[3] = reliefScale

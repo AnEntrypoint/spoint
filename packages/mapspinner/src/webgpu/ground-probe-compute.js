@@ -1,4 +1,5 @@
 import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
+import { RELIEF_DESIGN_RADIUS_M } from '../terrain-defaults.js'
 
 export function supportsGroundProbeCompute(device) {
   return !!device && typeof device.createComputePipeline === 'function' && typeof device.createBuffer === 'function'
@@ -31,7 +32,7 @@ export class GroundProbe {
     this.sculptExtent = o.sculptExtent || 0
     this.sculptCenter = o.sculptCenter || [0, 0]
     this.defRadius = o.defRadius || 0
-    this.reliefScale = o.reliefScale != null ? o.reliefScale : (this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0)
+    this.reliefScale = o.reliefScale != null ? o.reliefScale : (this.defRadius > 0 ? this.defRadius / RELIEF_DESIGN_RADIUS_M : 1.0)
     this.up = o.up || [0, 1, 0]
     this.east = o.east || [1, 0, 0]
     this.north = o.north || [0, 0, 1]
@@ -104,10 +105,10 @@ export class GroundProbe {
     this.east = east
     this.north = north
     if (defRadius !== undefined && defRadius !== this.defRadius) {
-      const trackingDefault = this.reliefScale === (this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0)
+      const trackingDefault = this.reliefScale === (this.defRadius > 0 ? this.defRadius / RELIEF_DESIGN_RADIUS_M : 1.0)
       this.defRadius = defRadius
       if (trackingDefault) {
-        this.reliefScale = this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0
+        this.reliefScale = this.defRadius > 0 ? this.defRadius / RELIEF_DESIGN_RADIUS_M : 1.0
         this._writeParams()
       }
     }

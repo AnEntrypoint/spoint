@@ -1,7 +1,7 @@
 import { makeHeight } from './height-gen.js'
 import { createAnchorField } from './anchor-field.js'
 import * as g from './glsl-rt.js'
-import { SHAPE_UNIFORM_DEFAULTS } from './terrain-defaults.js'
+import { RELIEF_DESIGN_RADIUS_M, SHAPE_UNIFORM_DEFAULTS } from './terrain-defaults.js'
 import { assertHashVersion, carveChord2, HASH_VERSION_FLOAT } from './tsl/height-spec.js'
 import { compileHeightSpec } from './tsl/ops-jsgen.js'
 
@@ -17,7 +17,7 @@ export const HEIGHT_UNIFORM_DEFAULTS = {
 export function createHeightSampler(opts = {}) {
   if (opts.sculpt) throw new TypeError('createHeightSampler: the CPU height mirror cannot evaluate a sculpt override (it is a GPU texture fetch), so a sampler built with one would silently disagree with the rendered ground -- plumb the sculpt field through the spec instead of passing it here')
   const radius = opts.radius || 6360
-  const reliefScale = opts.reliefScale != null ? opts.reliefScale : radius / 63600000
+  const reliefScale = opts.reliefScale != null ? opts.reliefScale : radius / RELIEF_DESIGN_RADIUS_M
   const hpfTexRes = opts.hpfTexRes || 128
   const BAKE_MAX_LEVEL = Math.round(Math.log2(hpfTexRes))
   const af = opts.anchorField || createAnchorField({ seed: opts.seed })

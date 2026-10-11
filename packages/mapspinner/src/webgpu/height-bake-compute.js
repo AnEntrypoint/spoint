@@ -1,4 +1,5 @@
 import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
+import { RELIEF_DESIGN_RADIUS_M } from '../terrain-defaults.js'
 
 const BINDINGS_MARKER = '@group(0) @binding(0)'
 const COMPOSEHEIGHT_LIB_WGSL = TERRAIN_COMPOSEHEIGHT_WGSL.slice(0, TERRAIN_COMPOSEHEIGHT_WGSL.indexOf(BINDINGS_MARKER))
@@ -81,7 +82,7 @@ export function bakeHeightTileTexture(device, faceFrame, bakeOffset, opts, pipel
   const east = o.east || [1, 0, 0]
   const north = o.north || [0, 0, 1]
 
-  const reliefScale = o.reliefScale != null ? o.reliefScale : defRadius / 63600000.0
+  const reliefScale = o.reliefScale != null ? o.reliefScale : defRadius / RELIEF_DESIGN_RADIUS_M
   const paramsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
   const paramsBytes = new ArrayBuffer(16)
   new Uint32Array(paramsBytes).set([res, hpfRes, sculptRes, 0])
