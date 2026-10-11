@@ -4,6 +4,7 @@ export const DEFAULT_INPUT_BUTTONS = Object.freeze([
 ])
 export const MAX_INPUT_BUTTONS = 32
 export const MAX_INPUTS_PER_PACKET = 8
+const UINT32_CEILING = 0x100000000
 const RESERVED_INPUT_NAMES = new Set(['yaw', 'pitch', 'expr', 'analogForward', 'analogRight'])
 const TAU = 2 * Math.PI
 const HALF_PI = Math.PI / 2
@@ -55,31 +56,42 @@ function quantYaw(yaw) {
   return Math.round(((y % TAU + TAU) % TAU) / TAU * YAW_STEPS) % YAW_STEPS
 }
 
-function quantPitch(pitch) {
-  const p = Math.max(-HALF_PI, Math.min(HALF_PI, finiteField('pitch', pitch)))
+function bounds(name, value, lo, hi, clamped) {
+  if (value < lo) { clamped.push(name); return lo }
+  if (value > hi) { clamped.push(name); return hi }
+  return value
+}
+
+function quantPitch(pitch, clamped) {
+  const p = bounds('pitch', finiteField('pitch', pitch), -HALF_PI, HALF_PI, clamped)
   return Math.round(p * PITCH_SCALE)
 }
 
-function quantAnalog(name, v) {
-  const a = Math.max(-1, Math.min(1, finiteField(name, v)))
+function quantAnalog(name, v, clamped) {
+  const a = bounds(name, finiteField(name, v), -1, 1, clamped)
   return Math.round(a * ANALOG_SCALE)
 }
 
-function writeRecord(view, off, schema, sequence, input) {
+function uint32Field(name, value) {
+  if (Number.isInteger(value) && value >= 0 && value < UINT32_CEILING) return value
+  throw new RangeError(`[InputCodec] input packet field "${name}" is not a uint32 (got ${typeof value} ${String(value)})`)
+}
+
+function writeRecord(view, off, schema, sequence, input, clamped) {
   let bits = 0
   const { buttons, axes } = schema
   for (let i = 0; i < buttons.length; i++) if (input[buttons[i]]) bits |= (1 << i)
   const hasAnalog = input.analogForward !== undefined || input.analogRight !== undefined
-  view.setUint32(off, sequence >>> 0, true)
+  view.setUint32(off, sequence, true)
   view.setUint32(off + 4, bits >>> 0, true)
   view.setUint16(off + 8, quantYaw(input.yaw), true)
-  view.setInt16(off + 10, quantPitch(input.pitch), true)
-  view.setUint8(off + 12, Math.max(0, Math.min(255, finiteField('expr', input.expr) | 0)))
+  view.setInt16(off + 10, quantPitch(input.pitch, clamped), true)
+  view.setUint8(off + 12, bounds('expr', finiteField('expr', input.expr) | 0, 0, 255, clamped))
   view.setUint8(off + 13, hasAnalog ? FLAG_ANALOG : 0)
   off += RECORD_FIXED_BYTES
   if (hasAnalog) {
-    view.setInt8(off, quantAnalog('analogForward', input.analogForward))
-    view.setInt8(off + 1, quantAnalog('analogRight', input.analogRight))
+    view.setInt8(off, quantAnalog('analogForward', input.analogForward, clamped))
+    view.setInt8(off + 1, quantAnalog('analogRight', input.analogRight, clamped))
     off += ANALOG_BYTES
   }
   for (const a of axes) { view.setFloat32(off, finiteField(a, input[a]), true); off += AXIS_BYTES }
@@ -114,19 +126,41 @@ function readRecord(view, off, schema, end) {
   return { sequence, data: input, next: off }
 }
 
-export function encodeInputPacket(schema, entries, chartEpoch = 0) {
+export function tryEncodeInputPacket(schema, entries, chartEpoch = 0) {
+  if (!schema || !Array.isArray(schema.buttons) || !Array.isArray(schema.axes)) return { accepted: false, reason: 'input packet schema is not a declared input schema' }
+  if (!Array.isArray(entries)) return { accepted: false, reason: `input packet entries is not an array (got ${typeof entries})` }
+  if (entries.length === 0) return { accepted: false, reason: 'input packet carries no records' }
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (!e || typeof e !== 'object') return { accepted: false, reason: `input packet record ${i} is not an object` }
+    if (!Number.isInteger(e.sequence) || e.sequence < 0 || e.sequence >= UINT32_CEILING) return { accepted: false, reason: `input packet record ${i} sequence ${String(e.sequence)} outside 0..${UINT32_CEILING - 1}` }
+    if (!e.data || typeof e.data !== 'object') return { accepted: false, reason: `input packet record ${i} data is not an object` }
+  }
+  const epoch = chartEpoch === undefined || chartEpoch === null ? 0 : chartEpoch
+  if (!Number.isInteger(epoch) || epoch < 0 || epoch >= UINT32_CEILING) return { accepted: false, reason: `input packet chart epoch ${String(chartEpoch)} outside 0..${UINT32_CEILING - 1}` }
   const n = Math.min(MAX_INPUTS_PER_PACKET, entries.length)
   const first = entries.length - n
-  const tagged = chartEpoch > 0
+  const tagged = epoch > 0
+  const clamped = []
   let size = tagged ? 1 + EPOCH_BYTES : 1
   for (let i = first; i < entries.length; i++) size += recordBytes(schema, entries[i].data)
   const out = new Uint8Array(size)
   const view = new DataView(out.buffer)
   out[0] = n | (tagged ? FLAG_EPOCH_TAGGED : 0)
   let off = 1
-  if (tagged) { view.setUint32(off, chartEpoch >>> 0, true); off += EPOCH_BYTES }
-  for (let i = first; i < entries.length; i++) off = writeRecord(view, off, schema, entries[i].sequence, entries[i].data)
-  return out
+  if (tagged) { view.setUint32(off, uint32Field('chartEpoch', epoch), true); off += EPOCH_BYTES }
+  try {
+    for (let i = first; i < entries.length; i++) off = writeRecord(view, off, schema, uint32Field('sequence', entries[i].sequence), entries[i].data, clamped)
+  } catch (e) {
+    return { accepted: false, reason: e.message }
+  }
+  return { accepted: true, bytes: out, count: n, dropped: first, clamped }
+}
+
+export function encodeInputPacket(schema, entries, chartEpoch = 0) {
+  const r = tryEncodeInputPacket(schema, entries, chartEpoch)
+  if (!r.accepted) throw new RangeError(`[InputCodec] ${r.reason}`)
+  return r.bytes
 }
 
 export function decodeInputPacket(schema, bytes) {
@@ -151,8 +185,8 @@ export function decodeInputPacket(schema, bytes) {
   return { accepted: true, entries, chartEpoch }
 }
 
-export function quantizeInput(schema, input) {
+export function quantizeInput(schema, input, clamped = []) {
   const buf = new Uint8Array(recordBytes(schema, input))
-  writeRecord(new DataView(buf.buffer), 0, schema, 0, input)
+  writeRecord(new DataView(buf.buffer), 0, schema, 0, input, clamped)
   return readRecord(new DataView(buf.buffer), 0, schema, buf.length).data
 }

@@ -6,7 +6,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const MODULE = process.env.INPUT_CODEC_MODULE
   ? resolve(process.env.INPUT_CODEC_MODULE)
   : resolve(REPO, 'src/protocol/InputCodec.js')
-const { createInputSchema, encodeInputPacket, decodeInputPacket, quantizeInput } = await import(pathToFileURL(MODULE).href)
+const { createInputSchema, encodeInputPacket, decodeInputPacket, quantizeInput, tryEncodeInputPacket } = await import(pathToFileURL(MODULE).href)
 
 let failures = 0
 
@@ -96,6 +96,62 @@ expect('an omitted yaw is absent, not out of domain, and still encodes',
   decodeInputPacket(schema, encode({ forward: true })).accepted === true)
 expect('an omitted extra axis is absent, not out of domain, and still encodes',
   decodeInputPacket(schema, encode({ yaw: 1.0 })).accepted === true)
+
+const CEILING = 4294967296
+const tryEncode = (entries, epoch = 0) => tryEncodeInputPacket(schema, entries, epoch)
+const refused = (r) => r.accepted === false && typeof r.reason === 'string' && r.reason.length > 0
+
+const nanSeq = tryEncode([{ sequence: NaN, data: { yaw: 1.0 } }])
+expect('a NaN sequence is refused instead of re-keyed to 0 where it collides with genuine sequence 0',
+  refused(nanSeq), JSON.stringify(nanSeq))
+const genuineZero = tryEncode([{ sequence: 0, data: { yaw: 1.0 } }])
+expect('genuine sequence 0 still encodes while NaN sequence is refused',
+  genuineZero.accepted === true && nanSeq.accepted === false)
+for (const [claim, seq] of [
+  ['a negative sequence is refused instead of wrapping to 4294967295', -1],
+  ['a fractional sequence is refused instead of re-keyed by >>> 0', 1.5],
+  ['a sequence at the uint32 ceiling is refused instead of wrapping to 0', CEILING],
+  ['a string sequence is refused instead of re-keyed to 0', '7'],
+  ['an undefined sequence is refused instead of re-keyed to 0', undefined],
+]) expect(claim, refused(tryEncode([{ sequence: seq, data: {} }])), JSON.stringify(tryEncode([{ sequence: seq, data: {} }])))
+for (const [claim, epoch] of [
+  ['a NaN chartEpoch is refused instead of silently untagging the packet', NaN],
+  ['a negative chartEpoch is refused instead of silently untagging the packet', -1],
+  ['a fractional chartEpoch is refused instead of silently truncating the tag', 2.5],
+  ['a chartEpoch at the uint32 ceiling is refused instead of wrapping to 0', CEILING],
+]) expect(claim, refused(tryEncode([{ sequence: 1, data: {} }], epoch)), JSON.stringify(tryEncode([{ sequence: 1, data: {} }], epoch)))
+expect('entries that are not an array are refused', refused(tryEncode(null)), JSON.stringify(tryEncode(null)))
+expect('an empty entries array is refused instead of encoding a count byte of 0', refused(tryEncode([])), JSON.stringify(tryEncode([])))
+expect('a record with no data object is refused', refused(tryEncode([{ sequence: 1 }])), JSON.stringify(tryEncode([{ sequence: 1 }])))
+expect('a non-finite field is refused by the total entry without throwing',
+  refused(tryEncode([{ sequence: 1, data: { yaw: NaN } }])), JSON.stringify(tryEncode([{ sequence: 1, data: { yaw: NaN } }])))
+
+const many = tryEncode(entries, EPOCH)
+expect('a 10-entry packet reports 2 dropped records instead of dropping them silently',
+  many.accepted === true && many.count === 8 && many.dropped === 2, JSON.stringify({ count: many.count, dropped: many.dropped }))
+expect('the total entry and the legacy entry emit byte-identical packets',
+  many.accepted === true && Buffer.from(many.bytes).equals(Buffer.from(tagged)))
+
+const outOfRange = tryEncode([{ sequence: 1, data: { pitch: 2.0, analogForward: 4, analogRight: -4, expr: 300 } }])
+expect('an out-of-range pitch, analog pair and expr are reported as clamped, not clamped silently',
+  outOfRange.accepted === true && isDeepStrictEqual(outOfRange.clamped, ['pitch', 'expr', 'analogForward', 'analogRight']),
+  JSON.stringify(outOfRange.clamped))
+const inRange = tryEncode([{ sequence: 1, data: { pitch: -0.5, analogForward: 0.5, analogRight: -0.5, expr: 40 } }])
+expect('in-domain pitch, analog and expr report no clamps', inRange.accepted === true && inRange.clamped.length === 0, JSON.stringify(inRange.clamped))
+const qClamped = []
+quantizeInput(schema, { pitch: 2.0, analogForward: 4 }, qClamped)
+expect('quantizeInput reports the fields it clamps instead of clamping them silently',
+  isDeepStrictEqual(qClamped, ['pitch', 'analogForward']), JSON.stringify(qClamped))
+const clampedPitch = decodeInputPacket(schema, outOfRange.bytes)
+expect('a clamped record decodes to exactly the quantization of its own input, so the clamp is the only loss',
+  clampedPitch.accepted === true && isDeepStrictEqual(clampedPitch.entries[0].data, quantizeInput(schema, { pitch: 2.0, analogForward: 4, analogRight: -4, expr: 300 })),
+  JSON.stringify(clampedPitch.entries?.[0]?.data))
+
+expect('the legacy entry turns every refusal into a loud RangeError, never a silent packet',
+  thrownOf(() => encodeInputPacket(schema, [{ sequence: NaN, data: {} }])),
+  'RangeError: [InputCodec] input packet record 0 sequence NaN outside 0..4294967295')
+expect('the legacy entry still returns the bytes for an accepted packet',
+  encodeInputPacket(schema, [{ sequence: 1, data: { yaw: 1.0 } }]) instanceof Uint8Array)
 
 console.log(failures === 0 ? 'RESULT: PASS' : `RESULT: FAIL (${failures} claim(s))`)
 process.exit(failures === 0 ? 0 : 1)

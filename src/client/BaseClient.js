@@ -3,7 +3,7 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotProcessor } from './SnapshotProcessor.js'
 import { MessageHandler } from './MessageHandler.js'
 import { createInputStepper } from './InputStepper.js'
-import { encodeInputPacket, quantizeInput } from '../protocol/InputCodec.js'
+import { quantizeInput, tryEncodeInputPacket } from '../protocol/InputCodec.js'
 import { createChartEpochSync } from './ChartEpochSync.js'
 
 const REDUNDANT_INPUT_RECORDS = 4
@@ -51,6 +51,7 @@ export class BaseClient {
     this._lastSnapTick = 0
     this._plainInputSeq = 1
     this._plainInputs = []
+    this._clampedReported = new Set()
     this.protocolRejected = null
     this._groundSurface = typeof config.predictionGroundSurface === 'function' ? config.predictionGroundSurface : null
     this._teleportReqSeq = 0
@@ -170,7 +171,8 @@ export class BaseClient {
     if (this.protocolRejected) return
     const schema = this._msgHandler.getInputSchema()
     const predEngine = this._msgHandler.getPredEngine()
-    const q = quantizeInput(schema, input)
+    const q = this._quantize(input, schema)
+    if (!q) return
     let entries
     if (this.config.predictionEnabled && predEngine) {
       if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(q, stepAt, periodMs)
@@ -182,7 +184,27 @@ export class BaseClient {
       entries = this._plainInputs
     }
     if (!entries || entries.length === 0) return
-    this.send(MSG.INPUT, encodeInputPacket(schema, entries, this._chart.epoch ?? 0))
+    for (const name of q.clamped) this._reportClamped(name)
+    const packet = tryEncodeInputPacket(schema, entries, this._chart.epoch ?? 0)
+    if (!packet.accepted) { this.callbacks.onMessageError('inputEncode', new Error(`[InputCodec] ${packet.reason}`)); return }
+    for (const name of packet.clamped) this._reportClamped(name)
+    this.send(MSG.INPUT, packet.bytes)
+  }
+
+  _quantize(input, schema) {
+    const clamped = []
+    try {
+      return { data: quantizeInput(schema, input, clamped), clamped }
+    } catch (e) {
+      this.callbacks.onMessageError('inputEncode', e)
+      return null
+    }
+  }
+
+  _reportClamped(name) {
+    if (this._clampedReported.has(name)) return
+    this._clampedReported.add(name)
+    this.callbacks.onMessageError('inputClamped', new Error(`[InputCodec] input record field "${name}" is outside its declared range and was clamped, not sent as given`))
   }
 
   _onSnapshot(data, msgType) {
