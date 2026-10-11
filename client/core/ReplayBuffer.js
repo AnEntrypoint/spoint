@@ -7,22 +7,24 @@ export function createReplayBuffer({ maxFrames = 600, captureFn, idleCaptureEver
   let filled = 0
   let totalRecorded = 0
 
-  let consumerCount = 0
+  const liveSubscriptions = new Set()
   let framesSinceCapture = 0
 
   function subscribe() {
-    consumerCount++
-    return () => unsubscribe()
+    const token = {}
+    liveSubscriptions.add(token)
+    return () => { liveSubscriptions.delete(token) }
   }
 
   function unsubscribe() {
-    if (consumerCount > 0) consumerCount--
+    const oldest = liveSubscriptions.values().next()
+    if (!oldest.done) liveSubscriptions.delete(oldest.value)
   }
 
-  function getConsumerCount() { return consumerCount }
+  function getConsumerCount() { return liveSubscriptions.size }
 
   function record(nowMs) {
-    if (consumerCount <= 0) {
+    if (liveSubscriptions.size === 0) {
       framesSinceCapture++
       if (framesSinceCapture < idleCaptureEveryNFrames) return undefined
       framesSinceCapture = 0
