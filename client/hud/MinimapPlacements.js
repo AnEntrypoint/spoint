@@ -24,14 +24,47 @@ SPECIES.forEach((name, i) => {
 const ALL_SPECIES_RENDERED = Uint8Array.from(SPECIES, () => 1)
 const ROCK_RADIUS_PER_SCALE = 0.5
 
+const contractBreached = new Set()
+
+function reportContractBreach(where, detail) {
+  if (contractBreached.has(where)) return
+  contractBreached.add(where)
+  console.error(`[minimap-contract] ${where}: ${detail}; the scan arms nothing and emits no glyph until the caller passes an argument the scanner accepts`)
+}
+
+function strokeCountBreach(source) {
+  const overrides = source && source.biomeOverride
+  if (!overrides) return null
+  const n = overrides.strokeCount
+  return Number.isInteger(n) && n >= 0 ? null : `strokeCount is ${n}`
+}
+
+function beginInputsBreach(frame, sources, worldSeed, cx, cz, halfM) {
+  if (!frame) return `frame is ${frame}`
+  if (!sources || typeof sources !== 'object') return `sources is ${sources}`
+  if (!Number.isInteger(worldSeed)) return `worldSeed is ${worldSeed}`
+  if (typeof cx !== 'number' || !Number.isFinite(cx) || typeof cz !== 'number' || !Number.isFinite(cz)) return `centre is (${cx}, ${cz})`
+  if (typeof halfM !== 'number' || !Number.isFinite(halfM) || halfM <= 0) return `halfM is ${halfM}`
+  for (const kind of KINDS) {
+    if (!sources[kind.sourceKey]) continue
+    const breach = strokeCountBreach(sources[kind.sourceKey])
+    if (breach) return `${kind.sourceKey} ${breach}`
+  }
+  return null
+}
+
+function glyphIsWhole(out, o) {
+  return Number.isFinite(out[o]) && Number.isFinite(out[o + 1]) && Number.isFinite(out[o + 3]) && Number.isInteger(out[o + 2]) && out[o + 2] < GLYPH_CLASS_COUNT
+}
+
 function packTree(p, out, o, rendered) {
   if (!rendered[p.species]) return false
   out[o] = p.x; out[o + 1] = p.z; out[o + 2] = TREE_CLASS[p.species]; out[o + 3] = TREE_CANOPY_M[p.species] * p.scale
-  return true
+  return glyphIsWhole(out, o)
 }
 function packRock(p, out, o) {
   out[o] = p.x; out[o + 1] = p.z; out[o + 2] = GLYPH_ROCK; out[o + 3] = p.scale * ROCK_RADIUS_PER_SCALE
-  return true
+  return glyphIsWhole(out, o)
 }
 
 function renderedSpeciesOf(source) {
@@ -145,6 +178,12 @@ export function createPlacementScanner() {
 
   function begin(frame, anchorField, sources, worldSeed, cx, cz, halfM) {
     s = 0
+    const breach = beginInputsBreach(frame, sources, worldSeed, cx, cz, halfM)
+    if (breach) {
+      reportContractBreach('begin', breach)
+      active.fill(0)
+      return false
+    }
     for (let i = 0; i < scanners.length; i++) {
       const source = sources[scanners[i].sourceKey]
       active[i] = source ? 1 : 0
@@ -152,6 +191,7 @@ export function createPlacementScanner() {
       scanners[i].bind(frame, anchorField, source, worldSeed)
       scanners[i].begin(cx, cz, halfM)
     }
+    return true
   }
 
   function step(deadline, onChunk) {
