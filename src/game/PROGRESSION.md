@@ -34,7 +34,16 @@ const progression = createProgressionSystem({
 ### Core API
 
 #### addXp(playerId, amount): boolean
-Adds XP to a player. Returns true if player leveled up.
+Adds XP to a player. Returns true when the call produced at least one level-up event, false otherwise.
+
+Two inputs are rejected without touching state: a non-finite amount, and a negative one.
+
+**u32 saturation is not a level-up.** When `totalXp + amount` exceeds `2^32 - 1`, the call
+saturates rather than levelling: `totalXp` is pinned to `4294967295`, `level` is pinned to
+`maxLevel`, `xp` becomes `totalXp - threshold(maxLevel)`, **no level-up event is pushed**, and
+the return value is `false`. A saturated call can therefore raise the level — from 1 straight
+to `maxLevel` — while still reporting `false`, so a caller cannot treat `false` as "nothing
+changed"; read `getState()` when the return is false.
 
 ```javascript
 if (progression.addXp(playerId, 10)) {
@@ -296,7 +305,7 @@ Total overhead: <1ms per frame for 100 active players.
 
 ## Constraints and Guarantees
 
-- **uint32-safe**: XP values never overflow beyond 2^32 - 1
+- **uint32-safe**: XP values never overflow beyond 2^32 - 1; a total that would exceed the bound saturates at 2^32 - 1 with `level` pinned to `maxLevel` and no level-up event, and `addXp` returns false (see `addXp` above)
 - **No side effects**: Pure functions with explicit returns
 - **Network-safe**: All state is serializable to JSON
 - **Synchronous**: No async I/O or promises
