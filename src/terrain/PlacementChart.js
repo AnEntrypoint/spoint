@@ -66,7 +66,7 @@ function guardedGroundOf(frame) {
 export function surfaceAlongDir(frame, dx, dy, dz, rhoGuess, out) {
   const de = dotE(frame, dx, dy, dz), du = dotU(frame, dx, dy, dz), dn = dotN(frame, dx, dy, dz)
   const base = frame.radius + frame.anchorHeight - frame.offsetY
-  if (frame.groundHeightLocal === frame.cpuGroundHeightLocal) {
+  if (frame.groundSource === 'cpu-solve') {
     const h = frame.elevationAtDir([dx, dy, dz])
     if (!Number.isFinite(h)) return NaN
     const r = frame.radius + h

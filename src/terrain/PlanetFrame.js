@@ -200,7 +200,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   let cpuDivergenceReported = false
   const cpuElevationAtDir = (d) => sampler.heightAt(_norm(d))
   const elevationAtDir = (d) => {
-    if (frame.cpuHeightDivergentFromGround === true && cpuDivergenceReported === false) {
+    if (frame.cpuHeightDivergentFromGround === true && frame.groundSource !== 'cpu-solve' && cpuDivergenceReported === false) {
       cpuDivergenceReported = true
       console.error(`[terrain] elevationAtDir is reading the CPU height sampler while this frame takes its ground from another source: at terrain hashVersion ${frame.hashVersion} the CPU sampler and any GPU terrain disagree by a measured 1.4 m mean / 4.1 m max over 256 m, so this elevation describes ground nobody walks on -- read the frame ground height and convert it with elevationAtLocal, or seed a solve with cpuElevationAtDir`)
     }
@@ -208,6 +208,21 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   }
   const frame = { radius, hashVersion: sampler.hashVersion, up, east, north, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, cpuGroundHeightLocal: groundHeightLocal, localToWorld, elevationAtDir, cpuElevationAtDir, cpuHeightDivergentFromGround: false, chartEpoch: 0 }
   Object.defineProperty(frame, 'anchorDir', { enumerable: true, configurable: true, get: () => [up[0], up[1], up[2]] })
+  let _groundHeightLocal = groundHeightLocal
+  Object.defineProperty(frame, 'groundSource', {
+    enumerable: true,
+    configurable: true,
+    get: () => (_groundHeightLocal === groundHeightLocal ? 'cpu-solve' : 'substituted'),
+  })
+  Object.defineProperty(frame, 'groundHeightLocal', {
+    enumerable: true,
+    configurable: true,
+    get: () => _groundHeightLocal,
+    set: (fn) => {
+      if (typeof fn !== 'function') throw new TypeError(`frame.groundHeightLocal is the frame's only ground source, so it takes a function (x, z, yGuess) => number that throws SurfaceSolveError where there is no ground; got ${fn === null ? 'null' : typeof fn}`)
+      _groundHeightLocal = fn
+    },
+  })
   function reanchor(newDir) {
     const b = anchorBasis(newDir)
     for (let i = 0; i < 3; i++) { up[i] = b.up[i]; east[i] = b.east[i]; north[i] = b.north[i] }
