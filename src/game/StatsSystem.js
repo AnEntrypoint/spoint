@@ -67,6 +67,62 @@ export function defineStatsSystem(spec = {}, appCtx) {
     return data
   }
 
+  const _declaredSlot = (slot) =>
+    Object.prototype.hasOwnProperty.call(equipment, slot) && Array.isArray(equipment[slot])
+
+  const _parseRestoredPlayer = (record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      return { ok: false, reason: 'not-an-object', player: null, dropped: [] }
+    }
+
+    const declaredXP = typeof record.xp === 'number' && !Number.isNaN(record.xp) ? record.xp : 0
+    const declaredLevel = typeof record.level === 'number' && !Number.isNaN(record.level) ? record.level : startLevel
+    const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(0, declaredXP))
+    const player = {
+      level: _levelForXP(xp, Math.max(startLevel, declaredLevel)),
+      xp,
+      equipment: new Map(),
+      loadouts: new Map(),
+      bonuses: new Map(),
+    }
+    const dropped = []
+
+    if (record.bonuses && typeof record.bonuses === 'object') {
+      for (const [stat, bonus] of Object.entries(record.bonuses)) {
+        if (Object.prototype.hasOwnProperty.call(baseStats, stat) && typeof bonus === 'number' && Number.isFinite(bonus)) {
+          player.bonuses.set(stat, bonus)
+        }
+      }
+    }
+
+    if (record.equipment && typeof record.equipment === 'object') {
+      for (const [slot, equipmentId] of Object.entries(record.equipment)) {
+        if (!_declaredSlot(slot)) {
+          dropped.push({ slot, reason: 'unknown-slot' })
+          continue
+        }
+        if (_equipmentLookup.has(equipmentId)) player.equipment.set(slot, equipmentId)
+      }
+    }
+
+    if (record.loadouts && typeof record.loadouts === 'object') {
+      for (const [name, loadout] of Object.entries(record.loadouts)) {
+        if (!loadout || typeof loadout !== 'object') continue
+        const restoredLoadout = {}
+        for (const [slot, equipmentId] of Object.entries(loadout)) {
+          if (!_declaredSlot(slot)) {
+            dropped.push({ slot, reason: 'unknown-slot' })
+            continue
+          }
+          if (_equipmentLookup.has(equipmentId)) restoredLoadout[slot] = equipmentId
+        }
+        if (Object.keys(restoredLoadout).length > 0) player.loadouts.set(name, restoredLoadout)
+      }
+    }
+
+    return { ok: true, reason: null, player, dropped }
+  }
+
   const _fire = (name, arg) => {
     const fn = spec[name]
     if (typeof fn === 'function') {
@@ -282,55 +338,27 @@ export function defineStatsSystem(spec = {}, appCtx) {
     },
 
     restore(data) {
-      if (!data || typeof data !== 'object') return
-      _playerData.clear()
-
-      for (const [pid, playerData] of Object.entries(data)) {
-        const declaredXP = typeof playerData.xp === 'number' && !Number.isNaN(playerData.xp) ? playerData.xp : 0
-        const declaredLevel = typeof playerData.level === 'number' && !Number.isNaN(playerData.level) ? playerData.level : startLevel
-        const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(0, declaredXP))
-        const restored = {
-          level: _levelForXP(xp, Math.max(startLevel, declaredLevel)),
-          xp,
-          equipment: new Map(),
-          loadouts: new Map(),
-          bonuses: new Map(),
-        }
-
-        if (playerData.bonuses && typeof playerData.bonuses === 'object') {
-          for (const [stat, bonus] of Object.entries(playerData.bonuses)) {
-            if (Object.prototype.hasOwnProperty.call(baseStats, stat) && typeof bonus === 'number' && Number.isFinite(bonus)) {
-              restored.bonuses.set(stat, bonus)
-            }
-          }
-        }
-
-        if (playerData.equipment && typeof playerData.equipment === 'object') {
-          for (const [slot, equipmentId] of Object.entries(playerData.equipment)) {
-            if (_equipmentLookup.has(equipmentId)) {
-              restored.equipment.set(slot, equipmentId)
-            }
-          }
-        }
-
-        if (playerData.loadouts && typeof playerData.loadouts === 'object') {
-          for (const [name, loadout] of Object.entries(playerData.loadouts)) {
-            if (loadout && typeof loadout === 'object') {
-              const restoredLoadout = {}
-              for (const [slot, equipmentId] of Object.entries(loadout)) {
-                if (_equipmentLookup.has(equipmentId)) {
-                  restoredLoadout[slot] = equipmentId
-                }
-              }
-              if (Object.keys(restoredLoadout).length > 0) {
-                restored.loadouts.set(name, restoredLoadout)
-              }
-            }
-          }
-        }
-
-        _playerData.set(pid, restored)
+      if (!data || typeof data !== 'object') {
+        return { ok: false, reason: 'not-an-object', players: 0, dropped: [] }
       }
+
+      const parsedPlayers = new Map()
+      const dropped = []
+
+      for (const [pid, record] of Object.entries(data)) {
+        const parsed = _parseRestoredPlayer(record)
+        if (!parsed.ok) {
+          dropped.push({ playerId: pid, reason: parsed.reason })
+          continue
+        }
+        for (const entry of parsed.dropped) dropped.push({ playerId: pid, ...entry })
+        parsedPlayers.set(String(pid), parsed.player)
+      }
+
+      _playerData.clear()
+      for (const [pid, player] of parsedPlayers) _playerData.set(pid, player)
+
+      return { ok: true, reason: null, players: parsedPlayers.size, dropped }
     },
   }
 
