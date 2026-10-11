@@ -371,3 +371,26 @@ CEILING spawn refusal confirms ceiling=20 at tick 181: hop METAMORPH packages/ec
 RULE-CONFIRMED orchestrator spawns a hop successor only when the hop returns next: none
 tick 182 live=20 ceiling=20 floor=10 shortfall=0 saturated (wait 60s; no pool-observe on timer per new rule)
 HOP src/behaviours KISS 4 violations witness=1791677595599-500-728f1475e99fdfa7 closed src/behaviours/fire.js pass-through re-export removed; successor YAGNI self-spawned orch-main-r231-sub1 VIOLATED witness=1791679937128-500-89f7cb371224421a row YAGNI-1-sub1-3
+RESULT webtransport-send-throw-leaves-open resolved 9640a070100f50ffe947eb51c6b0bad15f818921 next=ILLEGAL-n-r208-4
+HOP src/spatial HUGHES back-verify closed 14 properties 2400/960 0 violations sha256 4f53cda1 row HUGHES-n-r228-1 pending
+tick 183 live=20 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r258 row=ILLEGAL-n-r208-4 launch orch-main-r259 hop=ILLEGAL apps/world
+CORRECTION tick 183: orch-main-r259 launched as hop ILLEGAL src/protocol (unscanned dir from readdir sweep), not apps/world
+UNSCANNED-SURFACES src: animation connection debug editor effects fluid game input pathfinding procgen protocol sharding static stdlib-apps storage | apps: 37 demo dirs + _lib | client: dev landing worlds vendor assets | packages: ecs mapspinner spoint-core streaming-gltf
+2026-10-11T01:02:37.423Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=1 RESULT: FAIL (16 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-11T01-02-37-423Z-17704.txt sha256=d6f09e7b4b55a0649761d345c49c8465d893c7659feb69fb5c4312ab61e55019
+tick 184 live=145 (ledger launches-done-cancel=200-177) ceiling=20 floor=10 shortfall=0 saturated; observing on completion per rule
+CORRECTION tick 184: ledger-derived live=145 is INFLATED and unusable -- gm-hop agents self-spawn successors (ids like orch-main-rNNN-subK) that never get a ledger launch/done line, so launches-done counts chains that ended. Count of record = ListAgents (20 running) + .gm/pool/*.live. Filed gm row gm-pool-ledger-live-inflated-by-self-spawned-successors
+tick 185 live=20 ceiling=20 floor=10 shortfall=0 saturated heartbeat_markers=17 stale_gt_600s=3
+REAP 3 stale heartbeat markers >600s: orch-main-r188/214/230 (r214 task out age 5051s = dead chain) -- live markers 17 -> 14
+tick 186 live=20 ceiling=20 floor=10 shortfall=0 launch orch-main-r260 hop=MILNER src/game launch orch-main-r261 hop=DBC src/pathfinding launch orch-main-r262 hop=ILLEGAL src/effects (all unscanned, unheld)
+CEILING r262 refused at tick 186 after 3 stale markers reaped: harness count is 20 running, so the reaped markers did NOT free slots (their agents or their self-spawned successors still occupy them)
+MEASUREMENT heartbeat marker staleness is not evidence a slot is free; the spawn refusal is the only live-count signal
+2026-10-11T01:10:31.944Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=1 RESULT: FAIL (16 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-11T01-10-31-944Z-29860.txt sha256=5a1d7652091ea35c4a2e83746771871f8e288d0d4c029d3f82a26af40f387175
+RESULT WADLER-n-r185h1s4-1 resolved 813c6720f435f769159d868fd6cbf0208807d7d9 next=none (client/editor chain complete)
+GM skills/gm-orchestrate/SKILL.md commit 0f64f7ee5fcead8df04edb34372fbe9735785d68 pushed ci=pending run=38100919051 (skill-release release, doc-drift scan) author=lanmower -- rule: ledger live advisory, stale marker frees no slot
+tick 187 live=20 ceiling=20 floor=10 shortfall=0 done=1 (r254)
+MEASUREMENT tick 187: r254 completion did not free a slot -- the refill spawn was refused at 20. A completion frees a slot only when the finishing chain spawns no successor; at saturation the harness count, not the notification, decides.
+tick 188 live=20 ceiling=20 floor=10 shortfall=0 saturated; waiting for a completion that actually frees a slot
+2026-10-11T01:12:27.491Z witness=scripts/WebTransportTransport-witness.mjs module=C:/dev/spoint/src/transport/WebTransportTransport.js exit=0 RESULT: PASS (17 of 17 claims hold) out=.gm/witness-out/WebTransportTransport-witness-2026-10-11T01-12-27-491Z-7260.txt sha256=09a4adf82e0114a7ce3d7badcef2792d776d4c65d6f8bb185493becc6e6ba6ff
+HOP src/apps PARSEDV 2 violations witness=1791680574843-500-4dcd5c6458dcb001; successor MILNER src/apps self-spawn BLOCKED by 20 limit, spec parked at .gm/pool/orch-main-r249.next
+tick 189 live=20 ceiling=20 floor=10 shortfall=0 done=1 (r249) launch orch-main-r264 hop=MILNER src/apps (from parked .next spec)
+MECHANISM parked .next spec + orchestrator relaunch recovers a successor blocked by the ceiling -- the pool stayed at 20 across the handoff

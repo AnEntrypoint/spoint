@@ -35,7 +35,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   const playerIdToPubkey = new Map()
   const peerAudio = new Map()
   let audioCtx = null
-  let latestScores = null
+  let teamsByPlayer = new Map()
   let teamChannelOn = false
   let proximityTimer = null
 
@@ -65,12 +65,21 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     ])
   }
 
+  function parseScoreboard(scores) {
+    const teams = new Map()
+    if (!Array.isArray(scores)) return teams
+    for (const row of scores) {
+      if (!row || !Array.isArray(row.members)) continue
+      for (const member of row.members) {
+        if (member != null && !teams.has(member)) teams.set(member, row.id ?? null)
+      }
+    }
+    return teams
+  }
+
   function getLocalTeam() {
-    if (!latestScores || !engineCtx) return null
-    const lid = engineCtx.playerId
-    if (lid == null) return null
-    for (const t of latestScores) if (Array.isArray(t.members) && t.members.includes(lid)) return t.id
-    return null
+    const lid = engineCtx ? engineCtx.playerId : null
+    return lid == null ? null : teamsByPlayer.get(lid) ?? null
   }
 
   function ensureAudioCtx() {
@@ -126,9 +135,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
         }
       }
       if (teamChannelOn && localTeam != null && pid != null) {
-        const scores = latestScores || []
-        const peerTeam = scores.find(t => Array.isArray(t.members) && t.members.includes(pid))?.id
-        if (peerTeam !== localTeam) gain = 0
+        if (teamsByPlayer.get(pid) !== localTeam) gain = 0
       }
       if (Number.isFinite(gain)) {
         try { a.gainNode.gain.value = gain } catch (_) {}
@@ -223,7 +230,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
       playerIdToPubkey.set(playerId, pubkey)
     },
     onScoreboard(scores) {
-      latestScores = Array.isArray(scores) ? scores : null
+      teamsByPlayer = parseScoreboard(scores)
       render()
     },
     async destroy() {
