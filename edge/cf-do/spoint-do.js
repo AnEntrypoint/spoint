@@ -1,6 +1,7 @@
 import { initJoltForEdge } from './jolt-edge-init.js'
 import { init as workerEntryInit } from '../../src/sdk/WorkerEntry.js'
 import { TransportWrapper } from '../../src/transport/TransportWrapper.js'
+import { acceptEdgeRequest, acceptRoomRequest, refuseResponse } from './accept-request.js'
 import worldDef from '../../apps/world/index.js'
 
 class DurableObjectWebSocketTransport extends TransportWrapper {
@@ -38,9 +39,7 @@ class DurableObjectWebSocketTransport extends TransportWrapper {
 }
 
 export class SpointGameRoom {
-  constructor(state, env) {
-    this.state = state
-    this.env = env
+  constructor() {
     this.ctxPromise = null
   }
 
@@ -56,10 +55,8 @@ export class SpointGameRoom {
   }
 
   async fetch(request) {
-    const upgradeHeader = request.headers.get('Upgrade')
-    if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
-      return new Response('expected websocket upgrade', { status: 426 })
-    }
+    const decision = acceptRoomRequest(request)
+    if (!decision.accepted) return refuseResponse(decision)
 
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
@@ -73,25 +70,21 @@ export class SpointGameRoom {
   }
 }
 
-function isWebSocketUpgrade(request) {
-  const h = request.headers.get('Upgrade')
-  return !!h && h.toLowerCase() === 'websocket'
-}
-
 export default {
   async fetch(request, env) {
-    if (isWebSocketUpgrade(request)) {
-      const id = env.SPOINT_GAME_ROOM.idFromName('probe-room')
-      const stub = env.SPOINT_GAME_ROOM.get(id)
+    const decision = acceptEdgeRequest(request, env)
+    if (!decision.accepted) return refuseResponse(decision)
+
+    if (decision.kind === 'game') {
+      const id = decision.binding.idFromName(decision.roomKey)
+      const stub = decision.binding.get(id)
       return stub.fetch(request)
     }
-    if (!env.STATIC_ORIGIN) {
-      return new Response('edge Worker has no STATIC_ORIGIN configured for non-WebSocket requests', { status: 502 })
-    }
+
     const url = new URL(request.url)
-    const originUrl = new URL(url.pathname + url.search, env.STATIC_ORIGIN)
+    const originUrl = new URL(url.pathname + url.search, decision.origin)
     const originRequest = new Request(originUrl, request)
     originRequest.headers.set('x-spoint-edge-proxy', '1')
     return fetch(originRequest)
-  }
+  },
 }
