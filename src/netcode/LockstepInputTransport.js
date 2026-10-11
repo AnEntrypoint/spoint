@@ -1,4 +1,4 @@
-import { LOCKSTEP_CTRL_PREFIX, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
+import { LOCKSTEP_CTRL_PREFIX, countUnknownKind, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeCtrl(obj) { return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, obj) }
 
@@ -14,7 +14,7 @@ export class LockstepInputTransport {
     bridge.data.addEventListener('data', this._onData)
     bridge.data.addEventListener('peer-close', this._onPeerClose)
     bridge.data.addEventListener('peer-closed', this._onPeerClose)
-    this.stats = { sent: 0, received: 0, malformed: 0, dropReportsSent: 0, dropReportsReceived: 0 }
+    this.stats = { sent: 0, received: 0, malformed: 0, unknownKind: 0, dropReportsSent: 0, dropReportsReceived: 0 }
     this._arms = controlFrameHandlers(LOCKSTEP_CTRL_PREFIX, {
       input: (frame, from) => this._applyRemoteInput(frame, from),
       drop: (frame, from) => this._applyRemoteDrop(frame, from),
@@ -35,7 +35,7 @@ export class LockstepInputTransport {
   }
 
   _handleFrame(detail) {
-    const dispatched = dispatchControlFrame(LOCKSTEP_CTRL_PREFIX, this._arms, detail?.data)
+    const dispatched = dispatchControlFrame(LOCKSTEP_CTRL_PREFIX, this._arms, detail?.data, countUnknownKind(this.stats))
     if (!dispatched) return
     const from = detail.peerPubkey
     if (!from || from === this.myPubkey) return

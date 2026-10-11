@@ -52,11 +52,15 @@ export function controlFrameHandlers(prefix, handlers) {
   return arms
 }
 
-export function dispatchControlFrame(prefix, arms, data) {
+export const countUnknownKind = (stats) => (parsed) => {
+  if (parsed.status === 'unknown-kind') stats.unknownKind++
+}
+
+export function dispatchControlFrame(prefix, arms, data, onReject = null) {
   const parsed = parseControlFrame(prefix, data)
-  if (parsed.status === 'unknown-kind') throw new Error(`dispatchControlFrame: ${JSON.stringify(parsed.kind)} is not a ${prefix} control frame kind`)
-  if (parsed.status !== 'accepted') return null
-  const apply = arms.get(parsed.frame.type)
-  if (!apply) throw new Error(`dispatchControlFrame: ${JSON.stringify(parsed.frame.type)} is a ${prefix} control frame kind with no handler arm`)
-  return { frame: parsed.frame, apply }
+  if (parsed.status !== 'accepted') {
+    if (onReject) onReject(parsed)
+    return null
+  }
+  return { frame: parsed.frame, apply: arms.get(parsed.frame.type) }
 }

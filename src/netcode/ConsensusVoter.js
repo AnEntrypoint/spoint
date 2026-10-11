@@ -1,6 +1,6 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-import { CONSENSUS_CTRL_PREFIX, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
+import { CONSENSUS_CTRL_PREFIX, countUnknownKind, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
   return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
@@ -57,7 +57,7 @@ export class ConsensusVoter {
     })
 
     this._onData = ({ detail }) => {
-      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data)
+      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countUnknownKind(this.stats))
       if (!dispatched) return
       const { frame } = dispatched
       if (typeof frame.tick !== 'number' || !frame.pubkey || !frame.checksum) return
@@ -66,7 +66,7 @@ export class ConsensusVoter {
     }
     this.bridge.data.addEventListener('data', this._onData)
 
-    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0 }
+    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0 }
   }
 
   tick(tick) {
