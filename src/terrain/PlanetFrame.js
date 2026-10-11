@@ -218,20 +218,46 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   }
   const frame = { radius, hashVersion: sampler.hashVersion, up, east, north, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, cpuGroundHeightLocal: groundHeightLocal, localToWorld, elevationAtDir, cpuElevationAtDir, cpuHeightDivergentFromGround: false, chartEpoch: 0 }
   Object.defineProperty(frame, 'anchorDir', { enumerable: true, configurable: true, get: () => [up[0], up[1], up[2]] })
+  const groundSources = new Map([['cpu-solve', groundHeightLocal]])
   let _groundHeightLocal = groundHeightLocal
+  let _groundSourceName = 'cpu-solve'
+  function installGroundSource(name, fn) {
+    if (typeof name !== 'string' || name === '') throw new TypeError(`this frame names every ground source it serves, so installing one takes a non-empty name; got ${JSON.stringify(name)}`)
+    if (typeof fn !== 'function') throw new TypeError(`the ground source port is (x, z, yGuess) => number that throws SurfaceSolveError where there is no ground, so source "${name}" installs a function; got ${fn === null ? 'null' : typeof fn}`)
+    groundSources.set(name, fn)
+    _groundSourceName = name
+    _groundHeightLocal = fn
+    return name
+  }
   Object.defineProperty(frame, 'groundSource', {
     enumerable: true,
     configurable: true,
-    get: () => (_groundHeightLocal === groundHeightLocal ? 'cpu-solve' : 'substituted'),
+    get: () => _groundSourceName,
+  })
+  Object.defineProperty(frame, 'groundSources', {
+    enumerable: true,
+    configurable: true,
+    get: () => [...groundSources.keys()],
+  })
+  Object.defineProperty(frame, 'groundSourceOf', {
+    enumerable: true,
+    configurable: true,
+    value: (name) => {
+      const fn = groundSources.get(name)
+      if (!fn) throw new Error(`this frame serves no ground source named "${name}"; it names ${[...groundSources.keys()].join(', ')}`)
+      return fn
+    },
+  })
+  Object.defineProperty(frame, 'registerGroundSource', {
+    enumerable: true,
+    configurable: true,
+    value: installGroundSource,
   })
   Object.defineProperty(frame, 'groundHeightLocal', {
     enumerable: true,
     configurable: true,
     get: () => _groundHeightLocal,
-    set: (fn) => {
-      if (typeof fn !== 'function') throw new TypeError(`frame.groundHeightLocal is the frame's only ground source, so it takes a function (x, z, yGuess) => number that throws SurfaceSolveError where there is no ground; got ${fn === null ? 'null' : typeof fn}`)
-      _groundHeightLocal = fn
-    },
+    set: (fn) => { installGroundSource(fn === groundHeightLocal ? 'cpu-solve' : 'substituted', fn) },
   })
   function reanchor(newDir) {
     const b = anchorBasis(newDir)
