@@ -168,8 +168,23 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
         baseRelevantIds = cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius)
         storeCellBase(key, cvp, baseRelevantIds)
       }
+      let relevantIds = appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds)
+      if (relevantIds instanceof Set && relevantIds.size > baseRelevantIds.length) {
+        const ringSpatial = appRuntime?._stageLoader?._activeStage?.spatial
+        const positionOf = ringSpatial && typeof ringSpatial.getPosition === 'function' ? ringSpatial.getPosition.bind(ringSpatial) : null
+        const r2 = relevanceRadius * relevanceRadius
+        const kept = new Set()
+        for (const id of relevantIds) {
+          const p = positionOf ? positionOf(id) : null
+          if (!p) { kept.add(id); continue }
+          const dx = p[0] - cvp[0], dz = p[2] - cvp[2]
+          const dy = planetRadius > 0 ? p[1] - cvp[1] : 0
+          if (dx * dx + dy * dy + dz * dz <= r2) kept.add(id)
+        }
+        relevantIds = kept
+      }
       c = {
-        relevantIds: appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds),
+        relevantIds,
         cellViewerPos: cvp,
         baseRelevantIds,
       }
