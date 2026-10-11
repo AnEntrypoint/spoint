@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { commitTileExtent } from './TileExtent.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createOctahedralImpostorMaterial, computeObjectBoundingSphere, createTextureAtlas } from 'streaming-gltf/octahedral-impostor-ez'
 import { makeImpostorCaptureMaterialTSL } from 'streaming-gltf/octahedral-impostor-display-tsl'
@@ -396,11 +396,6 @@ export async function createVegetation(opts = {}) {
       if (p.y < _minY) _minY = p.y
       if (p.y + treeH > _maxY) _maxY = p.y + treeH
     }
-    if (_minY === Infinity) {
-      const c = placementRing.centre(key)
-      const gh = guardedGroundHeight('vegetation tile ground height', (x, z) => frame.groundHeightLocal(x, z))(c[0], c[1])
-      if (!isNoGroundHeight(gh)) { _minY = gh - 2; _maxY = gh + 2 }
-    }
     for (const [rec, bucket] of byRec) {
       let bi = 0
       rec.branch.addInstances(bucket.length, (e) => {
@@ -436,8 +431,9 @@ export async function createVegetation(opts = {}) {
       } catch (_) {}
     }
     const b = placementRing.bounds(key, list)
-    const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
-    loaded.set(key, { entries, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
+    const c = placementRing.centre(key)
+    const extent = commitTileExtent('vegetation tile ground height', (x, z) => frame.groundHeightLocal(x, z), c, b, _minY, _maxY, 2)
+    loaded.set(key, { entries, ...extent, occluded: false })
     _occCands = null
     profile.loads++
     profile.loadChunkMs += _nowMs() - _lcT0; profile.loadChunkCalls++
@@ -803,7 +799,7 @@ export async function createVegetation(opts = {}) {
     if (_occCands) return _occCands
     const out = []
     for (const [key, cell] of loaded) {
-      if (cell.aabbMin[1] > cell.aabbMax[1]) continue
+      if (cell.empty) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
         const perProxyOccBoxGeo = _occBoxGeo.clone()

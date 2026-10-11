@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { commitTileExtent } from './TileExtent.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
@@ -119,12 +119,8 @@ export async function createGrass(opts = {}) {
       totalInstances += batch
       for (const en of entries) { try { targetMesh.setUniformAt(en.id, 'windPhase', en.windPhase); targetMesh.setUniformAt(en.id, 'tint', en.tint); targetMesh.setUniformAt(en.id, 'instShadow', en.shadow) } catch (_) {} }
     }
-    if (_minY === Infinity) {
-      const gh = guardedGroundHeight('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z))(centerX, centerZ)
-      if (!isNoGroundHeight(gh)) { _minY = gh - 1; _maxY = gh + 1 }
-    }
-    const _aabbMin = [minX, _minY, minZ], _aabbMax = [maxX, _maxY, maxZ]
-    loaded.set(key, { entries, mesh: targetMesh, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false, inFrustum: true })
+    const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [centerX, centerZ], [minX, minZ, maxX, maxZ], _minY, _maxY, 1)
+    loaded.set(key, { entries, mesh: targetMesh, ...extent, occluded: false, inFrustum: true })
     _occCands = null
     profile.loads++
   }
@@ -223,6 +219,7 @@ export async function createGrass(opts = {}) {
     let culledCount = 0
     for (const cell of loaded.values()) {
       if (cell.pending) continue
+      if (cell.empty) continue
       _cullBox.min.set(cell.aabbMin[0], cell.aabbMin[1], cell.aabbMin[2])
       _cullBox.max.set(cell.aabbMax[0], cell.aabbMax[1], cell.aabbMax[2])
       const inFrustum = _frustum.intersectsBox(_cullBox)
@@ -340,7 +337,7 @@ export async function createGrass(opts = {}) {
     const out = []
     for (const [key, cell] of loaded) {
       if (cell.pending) continue
-      if (cell.aabbMin[1] > cell.aabbMax[1]) continue
+      if (cell.empty) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
         const perProxyOccBoxGeo = _occBoxGeo.clone()
