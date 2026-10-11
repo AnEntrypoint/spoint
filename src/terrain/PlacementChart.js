@@ -57,7 +57,7 @@ const _groundGuards = new WeakMap()
 function guardedGroundOf(frame) {
   let guarded = _groundGuards.get(frame)
   if (!guarded) {
-    guarded = guardedGroundHeight('placement chart surface solve', (x, z) => frame.groundHeightLocal(x, z), NaN)
+    guarded = guardedGroundHeight('placement chart surface solve', (x, z) => frame.groundHeightLocal(x, z))
     _groundGuards.set(frame, guarded)
   }
   return guarded

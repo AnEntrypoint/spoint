@@ -1,4 +1,4 @@
-import { createPlanetFrame, guardedGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from './PlanetFrame.js'
+import { createPlanetFrame, guardedGroundHeight, isNoGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from './PlanetFrame.js'
 import { createCachedAnchorField } from './ClimateCache.js'
 import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
@@ -382,7 +382,9 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   try {
     await streamer.start(tcfg.center || [0, 0])
     const offsetYNotFoldedIntoHeightFn = 0
-    const groundReuse = createAirborneGroundReuse({ heightFn: guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, playerManager })
+    const guardedHeight = guardedGroundHeight('server physics terrain height', heightFn)
+    const groundHeightOrNaN = (x, z) => { const h = guardedHeight(x, z); return isNoGroundHeight(h) ? NaN : h }
+    const groundReuse = createAirborneGroundReuse({ heightFn: groundHeightOrNaN, frame, playerManager })
     physics.groundSolveReuse = groundReuse
     physics.setTerrainHeightSource(groundReuse.heightAt, frame, offsetYNotFoldedIntoHeightFn)
 

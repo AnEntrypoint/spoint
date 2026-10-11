@@ -51,15 +51,15 @@ export const NO_GROUND_HEIGHT = null
 
 export function isNoGroundHeight(v) { return v === NO_GROUND_HEIGHT }
 
-export function guardedGroundHeight(where, heightFn, fallback = NO_GROUND_HEIGHT) {
+export function guardedGroundHeight(where, heightFn) {
   return (x, z, ...rest) => {
     try { return heightFn(x, z, ...rest) } catch (e) {
       if (!(e instanceof SurfaceSolveError)) throw e
       if (!_reportedSolveFailures.has(where)) {
         _reportedSolveFailures.add(where)
-        console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, ${groundFailureCause(e)}; degrading to ${fallback}`)
+        console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, ${groundFailureCause(e)}; the result is NO_GROUND_HEIGHT`)
       }
-      return fallback
+      return NO_GROUND_HEIGHT
     }
   }
 }
