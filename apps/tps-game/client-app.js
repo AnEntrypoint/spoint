@@ -36,10 +36,12 @@ const NO_STREAK = Object.freeze({ known: false, streak: null })
 const streakFromWire = (wire) =>
   Number.isInteger(wire) && wire >= 1 ? Object.freeze({ known: true, streak: wire }) : NO_STREAK
 
+const funJuice = () => (typeof window === 'undefined' ? null : (window.__funJuice || null))
+
 function creditKill(tps, streak) {
   const now = Date.now()
   tps.killTime = now; tps.kills += 1
-  if (typeof window !== 'undefined' && window.__funJuice) window.__funJuice.kill++
+  const killJuice = funJuice(); if (killJuice) killJuice.kill++
   tps.streak = streak.known ? streak.streak : (withinMs(now, tps.lastKillTime, STREAK_WINDOW_MS) ? tps.streak + 1 : 1)
   tps.lastKillTime = now
   tps.juice?.tone(420, 0.28, 0.2, 760 + Math.min(4, tps.streak - 1) * 120)
@@ -55,7 +57,7 @@ function adoptStreak(tps, streak) {
 
 function makeJuice() {
   let actx = null
-  if (typeof window !== 'undefined' && !window.__funJuice) {
+  if (typeof window !== 'undefined' && !funJuice()) {
     window.__funJuice = { tones: [], hit: 0, headshot: 0, kill: 0, empty: 0, muted: false }
   }
   const ensure = () => {
@@ -65,7 +67,7 @@ function makeJuice() {
     return actx
   }
   const tone = (freq, dur, vol = 0.18, rampTo = freq) => {
-    if (window.__funJuice) { window.__funJuice.tones.push({ freq, dur }); if (window.__funJuice.muted) return }
+    const jz = funJuice(); if (jz) { jz.tones.push({ freq, dur }); if (jz.muted) return }
     const a = ensure(); if (!a) return
     const t0 = a.currentTime
     const osc = a.createOscillator(); const g = a.createGain()
@@ -118,6 +120,7 @@ export const tpsGameClient = {
     try { engine._tps.emoteWheel = engine.createEmoteWheel?.(EMOTE_WHEEL_SLOTS) } catch (_) {}
     engine._tps._lastEmoteDigit = 0
     const ov = engine._tps.overlay = makeOverlay()
+    if (!ov) return
     engine._tps._elCross = ov.querySelector('#tps-cross')
     engine._tps._elHit = ov.querySelector('#tps-hit')
     engine._tps._elHitMarks = engine._tps._elHit ? Array.from(engine._tps._elHit.querySelectorAll('.hm')) : []
@@ -176,6 +179,7 @@ export const tpsGameClient = {
   },
   onEvent(payload, engine) {
     const tps = engine._tps
+    const jz = funJuice()
     const now = Date.now()
     if (payload.type === 'hit' && payload.target) {
       engine.players.setExpression(payload.target, 'angry', 0.6)
@@ -193,8 +197,8 @@ export const tpsGameClient = {
       tps.lastDamageDealt = (dmgFresh ? 0 : (tps.lastDamageDealt || 0)) + (payload.damage || 0); tps.dmgDealtTime = now
       const justPredicted = withinMs(now, tps._predHitAt, PREDICTED_TONE_DEDUP_MS)
       tps._predHitAt = 0
-      if (payload.headshot) { tps.headshotMarkerTime = now; if (window.__funJuice) window.__funJuice.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, [15, 30, 15]) }
-      else { if (window.__funJuice) window.__funJuice.hit++; if (!justPredicted) tps.juice?.tone(820, 0.06, 0.18); mobileVibrate(engine, 20) }
+      if (payload.headshot) { tps.headshotMarkerTime = now; if (jz) jz.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, [15, 30, 15]) }
+      else { if (jz) jz.hit++; if (!justPredicted) tps.juice?.tone(820, 0.06, 0.18); mobileVibrate(engine, 20) }
       if (payload.pos && tps.flash) { tps.flash.position.set(payload.pos[0], payload.pos[1], payload.pos[2]); tps.flash.color.setHex(0xffffff); tps.flash.intensity = 0; tps.flashOff = now + 80 }
       if (payload.health <= 0) { tps._killCreditVictim = payload.target; tps._killCreditAt = now; creditKill(tps, NO_STREAK) }
     }
@@ -232,7 +236,7 @@ export const tpsGameClient = {
     }
     if (payload.type === 'death' && tps && payload.victim === engine.playerId) tps.deathKiller = payload.killer || null
     if (payload.type === 'respawn' && tps) { tps.respawnFadeAt = Date.now(); tps.spawnShieldUntil = Date.now() + (payload.invulnMs || 0); if (typeof payload.ammo === 'number') tps.ammo = payload.ammo; tps.reloading = false; tps.reloadEndTime = null; tps.juice?.tone(420, 0.14, 0.16, 680) }
-    if (payload.type === 'empty_click' && tps) { if (window.__funJuice) window.__funJuice.empty++; tps.juice?.tone(90, 0.08, 0.13) }
+    if (payload.type === 'empty_click' && tps) { if (jz) jz.empty++; tps.juice?.tone(90, 0.08, 0.13) }
     if (payload.type === 'hazard_damage' && tps && payload.playerId === engine.playerId) { tps.lastHitTime = Date.now(); tps.juice?.tone(150, 0.1, 0.14) }
     if (payload.type === 'buff_applied' && tps) { tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000, fireRate: payload.fireRate || 1 }; tps.buffFlashAt = Date.now(); tps.juice?.tone(300, 0.18, 0.16, 600) }
     if (payload.type === 'buff_expired' && tps) { tps.boost = null; tps.juice?.tone(440, 0.16, 0.12, 200) }
