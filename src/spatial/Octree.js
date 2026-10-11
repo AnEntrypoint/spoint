@@ -30,10 +30,15 @@ export class SpatialIndex {
     this._entities = new Map()
     this._relevanceRadius = resolveRelevanceRadius(config.relevanceRadius)
     this._mutations = 0
+    this._geometryEpoch = 0
   }
 
   get mutations() {
     return this._mutations
+  }
+
+  get geometryEpoch() {
+    return this._geometryEpoch
   }
 
   insert(id, position) {
@@ -243,6 +248,10 @@ export class SpatialIndex {
   }
 
   set relevanceRadius(v) {
+    const previous = this._relevanceRadius
     this._relevanceRadius = resolveRelevanceRadius(v)
+    if (this._relevanceRadius === previous) return
+    this._geometryEpoch++
+    this._mutations++
   }
 }
