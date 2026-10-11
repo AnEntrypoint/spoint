@@ -351,6 +351,100 @@ export interface LagCompensator {
   getStats(): LagCompensatorStats;
 }
 
+export interface FireClassSpec {
+  fuel: number;
+  burnRate: number;
+  igniteHeat: number;
+  heatOut: number;
+  spotChance?: number;
+  spotHeat?: number;
+  smoke?: number;
+  damage?: number;
+}
+
+export interface FireFuelSpec {
+  default?: string;
+  classAt?: (face: number, I: number, J: number) => string | null;
+}
+
+export interface FireTarget {
+  id: string;
+  position: Vector3;
+  holder: any;
+  entity?: Entity;
+}
+
+export interface FireGameplaySpec {
+  damageEveryTicks?: number;
+  burnStatusSeconds?: number;
+  statusDamagePerSec?: number;
+  smokeBlockDepth?: number;
+  smokeHeightM?: number;
+  eyeHeightM?: number;
+  explosionImpulse?: number;
+  targets?: (appCtx: AppContext) => FireTarget[];
+}
+
+export interface FireWeatherSpec {
+  rainPerIntensity?: number;
+  snowRainFraction?: number;
+  wetPerStep?: number;
+  dryPerStep?: number;
+  maxMoisture?: number;
+  hysteresis?: number;
+  source?: () => { type: string; intensity: number } | null;
+}
+
+export interface FirebreakCleared {
+  center: [number, number];
+  radiusM: number;
+}
+
+export interface FirebreaksSpec {
+  water?: boolean;
+  kinds?: string[];
+  cleared?: FirebreakCleared[];
+  rock?: (...args: any[]) => unknown;
+  heightAt?: (...args: any[]) => unknown;
+  seaLevelAt?: (...args: any[]) => unknown;
+  kindAt?: (...args: any[]) => unknown;
+}
+
+export interface FireWindFieldSpec {
+  amplitude?: number;
+  periodSteps?: number;
+  seed?: number;
+}
+
+export interface FireSpec {
+  stepTicks?: number;
+  cellsPerFireCell?: 1 | 2 | 4 | 8;
+  maxActiveCells?: number;
+  softActiveCells?: number;
+  maxTiles?: number;
+  regrowSteps?: number;
+  regrowFuelFraction?: number;
+  windowSteps?: number;
+  leadTicks?: number;
+  checksumEverySteps?: number;
+  keyframeSliceMs?: number;
+  classes?: Record<string, FireClassSpec>;
+  fuel?: FireFuelSpec;
+  seed?: number;
+  wind?: [number, number, number];
+  moisture?: number;
+  rain?: number;
+  radius?: number;
+  rewind?: boolean;
+  role?: 'authority' | 'mirror';
+  gameplay?: FireGameplaySpec;
+  weather?: FireWeatherSpec;
+  firebreaks?: FirebreaksSpec;
+  windField?: FireWindFieldSpec;
+  onIgnite?: (...args: any[]) => unknown;
+  onExtinguish?: (...args: any[]) => unknown;
+}
+
 export interface AppContext {
   /** Must stay JSON-serializable -- it round-trips through persistence and the network wire. */
   state: Record<string, any>;
@@ -433,7 +527,7 @@ export interface AppContext {
   /** Engine shooter loop (src/behaviours/combat.js): spawn points, health, ammo and reload, fall-kill, respawn with invulnerability, powerups with buffs, persisted kill/death/damage stats and the lag-compensated hit path. Returns { config, spawnPoints, statsOf, ammoOf, isRespawning, buffOf, setup(), tick(dt), handle(msg), flush() } -- keep the handle out of ctx.state. */
   defineCombat(spec?: any): any;
   /** Deterministic wildfire on a coarse planet-lattice cell grid (src/behaviours/fire.js): data-spec fuel classes, wind-biased spread with ember spotting, rain extinguish, regrowth, bounded active-cell budget. Only ignition/extinguish/wind/moisture/rain events travel the wire. Returns { ignite(position), igniteCell(face, I, J), extinguish(position, radiusM), setWind([x,y,z]), setMoisture(n), setRain(n), stateAt(position), applyRemote(msg), tick(dt), checksum(), rewindTo(tick), activeCount, stats }. Default off: nothing runs until an app calls it. */
-  defineFire(spec?: any): any;
+  defineFire(spec?: FireSpec): any;
   defineSteering(spec: any): any;
   defineCheckpoint(spec: any): any;
   definePickup(spec: any): any;
