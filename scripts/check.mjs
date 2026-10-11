@@ -37,6 +37,7 @@ const NO_GPU_WITNESSES = [
   { file: 'cpu-skip-witness.mjs', must: /row2_encodePerSnapshotCall/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /carries netcode\.profile/ },
   { file: 'agents-md-facts-witness.mjs', must: /RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
+  { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=\d+ failed=0/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
