@@ -1,7 +1,7 @@
 import { SpatialIndex } from '../spatial/Octree.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 
-const FLAT_RING_HALF_HEIGHT_M = Infinity
+export const FLAT_RING_HALF_HEIGHT_M = Infinity
 
 function resolvedPlanetRadius(stageName, declared) {
   if (declared == null || declared === 0) return 0
@@ -57,18 +57,25 @@ export class Stage {
     return this.getRelevantEntities(position, radius)
   }
 
+  relevanceRing(radius) {
+    const r = radius || this.spatial.relevanceRadius
+    if (this.spatial.planetRadius > 0) return { spherical: true, radius: r, halfHeight: r }
+    return { spherical: false, radius: r, halfHeight: FLAT_RING_HALF_HEIGHT_M }
+  }
+
   getRelevantEntities(position, radius) {
     return this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
   }
 
   getRelevantEntitiesHorizontal(position, radius) {
-    return this.spatial.nearbyCylinder(position, radius || this.spatial.relevanceRadius, FLAT_RING_HALF_HEIGHT_M)
+    return this.spatial.nearbyCylinder(position, radius || this.spatial.relevanceRadius, this.relevanceRing(radius).halfHeight)
   }
 
   getRelevantEntitiesForCell(position, radius) {
-    return this.spatial.planetRadius > 0
-      ? this.getRelevantEntities(position, radius)
-      : this.getRelevantEntitiesHorizontal(position, radius)
+    const ring = this.relevanceRing(radius)
+    return ring.spherical
+      ? this.getRelevantEntities(position, ring.radius)
+      : this.getRelevantEntitiesHorizontal(position, ring.radius)
   }
 
 
