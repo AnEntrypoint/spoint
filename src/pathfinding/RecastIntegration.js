@@ -31,6 +31,17 @@ export async function bakeNavmesh({ positions, indices, ...overrides }) {
   }
 }
 
+export function ringTurning(vertices, ring) {
+  const n = ring.length
+  let turn = 0
+  for (let i = 0; i < n; i++) {
+    const a = vertices[ring[i]], b = vertices[ring[(i + 1) % n]], c = vertices[ring[(i + 2) % n]]
+    const abx = b[0] - a[0], abz = b[2] - a[2], bcx = c[0] - b[0], bcz = c[2] - b[2]
+    turn += Math.atan2(abx * bcz - abz * bcx, abx * bcx + abz * bcz)
+  }
+  return turn
+}
+
 function polyMeshToJSON(pm, rc) {
   const cs = pm.cs(), ch = pm.ch(), bmin = pm.bmin(), bmax = pm.bmax(), nvp = pm.nvp()
   const vertices = new Array(pm.nverts())
@@ -45,7 +56,10 @@ function polyMeshToJSON(pm, rc) {
       const n = pm.polys(base + nvp + j)
       if (n !== RC_MESH_NULL_IDX && !(n & RC_PORTAL_FLAG)) neighbors.push(n)
     }
-    polygons.push({ vertices: verts.reverse(), flags: pm.flags(p), area: pm.areas(p) })
+    const ring = verts.reverse()
+    const turn = ringTurning(vertices, ring)
+    if (turn <= -Math.PI) throw new Error(`recast polygon ${p} winds clockwise in x/z after the winding reversal (turning ${turn.toFixed(4)} rad, expected +2pi): NavmeshQuery rejects every point of a clockwise polygon, so locate() would return -1 and findPath() null across the whole navmesh -- polyMeshToJSON must keep reversing recast's vertex order`)
+    polygons.push({ vertices: ring, flags: pm.flags(p), area: pm.areas(p) })
     if (neighbors.length) links.push({ polygon: p, neighbors })
   }
   return {
