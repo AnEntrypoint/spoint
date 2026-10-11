@@ -1,7 +1,6 @@
-import { ROLLBACK_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
+import { ROLLBACK_CTRL_PREFIX, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeCtrl(obj) { return encodeControlFrame(ROLLBACK_CTRL_PREFIX, obj) }
-function decodeCtrl(data) { return decodeControlFrame(ROLLBACK_CTRL_PREFIX, data) }
 
 const DEFAULT_STALL_TICKS = 180
 
@@ -27,6 +26,10 @@ export class RollbackInputTransport {
     for (const [pk, peer] of bridge.data.peers) if (peer?.dc?.readyState === 'open') this._roster.add(pk)
 
     this.stats = { sent: 0, received: 0, staleIgnored: 0, checksumsSent: 0, checksumsReceived: 0 }
+    this._arms = controlFrameHandlers(ROLLBACK_CTRL_PREFIX, {
+      input: (frame, from) => this._applyRemoteInput(frame, from),
+      checksum: (frame, from) => this._applyRemoteChecksum(frame, from),
+    })
   }
 
   get myPubkey() { return this.bridge.pubkey }
@@ -44,23 +47,28 @@ export class RollbackInputTransport {
   }
 
   _handleFrame(detail) {
-    const msg = decodeCtrl(detail?.data)
-    if (!msg || !Number.isInteger(msg.tick)) return
+    const dispatched = dispatchControlFrame(ROLLBACK_CTRL_PREFIX, this._arms, detail?.data)
+    if (!dispatched) return
+    const { frame, apply } = dispatched
+    if (!Number.isInteger(frame.tick)) return
     const from = detail.peerPubkey
     if (!from || from === this.myPubkey) return
-    if (msg.type === 'checksum') {
-      this.stats.checksumsReceived++
-      if (this.onRemoteChecksum) this.onRemoteChecksum(from, msg.tick, msg.checksum)
-      return
-    }
-    if (msg.type !== 'input') return
+    apply(frame, from)
+  }
+
+  _applyRemoteChecksum(frame, from) {
+    this.stats.checksumsReceived++
+    if (this.onRemoteChecksum) this.onRemoteChecksum(from, frame.tick, frame.checksum)
+  }
+
+  _applyRemoteInput(frame, from) {
     this._roster.add(from)
     this._dropped.delete(from)
     const last = this._lastTickByPeer.get(from) ?? -1
-    if (msg.tick < last) this.stats.staleIgnored++
-    if (msg.tick > last) this._lastTickByPeer.set(from, msg.tick)
+    if (frame.tick < last) this.stats.staleIgnored++
+    if (frame.tick > last) this._lastTickByPeer.set(from, frame.tick)
     this.stats.received++
-    if (this.onRemoteInput) this.onRemoteInput(from, msg.tick, msg.input, Number.isFinite(msg.adv) ? msg.adv : 0)
+    if (this.onRemoteInput) this.onRemoteInput(from, frame.tick, frame.input, Number.isFinite(frame.adv) ? frame.adv : 0)
   }
 
   dropPeer(pubkey) {

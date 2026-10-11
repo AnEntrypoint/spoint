@@ -1,13 +1,9 @@
 import { DesyncDetector } from './DesyncDetector.js'
 
-import { CONSENSUS_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
+import { CONSENSUS_CTRL_PREFIX, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeChecksumMsg(tick, pubkey, checksum) {
   return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
-}
-
-function decodeCtrl(data) {
-  return decodeControlFrame(CONSENSUS_CTRL_PREFIX, data)
 }
 
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3
@@ -56,11 +52,17 @@ export class ConsensusVoter {
       this._peerDesync.set(pk, { consecutiveCount: 0, evidenceTicks: [], ejected: false })
     }
 
+    this._arms = controlFrameHandlers(CONSENSUS_CTRL_PREFIX, {
+      checksum: (frame) => this._ingestRemoteChecksum(frame.tick, frame.pubkey, frame.checksum),
+    })
+
     this._onData = ({ detail }) => {
-      const msg = decodeCtrl(detail?.data)
-      if (!msg || msg.type !== 'checksum' || typeof msg.tick !== 'number' || !msg.pubkey || !msg.checksum) return
-      if (msg.pubkey === this.localPeerId || msg.pubkey !== detail.peerPubkey) return
-      this._ingestRemoteChecksum(msg.tick, msg.pubkey, msg.checksum)
+      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data)
+      if (!dispatched) return
+      const { frame } = dispatched
+      if (typeof frame.tick !== 'number' || !frame.pubkey || !frame.checksum) return
+      if (frame.pubkey === this.localPeerId || frame.pubkey !== detail.peerPubkey) return
+      this._ingestRemoteChecksum(frame.tick, frame.pubkey, frame.checksum)
     }
     this.bridge.data.addEventListener('data', this._onData)
 

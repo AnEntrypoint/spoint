@@ -1,7 +1,6 @@
-import { LOCKSTEP_CTRL_PREFIX, decodeControlFrame, encodeControlFrame } from './controlFrame.js'
+import { LOCKSTEP_CTRL_PREFIX, controlFrameHandlers, dispatchControlFrame, encodeControlFrame } from './controlFrame.js'
 
 function encodeCtrl(obj) { return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, obj) }
-function decodeCtrl(data) { return decodeControlFrame(LOCKSTEP_CTRL_PREFIX, data) }
 
 export class LockstepInputTransport {
   constructor({ bridge, onRemoteInput = null, onRemoteDrop = null, onPeerClosed = null } = {}) {
@@ -16,6 +15,10 @@ export class LockstepInputTransport {
     bridge.data.addEventListener('peer-close', this._onPeerClose)
     bridge.data.addEventListener('peer-closed', this._onPeerClose)
     this.stats = { sent: 0, received: 0, malformed: 0, dropReportsSent: 0, dropReportsReceived: 0 }
+    this._arms = controlFrameHandlers(LOCKSTEP_CTRL_PREFIX, {
+      input: (frame, from) => this._applyRemoteInput(frame, from),
+      drop: (frame, from) => this._applyRemoteDrop(frame, from),
+    })
   }
 
   get myPubkey() { return this.bridge.pubkey }
@@ -32,21 +35,23 @@ export class LockstepInputTransport {
   }
 
   _handleFrame(detail) {
-    const msg = decodeCtrl(detail?.data)
-    if (!msg) return
+    const dispatched = dispatchControlFrame(LOCKSTEP_CTRL_PREFIX, this._arms, detail?.data)
+    if (!dispatched) return
     const from = detail.peerPubkey
     if (!from || from === this.myPubkey) return
-    if (msg.type === 'input') {
-      if (!Number.isInteger(msg.tick) || msg.tick < 1) { this.stats.malformed++; return }
-      this.stats.received++
-      if (this.onRemoteInput) this.onRemoteInput(from, msg.tick, msg.input ?? null, Number.isFinite(msg.adv) ? msg.adv : 0)
-      return
-    }
-    if (msg.type === 'drop') {
-      if (typeof msg.peer !== 'string' || !Number.isInteger(msg.have) || !Array.isArray(msg.tail)) { this.stats.malformed++; return }
-      this.stats.dropReportsReceived++
-      if (this.onRemoteDrop) this.onRemoteDrop(from, msg.peer, msg.have, msg.tail)
-    }
+    dispatched.apply(dispatched.frame, from)
+  }
+
+  _applyRemoteInput(frame, from) {
+    if (!Number.isInteger(frame.tick) || frame.tick < 1) { this.stats.malformed++; return }
+    this.stats.received++
+    if (this.onRemoteInput) this.onRemoteInput(from, frame.tick, frame.input ?? null, Number.isFinite(frame.adv) ? frame.adv : 0)
+  }
+
+  _applyRemoteDrop(frame, from) {
+    if (typeof frame.peer !== 'string' || !Number.isInteger(frame.have) || !Array.isArray(frame.tail)) { this.stats.malformed++; return }
+    this.stats.dropReportsReceived++
+    if (this.onRemoteDrop) this.onRemoteDrop(from, frame.peer, frame.have, frame.tail)
   }
 
   getStats() { return { ...this.stats } }

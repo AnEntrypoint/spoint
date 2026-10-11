@@ -19,17 +19,44 @@ export function encodeControlFrame(prefix, frame) {
   return prefix + JSON.stringify(frame)
 }
 
-export function decodeControlFrame(prefix, data) {
+export function parseControlFrame(prefix, data) {
   const kinds = FRAME_KINDS_BY_PREFIX.get(prefix)
-  if (!kinds) return null
-  if (typeof data !== 'string' || !data.startsWith(prefix)) return null
+  if (!kinds) return { status: 'unregistered-prefix' }
+  if (typeof data !== 'string' || !data.startsWith(prefix)) return { status: 'foreign-prefix' }
   let frame
   try {
     frame = JSON.parse(data.slice(prefix.length))
   } catch {
-    return null
+    return { status: 'malformed-payload' }
   }
-  if (frame === null || typeof frame !== 'object') return null
-  if (!kinds.has(frame.type)) return null
-  return frame
+  if (frame === null || typeof frame !== 'object') return { status: 'malformed-payload' }
+  if (!kinds.has(frame.type)) return { status: 'unknown-kind', kind: frame.type }
+  return { status: 'accepted', frame }
+}
+
+export function decodeControlFrame(prefix, data) {
+  const parsed = parseControlFrame(prefix, data)
+  return parsed.status === 'accepted' ? parsed.frame : null
+}
+
+export function controlFrameHandlers(prefix, handlers) {
+  const kinds = FRAME_KINDS_BY_PREFIX.get(prefix)
+  if (!kinds) throw new Error(`controlFrameHandlers: no control protocol registered for prefix "${prefix}"`)
+  const arms = new Map(Object.entries(handlers))
+  for (const kind of kinds) {
+    if (!arms.has(kind)) throw new Error(`controlFrameHandlers: ${prefix} admits control frame kind "${kind}" but no handler arm was supplied`)
+  }
+  for (const kind of arms.keys()) {
+    if (!kinds.has(kind)) throw new Error(`controlFrameHandlers: handler arm "${kind}" is not a ${prefix} control frame kind`)
+  }
+  return arms
+}
+
+export function dispatchControlFrame(prefix, arms, data) {
+  const parsed = parseControlFrame(prefix, data)
+  if (parsed.status === 'unknown-kind') throw new Error(`dispatchControlFrame: ${JSON.stringify(parsed.kind)} is not a ${prefix} control frame kind`)
+  if (parsed.status !== 'accepted') return null
+  const apply = arms.get(parsed.frame.type)
+  if (!apply) throw new Error(`dispatchControlFrame: ${JSON.stringify(parsed.frame.type)} is a ${prefix} control frame kind with no handler arm`)
+  return { frame: parsed.frame, apply }
 }
