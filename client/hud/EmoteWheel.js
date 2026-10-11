@@ -54,21 +54,30 @@ export function createEmoteWheel(slots) {
 
   document.body.appendChild(overlay)
 
-  let _open = false
-  let _activeDigit = 0
+  let selection = null
 
   return {
     update(held, digit) {
-      if (held && !_open) { overlay.classList.add('open'); _open = true }
-      else if (!held && _open) { overlay.classList.remove('open'); _open = false }
-      if (digit !== _activeDigit) {
-        if (_activeDigit > 0 && slotEls[_activeDigit - 1]) slotEls[_activeDigit - 1].classList.remove('active')
-        if (digit > 0 && slotEls[digit - 1]) slotEls[digit - 1].classList.add('active')
-        _activeDigit = digit
+      if (held && !selection) {
+        overlay.classList.add('open')
+        selection = { digit: 0 }
       }
-      return { open: _open, digit: _activeDigit, clip: (_activeDigit > 0 && slots[_activeDigit - 1]) ? slots[_activeDigit - 1].clip : null }
+      if (selection && digit !== selection.digit) {
+        if (selection.digit > 0 && slotEls[selection.digit - 1]) slotEls[selection.digit - 1].classList.remove('active')
+        if (digit > 0 && slotEls[digit - 1]) slotEls[digit - 1].classList.add('active')
+        selection.digit = digit
+      }
+      if (!held && selection) {
+        const released = selection.digit
+        if (released > 0 && slotEls[released - 1]) slotEls[released - 1].classList.remove('active')
+        overlay.classList.remove('open')
+        selection = null
+        return { open: false, digit: released, clip: released > 0 && slots[released - 1] ? slots[released - 1].clip : null }
+      }
+      const active = selection ? selection.digit : 0
+      return { open: selection !== null, digit: active, clip: active > 0 && slots[active - 1] ? slots[active - 1].clip : null }
     },
-    get isOpen() { return _open },
+    get isOpen() { return selection !== null },
     dispose() { overlay.remove() },
   }
 }
