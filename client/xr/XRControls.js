@@ -83,17 +83,6 @@ export class XRControls {
     this.anchorPlaced = true; this.hideReticle(); return true
   }
 
-  placeAtCamera() {
-    this.anchorPosition.copy(this.cameraPosition); this.anchorRotation.copy(this.cameraQuaternion)
-    this.anchorPlaced = true; this.hideReticle(); return true
-  }
-
-  setInitialFPSPosition(fpsPos, fpsYaw) {
-    this.anchorPosition.set(this.cameraPosition.x, this.cameraPosition.y-fpsPos[1]-1.6, this.cameraPosition.z)
-    const q = new THREE.Quaternion(); q.setFromAxisAngle(new THREE.Vector3(0,1,0), fpsYaw!==undefined?-fpsYaw:0)
-    this.anchorRotation.copy(q); this.anchorPlaced=true; this.hideReticle(); return true
-  }
-
   updateSceneTransform(root) {
     if (!root||!this.anchorPlaced) return
     root.position.set(-this.anchorPosition.x,-this.anchorPosition.y,-this.anchorPosition.z); root.updateMatrixWorld(true)
