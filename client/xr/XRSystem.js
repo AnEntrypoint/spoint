@@ -150,7 +150,9 @@ export function createXRSystem(renderer, scene, camera) {
     renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
   }
 
-  function update(dt, local, now) {
+  const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1
+  function update(dtSeconds, local, now) {
+    const dt = dtSeconds >= FRAME_DT_MIN_S && dtSeconds <= FRAME_DT_MAX_S ? dtSeconds : 0
     const inVR = renderer.xr.isPresenting
     if (inVR && local && (now % 66 < 16)) {
       const stats = readHudStats()
