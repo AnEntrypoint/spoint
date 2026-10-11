@@ -49,6 +49,9 @@ const aoiRingWork = {
   epochRefusedMutationsNotACount: 0,
   epochRefusedRelevanceRadiusNotPositive: 0,
   epochRefusedPlanetRadiusNegative: 0,
+  positionOfEntityResolves: 0,
+  positionOfEntityNoPosition: 0,
+  positionOfEntityUnknownEntity: 0,
 }
 
 export function resetAoiRingWork() {
@@ -270,8 +273,8 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
         const gate = [cvp[0], cvp[1], cvp[2]]
         const kept = new Set()
         for (const id of relevantIds) {
-          const p = _positionOfEntity(appRuntime, id)
-          if (!p || _withinAny(p, gate, planetRadius, r2)) kept.add(id)
+          const r = _positionOfEntity(appRuntime, id)
+          if (r.case !== AOI_ENTITY_POSITION_CASE.position || _withinAny(r.position, gate, planetRadius, r2)) kept.add(id)
         }
         relevantIds = kept
       }
@@ -302,14 +305,35 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
   return ring
 }
 
+export const AOI_ENTITY_POSITION_CASE = Object.freeze({
+  position: 'position',
+  noPosition: 'noPosition',
+  unknownEntity: 'unknownEntity',
+})
+
+const AOI_ENTITY_NO_POSITION = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.noPosition, position: null })
+const AOI_ENTITY_UNKNOWN = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.unknownEntity, position: null })
+
 function _positionOfEntity(appRuntime, id) {
   const spatial = appRuntime?._stageLoader?._activeStage?.spatial
   if (spatial && typeof spatial.getPosition === 'function') {
     const p = spatial.getPosition(id)
-    if (p) return p
+    if (p) {
+      aoiRingWork.positionOfEntityResolves++
+      return { case: AOI_ENTITY_POSITION_CASE.position, position: p }
+    }
   }
   const e = appRuntime?.entities?.get(id)
-  return e && e.position ? e.position : null
+  if (!e) {
+    aoiRingWork.positionOfEntityUnknownEntity++
+    return AOI_ENTITY_UNKNOWN
+  }
+  if (!e.position) {
+    aoiRingWork.positionOfEntityNoPosition++
+    return AOI_ENTITY_NO_POSITION
+  }
+  aoiRingWork.positionOfEntityResolves++
+  return { case: AOI_ENTITY_POSITION_CASE.position, position: e.position }
 }
 
 function _withinAny(p, gatePoints, planetRadius, r2) {
@@ -332,8 +356,8 @@ function resolveDeliveredIds(ringRelevantIds, unmanagedIds, gatePoints, planetRa
   }
   const r2 = relevanceRadius * relevanceRadius
   for (const id of unmanagedIds) {
-    const p = _positionOfEntity(appRuntime, id)
-    if (!p || _withinAny(p, gatePoints, planetRadius, r2)) delivered.add(id)
+    const r = _positionOfEntity(appRuntime, id)
+    if (r.case !== AOI_ENTITY_POSITION_CASE.position || _withinAny(r.position, gatePoints, planetRadius, r2)) delivered.add(id)
   }
   return delivered
 }
@@ -446,4 +470,4 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   return { entities: trimmed, trimmedCount: dropSet.size }
 }
 
-export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, _cellCenterWorld, _spatialCache, _ringCache }
+export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, _cellCenterWorld, _spatialCache, _ringCache, _positionOfEntity }
