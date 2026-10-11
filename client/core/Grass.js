@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
@@ -120,9 +120,8 @@ export async function createGrass(opts = {}) {
       for (const en of entries) { try { targetMesh.setUniformAt(en.id, 'windPhase', en.windPhase); targetMesh.setUniformAt(en.id, 'tint', en.tint); targetMesh.setUniformAt(en.id, 'instShadow', en.shadow) } catch (_) {} }
     }
     if (_minY === Infinity) {
-      let gh = guardedGroundHeight('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), 0)(centerX, centerZ)
-      if (!Number.isFinite(gh)) gh = 0
-      _minY = gh - 1; _maxY = gh + 1
+      const gh = guardedGroundHeight('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z))(centerX, centerZ)
+      if (!isNoGroundHeight(gh)) { _minY = gh - 1; _maxY = gh + 1 }
     }
     const _aabbMin = [minX, _minY, minZ], _aabbMax = [maxX, _maxY, maxZ]
     loaded.set(key, { entries, mesh: targetMesh, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false, inFrustum: true })
@@ -341,6 +340,7 @@ export async function createGrass(opts = {}) {
     const out = []
     for (const [key, cell] of loaded) {
       if (cell.pending) continue
+      if (cell.aabbMin[1] > cell.aabbMax[1]) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
         const perProxyOccBoxGeo = _occBoxGeo.clone()

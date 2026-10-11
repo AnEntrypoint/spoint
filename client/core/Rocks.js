@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { makeRockSDF, marchRockSurface, ROCK_MESH_RES } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
@@ -162,9 +162,8 @@ export async function createRocks(opts = {}) {
     }
     if (_minY === Infinity) {
       const c = placementRing.centre(key)
-      let gh = guardedGroundHeight('rocks tile ground height', (x, z) => frame.groundHeightLocal(x, z), 0)(c[0], c[1])
-      if (!Number.isFinite(gh)) gh = 0
-      _minY = gh - 2; _maxY = gh + 2
+      const gh = guardedGroundHeight('rocks tile ground height', (x, z) => frame.groundHeightLocal(x, z))(c[0], c[1])
+      if (!isNoGroundHeight(gh)) { _minY = gh - 2; _maxY = gh + 2 }
     }
     const b = placementRing.bounds(key, list)
     const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
@@ -299,6 +298,7 @@ export async function createRocks(opts = {}) {
     if (_occCands) return _occCands
     const out = []
     for (const [key, cell] of loaded) {
+      if (cell.aabbMin[1] > cell.aabbMax[1]) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
         const perProxyOccBoxGeo = _occBoxGeo.clone()
