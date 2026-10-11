@@ -84,7 +84,7 @@ export function resolveTarget(spec, { frame, heightAt } = {}) {
   if (Array.isArray(spec)) spec = { x: spec[0], y: spec[1], z: spec[2] }
   if (!spec || typeof spec !== 'object') throw new Error('teleport target must be an object or [x,y,z]')
   const alt = spec.alt === undefined ? null : spec.alt
-  if (alt !== null && !(Number.isFinite(alt) && Math.abs(alt) <= MAX_ABS_COORD_M)) throw new Error('teleport alt must be a finite number')
+  if (alt !== null && !isCoord(alt)) throw new Error('teleport alt must be a finite number')
   let x, z, y = null, standNearY = null
   if (spec.lat !== undefined || spec.lon !== undefined) {
     if (!Number.isFinite(spec.lat) || !Number.isFinite(spec.lon) || Math.abs(spec.lat) > 90) throw new Error('teleport lat/lon must be finite degrees, |lat| <= 90')
