@@ -62,6 +62,9 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   const abilities = new Map()
   const playerAbilityStates = new Map()
 
+  const _parseCooldown = (value) =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0.1, value) : 1.0
+
   for (const def of abilityDefs) {
     if (!def.id || typeof def.id !== 'number') continue
     abilities.set(def.id, {
@@ -69,7 +72,7 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
       name: def.name || '',
       description: def.description || '',
       manaCost: def.manaCost || 0,
-      cooldown: Math.max(0.1, def.cooldown || 1.0),
+      cooldown: _parseCooldown(def.cooldown),
       unlockLevel: def.unlockLevel || 1,
       damage: def.damage || 0
     })
@@ -98,9 +101,11 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     return unlocked
   }
 
-  function canCastAbility(playerId, abilityId) {
+  function canCastAbility(playerId, abilityId, playerLevel) {
     const ability = abilities.get(abilityId)
     if (!ability) return false
+
+    if (Number.isFinite(playerLevel) && ability.unlockLevel > playerLevel) return false
 
     const state = getPlayerAbilityState(playerId)
     const cooldown = state.cooldowns.get(abilityId) || 0
@@ -117,7 +122,7 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     const ability = abilities.get(abilityId)
     if (!ability) return false
 
-    if (ability.unlockLevel > playerLevel) return false
+    if (!Number.isFinite(playerLevel) || ability.unlockLevel > playerLevel) return false
 
     const state = getPlayerAbilityState(playerId)
     const currentCooldown = state.cooldowns.get(abilityId) || 0
@@ -131,6 +136,8 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function tick(dt) {
+    if (!(typeof dt === 'number' && Number.isFinite(dt))) return
+
     for (const state of playerAbilityStates.values()) {
       for (const [abilityId, cooldown] of state.cooldowns.entries()) {
         const newCooldown = Math.max(0, cooldown - dt)
@@ -169,30 +176,72 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function applySnapshot(snapshotData) {
-    if (!snapshotData) return
+    if (!snapshotData || typeof snapshotData !== 'object') {
+      return { ok: false, reason: 'not-an-object', hotkeys: 0, players: 0, dropped: [] }
+    }
+
+    const dropped = []
+    let boundHotkeys = 0
+    let restoredPlayers = 0
 
     if (snapshotData.hotkeys && typeof snapshotData.hotkeys === 'object') {
-      for (const [key, value] of Object.entries(snapshotData.hotkeys)) {
-        const hotkeyNum = parseInt(key, 10)
-        if (!isNaN(hotkeyNum) && hotkeyNum >= 1 && hotkeyNum <= 9) {
-          hotkeys[hotkeyNum] = value
+      for (const [slotKey, abilityId] of Object.entries(snapshotData.hotkeys)) {
+        const slot = parseInt(slotKey, 10)
+        if (!Number.isFinite(slot) || slot < 1 || slot > 9) {
+          dropped.push({ field: `hotkeys.${slotKey}`, reason: 'slot-out-of-range' })
+          continue
         }
+        if (abilityId !== null && !abilities.has(abilityId)) {
+          dropped.push({ field: `hotkeys.${slotKey}`, reason: 'unknown-ability' })
+          continue
+        }
+        hotkeys[slot] = abilityId
+        boundHotkeys++
       }
     }
 
     if (Array.isArray(snapshotData.playerStates)) {
-      for (const snap of snapshotData.playerStates) {
-        if (!snap.playerId) continue
+      for (const [playerIndex, snap] of snapshotData.playerStates.entries()) {
+        if (!snap || !snap.playerId) {
+          dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'missing' })
+          continue
+        }
+        if (!Array.isArray(snap.cooldowns)) {
+          dropped.push({ field: `playerStates[${playerIndex}].cooldowns`, reason: 'not-an-array' })
+          continue
+        }
+
+        const cooldowns = new Map()
+        const active = new Set()
+        for (const [entryIndex, entry] of snap.cooldowns.entries()) {
+          const abilityId = parseInt(entry[0], 10)
+          if (!Number.isFinite(abilityId)) {
+            dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].abilityId`, reason: 'not-a-number' })
+            continue
+          }
+          if (!abilities.has(abilityId)) {
+            dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].abilityId`, reason: 'unknown-ability' })
+            continue
+          }
+          const remaining = entry[1]
+          if (!(typeof remaining === 'number' && Number.isFinite(remaining))) {
+            dropped.push({ field: `playerStates[${playerIndex}].cooldowns[${entryIndex}].cooldown`, reason: 'not-a-number' })
+            continue
+          }
+          cooldowns.set(abilityId, remaining)
+          if (remaining > 0) active.add(abilityId)
+        }
 
         const state = getPlayerAbilityState(snap.playerId)
-        if (snap.cooldowns && Array.isArray(snap.cooldowns)) {
-          state.cooldowns.clear()
-          for (const [abilityId, cooldown] of snap.cooldowns) {
-            state.cooldowns.set(parseInt(abilityId, 10), cooldown)
-          }
-        }
+        state.cooldowns.clear()
+        state.activeAbilities.clear()
+        for (const [abilityId, remaining] of cooldowns) state.cooldowns.set(abilityId, remaining)
+        for (const abilityId of active) state.activeAbilities.add(abilityId)
+        restoredPlayers++
       }
     }
+
+    return { ok: true, reason: null, hotkeys: boundHotkeys, players: restoredPlayers, dropped }
   }
 
   function buildSnapshot() {
