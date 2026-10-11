@@ -154,27 +154,15 @@
   body: 'Claim: this hop gave the frame step one producer, client/app.js frameStepSeconds(now, prev) over FRAME_STEP = {unit:''s'', min:0.001, max:0.1}, which refuses a non-finite reading (witness P2-P10 of exec_js 1791678779525-500-492e6237e6822a03, RESULT: PASS 30/30). client/core/RenderGraph.nodes.js:100 (`const _windDt = ctx.res.frameDt || 0`) and :109 (`const frameDt = ctx.res.frameDt || 0`) still admit 0 -- outside the declared range, and the one value a consumer cannot tell apart from ''the clock was never read''. The fallback is unreachable in the live order: app.js runs frameGraph (which writes res.frameDt) at :2755 before renderGraph.run at :2762, so today it is dead code that nevertheless states a second, contradictory contract -- the same re-guard class this hop deleted at app.js:2445 (`if (frameDt <= 0) return`) and at :2756/:2757 (`|| 0.016`). Fix: read ctx.res.frameDt directly so one contract is visible; if a node can genuinely run before the frame clock, the graph must declare that (required/shouldRun), not the consumer. NODE-ONLY: the file is outside this hop''s surface (client/app.js) and is not edited here.'
   notes: 'witness: codesearch literal ''frameDt'' dispatch 1791678386141-11873 (counts_by_file: RenderGraph.nodes.js 5 hits, lines 100/109/115/118/143); Read client/core/RenderGraph.nodes.js:95-124; exec_js 1791678779525-500-492e6237e6822a03 (P2-P14 range + non-finite rejection, P20 single writer, P21/P22 re-guards deleted). Not executed by this hop.'
 - id: MILNER-ub1-s4-2
-  SESSION_ID: orch-main-r209-sub1-s4
-  session_id: orch-main-r209-sub1-s4
-  principle: MILNER
-  surface: client/xr/XRSystem.js
-  status: pending
-  depends_on:
-  - LAMPORT-ub1-s3-2
-  title: XRSystem.js restates the frame step's bounds as local literals and encodes rejection as 0, a number inside the parameter's domain
-  body: 'Claim: client/xr/XRSystem.js:153 declares `const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1` -- the producer''s interval copied into a second module with no import, so the frame-step contract has two independent sources free to drift (codesearch literal ''FRAME_DT'' over the tree, dispatch 1791678429874-500-d6208d6632c87fb: those two names occur only in this file). :155 `const dt = dtSeconds >= FRAME_DT_MIN_S && dtSeconds <= FRAME_DT_MAX_S ? dtSeconds : 0` encodes ''rejected'' as 0, an ordinary number inside the parameter''s own domain, which then reaches widgets.updateFade(dt) and widgets.updateVignette(dt, isMoving) meaning ''no time advances'' -- an illegal state made representable instead of raised. After this hop the producer cannot emit a value outside [0.001, 0.1] and throws on a non-finite reading, so the receiver''s branch is a second enforcement of a fact the value now carries (witness P9/P10/P15-P18 of exec_js 1791678779525-500-492e6237e6822a03: live-read XR bounds equal FRAME_STEP.min/max, and every produced step lies inside the XR interval). Fix: import FRAME_STEP from its single source (move it to a shared module if app.js must not be the owner) and make rejection loud -- throw or skip the update -- instead of substituting 0. NODE-ONLY: client/xr is held by other lanes (DRY-n-r200-5/-6, OWNERSHIP-n-r192-3/-4/-6 reopen on any edit there); deliberately not edited by this hop.'
-  notes: 'witness: exec_js 1791678779525-500-492e6237e6822a03 P15-P18 (FRAME_DT_MIN_S/MAX_S read live off client/xr/XRSystem.js and compared to FRAME_STEP.min/max; P18 every probe step accepted at XRSystem.js:155); codesearch literal ''FRAME_DT'' dispatch 1791678429874-500-d6208d6632c87fb; Read client/xr/XRSystem.js:140-167. Back-verify requested by the hop''s rhetoric: the XR precondition is still reachable -- app.js:2591 still passes ctx.res.frameDt (P29) and the producer''s range is identical to the receiver''s.'
+  detail: 'Merged into MILNER-ub1-s4-1 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Same single condition as the parent: the frame-step contract has no one home, so each site restates the bounds. This row was the XRSystem.js site (:bounds as local literals, rejection encoded as 0, a number inside the parameter''s domain). Its substance now belongs on MILNER-ub1-s4-1, which names the producer default at RenderGraph.nodes.js:100/:109.'
+  session_id: orch-main-r260-sub1-s2
+  status: retired
+  title: 'RETIRED (merged into MILNER-ub1-s4-1): XRSystem.js restates the frame step''s bounds as local literals and encodes rejection as 0, a number inside the parameter''s domain'
 - id: MILNER-ub1-s4-3
-  SESSION_ID: orch-main-r209-sub1-s4
-  session_id: orch-main-r209-sub1-s4
-  principle: MILNER
-  surface: client/app.js
-  status: pending
-  depends_on:
-  - LAMPORT-ub1-s3-2
-  title: app.js damageNumbers.update imposes a 4 ms floor as a bare literal -- a second frame-step bound no type states
-  body: 'Claim: app.js:2757 reads `if (damageNumbers) damageNumbers.update(Math.max(4, Math.round(_graphCtx.res.frameDt * 1000)))`. This hop removed the untyped `|| 0.016` default there (and at :2756), but the 4 ms floor survives as a bare literal: it is a narrowing of the frame step''s declared [0.001, 0.1] s that no name, constant or type states, so a reader cannot tell whether 4 ms is a deliberate policy, an accident, or a leftover of the deleted 16 ms default (4 != 16). Under MILNER the consumer''s admissible interval shall be stated in the same place as the producer''s, or not at all. Fix: name it (e.g. DAMAGE_NUMBER_MIN_STEP_MS = 4) beside FRAME_STEP and derive it from the type''s unit, or delete the floor and let damageNumbers clamp internally. NOT EXECUTED: lowering or raising 4 changes damage-number animation speed whenever frameDt*1000 differs from 4 (i.e. above 250 fps), which is a measured-behaviour change, not a mechanical edit -- it needs a witnessed figure first.'
-  notes: 'witness: exec_js 1791678779525-500-492e6237e6822a03 P22 (no ''|| 0.016'' remains in client/app.js) and P25 (the surviving Math.max(4, Math.round(_graphCtx.res.frameDt * 1000)) site); codesearch literal ''frameDt'' scoped to client/app.js dispatch 1791678636526-500-c68aa8d5fd099f86 (exhaustive: lastFrameTime initialised to performance.now() at :2164, so the producer never sees NaN on frame one).'
+  detail: 'Merged into MILNER-ub1-s4-1 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Same single condition as the parent: the frame-step contract has no one home, so each site restates the bounds. This row was the app.js site (damageNumbers.update imposes a 4 ms floor as a bare literal). Its substance now belongs on MILNER-ub1-s4-1, which names the producer default at RenderGraph.nodes.js:100/:109.'
+  session_id: orch-main-r260-sub1-s2
+  status: retired
+  title: 'RETIRED (merged into MILNER-ub1-s4-1): app.js damageNumbers.update imposes a 4 ms floor as a bare literal -- a second frame-step bound no type states'
 - id: PARSEDV-n-r248-1
   SESSION_ID: orch-main-r248
   title: 'src/shared/terrainConfig.js has no parse boundary: every accessor re-validates the same config'
@@ -455,10 +443,54 @@
 
     WHY NOT CLOSED HERE: the boolean contract is pinned by scripts/AbilityTree-witness.mjs (untracked, pre-existing, left byte-identical) at :89,:90,:92,:94,:95,:96,:97,:171,:172,:173,:178,:181,:185,:190 and by scripts/game-index-witness.mjs:296,:303 and scripts/progression-witness.mjs:69,:84. Widening the result type reddens three live witnesses in one turn.
 
-    NEEDED: a discriminated refusal ({ok:false, reason:'unknown-ability'|'locked'|'level-unparsed'|'cooling'}) landed with the witness and app updates together.
+    NEEDED: 'a discriminated refusal ({ok:false, reason:''unknown-ability''|''locked''|''level-unparsed''|''cooling''}) landed with the witness and app updates together.'
   status: pending
   title: 'src/game/AbilityTree.js: bindHotkey flattens out-of-range-slot and unknown-ability into one false (:148,:149), and castAbility/canCastAbility still return a bare boolean so locked and cooling are indistinguishable without a second call'
   session_id: orch-main-r260-sub1-s2
+- id: PARSEDV-ub1-s2-1
+  SESSION_ID: orch-main-r260-sub1-s2
+  status: pending
+  title: 'src/game/QuestSystem.js: every refusal is an untyped sentinel — startQuest returns one false for unknown-quest and already-started, completeObjective one false for four causes (:78,:81,:83,:87), claimReward one null for not-complete and unknown-quest'
+  body: |-
+    PARSEDV over src/game. WITNESS: gm dispatch 1791688076056-500-c0b761c3bf95d6e2 (QuestSystem-witness 114/114 PASS after the parse fix; StatsSystem 112/112, EventChainManager 214/214, AbilityTree 59/59, ProgressionSystem 54/54, game-index 47/47).
+
+    WHAT THIS HOP CLOSED: startQuest admitted any inherited Object.prototype key ('constructor', 'toString', '__proto__') because the guard was `!quests[questId]` — a truthiness test, not a parse — and then threw TypeError at `questDef.objectives.map`. Now `_declaredQuest()` parses the id against the declared table with hasOwnProperty, and `restore()` parses each record through `_parseRestoredQuest()` (state must be in {active,complete,claimed}, progress must be an array) instead of coercing. That is the parse side; the result side is untouched.
+
+    WHAT REMAINS (this row): the refusals carry no cause. startQuest:54 false means either "no such quest" or "already active/claimed and not repeatable". completeObjective false at :78 (quest absent or not active), :81 (unknown objective index), :83 (non-finite or <=0 amount), :87 (objective already at target). claimReward null at :121 (absent or not complete) and :124 (unknown def). A caller cannot branch on the cause without re-deriving the state with getQuestState — which is exactly validate-then-re-validate.
+
+    WHY NOT CLOSED HERE: the boolean/null contract is pinned in two places that are not this hop's to move. scripts/QuestSystem-witness.mjs (UNTRACKED and pre-existing at session start; left byte-identical) asserts `startQuest(...) === false` and `=== true` at :112,:113,:137,:139,:144,:149,:161,:166,:271,:274,:276,:280 and `claimReward(...) === null` at :343. apps/tutorial-rpg/index.js:118 does `if (!ctx.quests.startQuest(playerId, questId)) return`. Widening the result type reddens a live witness and an app in the same turn.
+
+    NEEDED: 'one declared result type per entry point (e.g. {ok:true} | {ok:false, reason:''unknown-quest''|''already-started''|...}) landed together with the witness update and the tutorial-rpg call site, in one commit, on a surface no other lane holds.'
+  session_id: orch-main-r260-sub1-s2
+- id: PARSEDV-ub1-s2-3
+  SESSION_ID: orch-main-r260-sub1-s2
+  body: |-
+    PARSEDV over src/game, the two files this hop did not touch. WITNESS: gm dispatch 1791688127929-500-8be9be1e69b50d84 (StatsSystem-witness 112/112 PASS, EventChainManager-witness 214/214 PASS) — both pass, so this row is a contract finding, not a live failure.
+
+    StatsSystem.js returns one bare false for six distinct causes: :95 (amount not a finite number, or <= 0), :111 (stat not an own key of baseStats), :112 (amount === 0), :183 (no such item), :213 (loadoutName not a non-blank string), :230 (no such loadout). A caller that gets false cannot say whether the name was bad or the amount was.
+
+    EventChainManager.js returns one bare false for five trigger-mismatch causes: :106 (no trigger, or trigger.type !== eventType), :110 (target !== trigger.entityId), :114 (zoneId mismatch), :118 (targetEntityId mismatch), :122 (timerId mismatch). The cause is fully known at each site and thrown away.
+
+    ProgressionSystem.js :71 returns false for a non-finite or negative amount and :80 for the level cap — commit 14746964d2e04d408e07ce1980591a640064c64f already moved u32 level saturation and the xp remainder into this file and left both as bare false.
+
+    NEEDED: one declared refusal type per file, landed with each file's witness. Do not start while scripts/StatsSystem-witness.mjs and scripts/EventChainManager-witness.mjs (both untracked and pre-existing; left byte-identical by this hop) still pin the boolean, and while another lane holds apps/tps-game/* and client/core/*.
+  status: pending
+  title: 'src/game: StatsSystem.js (:95,:111,:112,:183,:213,:230), EventChainManager.js (:106,:110,:114,:118,:122) and ProgressionSystem.js (:71,:80) return one bare false for every refusal cause'
+  session_id: orch-main-r260-sub1-s2
+- id: PARSEDV-ub1-s2-4
+  SESSION_ID: orch-main-r260-sub1-s2
+  principle: PARSEDV
+  surface: src/game
+  title: git serial lane starved the src/game PARSEDV commit twice; the change is uncommitted
+  body: 'Two consecutive git_commit dispatches with explicit paths [src/game/QuestSystem.js, src/game/AbilityTree.js] were claimed by daemon pid 13928 and never reached the git serial lane within the 120 s cap: dispatch 1791688554787-500-1bacf11a079b964a (waited 120007 ms, lane_waiters 4) and re-dispatch 1791688690373-500-80d596a75deabf8b (waited 120002 ms, lane_waiters 6), both error_code dispatch_starved_waiting_for_serial_lane, executed false, re_dispatch_safe true, holder task f73df536-0f66-49a1-8888-2a064d23416a-zuhiclaf. Per the lane rule the second starvation is filed, not retried. The working tree therefore still holds the PARSEDV edits to QuestSystem.js and AbilityTree.js with no commit sha. Whoever next holds the lane commits those two paths alone (orchestrator owns every push); verify first with git_status paths=src/game that no other writer has staged them.'
+  evidence: 'live: git_commit dispatch 1791688554787-500-1bacf11a079b964a starved (lane git, waiters 4); re-dispatch 1791688690373-500-80d596a75deabf8b starved (lane git, waiters 6); both executed:false, re_dispatch_safe:true; holder f73df536-0f66-49a1-8888-2a064d23416a-zuhiclaf'
+  witness_dispatch_id: 1791688690373-500-80d596a75deabf8b
+  blocked: true
+  blocked_by: git serial lane held by task f73df536-0f66-49a1-8888-2a064d23416a-zuhiclaf
+  session_id: orch-main-r260-sub1-s2
+  status: completed
+  witness: 'git_status 1791690276000-500-fea75568f4be7e19: modified [src/game/AbilityTree.js, src/game/QuestSystem.js] at HEAD 4747096e - the owed change is still uncommitted, so WADLER-ub1-s2-4 (added 1791690693608-500-6e5030373df53690) carries it and this row is discharged.'
+  commit_comment: 'Retire PARSEDV-ub1-s2-4: superseded by WADLER-ub1-s2-4, the same owed src/game commit with the current witness ids and starved git dispatch ids.'
 - id: ILLEGAL-n-r256-7
   text: 'spawnSurfaceY returns one null for invalid arguments and for a valid pose with no surface found (ILLEGAL-n-r256-3 hitY half CLOSED by witness 1791689095117-500-62693c6417b6f940; only this args half remains). Live: src/shared/SpawnSurface.js:53 returns null for typeof raycast!==''function'' OR non-finite pose[1] OR standingOffset<=0 OR headroom<=0, which is indistinguishable from ''no surface''. Callers that rely on the null: src/apps/AppGameplay.js:45 passes hitbox.centerHeight (may be 0/undefined for a malformed hitbox) and falls back to terrainY at :50; src/sdk/Relocation.js:48 can hand a spawn point whose y is not finite; apps/tps-game/respawn-clearance.js:21 computes poseY from a possibly non-finite sp[1] at :20. Splitting the two causes needs a per-caller decision at those three sites, not a blind throw.'
   surface: src/shared
@@ -466,6 +498,63 @@
   witness: 1791689095117-500-62693c6417b6f940,1791689097001-500-695c2882a66a533e
   session_id: orch-main-r256
   status: pending
+- id: HICKEY-272sub1s4sub1sub1-4
+  detail: 'Merged into HICKEY-272sub1s4sub1sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are the same owe on commit ad21ca7172: -3 carries the re-witness half, this row the push half. One delivery closes both, so they are one condition. Substance now belongs on HICKEY-272sub1s4sub1sub1-3.'
+  session_id: orch-main-r260-sub1-s2
+  status: retired
+  title: 'RETIRED (merged into HICKEY-272sub1s4sub1sub1-3): Owed push of ad21ca7172 (git lane starved twice)'
+- id: ILLEGAL-sub1-4
+  detail: 'Merged into ILLEGAL-sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are one condition: relevanceRadius has no single parse boundary, so the router and the stage disagree about what a 0 (or an invalid) relevance radius means. -3 names the router-vs-stage disagreement; this row was the admission half (Stage and SpatialIndex admit -5 and "50" instead of falling back to the 200 default). One parse boundary closes both. Substance now belongs on ILLEGAL-sub1-3.'
+  session_id: orch-main-r260-sub1-s2
+  status: retired
+  title: 'RETIRED (merged into ILLEGAL-sub1-3): Stage and SpatialIndex admit invalid relevanceRadius -5 and "50" instead of falling back to the 200 default'
+- id: WADLER-ub1-s2-1
+  status: pending
+  title: src/game/ProgressionSystem.js:70 addXp returns one false for refused-invalid, u32-saturated and accepted-with-no-level-up (:71,:80,:106)
+  body: |-
+    WADLER over src/game. addXp conflates three cases in one boolean: :71 refuses a non-finite or negative amount with no mutation; :76-81 MUTATES (clamps totalXp to 0xFFFFFFFF, sets level to cfg.maxLevel) and then returns false; :106 returns leveledUp, so false also means 'accepted, no level-up'. A caller cannot destructure the refusal, and the saturation branch is the only one that writes before refusing.
+
+    Witness-pinned (cannot be edited by this walk, tracked test file, byte-identical): scripts/ProgressionSystem-witness.mjs:107 'add-xp-rejects-invalid-amounts' wants [false,false,false,false]; :133 'add-xp-below-threshold-no-level' wants [false, {...}]; :154-159 'u32-overflow-clamps-and-rejects' wants [false, 4294967295, 100]. src/game/PROGRESSION.md:36 documents addXp(playerId, amount): boolean and :308 documents the u32 saturation returning false, so the conflation is contractual, not accidental.
+
+    Target shape: return {ok, reason, leveledUp} with reason in 'invalid-amount' | 'xp-saturated' | null, and update the three witness expectations plus PROGRESSION.md:36/:308 in the same commit. src/game/EventChainManager.js runChain already ships the in-repo shape to copy ({success, reason}).
+  session_id: orch-main-r260-sub1-s2
+- id: WADLER-ub1-s2-2
+  body: |-
+    WADLER over src/game. startQuest returns one false for two causes: :77 unknown quest, :81 already-started and not replayable. completeObjective returns false for six: :100 no quest or not active, :103 unknown quest or bad objective index, :105 non-finite/non-positive amount, :109 objective already at target. claimReward returns null for both 'not complete' (:143) and 'unknown quest' (:146), so the reward object and the refusal are not the same case at all and null is not destructurable.
+
+    Witness-pinned (tracked test file, byte-identical, never edited by this walk): scripts/QuestSystem-witness.mjs:137 'an unknown quest cannot start' wants false, :139 wants true, :144 'a second start of an active quest is refused' wants false, :151-155 the inherited-Object.prototype-key sweep wants [false,false,false], :178-196 pins the completeObjective booleans.
+
+    Live consumer: apps/tutorial-rpg/index.js:118 reads it as success - `if (!ctx.quests.startQuest(playerId, questId)) return` - and is the ONLY in-repo caller of defineQuestSystem (callers returned exactly one edge: apps/tutorial-rpg/index.js:187 setup). That branch is the bare-boolean read WADLER names.
+
+    Target shape: {ok, reason} per call with reason in 'unknown-quest'|'already-started'|'not-active'|'bad-objective'|'bad-amount'|'already-at-target', updating the witness expectations and the tutorial-rpg:118 branch in the same commit. This hop closed only the unpinned restore/_parseRestoredQuest half and committed it.
+  status: pending
+  title: 'src/game/QuestSystem.js: startQuest collapses unknown-quest and already-started into one false (:77,:81); completeObjective six false causes (:100,:103,:105,:109); claimReward null for two causes (:143,:146)'
+  session_id: orch-main-r260-sub1-s2
+- id: WADLER-ub1-s2-3
+  body: |-
+    WADLER over src/game, result side of PARSEDV-ub1-s2-2 (that row frames the input side of the same sites and stays open). canCastAbility (:118) and castAbility (:131) return false for unknown-ability, locked-by-level and cooling-down; bindHotkey (:148,:149) returns false for an out-of-range slot AND for an unknown ability. Parametricity: the caller cannot recover which of the three refused, so a cooling cast and a locked cast are indistinguishable downstream, and bindHotkey's two refusals ask for different caller reactions (fix the slot vs. fix the ability).
+
+    Witness-pinned (tracked test file, byte-identical): scripts/AbilityTree-witness.mjs:89 'cast of unknown ability refused' false, :90 locked false, :94 recast while cooling false, :95-97 canCastAbility false/false/true, :117-120 bindHotkey true/false pairs including [false,false] for out-of-range slots, :171-190 the castAbility/canCastAbility agreement checks. 59/59 green at HEAD, verified this hop (1791690352722-500-480e7a5cf10de34a).
+
+    Target shape: {ok, reason} with reason in 'unknown-ability'|'locked'|'cooling'|'slot-out-of-range'|'unknown-ability-for-slot', updating every pinned expectation in the same commit. Note canCastAbility WITHOUT a level is documented as cooldown-readiness only (:173), so its refusal set is genuinely smaller - the row must not unify the two arities.
+  status: pending
+  title: 'src/game/AbilityTree.js: canCastAbility/castAbility return one false for unknown-ability, locked and cooling (:118,:131); bindHotkey for out-of-range-slot and unknown-ability (:148,:149)'
+  session_id: orch-main-r260-sub1-s2
+- id: WADLER-ub1-s2-4
+  body: |-
+    Owed commit. Two path-scoped git_commit dispatches for src/game/QuestSystem.js + src/game/AbilityTree.js starved at the 120 s git serial lane cap and were NOT executed (re_dispatch_safe: true both times): 1791690487731-500-5b409f9042f812aa and 1791690627272-500-e8274fc2d8482b05. Lane holder f73df536-0f66-49a1-8888-2a064d23416a-hhotscbx, lane_waiters 3 then 5. HEAD is still 4747096e16baef4c05236d57134a0beaff113f1c.
+
+    The change is fully witnessed and just needs one git_commit with paths [src/game/QuestSystem.js, src/game/AbilityTree.js]:
+    - scripts/QuestSystem-witness.mjs 114/114 RESULT: PASS (1791690156829-500-2b1098471ee28b0e)
+    - live restore probe returning {ok, reason, players, quests, dropped} with dropped reasons unknown-state/not-an-object/progress-not-an-array, RESULT: PASS (1791690264164-500-adc44022a9ac59a1)
+    - AbilityTree 59/59 and ProgressionSystem 54/54 RESULT: PASS (1791690352722-500-480e7a5cf10de34a)
+
+    Content: AbilityTree _parseCooldown, canCastAbility level gate, castAbility non-finite level refusal, tick non-finite dt guard, applySnapshot hotkey/cooldown validation; QuestSystem _declaredQuest, _parseRestoredQuest {ok, reason}, restore() returning {ok, reason, players, quests, dropped}.
+
+    Supersedes PARSEDV-ub1-s2-4 (same owed commit under the predecessor's PARSEDV framing). This hop stops here per the one-re-dispatch rule; the orchestrator's git wave owns the commit and the push.
+  status: pending
+  title: 'Owed: commit the witnessed src/game parse-at-boundary + result-carries-case change (QuestSystem.js + AbilityTree.js) - git serial lane starved twice at HEAD 4747096e'
+  session_id: orch-main-r260-sub1-s2
 - id: WADLER-ub1-w1-1
   SESSION_ID: orch-main-r270-sub1-w1
   status: pending
@@ -487,3 +576,35 @@
   status: pending
   title: 'client/editor/sdk-typings.generated.d.ts:36/:110 declares every physics sink as (v: any), a third description weaker than both ctx.d.ts and nonNeg'
   session_id: orch-main-r270-sub1-w1
+- id: DBC-ub1-s2-1
+  title: src/game/ProgressionSystem.js:40 calculateXpThreshold's explicit `curve` arg bypasses the config contract -- an unknown curve silently falls to the switch default (linear), so one predicate has two bodies
+  status: pending
+  principle: DBC
+  surface: src/game/ProgressionSystem.js
+  witness: 1791692068682-500-1a3d975fce1ea427
+  detail: 'Witnessed before the fix (exec_js 1791692068682-500-1a3d975fce1ea427, exit 1): createProgressionSystem({curve:''quad''}) was ACCEPTED and calculateXpThreshold(5) returned 400 -- byte-identical to the linear curve, versus 1600 for ''quadratic''. resolveConfig validated baseXpPerLevel/curveScalar/maxLevel/xpPerKill but not curve, so curve alone of the five config fields had no legal-value set. This hop closed the CONFIG half: curve now has a validator (witness 1791692120732-500-e87bc74d6520e212: ''quad'' and ''QUADRATIC'' both rejected with TypeError, quadratic/exponential/linear accepted, default unchanged at ''quadratic'', addXp path unaffected). STILL OPEN: calculateXpThreshold is exported and takes `curve` as its own parameter (:40), so a direct caller still reaches the `default:` branch at :51 and gets linear for any unrecognised string. Fix: make calculateXpThreshold''s precondition the same predicate resolveConfig uses (reject, or route the arg through the validator) so the module states what a legal curve is exactly once. Depends on: DBC-ub1-s2-4 (same surface family).'
+  session_id: orch-main-r260-sub1-s2
+- id: DBC-ub1-s2-2
+  title: src/game/EventChainManager.js:18 addChain states no precondition and writes its postcondition into the caller's object (:20)
+  status: pending
+  principle: DBC
+  surface: src/game/EventChainManager.js
+  witness: 1791691840225-500-58d3785e9706fcb4
+  detail: 'codesearch literal over src/game (1791691840225-500-58d3785e9706fcb4, exhaustive:true, 2579 lines) finds ZERO `throw` in EventChainManager.js -- unlike QuestSystem.js:2/:10-13 and StatsSystem.js:2, none of its 29 members enforces a precondition. addChain is the worst case and is reached from client/editor/EventChainPanel.js (createEventChainPanel, loadPresetTemplate) and from its own fromJSON (:432). Two contract holes: (a) no precondition -- `chainSpec.id` at :19 on a null/undefined spec raises an incidental TypeError from property access, not a stated contract error, so a malformed spec and a legal one are indistinguishable to the caller; (b) :20 assigns `chainSpec.id = ''chain_'' + Math.random()...` -- a postcondition on an INPUT, mutating the caller''s spec, so a generated id leaks into any spec the editor later serialises. It also silently replaces an existing chain of the same id with no ''created''/''replaced'' distinction, while removeChain (:36) does log. Fix: reject a non-object spec and a spec with no id by throwing a named [chain] error, build the chain without touching chainSpec, and report create-vs-replace.'
+  session_id: orch-main-r260-sub1-s2
+- id: DBC-ub1-s2-3
+  title: src/game/StatsSystem.js:272 restore admits level/xp pairs that violate the invariant addXP maintains, so a restored player reports a level its own xp contradicts
+  status: pending
+  principle: DBC
+  surface: src/game/StatsSystem.js
+  witness: 1791691808410-500-c119bf60027d8a18
+  detail: 'outline 1791691808410-500-c119bf60027d8a18 + Read of :272-319. addXP (:94-108) maintains the invariant level === _levelFromXP(xp) by construction: it sets xp then re-derives level at :100. restore (:272) sets level (:278) and xp (:279) independently from saved data, clamping each to its own range but never relating them, so restore''s postcondition does not re-establish the invariant every other member relies on. getStats (:133) then reports `level` verbatim while _pushToClient (:69) advertises nextLevelXP = _xpForLevel(level+1) -- a save carrying {level:1, xp:100000} restores as level 1 with nextLevelXP 100, a state addXP can never produce and that no member can distinguish from a legal one. INTEGRATION.md:204-207 documents restore as the boot path for both stats and quests, so this is the entry every caller starts from. Fix: derive restored.level from the restored xp with statsSystem._levelFromXP(...) (or reject a pair that disagrees), so restore''s postcondition is the same invariant addXP maintains.'
+  session_id: orch-main-r260-sub1-s2
+- id: DBC-ub1-s2-4
+  title: BLOCKER (file held) src/game/AbilityTree.js enforces no precondition -- zero `throw` in the file -- and carries another lane's uncommitted dirt at HEAD e475048e
+  status: pending
+  principle: DBC
+  surface: src/game/AbilityTree.js
+  witness: 1791692024029-500-67f8ac7db849da8b
+  detail: 'git_status 1791692024029-500-67f8ac7db849da8b scoped to src/game: modified = [src/game/AbilityTree.js, src/game/QuestSystem.js] at HEAD e475048ec9d1ab40bcce56dffc5a596f5f8161f4, staged 0. That dirt is another lane''s (see PARSEDV-ub1-s2-2, pending, for the bindHotkey half), so this hop left the file byte-identical and files this row instead. Finding: codesearch literal `throw` over src/game (1791691840225-500-58d3785e9706fcb4, exhaustive:true) returns 3 files and 0 hits in AbilityTree.js -- of the four src/game systems it alone has no precondition anywhere, while its public surface takes caller-supplied state at 15 entry points (outline 1791691794549-500-cb5fb4814346e6b6: castAbility :121, canCastAbility :104, applySnapshot :178, bindHotkey :154, tick :138, getCooldownsForNetwork :224, getPlayerAbilityInfo :238). Unblock: once PARSEDV-ub1-s2-2 lands and the file is clean, give AbilityTree the same precondition boundary QuestSystem.js:2 and StatsSystem.js:2 already have -- a stated contract error for a null playerId, an unknown abilityId and a malformed snapshot, instead of the sentinel returns that survive there today.'
+  session_id: orch-main-r260-sub1-s2

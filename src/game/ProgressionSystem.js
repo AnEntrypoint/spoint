@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG = {
 }
 
 const CONFIG_VALIDATORS = {
+  curve: (v) => v === CURVE_LINEAR || v === CURVE_EXPONENTIAL || v === CURVE_QUADRATIC,
   baseXpPerLevel: (v) => Number.isFinite(v) && v >= 0,
   curveScalar: (v) => Number.isFinite(v),
   maxLevel: (v) => Number.isInteger(v) && v >= 1,
