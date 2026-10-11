@@ -651,3 +651,29 @@
   surface: src/apps/AppRuntime.js:23-29 (_nonNegOrDefault), :571 (nearbyPlayerIds), :625 (getNearestPlayer)
   title: DELIVERED (uncommitted, unpushed) TOTALITY closed the nearbyPlayerIds and getNearestPlayer halves of DBC-n-r270-1 and made _nonNegOrDefault total; DBC-n-r270-1's remaining scope is :194 (ccd policy) and :418 (Infinity)
   witness: 'exec_js 1791693683816-500-ba0148e45555d0e9 (before: [] for -5 and NaN, silent 3/500) vs exec_js 1791693826411-500-94af385881c1d797 (after: named TypeErrors, 7 named warns); exec_js 1791693984330-500-c072d0d05172d710'
+- id: PARNAS-cylinder-ub2-p1
+  title: 'src/spatial: the flat relevance ring is a cylinder of infinite height and only a method name says so'
+  status: pending
+  body: |-
+    WITNESS exec_js 1791694019322-500-622920e4fc76130e (live, SpatialIndex from src/spatial/Octree.js): nearbyHorizontal([0,0,0],200) returns ["deep","ground","high"] -- an entity at y=+5000 and one at y=-90000 are both inside a 200 m relevance ring. nearby([0,0,0],200) over the same index returns ["ground"].
+
+    CAUSE Octree.js:113-133 computes dx and dz only and never reads position[1], so the horizontal ring has no vertical extent at all. CELL_SIZE/cellCoord/cellKey (:3-14) bucket on X and Z only, which is correctly hidden.
+
+    DEFECT the contract is not stated at the boundary. The only signal is the substring "Horizontal" in the method name at :113, and the module's sibling queries nearby (:90) and nearest (:173) are spherical over the same XZ buckets. src/spatial has no type, parameter or return encoding that tells a caller which ring it is buying, so choosing between them requires reading three method bodies. Every caller must re-derive the decision, which is exactly the secret the module exists to hold.
+
+    FIX give the ring semantics one named owner inside the module (an explicit radius-semantics argument or a distinct type), rather than three methods distinguished only by name. Note the landed half: nearbyHorizontal now honours the same `out` buffer protocol as nearby (:113-116), so a caller passing out is no longer silently ignored.
+  session_id: orch-main-r310-sub2-p1
+- id: PARNAS-ringbranch-ub2-p1
+  title: 'src/spatial: the 2D-vs-3D relevance decision lives in TickHandlerAOI, and the snapshot path never takes it'
+  status: pending
+  body: |-
+    WITNESS codeinsight callers (index complete:true) + exec_js 1791694019322-500-622920e4fc76130e + aoi-ring-postcondition-witness.mjs PASS 4/4 (dispatch 1791694174312-500-a62b2a83afa1b452).
+
+    BYPASS TickHandlerAOI.js:150-154 cellBaseIds branches on `planetRadius <= 0` OUTSIDE the module: flat => stageLoader.getRelevantEntitiesHorizontal (2D, Octree.js:113); planet => appRuntime.relevantEntities (3D, AppRuntime.js:727 -> Stage.getRelevantEntities:58-60 -> nearby:90). The module exports both primitives and lets a caller-side `if` decide, so the decision is re-derived at every call site.
+
+    CONSEQUENCE AppRuntime.js:546 getSnapshotForPlayer, :548 getRelevantDynamicIds and :550 getRelevantDynamicIdsWithStarvation all call relevantEntities with NO planetRadius branch, so they stay spherical. AGENTS.md: no shipped app declares planetRadius and resolvedPlanetRadius maps undeclared to 0, so on every shipped world the AOI ring cache is cylindrical while the player snapshot for the same entities is spherical. Two live answers to one question.
+
+    DUPLICATION Stage.js:54-60 makes getNearbyEntities and getRelevantEntities byte-identical bodies (both `this.spatial.nearby(position, radius || this.spatial.relevanceRadius)`) one line above getRelevantEntitiesHorizontal, so "nearby" and "relevant" are names without a decision between them; StageLoader.js:123-136 re-declares all three as pass-throughs.
+
+    FIX move the choice into src/spatial behind one entry point and delete the duplicated facade bodies. Verify by live execution on a shipped world, not by reading the branch.
+  session_id: orch-main-r310-sub2-p1

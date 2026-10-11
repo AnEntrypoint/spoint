@@ -110,8 +110,9 @@ export class SpatialIndex {
     return results
   }
 
-  nearbyHorizontal(position, radius) {
-    const results = []
+  nearbyHorizontal(position, radius, out) {
+    const results = out || []
+    if (out) results.length = 0
     const cx = position[0], cz = position[2]
     const r2 = radius * radius
     const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
