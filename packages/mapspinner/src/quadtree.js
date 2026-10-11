@@ -1,8 +1,20 @@
 const TAN_40DEG = Math.tan(40.0 / 180.0 * Math.PI);
+const QUADTREE_DEFAULT_SIZE = 6360000.0;
+const QUADTREE_LEVEL_CEILING = 32;
+
+function _positiveFinite(name, v) {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new RangeError(`Quadtree: ${name} must be a positive finite number, got ${v}: a zero, negative or non-finite ${name} makes every split test unrepresentable, so the tree collapses to one leaf and the whole planet renders as a single patch, which must fail here and never reach updateQuadtree`)
+  return v
+}
+
+function _levelCount(name, v) {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > QUADTREE_LEVEL_CEILING) throw new RangeError(`Quadtree: ${name} must be a finite number in 0..${QUADTREE_LEVEL_CEILING}, got ${v}: any other value disables subdivision silently, so the whole planet renders as a single patch`)
+  return v
+}
 
 export class Quadtree {
   constructor(size) {
-    this.size = size || 6360000.0;
+    this.size = _positiveFinite('size', size ?? QUADTREE_DEFAULT_SIZE);
     this.maxLevel = 20;
     this.splitDist = 1.1;
     this.distFactor = 2.0;
@@ -20,7 +32,7 @@ export class Quadtree {
   }
 
   setConfig(size, maxLevel, distFactor) {
-    this.size = size; this.maxLevel = maxLevel; this.distFactor = distFactor;
+    this.size = _positiveFinite('size', size ?? QUADTREE_DEFAULT_SIZE); this.maxLevel = _levelCount('maxLevel', maxLevel); this.distFactor = _positiveFinite('distFactor', distFactor);
   }
 
   computeSplitDist(splitFactor, viewportH, fovRad) {
