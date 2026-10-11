@@ -1,5 +1,6 @@
 import { MapspinnerPipelineCache, TERRAIN_PATCH_VERTEX_BUFFERS } from './pipeline-cache.js'
 import { buildGridGeometry, buildInstanceData, createBufferWithData } from './patch-grid-render.js'
+import { resolvePlanetRadiusM } from '../planet-radius.js'
 
 const WATER_WGSL = `
 struct WaterParams {
@@ -171,7 +172,7 @@ export class WaterRenderer {
     this.gridIndexBuffer = createBufferWithData(device, geo.indices, GPUBufferUsage.INDEX)
 
     this.waterParamsBuffer = createBufferWithData(device, new Float32Array([
-      opts.defRadius || 6360000, 0, opts.oceanAmp != null ? opts.oceanAmp : 1.0, opts.oceanChoppy != null ? opts.oceanChoppy : 0.5,
+      resolvePlanetRadiusM({ radiusM: opts.defRadius }, 'mapspinner webgpu water'), 0, opts.oceanAmp != null ? opts.oceanAmp : 1.0, opts.oceanChoppy != null ? opts.oceanChoppy : 0.5,
     ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
     this.resolutionBuffer = createBufferWithData(device, new Float32Array([
       opts.width || 1, opts.height || 1, 0, 0,

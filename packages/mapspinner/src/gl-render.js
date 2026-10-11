@@ -7,12 +7,12 @@ import { startLutBakeWorker } from './atmosphere-lut-job.js';
 import { TU, M4 } from './gl-render-mat4.js';
 import { seaHeightMean } from './sea-waves.js';
 import { resolvePoolParams } from './pool-params.js';
+import { PLANET_RADIUS_M, resolvePlanetRadiusM } from './planet-radius.js';
 
 let _sharedRawTransLUT = null
 let _sharedRawScatLUT = null
 let _sharedSurfaceTexDecode = null
 const SHADER_CACHE_TAG = 'ms-0.1.265'
-const DESIGN_RADIUS_M = 6360000.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
 const FXC_UNROLL_DEFEAT_LOOP_BOUND = 64
@@ -37,13 +37,10 @@ function _startSurfaceDecodeWorker() {
 }
 
 export async function initMapspinnerRender(gl, opts = {}) {
-  if (opts.radius != null && (!Number.isFinite(opts.radius) || opts.radius <= 0)) {
-    throw new TypeError(`mapspinner: opts.radius must be a positive finite number, got ${opts.radius}`);
-  }
   if (opts.gridMeshSize != null && (!Number.isInteger(opts.gridMeshSize) || opts.gridMeshSize < 2)) {
     throw new TypeError(`mapspinner: opts.gridMeshSize must be an integer >= 2, got ${opts.gridMeshSize}`);
   }
-  const R = opts.radius || 6360.0;
+  const R = resolvePlanetRadiusM(opts, 'mapspinner');
   const TILE_W = opts.tileW || 25;
   const GRID = opts.gridMeshSize || TD.gridMeshSize;
   if (typeof window !== 'undefined') window.__glGrid = GRID;
@@ -1260,7 +1257,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1i(U, chu, 'uSurfAlb', TU.surfAlb);
     _chuSet1i(U, chu, 'uSurfNrm', TU.surfNrm);
     _chuSet1f(U, chu, 'uHasSurfTex', hasSurf ? 1.0 : 0.0);
-    const _texTileM = _g('texTile', TD.texTile) * (R / DESIGN_RADIUS_M);
+    const _texTileM = _g('texTile', TD.texTile) * (R / PLANET_RADIUS_M);
     _chuSet1f(U, chu, 'uTexTileM',   _texTileM);
     const _wrapM = _texTileM * 8.0;
     gl.uniform3f(U('uTexCamFrac'),
@@ -1417,7 +1414,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const _fBlend = Math.min(1.0, Math.max(0.0, (alt - 500000.0) / 4500000.0));
     const farGround = Math.max(horizon, alt * 8.0);
     const far = farGround * (1.0 - _fBlend) + camDist * _fBlend;
-    _octClampAlt = alt * (DESIGN_RADIUS_M / R);
+    _octClampAlt = alt * (PLANET_RADIUS_M / R);
     const eye = cam.eye;
     const _cmIn = cam.cullMatrix;
     const _cm = (_cmIn && _cmIn.near === near && _cmIn.far === far && _cmIn.eye === eye) ? _cmIn : cullMatrix(cam, { aspect, near, far });

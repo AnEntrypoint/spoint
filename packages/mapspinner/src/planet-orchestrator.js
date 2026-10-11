@@ -6,18 +6,16 @@ import { FACE_FRAME, dot, worldToFaceLocal, quadOutsideFrustum, extractFrustumPl
 export { FACE_FRAME, dot, worldToFaceLocal, quadOutsideFrustum, extractFrustumPlanes, pickFace } from './planet-orchestrator-cull.js';
 
 import { LOD_LEAN, lodDistFactor, resolveLodConfig, applyLodConfig } from './lod-config.js';
+import { PLANET_RADIUS_M, resolvePlanetRadiusM } from './planet-radius.js';
 
 const NEAR_NADIR_LOOK_DOT = -0.95;
 const MOUNTAIN_ELEVAMP_LO = 16.8, MOUNTAIN_ELEVAMP_HI = 18.6;
 
 export async function initMapspinnerPlanet(gl, opts = {}) {
-  if (opts.radius != null && (!Number.isFinite(opts.radius) || opts.radius <= 0)) {
-    throw new TypeError(`mapspinner: opts.radius must be a positive finite number, got ${opts.radius}`);
-  }
   if (opts.gridMeshSize != null && (!Number.isInteger(opts.gridMeshSize) || opts.gridMeshSize < 2)) {
     throw new TypeError(`mapspinner: opts.gridMeshSize must be an integer >= 2, got ${opts.gridMeshSize}`);
   }
-  const R = opts.radius || 6360.0;
+  const R = resolvePlanetRadiusM(opts, 'mapspinner');
   const gridMeshSize = opts.gridMeshSize || 11;
   const _geomorphLod = !!opts.geomorphLod
 
@@ -259,7 +257,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     const camDirX = camWorldPos[0]/camDist, camDirY = camWorldPos[1]/camDist, camDirZ = camWorldPos[2]/camDist;
     const cosHorizon = Math.min(1.0, R / camDist);
     const altM = Math.max(0.0, camDist - R);
-    const elSlack = Math.min(R * CULL_ELEV_FRAC, 200.0 * (R / 6360000.0) + altM * 0.5);
+    const elSlack = Math.min(R * CULL_ELEV_FRAC, 200.0 * (R / PLANET_RADIUS_M) + altM * 0.5);
     const limbCullActive = (typeof window !== 'undefined' && window.__limbCull != null ? !!window.__limbCull : true)
       && altM > 0.5;
     const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, cullMatrix: _cm };

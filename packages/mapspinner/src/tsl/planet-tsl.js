@@ -4,6 +4,7 @@ import { FACE_FRAME, worldToFaceLocal, quadOutsideFrustum, extractFrustumPlanes,
 import { createAnchorField } from '../anchor-field.js'
 import { M4 } from '../gl-render-mat4.js'
 import { SHAPE_UNIFORM_DEFAULTS, TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
+import { PLANET_RADIUS_M, resolvePlanetRadiusM } from '../planet-radius.js'
 import { buildGridGeometry, perspectiveZeroToOne } from '../patch-grid-geometry.js'
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 import { resolvePoolParams, resolveWetness } from '../pool-params.js'
@@ -73,8 +74,7 @@ function registerTerrainMaterialAccept() {
 
 export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   if (!renderer || !renderer.isWebGPURenderer) throw new Error('mapspinner tsl planet: requires a three WebGPURenderer (WebGPU or WebGL2 backend)')
-  const R = opts.radius || 6360000
-  if (!Number.isFinite(R) || R <= 0) throw new TypeError(`mapspinner tsl planet: opts.radius must be a positive finite number, got ${opts.radius}`)
+  const R = resolvePlanetRadiusM(opts, 'mapspinner tsl planet')
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : R / 63600000.0
   const hpfRes = opts.hpfTexRes || 128
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
@@ -192,7 +192,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     mesh.geometry = patch.geo
   }
 
-  const texTileM = TD.texTile * (R / 6360000.0)
+  const texTileM = TD.texTile * (R / PLANET_RADIUS_M)
   const texWrapM = texTileM * 8.0
   const wrap = (v) => v - Math.floor(v / texWrapM) * texWrapM
 

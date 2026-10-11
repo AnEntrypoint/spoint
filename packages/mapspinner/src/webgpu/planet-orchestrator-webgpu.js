@@ -8,6 +8,7 @@ import { MapspinnerPipelineCache, supportsPipelineCache } from './pipeline-cache
 import { PatchGridRenderer, perspectiveZeroToOne } from './patch-grid-render.js'
 import { SkyRenderer, computeCamRotCols, skyFadeFromAlt } from './sky-render.js'
 import { createTransmittanceLutTexture, createScatteringLutTexture, createAtmosphereLutSampler, supportsAtmosphereLutWebGPU } from './atmosphere-lut-compute.js'
+import { resolvePlanetRadiusM } from '../planet-radius.js'
 import { WaterRenderer, WaterOcclusionProbe, createSceneCopyTexture, captureSceneCopy } from './water-render.js'
 import { BilinearUpscale, Fsr1Upscale, DepthWriteback } from './vdrs-composite.js'
 import { SHAPE_UNIFORM_DEFAULTS } from '../terrain-defaults.js'
@@ -90,12 +91,9 @@ export function supportsPlanetWebGPU(renderer) {
 }
 
 export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
-  if (opts.radius != null && (!Number.isFinite(opts.radius) || opts.radius <= 0)) {
-    throw new TypeError(`mapspinner webgpu: opts.radius must be a positive finite number, got ${opts.radius}`)
-  }
   if (!supportsPlanetWebGPU(renderer)) throw new Error('mapspinner webgpu planet: renderer has no usable WebGPU device/context')
   const device = renderer.backend.device
-  const R = opts.radius || 6360000
+  const R = resolvePlanetRadiusM(opts, 'mapspinner webgpu')
   const hpfRes = opts.hpfTexRes || 128
 
   const hpf = createAnchorField({ seed: opts.hpfSeed || 1337 })

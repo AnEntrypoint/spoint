@@ -1,3 +1,5 @@
+import { PLANET_RADIUS_M } from './planet-radius.js'
+
 const FACE_FRAME = [
   { c: [ 1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
   { c: [-1, 0, 0], u: [0, 0,  1], v: [0, 1, 0] },
@@ -27,7 +29,7 @@ function worldToFaceLocal(face, camWorld, R) {
 }
 
 const CULL_MAX_ELEV = 500000.0;
-const CULL_ELEV_FRAC = CULL_MAX_ELEV / 6360000.0;
+const CULL_ELEV_FRAC = CULL_MAX_ELEV / PLANET_RADIUS_M;
 const CULL_NDC_MARGIN = 0.06;
 const _wX = new Float64Array(3), _wY = new Float64Array(3);
 function quadOutsideFrustum(face, ox, oy, l, R, vpr, eye) {

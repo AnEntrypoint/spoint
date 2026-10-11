@@ -2,6 +2,7 @@ import {
   If, float, vec2, vec3, vec4, int, select, texture, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy,
 } from 'three/tsl'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
+import { PLANET_RADIUS_M } from '../planet-radius.js'
 
 const c3 = (a) => vec3(a[0], a[1], a[2])
 const BC_SHORE = c3(TD.bcShore), BC_LOWLAND = c3(TD.bcLowland), BC_GRASS = c3(TD.bcGrass)
@@ -9,7 +10,7 @@ const BC_SNOW = c3(TD.bcSnow)
 const SLOPE_ROCK = TD.slopeRock
 const LUMA = vec3(0.299, 0.587, 0.114)
 const TEX_TILE_BASE_M = TD.texTile
-const SPLAT_DESIGN_RADIUS_M = 6360000.0
+const SPLAT_DESIGN_RADIUS_M = PLANET_RADIUS_M
 const RIDGE_ALBEDO_OCTAVES = [[75.0, 1.0], [375.0, 0.6]]
 
 const byLayer = (lay, v) => select(lay.lessThan(0.5), v[0], select(lay.lessThan(1.5), v[1], select(lay.lessThan(2.5), v[2], v[3])))

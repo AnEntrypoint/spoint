@@ -6,6 +6,7 @@ import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_W
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 import { resolvePoolParams, resolveWetness } from '../pool-params.js'
 import { buildGridGeometry, perspectiveZeroToOne } from '../patch-grid-geometry.js'
+import { resolvePlanetRadiusM } from '../planet-radius.js'
 
 export { buildGridGeometry, perspectiveZeroToOne }
 
@@ -757,7 +758,7 @@ export class PatchGridRenderer {
     this.gridVertexBuffer = createBufferWithData(device, geo.vertices, GPUBufferUsage.VERTEX)
     this.gridIndexBuffer = createBufferWithData(device, geo.indices, GPUBufferUsage.INDEX)
 
-    const composeHeightOpts = opts.composeHeight || { defRadius: opts.defRadius || 6360000 }
+    const composeHeightOpts = opts.composeHeight || { defRadius: resolvePlanetRadiusM({ radiusM: opts.defRadius }, 'mapspinner webgpu patch-grid') }
     if (this.mode === 'sample' && composeHeightOpts.poolRes == null) composeHeightOpts.poolRes = this.poolRes
     this.composeHeightParams = createComposeHeightParams(device, composeHeightOpts)
     this.frameUniformBuffer = createFrameUniformBuffer(device)
