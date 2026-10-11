@@ -65,11 +65,12 @@ function placementInputsChanged(sources, seen) {
   return changed
 }
 
-function worldSeedOf(sources, terrain) {
+function seedOf(sources, terrain) {
   const cfg = (sources.vegetation && sources.vegetation.cfg) || (sources.rocks && sources.rocks.cfg) || null
-  if (cfg && cfg.seed != null) return cfg.seed | 0
+  if (cfg && Number.isInteger(cfg.seed)) return cfg.seed
   const published = typeof window !== 'undefined' ? window.__terrain : null
-  return (published && published.frame === terrain.frame && published.seed != null ? published.seed : 0) | 0
+  if (!published || published.frame !== terrain.frame || !Number.isInteger(published.seed)) return null
+  return published.seed
 }
 
 export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
@@ -127,8 +128,14 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
 
   function beginRefresh(pose, terrain, sources) {
     const span = bufferSpan()
-    state.work = { cx: pose.x, cz: pose.z, span, row: 0, col: 0, phase: 0, rowGuess: NaN, frame: terrain.frame, anchorField: terrain.sampler && terrain.sampler.anchorField, progressive: !state.current || state.current.span !== span }
-    scanner.begin(terrain.frame, state.work.anchorField, sources, worldSeedOf(sources, terrain), pose.x, pose.z, span / 2)
+    const w = {
+      cx: pose.x, cz: pose.z, span, row: 0, col: 0, phase: 0, rowGuess: NaN,
+      frame: terrain.frame, anchorField: terrain.sampler && terrain.sampler.anchorField,
+      progressive: !state.current || state.current.span !== span,
+      seed: seedOf(sources, terrain),
+    }
+    w.placementArmed = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
+    state.work = w
   }
 
   function swapLayers(w) {
@@ -178,6 +185,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
     const deadline = performance.now() + SLICE_MS
     if (w.phase === 0) { if (advanceTerrain(w, deadline)) w.phase = 1; return }
     if (w.phase === 1) { finishTerrain(w); w.phase = 2; return }
+    if (!w.placementArmed) { state.work = null; return }
     const done = scanner.step(deadline, paintGlyphChunk)
     if (w.progressive) state.version++
     if (!done) return
