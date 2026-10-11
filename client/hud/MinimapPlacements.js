@@ -21,10 +21,11 @@ SPECIES.forEach((name, i) => {
   TREE_CLASS[i] = genus[1]
   TREE_CANOPY_M[i] = genus[2] * (size ? size[1] : 1)
 })
+const ALL_SPECIES_RENDERED = Uint8Array.from(SPECIES, () => 1)
 const ROCK_RADIUS_PER_SCALE = 0.5
 
 function packTree(p, out, o, rendered) {
-  if (rendered && !rendered[p.species]) return false
+  if (!rendered[p.species]) return false
   out[o] = p.x; out[o + 1] = p.z; out[o + 2] = TREE_CLASS[p.species]; out[o + 3] = TREE_CANOPY_M[p.species] * p.scale
   return true
 }
@@ -35,7 +36,7 @@ function packRock(p, out, o) {
 
 function renderedSpeciesOf(source) {
   const recs = source && source._meshes
-  if (!Array.isArray(recs)) return null
+  if (!Array.isArray(recs)) return ALL_SPECIES_RENDERED
   const names = new Set(recs.map(r => r && r.name))
   return Uint8Array.from(SPECIES, name => (names.has(name) ? 1 : 0))
 }
@@ -49,7 +50,7 @@ function reportClassifyFailure(e) {
 
 const KINDS = [
   { spec: VEG, classify: classifyTree, pack: packTree, rendered: renderedSpeciesOf, seedXor: 0x7eed, sourceKey: 'vegetation' },
-  { spec: ROCK, classify: classifyRock, pack: packRock, rendered: () => null, seedXor: 0x70c5, sourceKey: 'rocks' },
+  { spec: ROCK, classify: classifyRock, pack: packRock, rendered: () => ALL_SPECIES_RENDERED, seedXor: 0x70c5, sourceKey: 'rocks' },
 ]
 
 function createKindScanner(kind) {
@@ -60,7 +61,7 @@ function createKindScanner(kind) {
   const dec = [0, 0, 0]
   const keys = [], keySet = new Set()
   let frame = null, baseField = null, field = null, seed = 0, lattice = null, cell = null, k = 0, cellIdx = 0, used = 0, strokes = -1
-  let boundSource = null, rendered = null, chunkFailed = false
+  let boundSource = null, rendered = ALL_SPECIES_RENDERED, chunkFailed = false
   let winLeft = 0, winTop = 0, winSpan = 0, sampleStep = 1, sampleCount = 0, sampleRow = 0
 
   function bind(nextFrame, nextBaseField, source, worldSeed) {
