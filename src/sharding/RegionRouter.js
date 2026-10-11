@@ -35,13 +35,13 @@ export class RegionRouter {
     this._workerHandlers = messageTable([
       ['WORKER_BOOTING', () => {}],
       ['WORKER_READY', (msg, regionId) => this.workers.get(regionId)?._resolveReady?.()],
-      ['CLIENT_CONNECTED', msg => this._resolvePending(msg.requestId, msg)],
+      ['CLIENT_CONNECTED', msg => this._settlePending(msg.requestId, msg)],
       ['WORKER_FRAME', (msg, regionId) => this._forwardToClient(regionId, msg)],
       ['CLIENT_CLOSE_FROM_WORKER', (msg, regionId) => this._closeClient(regionId, msg)],
       ['BOUNDARY_CROSSING', (msg, regionId) => this._handleBoundaryCrossing(regionId, msg)],
       ['HANDOFF_ACCEPTED', msg => this._handleHandoffAccepted(msg)],
       ['EVENT_REPLICATE', (msg, regionId) => this._handleEventReplicate(regionId, msg)],
-      ['STATS', msg => this._resolvePending(msg.requestId, msg)],
+      ['STATS', msg => this._settlePending(msg.requestId, msg)],
       [WORKER_REFUSED, (msg, regionId) => this._handleWorkerRefused(regionId, msg)],
     ])
   }
@@ -68,6 +68,7 @@ export class RegionRouter {
       proc.on('exit', (code, signal) => {
         console.error(`[router] region worker ${regionId} exited (code=${code} signal=${signal})`)
         this.workers.delete(regionId)
+        this._abandonHandoffsTo(regionId)
       })
       proc.on('error', (e) => { console.error(`[router] region worker ${regionId} fork error:`, e.message); reject(e) })
       let settled = false
@@ -115,11 +116,33 @@ export class RegionRouter {
     this.workers.clear()
   }
 
-  _resolvePending(requestId, msg) {
+  _addPending(requestId, { resolve, reject, routerId = null }, timeoutMs, timeoutMessage) {
+    const timer = setTimeout(() => this._refusePending(requestId, new Error(timeoutMessage)), timeoutMs)
+    this._pendingRequests.set(requestId, { resolve, reject, routerId, timer })
+  }
+
+  _settlePending(requestId, msg) {
     const pending = this._pendingRequests.get(requestId)
     if (!pending) return
     this._pendingRequests.delete(requestId)
+    clearTimeout(pending.timer)
     pending.resolve(msg)
+  }
+
+  _refusePending(requestId, error) {
+    const pending = this._pendingRequests.get(requestId)
+    if (!pending) return
+    this._pendingRequests.delete(requestId)
+    clearTimeout(pending.timer)
+    pending.reject(error)
+  }
+
+  _abandonHandoffsTo(regionId) {
+    for (const player of this.players.values()) {
+      if (player.handoff?.toRegion !== regionId) continue
+      player.handoff = null
+      console.warn(`[router] handoff to ${regionId} abandoned: no accepting region left to answer it`)
+    }
   }
 
   _playerFor(regionId, localPlayerId) {
@@ -154,9 +177,11 @@ export class RegionRouter {
     }
     const player = this._playerFor(fromRegion, msg.playerId)
     if (!player) return
-    player.pendingRegion = msg.toRegion
-    player.pendingFromRegion = fromRegion
-    player.pendingFromLocalId = msg.playerId
+    if (player.handoff) {
+      console.warn(`[router] boundary crossing to ${msg.toRegion} refused for player ${msg.playerId} (from ${fromRegion}): a handoff to ${player.handoff.toRegion} is still in flight`)
+      return
+    }
+    player.handoff = { toRegion: msg.toRegion, fromRegion, fromLocalId: msg.playerId }
     toEntry.proc.send({
       type: 'ACCEPT_HANDOFF', playerId: msg.playerId, fromRegion, state: msg.state, sessionToken: msg.sessionToken
     })
@@ -173,9 +198,7 @@ export class RegionRouter {
     player.region = msg.region
     player.localPlayerId = msg.newLocalPlayerId
     player.sessionToken = msg.sessionToken
-    delete player.pendingRegion
-    delete player.pendingFromRegion
-    delete player.pendingFromLocalId
+    player.handoff = null
     oldEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.oldPlayerId })
   }
 
@@ -198,7 +221,7 @@ export class RegionRouter {
       return
     }
     const requestId = this._nextRequestId++
-    const player = { socket, region, localPlayerId: null }
+    const player = { socket, region, localPlayerId: null, handoff: null, connectRequestId: requestId }
     this.players.set(routerId, player)
     socket.on('message', (data) => {
       const p = this.players.get(routerId)
@@ -213,16 +236,14 @@ export class RegionRouter {
       if (p) {
         const targetEntry = this.workers.get(p.region)
         targetEntry?.proc.send({ type: 'CLIENT_DISCONNECT', playerId: p.localPlayerId })
+        this._refusePending(p.connectRequestId, new Error('client socket closed before its region answered'))
       }
       this.players.delete(routerId)
     })
     socket.on('error', () => {})
     const readyMsg = await new Promise((resolve, reject) => {
-      this._pendingRequests.set(requestId, { resolve, reject })
+      this._addPending(requestId, { resolve, reject, routerId }, 10000, 'CLIENT_CONNECT timed out')
       entry.proc.send({ type: 'CLIENT_CONNECT', playerId: routerId, requestId })
-      setTimeout(() => {
-        if (this._pendingRequests.has(requestId)) { this._pendingRequests.delete(requestId); reject(new Error('CLIENT_CONNECT timed out')) }
-      }, 10000)
     }).catch(e => { console.error('[router] client connect failed:', e.message); socket.close(); return null })
     if (!readyMsg) { this.players.delete(routerId); return }
     player.localPlayerId = readyMsg.localPlayerId
@@ -268,13 +289,15 @@ export class RegionRouter {
     if (!entry || !entry.ready) return null
     const requestId = this._nextRequestId++
     return new Promise((resolve, reject) => {
-      this._pendingRequests.set(requestId, { resolve, reject })
+      this._addPending(requestId, { resolve, reject }, 5000, 'stats timeout')
       entry.proc.send({ type: 'STATS_REQUEST', requestId })
-      setTimeout(() => { if (this._pendingRequests.has(requestId)) { this._pendingRequests.delete(requestId); reject(new Error('stats timeout')) } }, 5000)
     })
   }
 
   async stop() {
+    for (const requestId of [...this._pendingRequests.keys()]) {
+      this._refusePending(requestId, new Error('router stopped'))
+    }
     if (this.wss) this.wss.close()
     if (this.httpServer) this.httpServer.close()
     this._killAllWorkers()
