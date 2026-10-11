@@ -23,6 +23,7 @@ function eyeHeightOf(local) {
 export function createXRSystem(renderer, scene, camera) {
   const controllerModels = new Map()
   const controllerGrips = new Map()
+  const controllerInputSources = [null, null]
   const controllerModelFactory = new XRControllerModelFactory()
   const handModels = new Map()
   const handModelFactory = new XRHandModelFactory()
@@ -58,6 +59,8 @@ export function createXRSystem(renderer, scene, camera) {
       const ctrl = renderer.xr.getController(h)
       const grip = renderer.xr.getControllerGrip(h)
       ctrl.add(createRayLine({ length: 5, color: 0xffffff, opacity: 0.6, name: 'laserPointer' }))
+      ctrl.addEventListener('connected', e => { controllerInputSources[h] = e.data })
+      ctrl.addEventListener('disconnected', () => { controllerInputSources[h] = null })
       const controllerModel = controllerModelFactory.createControllerModel(grip)
       grip.add(controllerModel); controllerModels.set(h, controllerModel)
       controllerGrips.set(h, grip); scene.add(ctrl); scene.add(grip); ctrl.visible = false; grip.visible = false
@@ -87,12 +90,18 @@ export function createXRSystem(renderer, scene, camera) {
     }
   }
 
+  function aimSourceIndex(matches) {
+    return controllerInputSources.findIndex(s => s !== null && matches(s))
+  }
+
   function readAimPointer() {
     if (!renderer.xr.isPresenting) return null
     const session = renderer.xr.getSession()
     if (!session) return null
     if (handsDetected) {
-      const joints = handModels.get(0)?.hand?.joints ?? renderer.xr.getHand?.(0)?.joints
+      const h = aimSourceIndex(s => s.hand && s.handedness === 'left')
+      if (h < 0) return null
+      const joints = handModels.get(h)?.hand?.joints ?? renderer.xr.getHand?.(h)?.joints
       const indexTip = joints?.['index-finger-tip']
       if (!indexTip) return null
       const thumbTip = joints['thumb-tip']
@@ -103,12 +112,13 @@ export function createXRSystem(renderer, scene, camera) {
       }
     }
     let pointer = null, trigger = false
-    for (const s of session.inputSources) {
-      if (s.handedness === 'left' && s.gamepad) {
-        const ctrl = renderer.xr.getController(0)
+    for (let i = 0; i < controllerInputSources.length; i++) {
+      const s = controllerInputSources[i]
+      if (s?.handedness === 'left' && s.gamepad) {
+        const ctrl = renderer.xr.getController(i)
         pointer = { origin: ctrl.getWorldPosition(new THREE.Vector3()), direction: ctrl.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1), trigger: false }
       }
-      if (s.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) trigger = true
+      if (s?.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) trigger = true
     }
     if (pointer) pointer.trigger = trigger
     return pointer
