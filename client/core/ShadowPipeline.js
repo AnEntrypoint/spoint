@@ -145,3 +145,57 @@ export function createShadowPipeline(sun, opts = {}) {
   if (typeof window !== 'undefined') window.__shadowPipeline = pipeline
   return pipeline
 }
+
+const POSE_CHILDREN = 7, POSE_VISIBLE = 8, POSE_CASTING = 9, POSE_SLOTS = 10
+
+function castsShadow(obj) {
+  if (!obj.visible) return false
+  if (obj.castShadow) return true
+  for (const child of obj.children) if (castsShadow(child)) return true
+  return false
+}
+
+function poseChanged(obj, pose) {
+  const p = obj.position, q = obj.quaternion
+  return pose[0] !== p.x || pose[1] !== p.y || pose[2] !== p.z
+    || pose[3] !== q.x || pose[4] !== q.y || pose[5] !== q.z || pose[6] !== q.w
+    || pose[POSE_CHILDREN] !== obj.children.length
+    || pose[POSE_VISIBLE] !== (obj.visible ? 1 : 0)
+}
+
+function writePose(obj, pose) {
+  const p = obj.position, q = obj.quaternion
+  pose[0] = p.x; pose[1] = p.y; pose[2] = p.z
+  pose[3] = q.x; pose[4] = q.y; pose[5] = q.z; pose[6] = q.w
+  pose[POSE_CHILDREN] = obj.children.length
+  pose[POSE_VISIBLE] = obj.visible ? 1 : 0
+}
+
+export function createShadowCasterTracker() {
+  const _poses = new WeakMap()
+  let _castingCount = 0
+
+  function sync(objects) {
+    let moved = false
+    let castingNow = 0
+    for (const obj of objects) {
+      let pose = _poses.get(obj)
+      if (pose === undefined) {
+        pose = new Float64Array(POSE_SLOTS).fill(NaN)
+        _poses.set(obj, pose)
+      }
+      if (poseChanged(obj, pose)) {
+        writePose(obj, pose)
+        const casting = castsShadow(obj)
+        if (casting || pose[POSE_CASTING] === 1) moved = true
+        pose[POSE_CASTING] = casting ? 1 : 0
+      }
+      castingNow += pose[POSE_CASTING]
+    }
+    if (castingNow !== _castingCount) moved = true
+    _castingCount = castingNow
+    return moved
+  }
+
+  return { sync }
+}

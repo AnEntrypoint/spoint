@@ -34,7 +34,9 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
   mesh.count = 0
   const interleaved = new THREE.InstancedInterleavedBuffer(mesh.instanceMatrix.array, MATRIX_FLOATS, 1)
   mesh.userData.instanceMatrixInterleaved = interleaved
-  const markMatricesDirty = createSlotRangeUploader(interleaved, MATRIX_FLOATS)
+  const markInterleavedDirty = createSlotRangeUploader(interleaved, MATRIX_FLOATS)
+  const markInstanceMatrixDirty = createSlotRangeUploader(mesh.instanceMatrix, MATRIX_FLOATS)
+  const markMatricesDirty = (slot) => { markInterleavedDirty(slot); markInstanceMatrixDirty(slot) }
 
   const shadowMatrices = new Float32Array(capacity * 16)
 

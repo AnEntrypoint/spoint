@@ -80,7 +80,7 @@ import { createPauseMenu } from './hud/PauseMenu.js'
 import { createEmoteWheel } from './hud/EmoteWheel.js'
 import { createChatQuickWheel } from './hud/ChatQuickWheel.js'
 import { dbg } from './core/debug-log.js'
-import { createShadowPipeline } from './core/ShadowPipeline.js'
+import { createShadowPipeline, createShadowCasterTracker } from './core/ShadowPipeline.js'
 import { createTimeOfDay } from './core/TimeOfDay.js'
 import { createWeather } from './core/Weather.js'
 import { setWetness as _setWetnessTint } from './core/WetnessTint.js'
@@ -2649,7 +2649,11 @@ function buildFrameSectionNodes() {
         const _shadowTgt = pm.playerMeshes.get(ctx.res.localId)?.position || camera.position
         const _shadowMoved = shadowPipeline ? shadowPipeline.update(_shadowTgt) : false
         ctx.res.shadowMoved = _shadowMoved
-        if (_shadowMoved) renderer.shadowMap.needsUpdate = true
+        const _playerCasterMoved = shadowPlayerCasters.sync(pm.playerMeshes.values())
+        const _entityCasterMoved = shadowEntityCasters.sync(el.entityMeshes.values())
+        const _casterMoved = _playerCasterMoved || _entityCasterMoved
+        if (_shadowMoved || _casterMoved) renderer.shadowMap.needsUpdate = true
+        if (_casterMoved && shadowPipeline) shadowPipeline.forceUpdate()
       },
     },
     {
@@ -2658,6 +2662,7 @@ function buildFrameSectionNodes() {
       run(ctx) {
         if (!timeOfDay) return
         const _todState = timeOfDay.update(ctx.res.frameDt)
+        if (_todState && window.__grass && typeof window.__grass.setSun === 'function') window.__grass.setSun(_todState)
         try {
           const fog = scene.fog
           if (fog && ambient && typeof window !== 'undefined' && window.__timeOfDay) fog.color.copy(ambient.color)
@@ -2744,6 +2749,8 @@ function buildFrameSectionNodes() {
     },
   ]
 }
+const shadowPlayerCasters = createShadowCasterTracker()
+const shadowEntityCasters = createShadowCasterTracker()
 const frameGraph = createRenderGraph(buildFrameSectionNodes(), { expose: false })
 window.__frameGraph = frameGraph
 
@@ -2760,7 +2767,7 @@ function animate(ts) {
   _graphCtx.modelPool = modelPool; _graphCtx.sceneOcclusion = sceneOcclusion
   occlusionQueryBudget.reportFrameTime(_perf.lastMs)
   renderGraph.run(_graphCtx)
-  if (takeDeferredDraws(renderer) > 0) shadowPipeline?.forceUpdate()
+  if (takeDeferredDraws(renderer) > 0) { renderer.shadowMap.needsUpdate = true; shadowPipeline?.forceUpdate() }
   multiViewport.render(camera)
   minimapHUD.update()
   _perf.sample(performance.now() - now, renderer, pm.playerMeshes.size, el.entityMeshes.size)

@@ -581,7 +581,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     if (grid.usable && frustum) {
       const posMin = grid.posMin, posMax = grid.posMax
       const cenMin = grid.cenMin, cenMax = grid.cenMax, maxR = grid.maxR, minR = grid.minR
-      const reach = Math.min(meshFarDist, grid.spanX + grid.spanZ + grid.maxRadiusAll)
+      const reach = meshFarDist
       const ixMin = Math.max(0, Math.floor((lodEyeX - reach - grid.minX) * grid.invCell))
       const ixMax = Math.min(grid.nx - 1, Math.floor((lodEyeX + reach - grid.minX) * grid.invCell))
       const izMin = Math.max(0, Math.floor((lodEyeZ - reach - grid.minZ) * grid.invCell))

@@ -137,6 +137,7 @@ function createCrowdDotRendererWebGPU(scene, opts) {
   let capacity = opts.capacity || 512
   const geo = makeDotGeo(dotSize)
   const _m4 = new THREE.Matrix4()
+  const _dotPos = new THREE.Vector3(), _dotScale = new THREE.Vector3(), _dotQuat = new THREE.Quaternion()
 
   let inst = buildInstance(capacity)
   let activeCount = 0
@@ -179,11 +180,9 @@ function createCrowdDotRendererWebGPU(scene, opts) {
       }
       const id = inst.acquireId()
       if (id < 0) break
-      _m4.compose(
-        new THREE.Vector3(x, y + 0.05, z),
-        new THREE.Quaternion(),
-        new THREE.Vector3(scale, scale, scale)
-      )
+      _dotPos.set(x, y + 0.05, z)
+      _dotScale.set(scale, scale, scale)
+      _m4.compose(_dotPos, _dotQuat, _dotScale)
       inst.setMatrixAt(id, _m4)
     }
     activeCount = dots.length
