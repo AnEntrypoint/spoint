@@ -276,7 +276,17 @@ export declare class AppContext {
         is(s: any): any;
         matches(s: any): any;
         can(evt: any): any;
-        send(type: any, payload: any): void;
+        send(type: any, payload: any): {
+            ok: boolean;
+            reason: string;
+            event: any;
+            state: any;
+        } | {
+            ok: boolean;
+            event: any;
+            state: any;
+            reason?: undefined;
+        };
         onTransition(fn: any): () => void;
         tick(dt: any): void;
         stop(): void;
