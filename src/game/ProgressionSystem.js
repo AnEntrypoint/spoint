@@ -76,7 +76,7 @@ export function createProgressionSystem(config = {}) {
 
     if (newTotalXp > 0xFFFFFFFF) {
       state.totalXp = 0xFFFFFFFF
-      state.level = cfg.maxLevel
+      state.level = levelForTotalXp(state.totalXp)
       state.xp = state.totalXp - calculateXpThreshold(state.level)
       return false
     }
