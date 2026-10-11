@@ -79,7 +79,7 @@ const sendTimer = setInterval(() => {
 await sleep(1500)
 const player = playerManager.getPlayer(playerId)
 if (!player) {
-  console.error(`RESULT world=${WORLD} FAIL: no player after handshake`)
+  console.error(`RESULT: FAIL: world=${WORLD} no player after handshake`)
   clearInterval(sendTimer)
   try { ws.close() } catch {}
   try { server.stop() } catch {}
@@ -123,8 +123,8 @@ try { server.stop() } catch {}
 await sleep(200)
 
 if (failures.length > 0) {
-  console.error(`RESULT world=${WORLD} FAIL: ${failures.join('; ')}`)
+  console.error(`RESULT: FAIL: world=${WORLD} ${failures.join('; ')}`)
   process.exit(1)
 }
-console.log(`RESULT world=${WORLD} PASS: walked ${path.toFixed(3)}m over ${inputSeq} input step(s) and ${ticks} tick(s)`)
+console.log(`RESULT: PASS: walked ${path.toFixed(3)}m over ${inputSeq} input step(s) and ${ticks} tick(s) in world=${WORLD}`)
 process.exit(0)

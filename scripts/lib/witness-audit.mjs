@@ -367,7 +367,9 @@ function main() {
   }
   const regressions = []
   const improved = []
+  const scanned = new Set()
   for (const entry of report) {
+    scanned.add(entry.file)
     const current = {}
     for (const row of entry.high) current[row.check] = (current[row.check] ?? 0) + 1
     const known = baseline[entry.file] ?? {}
@@ -377,6 +379,11 @@ function main() {
       if (now > was) regressions.push(`${entry.file} [${id}] ${was} -> ${now}`)
       else if (now < was) improved.push(`${entry.file} [${id}] ${was} -> ${now}`)
     }
+  }
+  for (const file of Object.keys(baseline)) {
+    if (scanned.has(file)) continue
+    const rows = Object.values(baseline[file]).reduce((sum, n) => sum + n, 0)
+    regressions.push(`${file} holds ${rows} known finding(s) in ${BASELINE_FILE} but this scan never reached it, so those dead gate(s) cannot be told apart from fixed ones -- delete the file or re-baseline`)
   }
   if (regressions.length > 0) {
     console.log(`RESULT: FAIL ${regressions.length} new dead gate(s): ${regressions.join('; ')}`)
