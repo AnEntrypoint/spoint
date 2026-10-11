@@ -144,7 +144,10 @@ export class AppContext {
       joint: (entityA, entityB, opts) => runtime.addEntityConstraint?.(entityA, entityB, opts),
       removeConstraint: (constraintId) => runtime.removeConstraint?.(constraintId),
       setMotionType: (entityId, motionType) => runtime.setEntityMotionType?.(entityId, motionType) ?? false,
-      isAtRest: (entityId, eps) => runtime.isEntityAtRest?.(entityId, eps) ?? true,
+      isAtRest: (entityId, eps) => {
+        if (typeof runtime.isEntityAtRest !== 'function') throw new Error(`[AppContext] world.isAtRest('${entityId}'): this context's runtime exposes no isEntityAtRest, so rest cannot be observed -- the runtime was released or never finished initialising`)
+        return runtime.isEntityAtRest(entityId, eps)
+      },
       get gravity() { return runtime.gravity }
     }
   }
