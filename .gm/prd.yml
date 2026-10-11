@@ -340,3 +340,12 @@
   status: pending
   surface: src/apps/AppContext.js:301-308 and src/apps/AppRuntime.js:412-425; consumer client/AppModuleSystem.js:84
   title: 'src/apps: the interactable parse result is reified as {prompt, radius} only, so a non-default cooldown is lost on every hydrate and prompt is an untyped value rendered into the DOM'
+- id: ILLEGAL-n-r256-6
+  title: Commit 625e2ecfae is CI-red on the foreign SNAPSHOT_ENCODE bake pin, not on the chart re-anchor contract change
+  why: 'CI run 38100690527 (job check) exits 1: [check-cache-keys] SNAPSHOT_ENCODE_CODE_VERSION pins ''f25a7a74ecc2'' but its producing source hashes to ''6f3c065f8d3b''. Two facts exonerate this hop: (a) BAKE_INPUTS_SNAPSHOT_ENCODE (src/static/BakeCodeVersion.js:109) is exactly ../apps/AppRuntime.js and ../apps/EcsEntityMap.js, and this hop changed only src/shared/chartAnchor.js and src/terrain/ChartReanchorService.js, neither of which is an input; (b) the identical message and identical target hash 6f3c065f8d3b already failed run 38099673672 on headSha d501908298ff6d4e95f64cd6516ac4897124b7a5 at 2026-10-11T00:48:28Z, 18 minutes before 625e2ecfae was pushed (gh run view --json headSha,createdAt; gm dispatches 1791681023964-500-61a42ca1344fdf2a and 1791681029077-500-d8c66ae205c3d4e). The stages this hop''s change could affect all passed in the same run: 789 tracked source files parse cleanly, transform-validation guardrail intact, check-relative-imports 1529 specifiers and 2010 named imports all resolve.'
+  acceptance: The lane that moved AppRuntime.js or EcsEntityMap.js bumps SNAPSHOT_ENCODE_CODE_VERSION in the same commit as that move (it holds both src/shared/cacheCodeVersions.js and scripts/check-cache-keys.mjs dirty now, so this hop does not write that surface); then re-run ci-status on 625e2ecfae and record check green. Until then 625e2ecfae is red for a reason this hop did not create.
+  principle: ILLEGAL
+  surface: src/shared
+  state: pending
+  session_id: orch-main-r256
+  status: pending
