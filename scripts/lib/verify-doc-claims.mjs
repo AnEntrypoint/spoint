@@ -429,46 +429,79 @@ console.log('fold numbers checked: ' + foldNumbers);
 console.log('fold findings: ' + foldFindings.length);
 console.log('fold drift gate: ' + foldFindings.length + ' vs baseline ' + FOLD_FINDINGS_BASELINE + ' at ' + BASELINE_REV + ' -> ' + (foldFindings.length > FOLD_FINDINGS_BASELINE ? 'REGRESSION' : 'accepted'));
 console.log('write-only key findings: ' + writeOnlyFindings.length);
+const PROVENANCE_TAGS = ['LANDED', 'DERIVED', 'STRUCK', 'REFUTED', 'UNSOURCED'];
+const PROVENANCE_SRC = '\\[(' + PROVENANCE_TAGS.join('|') + ')\\]';
+const FIGURE_SLOT_SRC = '\\[(STAT|INSTR|ADAPTER|RES|W):';
+const LIFECYCLE_SRC = '\\[(PLANNED|UNBUILT|AWAITING-RE-DERIVATION|INVALIDATED)\\]';
+
+function parseDocRow(text, section, isOpenQuestion, seenHeading) {
+  const provenanceTags = [...text.matchAll(new RegExp(PROVENANCE_SRC, 'g'))].map((m) => m[1]);
+  const slots = [...text.matchAll(new RegExp(FIGURE_SLOT_SRC, 'g'))].map((m) => m[1]);
+  const modifiers = [...text.matchAll(new RegExp(LIFECYCLE_SRC, 'g'))].map((m) => m[1]);
+  const bullet = text.startsWith('- ');
+  const quotesNumber = /[0-9]/.test(text);
+  const kind = !seenHeading ? 'preamble'
+    : isOpenQuestion ? 'open-question'
+    : (bullet && quotesNumber && (slots.length > 0 || provenanceTags.length > 0)) ? 'figure'
+    : 'prose';
+  return {
+    text, section, kind, bullet, quotesNumber, slots, modifiers, provenanceTags,
+    provenanceCount: provenanceTags.length,
+    provenance: provenanceTags.length === 1 ? provenanceTags[0] : null,
+  };
+}
+
+const docRows = [];
+{
+  let seenHeading = false;
+  let section = '';
+  let isOpenQuestion = false;
+  (fileLines('docs/measurement-figures.md') || []).forEach((line, idx) => {
+    if (line.startsWith('## ')) {
+      seenHeading = true;
+      section = line.slice(3).trim();
+      isOpenQuestion = /^## .*Open questions/.test(line);
+    }
+    const row = parseDocRow(line, section, isOpenQuestion, seenHeading);
+    row.at = 'docs/measurement-figures.md:' + (idx + 1);
+    docRows.push(row);
+  });
+}
+
+const figureRows = docRows.filter((r) => r.kind === 'figure');
+const proseBullets = docRows.filter((r) => r.kind === 'prose' && r.bullet);
+const openQuestionBullets = docRows.filter((r) => r.kind === 'open-question' && r.bullet);
+const provenanceFindings = [];
+for (const row of figureRows) {
+  if (row.provenanceCount === 1) continue;
+  provenanceFindings.push({ kind: row.provenanceCount === 0 ? 'provenance-missing' : 'provenance-multiple', at: row.at, tags: row.provenanceTags, text: row.text.trim().slice(0, 120) });
+}
+const undecidableBullets = proseBullets.filter((r) => r.quotesNumber && r.slots.length === 0 && r.provenanceCount === 0);
+const unadmittedBullets = proseBullets.filter((r) => !(r.quotesNumber && r.slots.length === 0 && r.provenanceCount === 0));
+const lineNumbers = (rows) => rows.map((r) => r.at.split(':')[1]).join(' ') || 'none';
+const provenanceTally = PROVENANCE_TAGS.map((t) => t + ' ' + figureRows.filter((r) => r.provenance === t).length).join(', ');
+console.log('provenance figure rows checked: ' + figureRows.length + ' (' + provenanceTally + ')');
+console.log('doc rows parsed into one class each: figure ' + figureRows.length + ', prose bullet ' + proseBullets.length + ', open-question bullet ' + openQuestionBullets.length);
+console.log('prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): ' + lineNumbers(undecidableBullets));
+console.log('prose bullets the figure rule does not admit (no number, or a slot or tag outside a figure row): ' + lineNumbers(unadmittedBullets));
+console.log('provenance findings (figure row without exactly one provenance tag): ' + provenanceFindings.length);
 const p50Findings = [];
 let p50InvalidatedCount = 0;
 let p50StruckCount = 0;
-{
-  let inInvalidated = false;
-  (fileLines('docs/measurement-figures.md') || []).forEach((line, idx) => {
-    if (line.startsWith('## ')) inInvalidated = line.startsWith('## 0.');
-    if (!/p50/.test(line)) return;
-    if (inInvalidated) { p50InvalidatedCount++; return; }
-    if (/\[(STRUCK|REFUTED)\]/.test(line)) { p50StruckCount++; return; }
-    p50Findings.push({ kind: 'p50-figure-not-invalidated', at: 'docs/measurement-figures.md:' + (idx + 1), text: line.trim().slice(0, 120) });
-  });
-  (fileLines('AGENTS.md') || []).forEach((line, idx) => {
-    if (!/p50/.test(line)) return;
-    if (/INVALID/.test(line)) { p50InvalidatedCount++; return; }
-    p50Findings.push({ kind: 'p50-in-rules-not-invalid', at: 'AGENTS.md:' + (idx + 1), text: line.trim().slice(0, 120) });
-  });
+for (const row of docRows) {
+  if (!/p50/.test(row.text)) continue;
+  if (row.section.startsWith('0.')) { p50InvalidatedCount++; continue; }
+  if (row.provenance === 'STRUCK' || row.provenance === 'REFUTED') { p50StruckCount++; continue; }
+  p50Findings.push({ kind: 'p50-figure-not-invalidated', at: row.at, text: row.text.trim().slice(0, 120) });
 }
+(fileLines('AGENTS.md') || []).forEach((line, idx) => {
+  if (!/p50/.test(line)) return;
+  if (/INVALID/.test(line)) { p50InvalidatedCount++; return; }
+  p50Findings.push({ kind: 'p50-in-rules-not-invalid', at: 'AGENTS.md:' + (idx + 1), text: line.trim().slice(0, 120) });
+});
 console.log('p50 citations invalidated (section 0 or AGENTS INVALID rules): ' + p50InvalidatedCount);
 console.log('p50 citations struck or refuted (outside section 0): ' + p50StruckCount);
 console.log('p50 findings (figure cites p50 without INVALIDATED or STRUCK/REFUTED): ' + p50Findings.length);
-const PROVENANCE_SRC = '\\[(LANDED|DERIVED|STRUCK|REFUTED|UNSOURCED)\\]';
-const provenanceFindings = [];
-let provenanceRows = 0;
-{
-  let seenHeading = false;
-  let questionSection = false;
-  (fileLines('docs/measurement-figures.md') || []).forEach((line, idx) => {
-    if (line.startsWith('## ')) { seenHeading = true; questionSection = /^## .*Open questions/.test(line); }
-    if (!seenHeading || questionSection) return;
-    if (!/^- /.test(line) || !/[0-9]/.test(line)) return;
-    const tags = [...line.matchAll(new RegExp(PROVENANCE_SRC, 'g'))].map((m) => m[1]);
-    if (tags.length === 0 && !/\[(STAT|INSTR|ADAPTER|RES|W):/.test(line)) return;
-    provenanceRows++;
-    if (tags.length === 1) return;
-    provenanceFindings.push({ kind: tags.length === 0 ? 'provenance-missing' : 'provenance-multiple', at: 'docs/measurement-figures.md:' + (idx + 1), tags, text: line.trim().slice(0, 120) });
-  });
-}
-console.log('provenance figure rows checked: ' + provenanceRows);
-console.log('provenance findings (figure row without exactly one provenance tag): ' + provenanceFindings.length);
 const DEFAULT_CLAIM_KEYS = ['dprAuto'];
 const DEFAULT_RULE_DOCS = [process.env.VERIFY_DEFAULT_RULE_DOC || 'docs/measurement-figures.md', 'AGENTS.md'];
 const defaultValueFindings = [];

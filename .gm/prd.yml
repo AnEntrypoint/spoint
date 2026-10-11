@@ -825,3 +825,18 @@
   witness: hop PARNAS src/spatial receipt, dispatch 1791697944703-500-a1cdaa080d95ecc8 (ring witness PASS 4/4); codesearch 1791698162089-500-a6330a93010f568c (nearbyHorizontal absent from src/, nearbyCylinder present)
   session_id: orch-main
   status: pending
+- id: PARSEDV-1-sub1-1
+  title: docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked
+  body: 'Witness 1791698264682-500-e66513d7cf2ca62d (differential run of the parsed row gate) and the live tree run: the new parse prints ''prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): 53 109''. :53 carries the RES budget/threshold prose and :109 carries a ms threshold; neither has a [STAT:]/[INSTR:] slot or a [LANDED]/[DERIVED] tag, so :12''s mandatory-and-total provenance rule cannot see them and :15 silently excuses them as prose. Fix on the doc: give :109 a figure slot plus [DERIVED] (or [STRUCK] if it no longer holds), and either give :53 a slot or name it prose at :15 so the excuse is declared rather than inferred. Owner: docs/measurement-figures.md (not the gate''s surface).'
+  session_id: orch-main-r302-sub1-i1-sub1
+  status: pending
+- id: PARSEDV-1-sub1-2
+  title: 'scripts/lib/verify-doc-claims.mjs: the figure predicate still requires an ASCII digit, so docs/measurement-figures.md:129 ([ADAPTER:AMD iGPU] [UNSOURCED], no digit) parses as prose and its provenance is never checked'
+  body: 'Witness 1791698264682-500-e66513d7cf2ca62d. parseDocRow admits a row as a figure only when bullet && /[0-9]/ && (slots.length>0 || provenanceCount>0); the digit test is a proxy for ''quotes a measurement'' and it drops every row whose number is spelled out or absent. Live tree run prints ''prose bullets the figure rule does not admit ... : 52 59 129'', and :129 carries a slot AND a provenance tag -- exactly the rows :12 says must carry provenance -- yet it is never counted. Fix: derive the figure predicate from the shape the file declares (a bullet carrying a slot or a provenance tag) and carry quotesNumber as a reported field, not as admission; re-measure the three line numbers before changing gate semantics, since admission changes which rows :12 governs.'
+  session_id: orch-main-r302-sub1-i1-sub1
+  status: pending
+- id: PARSEDV-1-sub1-3
+  title: 'scripts/lib/verify-doc-claims.mjs: the open-question exclusion matches the heading text (## .*Open questions), so renaming section 13 silently re-admits its bullets as figure rows'
+  body: 'Witness 1791698264682-500-e66513d7cf2ca62d (fixture carries a ''## 13. Open questions'' heading and its bullets class as open-question). The parse keys isOpenQuestion off a regex over the heading title, so the gate''s notion of ''which rows are exempt'' is a string it re-derives per line instead of a field of the parsed section. Fix: parse the heading into (number, title) and exempt by section number (13), with the title recorded only for the report; then a rename moves no admission. Verify with the same differential fixture: rename the heading and confirm the classification counts hold.'
+  session_id: orch-main-r302-sub1-i1-sub1
+  status: pending
