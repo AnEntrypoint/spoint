@@ -290,3 +290,53 @@
   action: return a tagged union ({kind:'stay'|'reanchor'|'refusal', ...}) so 'accepted with no anchorDir' and 'refused with no reason' are unrepresentable
   witness: 1791680450162-500-5fab493a725e7c82
   session_id: orch-main-r256
+- id: WADLER-n-r249sub1-1
+  SESSION_ID: orch-main-r249-sub1
+  title: 'src/apps: ''interactable'' has three constructors and only one writes the reified custom._interactable, so a physics.setInteractable entity is pressed by the server tick with no client prompt'
+  surface: src/apps/AppPhysics.js:101 vs src/apps/AppContext.js:296-310; consumers client/AppModuleSystem.js:80 and client/app.js:2172; server tick src/apps/AppRuntimeTick.js:305-312
+  node: WADLER
+  status: pending
+  session_id: orch-main-r249-sub1
+  acceptance_criteria: A live node dispatch shows setInteractable(-1) and setInteractable(NaN) rejected by the same TypeError AppContext.interactable({radius:-1}) throws, and shows every producer leaving custom._interactable present and equal; a second dispatch shows the client predicate (entity.custom?._interactable) truthy for an entity made interactable through physics.setInteractable.
+  body: |-
+    PRINCIPLE WADLER (Theorems for free! / Propositions as Types) over src/apps. NODE-ONLY: filed by hop orch-main-r249-sub1, not executed by it.
+
+    CLAIM: the type custom._interactable = {prompt, radius} is not the type of an interactable entity - it is an optional side effect of one of three constructors, so no free theorem about interactable entities holds.
+
+    PRODUCER A: AppContext.interactable (src/apps/AppContext.js:296-310) parses and validates (throws TypeError 'interactable: radius must be a non-negative finite number' on non-finite or negative radius, same for cooldown), then writes ent._interactable/_interactRadius/_interactCooldown AND ent.custom._interactable = {prompt, radius}.
+    PRODUCER B: physics.setInteractable (src/apps/AppPhysics.js:101) is one line - `setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id) }`. It validates nothing and never writes custom._interactable.
+    PRODUCER C: AppRuntime._hydrateInteractable (src/apps/AppRuntime.js:412-425) re-derives the same two fields from custom._interactable under a weaker rule.
+
+    CONSEQUENCE: the two halves of the system read different representations. The server tick iterates runtime._interactableIds and tests `e._interactRadius` (src/apps/AppRuntimeTick.js:305-312), so a setInteractable entity IS pressed server-side. Both client prompt consumers read only `entity.custom?._interactable` and `continue` when it is absent (client/AppModuleSystem.js:80-81, client/app.js:2172-2173), so that same entity never shows a prompt. The server offers an interaction the client cannot advertise.
+
+    WITNESS: exec_js 1791680755504-500-c8bb16aa6d85c9fe against the real modules: buildPhysicsAPI(e,rt).setInteractable(-1) throws nothing and yields {_interactable:true, _interactRadius:-1, custom._interactable:ABSENT, in _interactableIds:true}; setInteractable(NaN) yields _interactRadius NaN with custom._interactable still ABSENT; setInteractable(7) yields radius 7 with custom._interactable still ABSENT; AppContext(e,rt).interactable({radius:-1}) throws TypeError 'interactable: radius must be a non-negative finite number'. codesearch literal '_interact' dispatch 1791680707630-500-b49f2c1d1530001 (56 lines, exhaustive per subtree): custom._interactable is WRITTEN at exactly one site (src/apps/AppContext.js:308) and READ at exactly three (src/apps/AppRuntime.js:414, client/AppModuleSystem.js:80, client/app.js:2172).
+
+    FIX (Wadler: make the illegal state unrepresentable): one constructor. Introduce parseInteractable(config) -> {prompt: string, radius: number, cooldown: number} that throws or returns a distinguished rejection; AppContext.interactable, physics.setInteractable and _hydrateInteractable all call it and all write the same reified block; the tick and the client then read one representation.
+
+    BLOCKER: not an edit this hop. git_status paths-scoped dispatch 1791680434257-500-1052df89cb4dff42 reports src/apps/AppContext.js already modified by another writer (real hunk at :107, the `set custom` plain-object guard), so the hop rule 'close it only if no other writer holds the file' makes this a row. The fix also spans AppPhysics.js and AppContext.js, not one exact-match Edit.
+
+    MERGE: this is the same one-parser work as PARSEDV-n-r249-1 (prd.yml:41370, pending, session orch-main-r249), which owns AppContext.interactable's predicate. Not retired here - another lane owns it. Fold both into one change: a single parseInteractable used by all three producers.
+- id: WADLER-n-r249sub1-2
+  SESSION_ID: orch-main-r249-sub1
+  acceptance_criteria: A live node dispatch shows interactable({cooldown:1500}) surviving a serialize -> _hydrateInteractable round trip with _interactCooldown 1500 (not 500), and shows interactable({prompt:42}) either rejected with a TypeError by the shared parser or coerced to a string by it - never stored as the number 42.
+  body: |-
+    PRINCIPLE WADLER (Theorems for free! / Propositions as Types) over src/apps. NODE-ONLY: filed by hop orch-main-r249-sub1, not executed by it.
+
+    CLAIM: AppContext.interactable computes a three-field parse result and reifies a two-field value, and the one field the reified value does carry has no type at all. src/apps/AppContext.js:301-303 normalizes radius/prompt/cooldown to 3/'Press E'/500; :308 writes `ent.custom._interactable = { prompt, radius }` - cooldown is dropped. `prompt` is never validated at either end (only radius and cooldown have the :298-299 guard), so :302 `config.prompt ?? 'Press E'` passes any value through.
+
+    CONSUMER: src/apps/AppRuntime.js:418-419 re-reads radius and cooldown out of the block and never reads prompt, so the dropped cooldown silently reverts to `e._interactCooldown ?? 500` on every snapshot restore, respawn and editor custom edit (src/sdk/EditorHandlers.js:283). The client renders the unvalidated field straight into the DOM: client/AppModuleSystem.js:84 `createElement('div', {...}, cfg.prompt)`.
+
+    WADLER READING: a signature that promises void and a reified type narrower than the parse result make the free theorem unusable - no caller can obtain the parsed value, and the value that does cross the wire cannot reconstruct it.
+
+    WITNESS: exec_js 1791680574843-500-4dcd5c6458dcb001 against the real modules - interactable({radius:5, cooldown:1500, prompt:'Open'}) produces {_interactRadius:5, _interactCooldown:1500, custom._interactable:{prompt:'Open', radius:5}}; hydrating a FRESH entity carrying exactly that block (AppRuntime.prototype._hydrateInteractable) gives {radius:5, cooldown:500}, cooldownSurvivesRoundTrip=false - the non-default 1500 ms cooldown is lost. Same dispatch: interactable({prompt:42}) stores prompt 42 with no error at either end; _validate('require("fs")') returns a bare boolean false, corroborating PARSEDV-n-r249-2.
+
+    FIX: parseInteractable returns {prompt: string, radius: number, cooldown: number} in full; the reified block carries all three; _hydrateInteractable consumes the stored value with no typeof re-check; prompt is parsed (string, defaulted) rather than passed through.
+
+    BLOCKER: not an edit this hop. src/apps/AppContext.js is held by another writer (git_status dispatch 1791680434257-500-1052df89cb4dff42, hunk at :107), and the fix spans AppContext.js plus AppRuntime.js, not one exact-match Edit.
+
+    RETIRE: .gm/prd.yml carries at least five byte-identical copies of one row, cpu-plan-interactables-gate-on-press (lines 1821, 5130, 8426, 11722, 15038; codesearch literal 'interactable' over .gm/prd.yml dispatch 1791680755878-500-904f7ce24b131d4e, hit-capped at 40 so more may exist). Four of the five are stale duplicates: retire them and keep one.
+  node: WADLER
+  session_id: orch-main-r249-sub1
+  status: pending
+  surface: src/apps/AppContext.js:301-308 and src/apps/AppRuntime.js:412-425; consumer client/AppModuleSystem.js:84
+  title: 'src/apps: the interactable parse result is reified as {prompt, radius} only, so a non-default cooldown is lost on every hydrate and prompt is an untyped value rendered into the DOM'
