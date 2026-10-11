@@ -11,6 +11,37 @@ const { setup, createActor, assign } = _xstate
 
 const STATE_KEYS = ['enter', 'entry', 'exit', 'tick', 'on', 'after', 'final', 'type']
 
+const _MS_KEY = /^\d+$/
+
+function describeDef(d) {
+  if (typeof d === 'string') return `"${d}"`
+  if (Array.isArray(d)) return 'an array'
+  return String(d)
+}
+
+function checkTransition(stateName, what, def, names) {
+  if (def === null || def === undefined || (typeof def !== 'string' && (typeof def !== 'object' || Array.isArray(def)))) {
+    throw new Error(`[game-fsm] state "${stateName}" ${what} must be a target state name or a transition object, got ${describeDef(def)}`)
+  }
+  if (typeof def === 'string') {
+    if (!names.includes(def)) throw new Error(`[game-fsm] state "${stateName}" ${what} targets unknown state "${def}"`)
+    return
+  }
+  if (def.target !== undefined) {
+    if (typeof def.target !== 'string' || !names.includes(def.target)) {
+      throw new Error(`[game-fsm] state "${stateName}" ${what} targets unknown state "${def.target}"`)
+    }
+  } else if (typeof def.action !== 'function') {
+    throw new Error(`[game-fsm] state "${stateName}" ${what} resolves to no transition: it declares neither a target nor an action, so the event is dead in every state that receives it`)
+  }
+  if (def.guard !== undefined && typeof def.guard !== 'function') {
+    throw new Error(`[game-fsm] state "${stateName}" ${what} declares a guard that is not a function, so it is never read`)
+  }
+  if (def.action !== undefined && typeof def.action !== 'function') {
+    throw new Error(`[game-fsm] state "${stateName}" ${what} declares an action that is not a function, so it is never called`)
+  }
+}
+
 function validateSpec(spec) {
   if (!spec || typeof spec !== 'object') throw new Error('[game-fsm] spec must be an object')
   const states = spec.states
@@ -22,21 +53,22 @@ function validateSpec(spec) {
   if (!names.includes(spec.initial)) {
     throw new Error(`[game-fsm] spec.initial "${spec.initial}" is not a declared state (have: ${names.join(', ')})`)
   }
-  const targetsOf = (def) => (Array.isArray(def) ? def : [def]).map(d => typeof d === 'string' ? d : d?.target).filter(Boolean)
   for (const name of names) {
     const st = states[name] || {}
+    const eachTransition = (what, def) => {
+      const list = Array.isArray(def) ? def : [def]
+      if (list.length === 0) throw new Error(`[game-fsm] state "${name}" ${what} declares no transition`)
+      for (const one of list) checkTransition(name, what, one, names)
+    }
     for (const k of Object.keys(st)) {
       if (!STATE_KEYS.includes(k)) throw new Error(`[game-fsm] state "${name}" declares unknown key "${k}" (handled: ${STATE_KEYS.join(', ')})`)
     }
     for (const [evt, def] of Object.entries(st.on || {})) {
-      for (const target of targetsOf(def)) {
-        if (!names.includes(target)) throw new Error(`[game-fsm] state "${name}" event "${evt}" targets unknown state "${target}"`)
-      }
+      eachTransition(`event "${evt}"`, def)
     }
     for (const [ms, def] of Object.entries(st.after || {})) {
-      for (const target of targetsOf(def)) {
-        if (!names.includes(target)) throw new Error(`[game-fsm] state "${name}" after(${ms}) targets unknown state "${target}"`)
-      }
+      if (!_MS_KEY.test(ms)) throw new Error(`[game-fsm] state "${name}" declares after(${ms}); the key is a delay in milliseconds and must be a non-negative integer`)
+      eachTransition(`after(${ms})`, def)
     }
   }
 }
@@ -128,8 +160,12 @@ export function defineGameFSM(spec, appCtx) {
     matches(s) { return actor.getSnapshot().matches(s) },
     can(evt) { return actor.getSnapshot().can({ type: evt }) },
     send(type, payload) {
-      if (_stopped) return
-      actor.send(payload != null ? { type, ...payload } : { type })
+      const event = payload != null ? { type, ...payload } : { type }
+      const before = actor.getSnapshot()
+      if (_stopped) return { ok: false, reason: 'stopped', event: type, state: before.value }
+      if (!before.can(event)) return { ok: false, reason: 'unhandled', event: type, state: before.value }
+      actor.send(event)
+      return { ok: true, event: type, state: actor.getSnapshot().value }
     },
     onTransition(fn) {
       if (_stopped) return () => {}

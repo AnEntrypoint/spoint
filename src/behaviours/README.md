@@ -104,7 +104,7 @@ fsm.context          // live game-data bag (== xstate context; mutate via fsm.co
 fsm.timeInState      // ms since entering the current state
 fsm.is(name)         // fsm.matches(name)
 fsm.can(event)       // would this event cause a transition right now?
-fsm.send(event, payload?)
+fsm.send(event, payload?) // -> { ok: true, event, state } | { ok: false, reason, event, state }
 fsm.onTransition(fn) // fn(stateName, fsm) on each change; returns an unsubscribe
 fsm.tick(dt)         // drive the active state's tick hook
 fsm.stop()           // tear down (idempotent)
@@ -130,9 +130,14 @@ with `spoint create-app --template fsm-game my-match`.
   `lifecycle.js`.
 - `fsm.context` is the *same reference* as the xstate context, so mutating it in a
   hook (`fsm.context.round++`) is visible to guards/timed logic immediately.
-- Send to an unknown event, tick before/after stop, and double-stop are all safe
-  no-ops. Bad specs (missing/unknown `initial`, transition to an undeclared state,
-  empty `states`) throw at build time.
+- `send` is total over (state, event): it never silently drops an event. A miss
+  returns `{ ok: false, reason: 'unhandled' | 'stopped', event, state }`, so an
+  event the current state does not handle is distinguishable from one it handles;
+  `can(event)` is the same question asked without sending. Bad specs (missing or
+  unknown `initial`, a transition to an undeclared state, empty `states`, an
+  `after` key that is not a millisecond count, or a transition declaring neither
+  a target nor an action) throw at build time rather than shipping a dead event.
+  Tick before/after stop and double-stop stay safe no-ops.
 
 Verification: no standing test file (repo convention -- see the root AGENTS.md
 "no test files, ever" discipline); exercised live via real `defineGameFSM`
