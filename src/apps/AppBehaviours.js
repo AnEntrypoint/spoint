@@ -23,6 +23,11 @@ export function validateBehaviourSpec(spec, where) {
   if (typeof spec !== 'object' || Array.isArray(spec)) throw new TypeError(`${where} must be an object mapping behaviour names to their spec`)
   for (const name of Object.keys(spec)) {
     if (!Object.hasOwn(BEHAVIOUR_FACTORIES, name)) throw new TypeError(`${where} names unknown behaviour "${name}" (known: ${BEHAVIOUR_NAMES.join(', ')})`)
+    const config = spec[name]
+    if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+      const got = config === null ? 'null' : Array.isArray(config) ? 'array' : typeof config
+      throw new TypeError(`${where} behaviour "${name}" config must be an object (got ${got})`)
+    }
   }
   return spec
 }
