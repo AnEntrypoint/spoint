@@ -402,6 +402,7 @@ const FOLD_CORRECTED = {
   'TickHandler.js:30': 'citation corrected to TickHandler.js:29 (the SNAP_COST_HIGH_FRAC declaration; line 30 is SNAP_STALL_ENTER), validated by the path:line check',
 };
 const BASELINE_REV = '55cd0199';
+const FOLD_FINDINGS_BASELINE = 84;
 const baselineText = (() => {
   try { return execFileSync('git', ['show', BASELINE_REV + ':AGENTS.md'], { cwd: ROOT, maxBuffer: 1 << 26 }).toString('utf8'); }
   catch { return ''; }
@@ -426,6 +427,7 @@ for (const m of baselineText.matchAll(/[0-9][0-9A-Za-z.]*/g)) {
 console.log('fold tokens checked (backticked, vs ' + BASELINE_REV + ' AGENTS.md): ' + foldTokens);
 console.log('fold numbers checked: ' + foldNumbers);
 console.log('fold findings: ' + foldFindings.length);
+console.log('fold drift gate: ' + foldFindings.length + ' vs baseline ' + FOLD_FINDINGS_BASELINE + ' at ' + BASELINE_REV + ' -> ' + (foldFindings.length > FOLD_FINDINGS_BASELINE ? 'REGRESSION' : 'accepted'));
 console.log('write-only key findings: ' + writeOnlyFindings.length);
 const p50Findings = [];
 let p50InvalidatedCount = 0;
@@ -487,7 +489,8 @@ for (const key of DEFAULT_CLAIM_KEYS) {
   }
 }
 console.log('default-value claims checked: ' + defaultClaimLines);
-const allClear = findings.length === 0 && keyFindings.length === 0 && foldFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0 && provenanceFindings.length === 0 && defaultValueFindings.length === 0;
+const foldRegression = foldFindings.length > FOLD_FINDINGS_BASELINE;
+const allClear = findings.length === 0 && keyFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0 && provenanceFindings.length === 0 && defaultValueFindings.length === 0 && !foldRegression;
 console.log('RESULT: ' + (allClear ? 'PASS' : 'FAIL'));
 console.log('paths checked: ' + pathsChecked + ' (+' + dirsChecked + ' directories)');
 console.log('path:line claims checked: ' + linesChecked + ' (symbol ' + linesSymbolAsserted + ', derived ' + linesDerived + ', existence-only ' + linesExistenceOnly + ', symbol-absent ' + linesSymbolAbsent + ')');
