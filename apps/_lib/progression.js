@@ -16,7 +16,8 @@ const ABILITY_TREE_APP_METHODS = [
   'getAllAbilities',
   'getUnlockedAbilities',
   'getPlayerAbilityInfo',
-  'getCooldownsForNetwork'
+  'getCooldownsForNetwork',
+  'getAllHotkeyBindings'
 ]
 
 export function defineProgression(spec = {}) {
