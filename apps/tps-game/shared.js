@@ -54,14 +54,14 @@ export const EMOTE_WHEEL_SLOTS = Object.freeze(
   Object.entries(EMOTES).map(([code, emote]) => Object.freeze({ code, label: emote.label }))
 )
 
-const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
+export const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
 
 export function predictHit(origin, dir, players, selfId, headshotZone) {
   const direction = normalizeShotDirection(dir)
   if (!isFiniteVec3(origin) || !direction || !Array.isArray(players)) return null
   for (const p of players) {
     if (!p || String(p.id) === String(selfId) || !isFiniteVec3(p.position)) continue
-    if ((p.health ?? 100) <= 0) continue
+    if ((p.health ?? COMBAT_CONFIG.health) <= 0) continue
     const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
     if (!hit) continue
     return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= (headshotZone ?? DEFAULT_HEADSHOT_ZONE) }

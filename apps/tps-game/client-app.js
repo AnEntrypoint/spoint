@@ -1,4 +1,4 @@
-import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG } from './shared.js'
+import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG, isFiniteVec3 } from './shared.js'
 
 const TRACER_RANGE = 100
 const DMG_DEALT_WINDOW_MS = 500
@@ -25,6 +25,23 @@ const withinMs = (now, at, windowMs) => remainingMs(now, (at || 0) + windowMs) >
 const hitMarkerOn = (now, tps, engine) => withinMs(now, tps?.hitMarkerTime, HIT_MARKER_WINDOW_MS + markerRttPadMs(engine))
 const headshotMarkerOn = (now, tps, engine) => withinMs(now, tps?.headshotMarkerTime, HEADSHOT_MARKER_WINDOW_MS + markerRttPadMs(engine))
 const killConfirmOn = (now, tps, engine) => withinMs(now, tps?.killTime, killConfirmWindowMs(engine))
+
+const localPlayerOf = (engine) => {
+  const client = engine?.client
+  const playerId = engine?.playerId ?? null
+  const players = client?.state?.players
+  const serverMirror = Array.isArray(players) ? players.find(p => p && p.id === playerId) ?? null : null
+  const predicted = client?.getLocalState?.() ?? null
+  const motionRecord = predicted ?? serverMirror
+  const vitalsRecord = serverMirror ?? predicted
+  return {
+    id: motionRecord?.id ?? playerId,
+    position: isFiniteVec3(motionRecord?.position) ? motionRecord.position : null,
+    velocity: isFiniteVec3(motionRecord?.velocity) ? motionRecord.velocity : null,
+    onGround: motionRecord?.onGround === true,
+    health: Number.isFinite(vitalsRecord?.health) ? vitalsRecord.health : COMBAT_CONFIG.health
+  }
+}
 
 function mobileVibrate(engine, pattern) {
   if (!engine?.mobileControls?.enabled) return
@@ -143,8 +160,8 @@ export const tpsGameClient = {
     if (input.reload && !tps.reloading && Date.now() - tps.lastReloadTime > 100) { tps.lastReloadTime = Date.now(); engine.client.sendReload() }
     if (input.shoot && !tps.reloading && tps.ammo > 0 && Date.now() - tps.lastShootTime > 100 / (tps.boost?.fireRate || 1)) {
       tps.lastShootTime = Date.now()
-      const local = engine.client.getLocalState?.() || engine.client.state?.players?.find(p => p.id === engine.playerId)
-      if (local && local.position) {
+      const local = localPlayerOf(engine)
+      if (local.position) {
         const pos = local.position
         const dir = engine.cam.getAimDirection(pos)
         engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: dir })
@@ -200,16 +217,16 @@ export const tpsGameClient = {
     if (payload.type === 'hit' && tps && payload.target === engine.playerId) {
       tps.lastHitTime = Date.now(); tps.lastDamageTaken = payload.damage || 0
       mobileVibrate(engine, 35)
-      const local = engine.client.getLocalState?.()
-      if (local && local.velocity && payload.dir && payload.knockback) {
+      const local = localPlayerOf(engine)
+      if (local.velocity && payload.dir && payload.knockback) {
         local.velocity[0] += payload.dir[0] * payload.knockback
         local.velocity[2] += payload.dir[2] * payload.knockback
         engine.client.recordKnockback?.([payload.dir[0], 0, payload.dir[2]], payload.knockback, tps.lastHitTime)
       }
     }
     if (payload.type === 'hit' && tps && payload.shooter !== engine.playerId && payload.target !== engine.playerId && payload.pos) {
-      const listener = engine.client?.getLocalState?.()
-      if (listener?.position) {
+      const listener = localPlayerOf(engine)
+      if (listener.position) {
         const d = Math.hypot(payload.pos[0] - listener.position[0], payload.pos[2] - listener.position[2])
         if (d < 60) tps.juice?.tone(140, 0.04, Math.max(0.04, 0.16 * (1 - d / 60)), 85)
       }
@@ -274,15 +291,15 @@ export const tpsGameClient = {
     if (dtk) { const on = withinMs(now, tps.lastHitTime, DMG_TAKEN_WINDOW_MS); const t = on && tps.lastDamageTaken ? ('-' + tps.lastDamageTaken) : ''; if (tps._lastDtkText !== t) { tps._lastDtkText = t; dtk.textContent = t; dtk.style.opacity = on ? '1' : '0' } }
     const shield = tps._elShield
     if (shield) { const rem = remainingMs(now, tps.spawnShieldUntil); const op = rem > 0 ? String(Math.min(0.6, rem / COMBAT_CONFIG.spawnInvulnMs * 0.6)) : '0'; if (tps._lastShieldOp !== op) { tps._lastShieldOp = op; shield.style.opacity = op } }
-    const lp = engine.client?.state?.players?.find(p => p.id === engine.playerId)
+    const lp = localPlayerOf(engine)
     const vig = tps._elVig
     {
-      const vy = lp?.velocity?.[1] ?? 0, og = !!lp?.onGround
+      const vy = lp.velocity?.[1] ?? 0, og = lp.onGround
       if (og && tps._wasOnGround === false && (tps._fallVy || 0) < -9 && engine.cam?.punch) engine.cam.punch(0.18)
       tps._fallVy = og ? 0 : vy; tps._wasOnGround = og
     }
     if (vig) {
-      const hp = lp?.health ?? 100
+      const hp = lp.health
       const dmgFlash = withinMs(now, tps.lastHitTime, DAMAGE_FLASH_WINDOW_MS) ? 0.32 : 0
       const lowHp = hp > 0 && hp < 30 ? 0.12 + 0.06 * Math.sin(now / 180) : 0
       const op = String(Math.min(0.4, Math.max(dmgFlash, lowHp)))
@@ -292,8 +309,8 @@ export const tpsGameClient = {
   render(ctx) {
     const h = ctx.h; if (!h) return { position: ctx.entity.position }
     const s = ctx.state || {}
-    const local = ctx.players?.find(p => p.id === ctx.engine?.playerId)
-    const hp = local?.health ?? 100
+    const local = localPlayerOf(ctx.engine)
+    const hp = local.health
     const tps = ctx.engine?._tps
     const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
     const ammo = tps?.ammo ?? 0
