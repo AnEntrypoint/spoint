@@ -1,11 +1,5 @@
 import * as THREE from 'three'
 
-const _v0 = new THREE.Vector3()
-const _v1 = new THREE.Vector3()
-const _v2 = new THREE.Vector3()
-const _v3 = new THREE.Vector3()
-const _q0 = new THREE.Quaternion()
-
 function worldDistance(from, to) {
   return from.getWorldPosition(new THREE.Vector3()).distanceTo(to.getWorldPosition(new THREE.Vector3()))
 }
@@ -62,8 +56,8 @@ export class TwoBoneIKSolver {
     this.enabled = true
     this.weight = 1.0
 
-    this.rootLength = worldDistance(rootBone, middleBone)
-    this.middleLength = worldDistance(middleBone, endBone)
+    this.rootLength = 0
+    this.middleLength = 0
 
     this.tolerance = positiveOptionOf(options.tolerance, DEFAULT_TOLERANCE, 'options.tolerance', TWO_BONE_SOLVER)
     this.useWorldSpace = booleanOptionOf(options.useWorldSpace, true, 'options.useWorldSpace', TWO_BONE_SOLVER)
@@ -72,6 +66,14 @@ export class TwoBoneIKSolver {
     this._rootWorldPos = new THREE.Vector3()
     this._middleWorldPos = new THREE.Vector3()
     this._endWorldPos = new THREE.Vector3()
+
+    this.measureBoneLengths()
+  }
+
+  measureBoneLengths() {
+    this.rootLength = worldDistance(this.rootBone, this.middleBone)
+    this.middleLength = worldDistance(this.middleBone, this.endBone)
+    return this
   }
 
   setTarget(position) {
@@ -179,7 +181,6 @@ export class FootIKSolver {
     this.enabled = true
     this.weight = 1.0
     this.rayDistance = positiveOptionOf(options.rayDistance, DEFAULT_RAY_DISTANCE, 'options.rayDistance', FOOT_SOLVER)
-    this.upDirection = new THREE.Vector3(0, 1, 0)
     this.solved = false
   }
 
@@ -254,6 +255,12 @@ export class IKRig {
   }
 
   createChain(name) {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`[IKRig] createChain needs a non-empty chain name; got ${describe(name)}`)
+    }
+    if (this.chains.has(name)) {
+      throw new Error(`[IKRig] createChain cannot replace the chain already named "${name}"`)
+    }
     const chain = new IKChain(name)
     this.chains.set(name, chain)
     return chain

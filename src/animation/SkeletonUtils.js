@@ -1,10 +1,5 @@
 import * as THREE from 'three'
 
-const _q0 = new THREE.Quaternion()
-const _q1 = new THREE.Quaternion()
-const _v0 = new THREE.Vector3()
-const _v1 = new THREE.Vector3()
-
 export class SkeletonUtils {
   static findBoneByName(skeleton, boneName) {
     if (!skeleton || !skeleton.bones) return null
