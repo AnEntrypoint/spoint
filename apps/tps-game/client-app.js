@@ -110,7 +110,7 @@ export const tpsGameClient = {
   setup(engine) {
     const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
     engine.scene.add(flash)
-    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: 2000 }
+    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, magazineSize: COMBAT_CONFIG.magazineSize, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: 2000 }
     this._tps = engine._tps
     engine._tps.juice = makeJuice()
     try { engine._tps.emoteWheel = engine.createEmoteWheel?.(EMOTE_WHEEL_SLOTS) } catch (_) {}
