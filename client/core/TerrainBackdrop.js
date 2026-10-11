@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createPlanetFrame, elevationAtLocal, guardedGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
+import { createPlanetFrame, elevationAtLocal, guardedGroundHeight, isNoGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
 import { terrainHashVersionOf, terrainCarvesOf, LEGACY_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
 import { dbg } from './debug-log.js'
@@ -186,11 +186,12 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   let _lastPrefetchSec = -Infinity
   const RECONCILE_MOVE_M = 0.35
   let _lastSurfElevGh = null
-  const surfaceGroundHeight = guardedGroundHeight('terrain backdrop surface elevation', (x, z) => {
+  const _guardedSurfaceGround = guardedGroundHeight('terrain backdrop surface elevation', (x, z) => {
     const hfn = frame._patchHeightOrNull
     const gh = hfn ? hfn(x, z) : frame.groundHeightLocal(x, z)
     return gh === null ? (_lastSurfElevGh !== null ? _lastSurfElevGh : frame.groundHeightLocal(x, z)) : gh
-  }, NaN)
+  })
+  const surfaceGroundHeight = (x, z) => { const h = _guardedSurfaceGround(x, z); return isNoGroundHeight(h) ? NaN : h }
   let _reconcileAccum = 0
   let _lastReconcilePos = null
   function _trackReconcileMovement(eyeW) {

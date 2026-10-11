@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import {
@@ -187,7 +187,8 @@ export function createWeather(opts = {}) {
   let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
   let _ghEpoch = -1, _ghHash = null
 
-  const _exactGround = guardedGroundHeight('weather ground grid', (x, z) => (frame && typeof frame.groundHeightLocal === 'function') ? frame.groundHeightLocal(x, z) : NaN, NaN)
+  const _guardedExactGround = guardedGroundHeight('weather ground grid', (x, z) => (frame && typeof frame.groundHeightLocal === 'function') ? frame.groundHeightLocal(x, z) : NaN)
+  const _exactGround = (x, z) => { const h = _guardedExactGround(x, z); return isNoGroundHeight(h) ? NO_TERRAIN_GROUND_Y : h }
 
   const _groundGrid = createGroundNodeGrid(_exactGround)
 

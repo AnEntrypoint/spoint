@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 
 function createEntityColliderOverlay(scene) {
   const group = new THREE.Group()
@@ -43,7 +43,8 @@ function createEntityColliderOverlay(scene) {
 
 export function createColliderDebug({ scene, frame, cfg }) {
   if (!scene || !frame) return { toggle() {}, setVisible() {}, update() {}, dispose() {}, get visible() { return false } }
-  const groundHeight = guardedGroundHeight('collider debug mesh', (x, z) => frame.groundHeightLocal(x, z), NaN)
+  const _guardedGround = guardedGroundHeight('collider debug mesh', (x, z) => frame.groundHeightLocal(x, z))
+  const groundHeight = (x, z) => { const h = _guardedGround(x, z); return isNoGroundHeight(h) ? NaN : h }
   const phys = (cfg && cfg.physics) || {}
   const extent = Number.isFinite(phys.extent) && phys.extent > 0 ? phys.extent : 256
   const resolution = Number.isFinite(phys.resolution) && phys.resolution > 0 ? phys.resolution : 2
