@@ -220,15 +220,7 @@ export function buildPhysicsAPI(ent, runtime) {
       else if (type === 'convex') return p.addConvexFromModelAsync(cfg.meshIndex ?? -1, cfg.shapeKey)
       else if (type === 'trimesh') return p.addTrimeshCollider()
     },
-    addForce: (f) => {
-      const bodyId = liveBodyId()
-      if (bodyId !== undefined) {
-        runtime._physics.addImpulse(bodyId, f)
-      } else {
-        const mass = ent.mass || 1
-        ent.velocity[0] += f[0] / mass; ent.velocity[1] += f[1] / mass; ent.velocity[2] += f[2] / mass
-      }
-    },
+    addForce: (f) => runtime.applyImpulseToEntity?.(ent.id, f) ?? false,
     setVelocity: (v) => {
       const bodyId = liveBodyId()
       if (bodyId !== undefined) runtime._physics.setBodyVelocity(bodyId, v)
