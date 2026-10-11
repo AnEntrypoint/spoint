@@ -693,3 +693,49 @@
   why: 'scripts/gen-sdk-typings.mjs generates from a detached worktree at HEAD (materializeHeadSnapshot: `git worktree add --detach .gm/tmp/sdk-typings-head HEAD`, then symlinkSync(ROOT/node_modules, SNAPSHOT/node_modules, ''junction'')) and check.mjs re-runs it with --check to compare against the committed client/editor/sdk-typings.generated.d.ts. Two CI runs on the same source show the failure is ORDERING, not content: run 38113141392 at sha 22768ac831 reported committed 620 lines vs generated 620 lines with the only differences at lines 550-553 (committed `reason?: undefined; ok: boolean; currency: any; granted: {}` against generated `ok: boolean; currency: any; granted: {}; reason?: undefined;`), and run 38113697341 at sha e9176362b4 - after regenerating the file on this Windows box and pushing it - reported committed 625 vs generated 625 with exactly the INVERSE rotation at lines 555-558. Same member set, same line count, members rotated: the emitted declaration comes from tsc''s structural inference over a symlinked node_modules whose link type (''junction'') is honoured on Windows and ignored on POSIX, so resolution - and hence member emit order - differs per platform. Consequence: no committed file generated on Windows can satisfy the Linux CI check and vice versa, so `npm test` is red on main for every lane regardless of content. Fix belongs to a resolver lane that owns scripts/: either make the comparison order-insensitive (compare a normalised/sorted member set) or make the emit order deterministic (sort members before writing), and drop the Windows-only ''junction'' link type or replace it with a platform-neutral node_modules link. NOT resolved here: this lane''s surface is client/hud, scripts/ is contested by several hop lanes, and the fix has to be verified by a CI run. Note the committed file is now the Windows-ordered regeneration from the CURRENT AppContext.js (commit e9176362b4), which is content-current; only its order disagrees with CI.'
   witness: 'Live dispatches, all this session: ci-status on 22768ac831afa3eeb5b8b07fd74009591abd6ab7 dispatch 1791694612255-500-4cb3bb75f279e93d (status failure, job `check`); bash `gh run view 38113141392 --log-failed` dispatch 1791694647007-500-989ef8d3ce843343 with the tail read at gm_result offset 4000 (committed 620 vs generated 620, lines 550-553); git_status paths-scoped to client/editor/sdk-typings.generated.d.ts + src/apps/AppContext.js dispatch 1791694775663-500-a6c163b5d9a15e41 (dirty false, changed_paths 0 - the pair was unowned, so nothing else was mid-edit); bash `npm run gen-typings` dispatch 1791694832101-500-f5fab7b98416f88c (exit 0, wrote 619 generated lines, drift report printed) with the tail read at gm_result offset 3000; git_status paths-scoped dispatch 1791695034082-500-88cae7b689174fdd (changed_paths 1, client/editor/sdk-typings.generated.d.ts modified - the committed file genuinely differed from the generated one); bash `npm test` dispatch 1791694976556-500-caacd4b5502f216e (exit 1; every bake pin matching - SNAPSHOT_ENCODE 07b97a0e8caf, HEIGHTFIELD_BAKE 48d61941798f, tps-game.hf 48d61941798f - no gen-sdk-typings line, and the only failure [bundle-apps-manifest], which CI does not hit because step 5 of the job runs `npm run bundle-apps-manifest` first: gh api job 114394273143 dispatch 1791695283172-500-a4461970d386f41d lists steps 5 and 6 success, 7 `npm test` failure); git_commit e9176362b4 dispatch 1791695097200-500-8ec9c09236520f8f; git_push dispatch 1791695172878-500-db822f35e355ebb6 (9feaf62d..e9176362); ci-status on e9176362b4967dc59cb174e73c73756c512ab577 dispatch 1791695232401-500-bcbbed4e6f544d37 (failure); bash `gh run view 38113697341 --log-failed` dispatch 1791695323194-19169 with the tail read at gm_result offset 4000 (committed 625 vs generated 625, lines 555-558, inverse rotation); fs_read scripts/gen-sdk-typings.mjs dispatch 1791695459714-500-c4ef88a2153b5a3b reading materializeHeadSnapshot, the symlinkSync ''junction'' call, the tsc argv and the --check comparison.'
   session_id: orch-main-r250
+- id: csproto-1
+  SESSION_ID: orch-main-cs-protocol
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-3
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: msgpack resolves its Packr asynchronously, so pack/unpack throw until ensurePacked settles'
+  description: msgpack.js:59-73. Live witness 1791695717748-500-9433eef22b912a2f printed isPacked_sync_after_import=false and isPacked_after_await=true, and pack/unpack round-tripped only after the await. A caller on the first tick before the boot await throws. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-4
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it'
+  description: msgpack.js:47-49. Live witness 1791695818182-500-b609faa7b5e7177e evaluated the IIFE to /node_modules/msgpackr/index.js and showed isNode=true so the node branch (a direct msgpackr import) is the one taken there. The IIFE keeps esbuild and wrangler from statically resolving msgpackr. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-5
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: MSG ids are not declared in ascending order; only uniqueness matters'
+  description: MessageTypes.js:96-97 places PEER_RTT_TABLE 0xc1 between FREDDIE_MESSAGE 0xac and HOST_MIGRATE 0xad, and :140-144 throw at module load on a duplicate id. Live witness 1791695660637-500-e76ed0e6cb395d0a imported MessageTypes.js with exit 0, proving every id is unique. Position carries no meaning. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-6
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: pack and unpack use asymmetric useFloat32 (NEVER vs DECIMAL_ROUND); do not symmetrize'
+  description: msgpack.js:51-52 build Packr with NEVER and Unpackr with DECIMAL_ROUND. Live witness 1791695778035-500-341e2621b2c31db3 printed NEVER=0 DECIMAL_ROUND=3 distinct=true and round-tripped 1.5, 1.1 and 0.30000000000000004 exactly. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-7
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: encodeInputPacket silently drops all but the newest 8 entries'
+  description: InputCodec.js:101-102 clamp n to MAX_INPUTS_PER_PACKET with no error or warning. Live witness 1791695784354-500-8df56aa1168327d3 encoded 20 entries and decoded 8 carrying sequences 12 through 19, so the 12 oldest were dropped silently. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-8
+  SESSION_ID: orch-main-cs-protocol
+  title: 'src/protocol: quantizeInput clamps pitch to HALF_PI and wraps yaw into 0..TAU'
+  description: InputCodec.js:41-54. Live witness 1791695784354-500-8df56aa1168327d3 quantized yaw 7.5 to 1.216830259990285 and pitch 1.9 to 1.5707963267948966, so both a wrap and a silent clamp are applied. Promote to AGENTS.md at the next compaction.
+  session_id: orch-main-cs-protocol
+  status: pending
+- id: csproto-2
+  SESSION_ID: orch-main-cs-protocol
+  description: MessageTypes.js:147 and :156 return null for an id absent from MSG. Live witness 1791695660637-500-e76ed0e6cb395d0a printed msgName_unknown=null and isUnreliable_unknown=null. So ===false never matches an unknown id and a falsy test conflates unknown with reliable. Promote to AGENTS.md at the next compaction; AGENTS.md was not edited this pass (29998 bytes, 17 hops citing it).
+  title: 'src/protocol: msgName and isUnreliable return null, not false, for an unregistered message id'
+  session_id: orch-main-cs-protocol
+  status: pending
