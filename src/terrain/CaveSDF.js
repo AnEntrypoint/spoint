@@ -56,13 +56,50 @@ export function polygonizeCaveSDF(sdf, res = 24) {
   return marchRockSurface(res, sdf)
 }
 
+function finiteOr(value, fallback) {
+  return Number.isFinite(value) ? value : fallback
+}
+
+function parseCaveAnchor(spec) {
+  if (!spec || typeof spec !== 'object') return null
+  const { worldX, worldY, worldZ, worldRadius } = spec
+  if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) return null
+  if (!Number.isFinite(worldRadius) || worldRadius <= 0) return null
+  return { worldX, worldY, worldZ, worldRadius }
+}
+
+function parseCaveShape(spec, worldRadius) {
+  const src = spec && typeof spec === 'object' ? spec : {}
+  const axis = typeof src.axis === 'string' ? src.axis : 'y'
+  if (src.kind === 'cylinder') {
+    const halfHeight = finiteOr(src.halfHeight, 1)
+    if (halfHeight <= 0) return null
+    return { kind: 'cylinder', halfHeight, axis, verticalSpan: halfHeight }
+  }
+  if (src.kind === 'tunnel') {
+    const length = finiteOr(src.length, worldRadius * 2) / worldRadius
+    if (length <= 0) return null
+    return {
+      kind: 'tunnel',
+      length,
+      axis,
+      seed: finiteOr(src.seed, 0),
+      warpAmp: finiteOr(src.warpAmp, 0.15),
+      warpFreq: finiteOr(src.warpFreq, 2.5),
+      verticalSpan: 1,
+    }
+  }
+  return { kind: 'sphere' }
+}
+
 function localSDFFor(shape) {
-  if (shape.kind === 'cylinder') return makeCylinderCaveSDF(0, 0, 0, 1, shape.halfHeight ?? 1, shape.axis ?? 'y')
-  if (shape.kind === 'tunnel') return makeTunnelCaveSDF(shape.seed ?? 0, 1, shape.length ?? 2, shape.axis ?? 'y', shape.warpAmp ?? 0.15, shape.warpFreq ?? 2.5)
+  if (shape.kind === 'cylinder') return makeCylinderCaveSDF(0, 0, 0, 1, shape.halfHeight, shape.axis)
+  if (shape.kind === 'tunnel') return makeTunnelCaveSDF(shape.seed, 1, shape.length, shape.axis, shape.warpAmp, shape.warpFreq)
   return makeSphereCaveSDF(0, 0, 0, 1)
 }
 
-export function createCaveVolume(worldX, worldY, worldZ, worldRadius, shape = { kind: 'sphere' }) {
+function caveVolumeFrom(anchor, shape) {
+  const { worldX, worldY, worldZ, worldRadius } = anchor
   const sdf = localSDFFor(shape)
   const localToWorld = (lx, ly, lz) => [worldX + lx * worldRadius, worldY + ly * worldRadius, worldZ + lz * worldRadius]
   const worldToLocal = (wx, wy, wz) => [(wx - worldX) / worldRadius, (wy - worldY) / worldRadius, (wz - worldZ) / worldRadius]
@@ -71,6 +108,12 @@ export function createCaveVolume(worldX, worldY, worldZ, worldRadius, shape = { 
     return sdf(lx, ly, lz) * worldRadius
   }
   return { sdf: worldSDF, localSDF: sdf, localToWorld, worldToLocal, worldX, worldY, worldZ, worldRadius, shape }
+}
+
+export function createCaveVolume(worldX, worldY, worldZ, worldRadius, spec = { kind: 'sphere' }) {
+  const shape = parseCaveShape(spec, worldRadius)
+  if (!shape) throw new TypeError(`createCaveVolume: ${JSON.stringify(spec)} is outside every cave shape domain`)
+  return caveVolumeFrom({ worldX, worldY, worldZ, worldRadius }, shape)
 }
 
 export function polygonizeCaveVolume(caveVolume, res = 24) {
@@ -86,9 +129,9 @@ export function polygonizeCaveVolume(caveVolume, res = 24) {
 }
 
 function volumeVerticalSpan(vol, horizontalDist) {
-  if (vol.shape.kind === 'cylinder' || vol.shape.kind === 'tunnel') {
+  if (vol.shape.kind !== 'sphere') {
     if (horizontalDist > vol.worldRadius) return 0
-    return vol.worldRadius * (vol.shape.halfHeight ?? 1)
+    return vol.worldRadius * vol.shape.verticalSpan
   }
   return Math.sqrt(Math.max(0, vol.worldRadius * vol.worldRadius - horizontalDist * horizontalDist))
 }
@@ -96,27 +139,25 @@ function volumeVerticalSpan(vol, horizontalDist) {
 export function createCaveCarveLayer() {
   const volumes = []
 
-  function addSphereCave(worldX, worldY, worldZ, worldRadius) {
-    if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) return { added: false }
-    if (!Number.isFinite(worldRadius) || worldRadius <= 0) return { added: false }
-    volumes.push(createCaveVolume(worldX, worldY, worldZ, worldRadius, { kind: 'sphere' }))
+  function addCaveVolume(spec) {
+    const anchor = parseCaveAnchor(spec)
+    if (!anchor) return { added: false }
+    const shape = parseCaveShape(spec, anchor.worldRadius)
+    if (!shape) return { added: false }
+    volumes.push(caveVolumeFrom(anchor, shape))
     return { added: true, count: volumes.length }
+  }
+
+  function addSphereCave(worldX, worldY, worldZ, worldRadius) {
+    return addCaveVolume({ worldX, worldY, worldZ, worldRadius, kind: 'sphere' })
   }
 
   function addCylinderCave(worldX, worldY, worldZ, worldRadius, halfHeight, axis = 'y') {
-    if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) return { added: false }
-    if (!Number.isFinite(worldRadius) || worldRadius <= 0) return { added: false }
-    if (!Number.isFinite(halfHeight) || halfHeight <= 0) return { added: false }
-    volumes.push(createCaveVolume(worldX, worldY, worldZ, worldRadius, { kind: 'cylinder', halfHeight, axis }))
-    return { added: true, count: volumes.length }
+    return addCaveVolume({ worldX, worldY, worldZ, worldRadius, kind: 'cylinder', halfHeight, axis })
   }
 
   function addTunnelCave(worldX, worldY, worldZ, worldRadius, length, axis = 'y', seed = 0, warpAmp = 0.15, warpFreq = 2.5) {
-    if (!Number.isFinite(worldX) || !Number.isFinite(worldY) || !Number.isFinite(worldZ)) return { added: false }
-    if (!Number.isFinite(worldRadius) || worldRadius <= 0) return { added: false }
-    if (!Number.isFinite(length) || length <= 0) return { added: false }
-    volumes.push(createCaveVolume(worldX, worldY, worldZ, worldRadius, { kind: 'tunnel', length: length / worldRadius, axis, seed, warpAmp, warpFreq }))
-    return { added: true, count: volumes.length }
+    return addCaveVolume({ worldX, worldY, worldZ, worldRadius, kind: 'tunnel', length, axis, seed, warpAmp, warpFreq })
   }
 
   function heightDeltaAt(x, z, surfaceY) {
@@ -159,7 +200,7 @@ export function createCaveCarveLayer() {
   function clear() { volumes.length = 0 }
 
   return {
-    addSphereCave, addCylinderCave, addTunnelCave, heightDeltaAt, wrapHeightFn, toJSON, clear,
+    addCaveVolume, addSphereCave, addCylinderCave, addTunnelCave, heightDeltaAt, wrapHeightFn, toJSON, clear,
     get volumes() { return volumes.slice() },
     get volumeCount() { return volumes.length },
   }
@@ -168,12 +209,7 @@ export function createCaveCarveLayer() {
 export function loadCaveCarveLayer(json) {
   const layer = createCaveCarveLayer()
   if (json && Array.isArray(json.volumes)) {
-    for (const v of json.volumes) {
-      if (!v || !Number.isFinite(v.worldX) || !Number.isFinite(v.worldY) || !Number.isFinite(v.worldZ) || !Number.isFinite(v.worldRadius)) continue
-      if (v.kind === 'cylinder') layer.addCylinderCave(v.worldX, v.worldY, v.worldZ, v.worldRadius, v.halfHeight ?? 1, v.axis ?? 'y')
-      else if (v.kind === 'tunnel') layer.addTunnelCave(v.worldX, v.worldY, v.worldZ, v.worldRadius, v.length ?? v.worldRadius * 2, v.axis ?? 'y', v.seed ?? 0, v.warpAmp ?? 0.15, v.warpFreq ?? 2.5)
-      else layer.addSphereCave(v.worldX, v.worldY, v.worldZ, v.worldRadius)
-    }
+    for (const v of json.volumes) layer.addCaveVolume(v)
   }
   return layer
 }
