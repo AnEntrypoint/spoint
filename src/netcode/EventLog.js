@@ -71,7 +71,6 @@ export class EventLog {
     const key = `${originRegion}:${event.id}`
     if (this._replicatedKeys.has(key)) return null
     this._replicatedKeys.add(key)
-    if (this._replicatedKeys.size > this._maxSize * REPLICATED_KEYS_PER_RING_SLOT) this._pruneReplicatedKeys()
     const local = {
       id: this._nextId++,
       tick: event.tick || 0,
@@ -83,15 +82,20 @@ export class EventLog {
     this._buf[this._head] = local
     this._head = (this._head + 1) % this._maxSize
     if (this._count < this._maxSize) this._count++
+    if (this._replicatedKeys.size > this._maxSize * REPLICATED_KEYS_PER_RING_SLOT) this._pruneReplicatedKeys()
     return local
   }
 
-  _pruneReplicatedKeys() {
-    const keep = new Set()
+  _replicatedKeysFromRing() {
+    const keys = new Set()
     for (const e of this._toArray()) {
-      if (e.meta?.originRegion) keep.add(`${e.meta.originRegion}:${e.meta.originId}`)
+      if (e.meta?.originRegion) keys.add(`${e.meta.originRegion}:${e.meta.originId}`)
     }
-    this._replicatedKeys = keep
+    return keys
+  }
+
+  _pruneReplicatedKeys() {
+    this._replicatedKeys = this._replicatedKeysFromRing()
   }
 
   serialize() { return pack(this._toArray()) }
@@ -103,20 +107,22 @@ export class EventLog {
     log._count = arr.length
     log._head = log._head % log._maxSize
     log._nextId = arr.length > 0 ? arr[arr.length - 1].id + 1 : 1
+    log._replicatedKeys = log._replicatedKeysFromRing()
     return log
   }
 
   replay(runtime, options = {}) {
-    const startTick = options.startTick || 0
-    const endTick = options.endTick || Infinity
-    const events = this._toArray().filter(e => e.tick >= startTick && e.tick <= endTick)
+    const startTick = options.startTick ?? 0
+    const endTick = options.endTick ?? Infinity
     const result = { eventsReplayed: 0, errors: [] }
-    for (const event of events) {
+    const replayable = []
+    for (const event of this._toArray()) {
+      if (event.tick < startTick || event.tick > endTick) continue
       const apply = REPLAY_HANDLERS.get(event.type)
-      if (!apply) {
-        result.errors.push({ eventId: event.id, error: `unknown event type ${JSON.stringify(event.type)}` })
-        continue
-      }
+      if (apply) { replayable.push({ event, apply }); continue }
+      result.errors.push({ eventId: event.id, error: `unknown event type ${JSON.stringify(event.type)}` })
+    }
+    for (const { event, apply } of replayable) {
       try {
         apply(runtime, event)
         result.eventsReplayed++
