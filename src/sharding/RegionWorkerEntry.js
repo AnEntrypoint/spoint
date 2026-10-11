@@ -131,7 +131,7 @@ function checkHandoffs() {
     if (cur !== prev && cur !== regionId) {
       lastRegionForPlayer.set(player.id, cur)
       send({
-        type: 'BOUNDARY_CROSSING', playerId: player.id, fromRegion: regionId, toRegion: cur,
+        type: 'BOUNDARY_CROSSING', localPlayerId: player.id, fromRegion: regionId, toRegion: cur,
         state: {
           position: [...player.state.position], rotation: [...player.state.rotation],
           velocity: [...player.state.velocity], health: player.state.health, name: player.name
@@ -144,7 +144,7 @@ function checkHandoffs() {
   }
 }
 
-function acceptHandoff({ playerId, routerPlayerId, fromRegion, state, sessionToken }) {
+function acceptHandoff({ localPlayerId, routerPlayerId, fromRegion, state, sessionToken }) {
   const transport = new RegionIPCTransport(routerPlayerId, send)
   transports.set(routerPlayerId, transport)
   const playerConfig = ctx.currentWorldDef?.player || {}
@@ -173,21 +173,21 @@ function acceptHandoff({ playerId, routerPlayerId, fromRegion, state, sessionTok
     tick: ctx.tickSystem.currentTick
   })
   ctx.connections.flushAll()
-  send({ type: 'HANDOFF_ACCEPTED', region: regionId, fromRegion, routerPlayerId, oldPlayerId: playerId, newLocalPlayerId: newId, sessionToken: client.sessionToken })
+  send({ type: 'HANDOFF_ACCEPTED', region: regionId, fromRegion, routerPlayerId, oldLocalPlayerId: localPlayerId, newLocalPlayerId: newId, sessionToken: client.sessionToken })
 }
 
 function completeHandoffOut(routerPlayerId) {
   const t = transports.get(routerPlayerId)
-  const playerId = t ? transportLocalIds.get(t) : undefined
+  const localPlayerId = t ? transportLocalIds.get(t) : undefined
   if (t) { t.ready = false; transports.delete(routerPlayerId); transportLocalIds.delete(t) }
-  if (playerId === undefined) return
-  if (ctx.playerManager.getPlayer(playerId)) {
-    ctx.playerManager.removePlayer(playerId)
-    ctx.networkState.removePlayer(playerId)
-    ctx.physicsIntegration.removePlayerCollider(playerId)
-    ctx.lagCompensator.clearPlayerHistory(playerId)
+  if (localPlayerId === undefined) return
+  if (ctx.playerManager.getPlayer(localPlayerId)) {
+    ctx.playerManager.removePlayer(localPlayerId)
+    ctx.networkState.removePlayer(localPlayerId)
+    ctx.physicsIntegration.removePlayerCollider(localPlayerId)
+    ctx.lagCompensator.clearPlayerHistory(localPlayerId)
   }
-  lastRegionForPlayer.delete(playerId)
+  lastRegionForPlayer.delete(localPlayerId)
 }
 
 async function handleInit(msg) {
@@ -202,29 +202,29 @@ async function handleInit(msg) {
 }
 
 function handleClientConnect(msg) {
-  const transport = new RegionIPCTransport(msg.playerId, send)
-  transports.set(msg.playerId, transport)
+  const transport = new RegionIPCTransport(msg.routerPlayerId, send)
+  transports.set(msg.routerPlayerId, transport)
   pendingClientConnects.set(transport, msg.requestId)
   ctx.onClientConnect(transport)
 }
 
 function handleClientFrame(msg) {
-  transports.get(msg.playerId)?.deliver(msg.dataB64)
+  transports.get(msg.routerPlayerId)?.deliver(msg.dataB64)
 }
 
 function handleClientDisconnect(msg) {
-  const t = transports.get(msg.playerId)
-  transports.delete(msg.playerId)
+  const t = transports.get(msg.routerPlayerId)
+  transports.delete(msg.routerPlayerId)
   if (!t) return
   transportLocalIds.delete(t)
   t.close()
 }
 
 function handleWitnessForcePosition(msg) {
-  const player = ctx.playerManager.getPlayer(msg.playerId)
+  const player = ctx.playerManager.getPlayer(msg.localPlayerId)
   if (player && Array.isArray(msg.position) && msg.position.length === 3) {
     player.state.position = [...msg.position]
-    ctx.physicsIntegration.setPlayerPosition(msg.playerId, msg.position)
+    ctx.physicsIntegration.setPlayerPosition(msg.localPlayerId, msg.position)
   }
 }
 
@@ -253,7 +253,7 @@ const HANDLERS = messageTable([
   ['CLIENT_DISCONNECT', handleClientDisconnect],
   ['ACCEPT_HANDOFF', acceptHandoff],
   ['__WITNESS_FORCE_POSITION', handleWitnessForcePosition],
-  ['COMPLETE_HANDOFF_OUT', msg => completeHandoffOut(msg.playerId)],
+  ['COMPLETE_HANDOFF_OUT', msg => completeHandoffOut(msg.routerPlayerId)],
   ['EVENT_REPLICATE_IN', applyReplicatedEvent],
   ['__WITNESS_RECORD_EVENT', handleWitnessRecordEvent],
   ['__WITNESS_QUERY_EVENTLOG', handleWitnessQueryEventLog],

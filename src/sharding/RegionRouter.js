@@ -25,14 +25,36 @@ export const HANDOFF_UNKNOWN_PLAYER = 'handoff-unknown-player'
 
 export function playerIdentity(region, localPlayerId) {
   if (!parseRegionId(region).ok) return null
-  if (localPlayerId === null || localPlayerId === undefined) return null
+  if (!parseLocalPlayerId(localPlayerId).ok) return null
   return { region, localPlayerId }
 }
 
 export function handoffTo(toRegion, fromRegion, fromLocalId) {
   if (!parseRegionId(toRegion).ok || !parseRegionId(fromRegion).ok) return null
-  if (fromLocalId === null || fromLocalId === undefined) return null
+  if (!parseLocalPlayerId(fromLocalId).ok) return null
   return { toRegion, fromRegion, fromLocalId }
+}
+
+export const ROUTER_PLAYER_ID_MALFORMED = 'router-player-id-malformed'
+export const LOCAL_PLAYER_ID_MALFORMED = 'local-player-id-malformed'
+export const SESSION_TOKEN_MALFORMED = 'session-token-malformed'
+
+const SESSION_TOKEN_SHAPE = /^[0-9a-f]{32}$/
+
+export function parseRouterPlayerId(value) {
+  if (!Number.isInteger(value) || value < 1) return { ok: false, reason: ROUTER_PLAYER_ID_MALFORMED, value: value ?? null }
+  return { ok: true, routerPlayerId: value }
+}
+
+export function parseLocalPlayerId(value) {
+  if (!Number.isInteger(value) || value < 0) return { ok: false, reason: LOCAL_PLAYER_ID_MALFORMED, value: value ?? null }
+  return { ok: true, localPlayerId: value }
+}
+
+export function parseSessionToken(value) {
+  if (value === null || value === undefined) return { ok: true, sessionToken: null }
+  if (typeof value === 'string' && SESSION_TOKEN_SHAPE.test(value)) return { ok: true, sessionToken: value }
+  return { ok: false, reason: SESSION_TOKEN_MALFORMED, value: typeof value === 'string' ? value : null }
 }
 
 function refuseWorkerMessage(regionId, code, detail) {
@@ -167,15 +189,21 @@ export class RegionRouter {
   }
 
   _playerEntryFor(regionId, localPlayerId) {
-    if (localPlayerId === null || localPlayerId === undefined) return null
+    const parsed = parseLocalPlayerId(localPlayerId)
+    if (!parsed.ok) return null
     for (const [routerId, p] of this.players) {
-      if (p.region === regionId && p.localPlayerId === localPlayerId) return { routerId, player: p }
+      if (p.region === regionId && p.localPlayerId === parsed.localPlayerId) return { routerId, player: p }
     }
     return null
   }
 
   _forwardToClient(regionId, msg) {
-    const player = this.players.get(msg.playerId)
+    const parsed = parseRouterPlayerId(msg.routerPlayerId)
+    if (!parsed.ok) {
+      refuseWorkerMessage(regionId, parsed.reason, { type: msg.type, routerPlayerId: msg.routerPlayerId ?? null })
+      return
+    }
+    const player = this.players.get(parsed.routerPlayerId)
     if (player?.region !== regionId) return
     if (player.socket && player.socket.readyState === 1) {
       player.socket.send(Buffer.from(msg.dataB64, 'base64'))
@@ -183,7 +211,12 @@ export class RegionRouter {
   }
 
   _closeClient(regionId, msg) {
-    const player = this.players.get(msg.playerId)
+    const parsed = parseRouterPlayerId(msg.routerPlayerId)
+    if (!parsed.ok) {
+      refuseWorkerMessage(regionId, parsed.reason, { type: msg.type, routerPlayerId: msg.routerPlayerId ?? null })
+      return
+    }
+    const player = this.players.get(parsed.routerPlayerId)
     if (player?.region !== regionId) return
     if (player.socket && player.socket.readyState === 1) player.socket.close()
   }
@@ -191,41 +224,52 @@ export class RegionRouter {
   _handleBoundaryCrossing(fromRegion, msg) {
     const toEntry = this.workers.get(msg.toRegion)
     if (!toEntry || !toEntry.ready) {
-      console.warn(`[router] boundary crossing to unspawned region ${msg.toRegion} (from ${fromRegion}, player ${msg.playerId}) -- no shard there, player stays in ${fromRegion}`)
+      console.warn(`[router] boundary crossing to unspawned region ${msg.toRegion} (from ${fromRegion}, player ${msg.localPlayerId}) -- no shard there, player stays in ${fromRegion}`)
       return
     }
-    const entry = this._playerEntryFor(fromRegion, msg.playerId)
+    const localId = parseLocalPlayerId(msg.localPlayerId)
+    if (!localId.ok) {
+      refuseWorkerMessage(fromRegion, localId.reason, { toRegion: msg.toRegion ?? null, fromRegion, localPlayerId: msg.localPlayerId ?? null })
+      return
+    }
+    const token = parseSessionToken(msg.sessionToken)
+    if (!token.ok) {
+      refuseWorkerMessage(fromRegion, token.reason, { toRegion: msg.toRegion ?? null, fromRegion, localPlayerId: localId.localPlayerId, sessionToken: token.value })
+      return
+    }
+    const entry = this._playerEntryFor(fromRegion, localId.localPlayerId)
     if (!entry) return
     if (entry.player.handoff) {
-      console.warn(`[router] boundary crossing to ${msg.toRegion} refused for player ${msg.playerId} (from ${fromRegion}): a handoff to ${entry.player.handoff.toRegion} is still in flight`)
+      console.warn(`[router] boundary crossing to ${msg.toRegion} refused for player ${localId.localPlayerId} (from ${fromRegion}): a handoff to ${entry.player.handoff.toRegion} is still in flight`)
       return
     }
-    const handoff = handoffTo(msg.toRegion, fromRegion, msg.playerId)
+    const handoff = handoffTo(msg.toRegion, fromRegion, localId.localPlayerId)
     if (!handoff) {
-      refuseWorkerMessage(fromRegion, HANDOFF_UNMINTED, { toRegion: msg.toRegion ?? null, fromRegion, fromLocalId: msg.playerId ?? null })
+      refuseWorkerMessage(fromRegion, HANDOFF_UNMINTED, { toRegion: msg.toRegion ?? null, fromRegion, localPlayerId: localId.localPlayerId })
       return
     }
     entry.player.handoff = handoff
     toEntry.proc.send({
-      type: 'ACCEPT_HANDOFF', playerId: msg.playerId, routerPlayerId: entry.routerId, fromRegion, state: msg.state, sessionToken: msg.sessionToken
+      type: 'ACCEPT_HANDOFF', localPlayerId: localId.localPlayerId, routerPlayerId: entry.routerId, fromRegion, state: msg.state, sessionToken: token.sessionToken
     })
   }
 
   _handleHandoffAccepted(msg) {
-    const entry = this._playerEntryFor(msg.fromRegion, msg.oldPlayerId)
+    const entry = this._playerEntryFor(msg.fromRegion, msg.oldLocalPlayerId)
     const identity = entry ? playerIdentity(msg.region, msg.newLocalPlayerId) : null
-    if (!identity) {
-      refuseWorkerMessage(msg.region, entry ? PLAYER_IDENTITY_UNMINTED : HANDOFF_UNKNOWN_PLAYER, {
-        fromRegion: msg.fromRegion, oldPlayerId: msg.oldPlayerId ?? null, newLocalPlayerId: msg.newLocalPlayerId ?? null
+    const token = parseSessionToken(msg.sessionToken)
+    if (!identity || !token.ok) {
+      refuseWorkerMessage(msg.region, token.ok ? (entry ? PLAYER_IDENTITY_UNMINTED : HANDOFF_UNKNOWN_PLAYER) : token.reason, {
+        fromRegion: msg.fromRegion, oldLocalPlayerId: msg.oldLocalPlayerId ?? null, newLocalPlayerId: msg.newLocalPlayerId ?? null, sessionToken: token.ok ? null : token.value
       })
-      this.workers.get(msg.region)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.routerPlayerId ?? entry?.routerId ?? null })
+      this.workers.get(msg.region)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', routerPlayerId: msg.routerPlayerId ?? entry?.routerId ?? null })
       return
     }
     entry.player.region = identity.region
     entry.player.localPlayerId = identity.localPlayerId
-    entry.player.sessionToken = msg.sessionToken
+    entry.player.sessionToken = token.sessionToken
     entry.player.handoff = null
-    this.workers.get(msg.fromRegion)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: entry.routerId })
+    this.workers.get(msg.fromRegion)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', routerPlayerId: entry.routerId })
   }
 
   _handleEventReplicate(originRegion, msg) {
@@ -255,13 +299,13 @@ export class RegionRouter {
       const targetEntry = this.workers.get(p.region)
       if (!targetEntry || !targetEntry.ready) return
       const buf = data instanceof Buffer ? data : Buffer.from(data)
-      targetEntry.proc.send({ type: 'CLIENT_FRAME', playerId: routerId, dataB64: buf.toString('base64') })
+      targetEntry.proc.send({ type: 'CLIENT_FRAME', routerPlayerId: routerId, dataB64: buf.toString('base64') })
     })
     socket.on('close', () => {
       const p = this.players.get(routerId)
       if (p) {
         const targetEntry = this.workers.get(p.region)
-        targetEntry?.proc.send({ type: 'CLIENT_DISCONNECT', playerId: routerId })
+        targetEntry?.proc.send({ type: 'CLIENT_DISCONNECT', routerPlayerId: routerId })
         this._refusePending(p.connectRequestId, new Error('client socket closed before its region answered'))
       }
       this.players.delete(routerId)
@@ -269,13 +313,13 @@ export class RegionRouter {
     socket.on('error', () => {})
     const readyMsg = await new Promise((resolve, reject) => {
       this._addPending(requestId, { resolve, reject, routerId }, 10000, 'CLIENT_CONNECT timed out')
-      entry.proc.send({ type: 'CLIENT_CONNECT', playerId: routerId, requestId })
+      entry.proc.send({ type: 'CLIENT_CONNECT', routerPlayerId: routerId, requestId })
     }).catch(e => { console.error('[router] client connect failed:', e.message); socket.close(); return null })
     if (!readyMsg) { this.players.delete(routerId); return }
     const identity = playerIdentity(player.region, readyMsg.localPlayerId)
     if (!identity) {
       this.players.delete(routerId)
-      this.workers.get(region)?.proc.send({ type: 'CLIENT_DISCONNECT', playerId: routerId })
+      this.workers.get(region)?.proc.send({ type: 'CLIENT_DISCONNECT', routerPlayerId: routerId })
       refuseWorkerMessage(region, PLAYER_IDENTITY_UNMINTED, { requestId, localPlayerId: readyMsg.localPlayerId ?? null })
       socket.close()
       return null

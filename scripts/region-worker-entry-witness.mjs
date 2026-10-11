@@ -40,7 +40,7 @@ export async function createServerDeps(config, tickRate) {
       players: new Map(),
       getPlayerCount: () => 0, getConnectedPlayers: () => [], getPlayer: () => null,
       addPlayer(transport, options) {
-        calls.addPlayer.push({ playerId: transport?.playerId ?? null, options })
+        calls.addPlayer.push({ routerPlayerId: transport?.routerPlayerId ?? null, options })
         return calls.addPlayer.length
       }
     },
@@ -53,7 +53,7 @@ export async function createServerDeps(config, tickRate) {
 }
 export function wireServerHandlers(ctx) {
   ctx.onClientConnect = (transport) => {
-    calls.onClientConnect.push(transport?.playerId ?? null)
+    calls.onClientConnect.push(transport?.routerPlayerId ?? null)
     calls.transports.push(transport)
     transport.on('message', buf => calls.transportFrames.push(buf.toString()))
     setTimeout(() => { ctx.playerManager.addPlayer(transport, { position: [0, 5, 0] }) }, 0)
@@ -183,16 +183,16 @@ async function readyChecks() {
 async function connectChecks() {
   stub().reset()
   const before = sent.length
-  process.emit('message', { type: 'CLIENT_CONNECT', playerId: 'router-1', requestId: 5 })
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 'router-1', requestId: 5 })
   expect('connect: the region stays silent until it has minted an id', sent.length - before, 0)
   expect('connect: the joining transport reaches the server under its router id', stub().onClientConnect, ['router-1'])
-  process.emit('message', { type: 'CLIENT_FRAME', playerId: 'router-1', dataB64: Buffer.from('hello').toString('base64') })
+  process.emit('message', { type: 'CLIENT_FRAME', routerPlayerId: 'router-1', dataB64: Buffer.from('hello').toString('base64') })
   expect('connect: a frame arriving before the id is minted still reaches the transport', stub().transportFrames, ['hello'])
   const answered = await settle(() => sent.length > before)
   expect('connect: the region answers the connect request once the id is minted', answered, true)
   expect('connect: CLIENT_CONNECTED carries the request id and the minted local id', sent[before], { type: 'CLIENT_CONNECTED', region: '0,0', requestId: 5, localPlayerId: 1 })
-  expect('connect: the id is minted through the player manager, not guessed', stub().addPlayer, [{ playerId: 'router-1', options: { position: [0, 5, 0] } }])
-  process.emit('message', { type: 'CLIENT_DISCONNECT', playerId: 'router-1' })
+  expect('connect: the id is minted through the player manager, not guessed', stub().addPlayer, [{ routerPlayerId: 'router-1', options: { position: [0, 5, 0] } }])
+  process.emit('message', { type: 'CLIENT_DISCONNECT', routerPlayerId: 'router-1' })
   expect('connect: a disconnect closes the transport it was handed', stub().transports[0].ready, false)
 }
 
@@ -201,7 +201,7 @@ async function main() {
   expect('boot: WORKER_BOOTING with this pid is the only message on import', sent, [{ type: 'WORKER_BOOTING', pid: process.pid }])
   const beforePreInit = sent.length
   process.emit('message', { type: 'STATS_REQUEST', requestId: 1 })
-  process.emit('message', { type: 'CLIENT_CONNECT', playerId: 'pre-init', requestId: 2 })
+  process.emit('message', { type: 'CLIENT_CONNECT', routerPlayerId: 'pre-init', requestId: 2 })
   expect('pre-INIT: STATS_REQUEST and CLIENT_CONNECT get no reply', sent.length - beforePreInit, 0)
   console.error = (...args) => { consoleErrors.push(args) }
   try {
