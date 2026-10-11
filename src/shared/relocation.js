@@ -109,7 +109,8 @@ export function resolveTarget(spec, { frame, heightAt } = {}) {
     if (y !== null && !isCoord(y)) throw new Error('teleport y must be finite (|v| <= 1e7)')
     if (spec.standNearY !== undefined) {
       if (!isCoord(spec.standNearY)) throw new Error('teleport standNearY must be finite (|v| <= 1e7)')
-      if (y === null) standNearY = spec.standNearY
+      if (y !== null) throw new Error('teleport y and standNearY both name a height: state an exact y or a standNearY hint, not both')
+      standNearY = spec.standNearY
     }
   }
   const clearance = spec.clearance === undefined ? (alt ?? DEFAULT_CLEARANCE_M) : spec.clearance
