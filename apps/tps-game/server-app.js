@@ -1,4 +1,5 @@
 import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
+import { senderOf } from '../../src/sdk/appEventSender.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG, FIRE_SPEC } from './shared.js'
 import { pickClearSpawnPose } from './respawn-clearance.js'
 
@@ -7,7 +8,9 @@ const MAX_IGNITION_SOURCE = 255
 const NO_EMOTE = null
 
 function emoteOf(msg) {
-  const playerId = msg.senderId
+  const sender = senderOf(msg)
+  if (!sender) return NO_EMOTE
+  const playerId = sender.id
   if (!Number.isInteger(playerId) || playerId < 1) return NO_EMOTE
   const clip = EMOTE_CLIPS.get(msg.code)
   if (typeof clip !== 'string' || clip === '') return NO_EMOTE
