@@ -180,6 +180,8 @@ export function createWeather(opts = {}) {
   let _lastCamYaw = NaN
   const RAIN_BILLBOARD_YAW_EPS_RAD = 0.02
   const NO_TERRAIN_GROUND_Y = -1e6
+  const NO_GROUND_BELOW_Y = -1e5
+  const hasGroundY = (y) => Number.isFinite(y) && y > NO_GROUND_BELOW_Y
 
   const GH_CANARY_MS = 500
   let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
@@ -326,7 +328,7 @@ export function createWeather(opts = {}) {
       for (let k = 0; k < splashes; k++) {
         const [x, z] = _randomDiscPoint(cx, cz)
         const gh = _groundHeight(x, z)
-        if (_groundInsideFallWindow(gh, cy)) _spawnSplash(x, gh + 0.02, z, nowS)
+        if (hasGroundY(gh) && _groundInsideFallWindow(gh, cy)) _spawnSplash(x, gh + 0.02, z, nowS)
       }
     }
     matSplash.uniforms.uTime.value = nowS
@@ -419,7 +421,7 @@ export function createWeather(opts = {}) {
           dropGround[i] = _groundHeight(dropX[i], dropZ[i])
         }
         const gh = dropGround[i]
-        const hitGround = Number.isFinite(gh) && gh > -1e5 && dropY[i] <= gh + groundClearance
+        const hitGround = hasGroundY(gh) && dropY[i] <= gh + groundClearance
         if (hitGround || dropY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
           _respawnDroplet(i, cx, cy, cz)
@@ -454,7 +456,7 @@ export function createWeather(opts = {}) {
         }
         if (snowY[i] <= snowGH[i] + SNOW_GROUND_RESAMPLE_BAND_M) _refreshSnowGroundInBand(i)
         const gh = snowGH[i]
-        const hitGround = Number.isFinite(gh) && gh > -1e5 && snowY[i] <= gh + groundClearance
+        const hitGround = hasGroundY(gh) && snowY[i] <= gh + groundClearance
         if (hitGround || snowY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround && accumEnabled && accumStampBudget > 0) {
             accumStampBudget--
