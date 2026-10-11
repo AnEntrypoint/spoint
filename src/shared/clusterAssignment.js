@@ -160,7 +160,7 @@ export function createClusterAssigner({ radius, linkM, memberRadiusM, lattice = 
     const prev = state.anchors.get(cluster.id)
     if (!prev) return chartAnchorForDir(lattice, cluster.centre)
     const decision = chartAnchorDecision({ lattice, frame: { up: prev }, dirs: cluster.members.map(m => m.dir), hysteresisDeg })
-    return decision && !decision.refusal ? decision.anchorDir : prev
+    return decision.kind === 'reanchor' ? decision.anchorDir : prev
   }
 
   function assign(players) {

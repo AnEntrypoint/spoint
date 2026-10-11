@@ -7,7 +7,7 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
 import { vecOK } from '../shared/vecGuard.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
-import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
+import { equipResolve } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
 const _UNIT_SCALE = [1, 1, 1]
@@ -660,8 +660,8 @@ export class AppRuntime {
 
   setPlayerWeapon(id, name) {
     const pl = this._playerManager?.getPlayer(id); if (!pl) return false
-    const code = equipCodeOf(this._equipment, name)
-    if (code === EQUIP_UNARMED && name) { console.warn(`[runtime] setPlayerWeapon("${name}") is not in this world's equipment list; the player is left unarmed`); return false }
+    const { code, reason } = equipResolve(this._equipment, name)
+    if (code === null) { console.warn(`[runtime] setPlayerWeapon("${name}") is not in this world's equipment list (${reason}); the player keeps its current weapon`); return false }
     pl.state.weapon = code
     return true
   }
@@ -712,8 +712,8 @@ export class AppRuntime {
   queueReload(n, d, cb) { this._hotReload.enqueue(n, d, cb) }
   _drainReloadQueue() { this._hotReload.drain() }
   hotReload(n, d) { this._hotReload._execute(n, d) }
-  _spatialInsert(entity) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage && !stage.hasEntity(entity.id)) { stage.entityIds.add(entity.id); stage.spatial.insert(entity.id, entity.position); if (entity.bodyType==='static') stage._staticIds.add(entity.id) } }
-  _spatialRemove(entityId) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage) { stage.spatial.remove(entityId); stage._staticIds.delete(entityId); stage.entityIds.delete(entityId) } }
+  _spatialInsert(entity) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage && !stage.hasEntity(entity.id)) stage.track(entity) }
+  _spatialRemove(entityId) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage) stage.untrack(entityId) }
   _spatialSync() { if (this._stageLoader) this._stageLoader.syncAllPositions() }
   nearbyEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getNearbyEntities(position, radius) }
   relevantEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getRelevantEntities(position, radius) }

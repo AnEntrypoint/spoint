@@ -2,9 +2,10 @@ import { createChartAnchorLattice, chartAnchorCellWorstAngleDeg, CHART_ANCHORS_P
 import { CHART_REANCHOR_HYSTERESIS_DEG, WALKABLE_CHART_LIMIT_DEG } from './chartReanchorPolicy.js'
 import { CLUSTER_STAY_FACTOR, CLUSTER_JOIN_FACTOR } from './clusterAssignment.js'
 import { DEFAULT_JOLT_LIMITS, joltReservationBytes } from '../physics/joltLimits.js'
+import { DEFAULT_COMBAT } from '../behaviours/combat.js'
 
 export const CLUSTER_DEFAULT_LINK_M = 1000
-export const CLUSTER_DEFAULT_HZ = 2
+export const CLUSTER_DEFAULT_HZ = 2.05
 export const JOLT_WASM_HEAP_BYTES = 134217728
 export const JOLT_WASM_RESIDENT_BYTES = 1157976
 export const JOLT_MIRROR_MARGINAL_BYTES = 11278387
@@ -35,7 +36,6 @@ export function resolveClusterConfig(spec, { radius, relevanceRadius = 200, maxW
   if (!spec || spec.enabled !== true) return null
   const anchorsPerFace = spec.anchorsPerFace ?? CHART_ANCHORS_PER_FACE
   const lattice = createChartAnchorLattice(radius, anchorsPerFace)
-  if (!lattice) throw new ClusterConfigError('cluster-needs-planet-radius', `clusters need a positive finite planet radius, got ${radius}`)
   const cellWorstDeg = chartAnchorCellWorstAngleDeg(lattice)
   const memberRadiusM = spec.memberRadiusM ?? radius * Math.sin(cellWorstDeg * Math.PI / 180)
   const linkM = spec.linkM ?? CLUSTER_DEFAULT_LINK_M
@@ -54,4 +54,22 @@ export function resolveClusterConfig(spec, { radius, relevanceRadius = 200, maxW
     stayFactor: CLUSTER_STAY_FACTOR, joinFactor: CLUSTER_JOIN_FACTOR,
     idleGraceMs: spec.idleGraceMs ?? CLUSTER_DEFAULT_IDLE_GRACE_MS,
   }
+}
+
+export function declaredWeaponRangeM(worldDef, appDefs = null) {
+  let longest = worldDef.maxWeaponRangeM ?? 0
+  const combat = worldDef.players?.behaviours?.combat
+  if (combat) {
+    const combatRange = typeof combat.config?.range === 'number' ? combat.config.range : DEFAULT_COMBAT.range
+    if (combatRange > longest) longest = combatRange
+  }
+  for (const entity of worldDef.entities || []) {
+    const appDef = entity?.app ? appDefs?.get?.(entity.app) : undefined
+    const editorProps = (appDef?.server || appDef)?.editorProps
+    const rangeProp = Array.isArray(editorProps) ? editorProps.find(prop => prop?.key === 'range') : undefined
+    if (!rangeProp) continue
+    const entityRange = typeof entity.config?.range === 'number' ? entity.config.range : rangeProp.default
+    if (typeof entityRange === 'number' && entityRange > longest) longest = entityRange
+  }
+  return longest
 }

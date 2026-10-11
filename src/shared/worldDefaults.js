@@ -27,38 +27,48 @@ export function worldEquipment(worldDef) {
   return Array.isArray(worldDef?.equipment) ? worldDef.equipment : []
 }
 
+export class WorldMobileButtonsError extends Error {
+  constructor(reason, message) {
+    super(`${reason}: ${message}`)
+    this.name = 'WorldMobileButtonsError'
+    this.reason = reason
+  }
+}
+
+export const MOBILE_BUTTON_GRID_MAX_COL = 3
+export const MOBILE_BUTTON_GRID_MAX_ROW = 3
+
 export function worldMobileButtons(worldDef) {
   const declared = worldDef?.input?.mobileButtons
-  if (!Array.isArray(declared)) return DEFAULT_MOBILE_BUTTONS.map(b => ({ ...b }))
-  const seen = new Set()
+  if (declared === undefined) return DEFAULT_MOBILE_BUTTONS.map(b => ({ ...b }))
+  if (!Array.isArray(declared)) throw new WorldMobileButtonsError('mobile-buttons-not-a-list', `world input.mobileButtons must be an array, got ${declared === null ? 'null' : typeof declared}`)
   const taken = new Set()
   const out = []
-  for (const spec of declared) {
-    if (!spec || typeof spec !== 'object') continue
-    if (typeof spec.action !== 'string' || spec.action === '' || seen.has(spec.action)) continue
-    seen.add(spec.action)
-    const cell = normalizeGridCell(spec.grid)
-    const free = cell && !taken.has(cell.join(',')) ? cell : nextFreeCell(taken)
-    if (!free) continue
-    taken.add(free.join(','))
-    out.push({ ...spec, grid: free })
+  for (let index = 0; index < declared.length; index++) {
+    const spec = declared[index]
+    if (!spec || typeof spec !== 'object') throw new WorldMobileButtonsError('button-not-an-object', `world input.mobileButtons[${index}] must be an object, got ${spec === null ? 'null' : typeof spec}`)
+    if (typeof spec.action !== 'string' || spec.action === '') throw new WorldMobileButtonsError('button-action-not-a-non-empty-string', `world input.mobileButtons[${index}].action must be a non-empty string, got ${JSON.stringify(spec.action) ?? typeof spec.action}`)
+    if (out.some(b => b.action === spec.action)) throw new WorldMobileButtonsError('button-action-duplicated', `world input.mobileButtons[${index}] repeats the action "${spec.action}", so one of the two buttons could never be pressed`)
+    const grid = gridCellOf(spec, index, taken)
+    taken.add(grid.join(','))
+    out.push({ ...spec, grid })
   }
-  return out.length > 0 ? out : DEFAULT_MOBILE_BUTTONS.map(b => ({ ...b }))
+  return out
 }
 
-function normalizeGridCell(grid) {
-  if (!Array.isArray(grid) || grid.length !== 2) return null
-  const [col, row] = grid
-  if (!Number.isInteger(col) || !Number.isInteger(row)) return null
-  if (col < 1 || col > 3 || row < 1 || row > 3) return null
+function gridCellOf(spec, index, taken) {
+  if (spec.grid === undefined) {
+    for (let row = 1; row <= MOBILE_BUTTON_GRID_MAX_ROW; row++) for (let col = 1; col <= MOBILE_BUTTON_GRID_MAX_COL; col++) {
+      const cell = [col, row]
+      if (!taken.has(cell.join(','))) return cell
+    }
+    throw new WorldMobileButtonsError('button-grid-exhausted', `world input.mobileButtons[${index}] ("${spec.action}") is one button too many: the ${MOBILE_BUTTON_GRID_MAX_COL}x${MOBILE_BUTTON_GRID_MAX_ROW} grid holds ${MOBILE_BUTTON_GRID_MAX_COL * MOBILE_BUTTON_GRID_MAX_ROW}`)
+  }
+  if (!Array.isArray(spec.grid) || spec.grid.length !== 2 || !spec.grid.every(Number.isInteger)) throw new WorldMobileButtonsError('button-grid-not-a-cell', `world input.mobileButtons[${index}].grid must be [column, row] with two integers, got ${JSON.stringify(spec.grid) ?? typeof spec.grid}`)
+  const [col, row] = spec.grid
+  if (col < 1 || col > MOBILE_BUTTON_GRID_MAX_COL || row < 1 || row > MOBILE_BUTTON_GRID_MAX_ROW) throw new WorldMobileButtonsError('button-grid-out-of-range', `world input.mobileButtons[${index}].grid [${col}, ${row}] is outside the ${MOBILE_BUTTON_GRID_MAX_COL}x${MOBILE_BUTTON_GRID_MAX_ROW} grid, so the declared cell cannot be honoured`)
+  if (taken.has(`${col},${row}`)) throw new WorldMobileButtonsError('button-grid-cell-taken', `world input.mobileButtons[${index}].grid [${col}, ${row}] is already taken by an earlier button`)
   return [col, row]
-}
-
-function nextFreeCell(taken) {
-  for (let row = 1; row <= 3; row++) for (let col = 1; col <= 3; col++) {
-    if (!taken.has(`${col},${row}`)) return [col, row]
-  }
-  return null
 }
 
 export function worldPlayerModel(worldDef) {

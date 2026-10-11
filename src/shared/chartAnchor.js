@@ -9,9 +9,20 @@ const CHUNK_M_SAFETY = 1 + 1e-12
 export const CHART_ANCHORS_PER_FACE = 32
 export const CHART_REANCHOR_ANGLE_DEG = 28
 
+export class ChartAnchorLatticeError extends Error {
+  constructor(reasons, message) {
+    super(`${reasons.join('+')}: ${message}`)
+    this.name = 'ChartAnchorLatticeError'
+    this.reasons = reasons
+    this.reason = reasons.join('+')
+  }
+}
+
 export function createChartAnchorLattice(radius, anchorsPerFace = CHART_ANCHORS_PER_FACE) {
-  if (!Number.isFinite(radius) || !(radius > 0)) return null
-  if (!(anchorsPerFace >= 1)) throw new Error(`chart anchor lattice needs anchorsPerFace >= 1, got ${anchorsPerFace}`)
+  const bad = []
+  if (!(Number.isFinite(radius) && radius > 0)) bad.push('radius-not-positive-finite')
+  if (!(anchorsPerFace >= 1)) bad.push('anchors-per-face-below-one')
+  if (bad.length) throw new ChartAnchorLatticeError(bad, `chart anchor lattice needs a positive finite radius and anchorsPerFace >= 1, got radius ${radius} and anchorsPerFace ${anchorsPerFace}`)
   const chunkM = (QUARTER_TURN * radius / anchorsPerFace) * CHUNK_M_SAFETY
   return createPlacementLattice(radius, chunkM, 1)
 }
