@@ -154,9 +154,9 @@ export class SpatialIndex {
   nearbyCylinder(position, radius, halfHeight, out) {
     const [cx, cy, cz] = parseQueryCentre('nearbyCylinder', position)
     const r = parseQueryExtent('nearbyCylinder', 'radius', radius)
-    if (typeof halfHeight !== 'number' || !Number.isFinite(halfHeight) || halfHeight < 0) {
+    if (typeof halfHeight !== 'number' || !(halfHeight >= 0)) {
       const shown = typeof halfHeight === 'number' ? String(halfHeight) : JSON.stringify(halfHeight)
-      throw new TypeError(`[SpatialIndex] nearbyCylinder got halfHeight ${shown}: a relevance cylinder carries its vertical extent as an argument, so an absent, non-numeric, NaN, infinite or negative one is not a query`)
+      throw new TypeError(`[SpatialIndex] nearbyCylinder got halfHeight ${shown}: a relevance cylinder carries its vertical extent as an argument, so an absent, non-numeric, NaN or negative one is not a query`)
     }
     const results = out || []
     if (out) results.length = 0
