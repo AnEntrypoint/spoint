@@ -24,7 +24,7 @@ function expect(name, got, predicate) {
 }
 
 function attempt(fn) {
-  try { return { ok: true, value: fn() } } catch (e) { return { ok: false, code: e.code ?? e.name, message: e.message } }
+  try { return { ok: true, value: fn() } } catch (e) { return { ok: false, code: e.code ?? e.name, reasonCode: e.reasonCode ?? null, message: e.message } }
 }
 
 const unit = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
@@ -61,9 +61,9 @@ expect('planet stage takes planetRadius from enabled clusters', planet.stage.spa
 const flat = planetStage('witness-flat', null)
 expect('stage without clusters stays flat (planetRadius 0)', flat.stage.spatial.planetRadius, v => v === 0)
 const declared = attempt(() => { const l = new StageLoader(new AppRuntime({})); return l.loadFromDefinition('undeclared', { name: 'undeclared', planetRadius: R, entities: [] }) })
-expect('declared planetRadius without clusters is refused at load', declared, v => !v.ok && /without enabled clusters/.test(v.message))
+expect('declared planetRadius without clusters is refused at load', declared, v => !v.ok && v.code === 'stage-radius-not-cluster-resolved')
 const linkRefused = attempt(() => planetStage('link-refused', { enabled: true, linkM: 599 }))
-expect('stage load surfaces cluster-link-below-relevance-ring', linkRefused, v => !v.ok && v.code === 'cluster-link-below-relevance-ring')
+expect('stage load surfaces cluster-link-below-relevance-ring', linkRefused, v => !v.ok && v.code === 'stage-cluster-config-refused' && v.reasonCode === 'cluster-link-below-relevance-ring')
 
 console.log('-- resolveClusterConfig --')
 const callCluster = (spec, opts = {}) => attempt(() => resolveClusterConfig({ enabled: true, ...spec }, { radius: R, relevanceRadius: REL, maxWeaponRangeM: 0, ...opts }))

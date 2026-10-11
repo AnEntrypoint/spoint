@@ -5,10 +5,12 @@ import { resolveClusterConfig, declaredWeaponRangeM } from '../shared/clusterCon
 import { flatPlanetRadius, clusterPlanetRadius } from './planetRadius.js'
 
 export class StageConfigError extends TypeError {
-  constructor(code, message) {
+  constructor(code, message, reason = null) {
     super(`${code}: ${message}`)
     this.name = 'StageConfigError'
     this.code = code
+    this.cause = reason
+    this.reasonCode = typeof reason?.code === 'string' ? reason.code : null
   }
 }
 
@@ -29,7 +31,7 @@ function stagePlanetRadius(worldDef, appDefs) {
     try {
       clusterConfig = resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius || 200, maxWeaponRangeM: declaredWeaponRangeM(worldDef, appDefs) })
     } catch (e) {
-      throw new StageConfigError('stage-cluster-config-refused', `[stage] world "${worldName}" carries a cluster config the cluster resolver refuses (${e?.code ?? e?.name ?? 'unnamed'}: ${e?.message ?? e}): the stage owns one radius per world and reports the refusal in its own vocabulary, so a caller never has to know which module drew the line`)
+      throw new StageConfigError('stage-cluster-config-refused', `[stage] world "${worldName}" carries a cluster config the cluster resolver refuses (${e?.code ?? e?.name ?? 'unnamed'}: ${e?.message ?? e}): the stage owns one radius per world and reports the refusal in its own vocabulary, so a caller never has to know which module drew the line`, e)
     }
   }
   if (clusterConfig) {
