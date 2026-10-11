@@ -337,17 +337,17 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame)
   const bakedAnchorDir = baked ? frame.anchorDir : null
   const bakedFrameIsCurrent = () => frame.up[0] === bakedAnchorDir[0] && frame.up[1] === bakedAnchorDir[1] && frame.up[2] === bakedAnchorDir[2]
-  const baseHeightFn = gpuPatch
-    ? gpuPatch.heightFn
-    : baked
-      ? ((x, z, yGuess) => bakedFrameIsCurrent() && baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z, yGuess))
-      : ((x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess))
   const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0
-  if (gpuPatch) { console.log(`[terrain] collider using LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)`); physics._terrainHeightSource = 'gpu-patch' }
-  else if (baked) { console.log(`[terrain] collider using BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm, height code ${baked.codeVersion ?? '(none)'}${baked.codeVersionVerified ? '' : ' unverified: this runtime has no filesystem to rehash the bake sources with'}) instead of the GPU patch bake: ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'baked' }
-  else { console.log(`[terrain] collider using EXACT CPU height (no baked artifact covers the spawn): ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'cpu' }
-  if (hashVersion === LEGACY_TERRAIN_HASH_VERSION && physics._terrainHeightSource === 'cpu') console.error(`[terrain] world resolves to terrain hashVersion 1 (legacy float hash) and no baked or GPU-patch collider covers it, so colliders come from the CPU sampler, which cannot agree with any GPU terrain at hashVersion 1: measured 1.28 m mean / 2.84 m max apart over 256 m on both the legacy GLSL and the TSL boot, the two GPU boots agreeing to 7 mm with each other, because the v1 hash is a fract/dot float hash whose value is set by float precision (hashVersion 2's integer hash is bit-exact and measures 0.001 m mean / 0.005 m max). The ground this server simulates and the ground clients draw disagree by that much; set terrain.hashVersion 2, bake a hashVersion 1 heightfield, or boot the legacy GLSL renderer, whose GPU patch bake is the one v1 collider that matches what it draws`)
+  const colliderSource = gpuPatch
+    ? { kind: 'gpu-patch', heightFn: gpuPatch.heightFn, detail: `LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)` }
+    : baked
+      ? { kind: 'baked', heightFn: (x, z, yGuess) => bakedFrameIsCurrent() && baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z, yGuess), detail: `BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm, height code ${baked.codeVersion ?? '(none)'}${baked.codeVersionVerified ? '' : ' unverified: this runtime has no filesystem to rehash the bake sources with'}) instead of the GPU patch bake: ${gpuPatchUnavailable}` }
+      : { kind: 'cpu', heightFn: (x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess), detail: `EXACT CPU height (no baked artifact covers the spawn): ${gpuPatchUnavailable}` }
+  console.log(`[terrain] collider using ${colliderSource.detail}`)
+  physics._terrainHeightSource = colliderSource.kind
+  if (hashVersion === LEGACY_TERRAIN_HASH_VERSION && colliderSource.kind === 'cpu') console.error(`[terrain] world resolves to terrain hashVersion 1 (legacy float hash) and no baked or GPU-patch collider covers it, so colliders come from the CPU sampler, which cannot agree with any GPU terrain at hashVersion 1: measured 1.28 m mean / 2.84 m max apart over 256 m on both the legacy GLSL and the TSL boot, the two GPU boots agreeing to 7 mm with each other, because the v1 hash is a fract/dot float hash whose value is set by float precision (hashVersion 2's integer hash is bit-exact and measures 0.001 m mean / 0.005 m max). The ground this server simulates and the ground clients draw disagree by that much; set terrain.hashVersion 2, bake a hashVersion 1 heightfield, or boot the legacy GLSL renderer, whose GPU patch bake is the one v1 collider that matches what it draws`)
   if (gpuPatch) { frame.groundHeightLocal = (x, z) => gpuPatch.heightFn(x, z); if (hashVersion === LEGACY_TERRAIN_HASH_VERSION) frame.cpuHeightDivergentFromGround = true }
+  const baseHeightFn = colliderSource.heightFn
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))
   const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(baseHeightFn)))
