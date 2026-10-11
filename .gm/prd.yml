@@ -340,6 +340,36 @@
   status: pending
   surface: src/apps/AppContext.js:301-308 and src/apps/AppRuntime.js:412-425; consumer client/AppModuleSystem.js:84
   title: 'src/apps: the interactable parse result is reified as {prompt, radius} only, so a non-default cooldown is lost on every hydrate and prompt is an untyped value rendered into the DOM'
+- id: ILLEGAL-n-r259-1
+  title: 'src/protocol/InputCodec.js: an extra axis named expr/analogForward/analogRight, or duplicated, is accepted and silently overwritten'
+  body: 'createInputSchema filters extra axes against the button names, ''yaw'' and ''pitch'' (InputCodec.js:25) but not against ''expr'', ''analogForward'', ''analogRight''; readRecord then assigns input.expr (line 81) and input.analogForward/analogRight (lines 86-87) after the axis loop, so such an axis is written and then destroyed, and a duplicate axis name is written twice with the last write winning. Illegal schema -> well-formed wire bytes carrying a lost value. Fix: apply RESERVED_INPUT_NAMES (added by this hop at line 7) plus a duplicate check to the axes filter, throwing as the button path now does. Unreachable for shipped worlds: codesearch literal ''inputButtons'' is 0 matches in apps (dispatch 1791680780808-500-7307115b039e78b0, exhaustive) and in packages (1791680734212-500-d55e75e84c6561e8).'
+  session_id: orch-main-r259
+  status: pending
+- id: ILLEGAL-n-r259-2
+  title: 'src/protocol/InputCodec.js: encodeInputPacket silently discards every input beyond MAX_INPUTS_PER_PACKET'
+  body: 'encodeInputPacket (lines 96-97) takes Math.min(MAX_INPUTS_PER_PACKET, entries.length) and encodes only the newest n; the caller gets bytes back and no signal that older entries were dropped, so an over-full batch is an encodable state that loses data invisibly. decodeInputPacket already refuses a count outside 1..8 (line 114) and refuses trailing bytes (line 128), so the encoder is the only half of the pair that tolerates an illegal input count. Fix: report the truncation to the caller (dropped count or a flag) so an over-full batch cannot be silently reduced. Tracked witness scripts/input-packet-codec-roundtrip-witness.mjs already asserts the keep-newest-8 behaviour, so the fix must keep it.'
+  session_id: orch-main-r259
+  status: pending
+- id: ILLEGAL-n-r259-3
+  title: 'src/protocol/ComponentSchema.js: an out-of-enum value and an out-of-range enum byte both become enum[0]'
+  body: '_writeField (lines 118-122) encodes idx >= 0 ? idx : 0, so any value outside field.enum is written as the first legal member; _readField (line 157) returns field.enum[byte] ?? field.enum[0], so a corrupt, truncated or future index decodes as the first member. Both directions map an illegal member onto a legal one instead of refusing it. Fix: throw when encoding a value outside field.enum and when decoding an index >= field.enum.length. FILE HELD: src/protocol/ComponentSchema.js carries foreign uncommitted dirt (git_status dispatch 1791680687421-500-3fc6c43e77f10d9c), so this row is filed, not applied.'
+  session_id: orch-main-r259
+  status: pending
+- id: ILLEGAL-n-r259-4
+  title: 'src/protocol/ComponentSchema.js: decodeCustomFields turns a corrupt or truncated buffer into a well-formed object'
+  body: 'presence is `dv.getUint8(off) === 1` (line 139), so any non-1 byte -- corruption, not just 0 -- reads as absent; the string length from getUint16 (line 142) is never checked against the bytes remaining and subarray silently clamps (line 143), so a truncated string decodes shorter instead of being refused; no read is bounds-checked against bytes.length, and bytes past the last schema field are ignored, while the sibling decoder InputCodec.js:128 refuses trailing bytes. fieldByteSize also returns null for ''string'' (VARIABLE_BYTE_SIZE, lines 5 and 12) and callers coerce it with `|| 0` (line 72) and `1 + fieldByteSize(field)` (line 90). Fix: bound-check every read, reject a string length exceeding the buffer, reject trailing bytes, and give string its own size path. FILE HELD: see ILLEGAL-n-r259-3.'
+  session_id: orch-main-r259
+  status: pending
+- id: ILLEGAL-n-r259-5
+  title: 'src/protocol/EventEmitter.js: emit skips the next listener after any removal, once leaks on a throwing listener, and emit reports success when every listener threw'
+  body: 'emit iterates the live array with forEach (lines 33-39); the visited range is fixed at the start, so off() during an emit shifts the array and the following listener is skipped -- once() (lines 22-29) removes its wrapper only after fn returns, and fn throwing leaves the wrapper registered for every later emit, because emit swallows the error at lines 34-38. emit then returns true either way, so ''delivered'' and ''every listener failed'' are the same value and a failed delivery is unrepresentable. Fix: iterate a snapshot, remove the once wrapper in a finally, and return (or throw) the failure count. Live witness dispatch 1791680865914-500-49414c50f413ee2f observes all three states.'
+  session_id: orch-main-r259
+  status: pending
+- id: ILLEGAL-n-r259-6
+  title: 'src/protocol/MessageTypes.js: MSG and DISCONNECT_REASONS are mutable tables, a duplicate id is invisible, and an id outside the table reads as reliable'
+  body: 'MSG (line 3) and DISCONNECT_REASONS (line 156) are exported unfrozen while the sibling table DEFAULT_INPUT_BUTTONS is Object.freeze''d (InputCodec.js:1-4); nameMap is built with set() in a loop (lines 140-141), so two names sharing one id silently overwrite and msgName reports whichever came last, making a duplicate-id protocol unrepresentable as an error; isUnreliable(type) (lines 152-154) returns false for any id not in MSG, so an unknown or newly added message type defaults to reliable. Fix: Object.freeze both tables, assert id uniqueness while building nameMap, and refuse an unknown id in isUnreliable.'
+  session_id: orch-main-r259
+  status: pending
 - id: PARSEDV-0-sub1-1
   SESSION_ID: orch-main-r250-sub1
   session_id: orch-main-r250-sub1
@@ -366,4 +396,13 @@
   surface: src/shared
   state: pending
   session_id: orch-main-r256
+  status: pending
+- id: MILNER-n-r260-3
+  SESSION_ID: orch-main-r260
+  body: 'MILNER: a player id has two domains inside one surface, so the type does not pin the fact. QuestSystem.js:20 normalises with `const key = String(pid)` and StatsSystem.js:38 does the same, but ProgressionSystem.js:36/37/46/107 keys playerProgression by the raw argument and AbilityTree.js:82 keys playerAbilityStates by the raw argument. addXp(1, 10) and addXp(''1'', 10) therefore create two progression entries while the quest and stats systems read them as one player; conversely getPlayerState(''1'') and getPlayerState(1) are different players. Events add a third spelling (QuestSystem.js:70/93/108, StatsSystem.js:240 send String(pid)). Fix direction (not applied): one playerId parser at the surface boundary - every system keys on the parsed value and no function accepts the unparsed one.'
+  principle: MILNER
+  surface: src/game
+  title: 'src/game: player identity is String(pid) in QuestSystem/StatsSystem and the raw argument in ProgressionSystem/AbilityTree'
+  witness: codesearch regex 'String\(pid\)|playerProgression\.(has|get|set)\(' over src/game (exhaustive, 11 hits, dispatch 1791681251171-500-2676217125e5caf0)
+  session_id: orch-main-r260
   status: pending

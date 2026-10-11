@@ -4,6 +4,7 @@ export const DEFAULT_INPUT_BUTTONS = Object.freeze([
 ])
 export const MAX_INPUT_BUTTONS = 32
 export const MAX_INPUTS_PER_PACKET = 8
+const RESERVED_INPUT_NAMES = new Set(['yaw', 'pitch', 'expr', 'analogForward', 'analogRight'])
 const TAU = 2 * Math.PI
 const HALF_PI = Math.PI / 2
 const YAW_STEPS = 65536
@@ -20,7 +21,11 @@ export function createInputSchema(netcodeConfig = null) {
   const extraButtons = Array.isArray(netcodeConfig?.inputButtons) ? netcodeConfig.inputButtons : []
   const extraAxes = Array.isArray(netcodeConfig?.inputAxes) ? netcodeConfig.inputAxes : []
   const buttons = [...DEFAULT_INPUT_BUTTONS]
-  for (const b of extraButtons) if (typeof b === 'string' && !buttons.includes(b)) buttons.push(b)
+  for (const b of extraButtons) {
+    if (typeof b !== 'string' || buttons.includes(b)) continue
+    if (RESERVED_INPUT_NAMES.has(b)) throw new Error(`[InputCodec] input button "${b}" collides with a fixed field of every input record`)
+    buttons.push(b)
+  }
   if (buttons.length > MAX_INPUT_BUTTONS) throw new Error(`[InputCodec] ${buttons.length} input buttons declared, max ${MAX_INPUT_BUTTONS}`)
   const axes = extraAxes.filter(a => typeof a === 'string' && !buttons.includes(a) && a !== 'yaw' && a !== 'pitch')
   return Object.freeze({ buttons: Object.freeze(buttons), axes: Object.freeze(axes) })
