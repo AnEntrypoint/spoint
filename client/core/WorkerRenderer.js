@@ -166,6 +166,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
           stoppedMessage = msg
           started = false
           if (onStopped) onStopped(msg)
+          if (!settled) { settled = true; clearTimeout(timer); reject(new Error('worker stopped before ready')) }
           const waiters = stopWaiters.splice(0, stopWaiters.length)
           for (const waiter of waiters) waiter(msg)
         } else if (msg.type === 'error') {
