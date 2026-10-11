@@ -18,7 +18,7 @@ export function validateSchema(schema) {
   if (!schema || typeof schema !== 'object') throw new TypeError('[ComponentSchema] schema must be an object')
   for (const [name, field] of Object.entries(schema)) {
     if (!field || typeof field !== 'object') throw new TypeError(`[ComponentSchema] field "${name}" must be an object`)
-    if (!FIELD_TYPES[field.type]) throw new TypeError(`[ComponentSchema] field "${name}" has unknown type: ${field.type}`)
+    if (!Object.hasOwn(FIELD_TYPES, field.type)) throw new TypeError(`[ComponentSchema] field "${name}" has unknown type: ${field.type}`)
     if (field.type === 'enum') {
       if (!Array.isArray(field.enum) || field.enum.length === 0) throw new TypeError(`[ComponentSchema] enum field "${name}" needs a non-empty enum: string[]`)
       if (field.enum.length > 256) throw new TypeError(`[ComponentSchema] enum field "${name}" exceeds 256 values (1-byte index)`)
@@ -87,7 +87,7 @@ export function encodeCustomFields(schema, obj) {
   for (const name of names) {
     const field = schema[name]
     const present = obj != null && obj[name] !== undefined
-    if (!present) { parts.push(Uint8Array.of(0)); continue }
+    if (!present) { parts.push(new Uint8Array(1 + (field.type === 'string' ? 0 : fieldByteSize(field)))); continue }
     if (field.type === 'string') {
       const strBytes = encodeStringUtf8(String(obj[name]))
       const head = new Uint8Array(3)
@@ -128,6 +128,13 @@ function _writeField(dv, off, field, value) {
   }
 }
 
+const PRESENCE_BYTES = 1
+const STRING_LENGTH_BYTES = 2
+
+function _refusal(bytes, off, need, what) {
+  return new RangeError(`[ComponentSchema] ${what} needs ${need} byte(s) at offset ${off}, ${bytes.length - off} remain`)
+}
+
 export function decodeCustomFields(schema, buf) {
   const names = Object.keys(schema)
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
@@ -136,29 +143,51 @@ export function decodeCustomFields(schema, buf) {
   let off = 0
   for (const name of names) {
     const field = schema[name]
-    const present = dv.getUint8(off) === 1; off += 1
-    if (!present) { if (field.type !== 'string') off += fieldByteSize(field); continue }
+    if (off + PRESENCE_BYTES > bytes.length) throw _refusal(bytes, off, PRESENCE_BYTES, `presence byte of field "${name}"`)
+    const flag = dv.getUint8(off); off += PRESENCE_BYTES
+    if (flag !== 0 && flag !== 1) throw new RangeError(`[ComponentSchema] field "${name}" presence flag ${flag} is outside the declared 0 or 1`)
+    if (flag === 0) { if (field.type !== 'string') off += fieldByteSize(field); continue }
     if (field.type === 'string') {
-      const len = dv.getUint16(off, true); off += 2
+      if (off + STRING_LENGTH_BYTES > bytes.length) throw _refusal(bytes, off, STRING_LENGTH_BYTES, `string length of field "${name}"`)
+      const len = dv.getUint16(off, true); off += STRING_LENGTH_BYTES
+      if (off + len > bytes.length) throw new RangeError(`[ComponentSchema] field "${name}" declares ${len} string bytes, ${bytes.length - off} remain`)
       out[name] = decodeStringUtf8(bytes.subarray(off, off + len)); off += len
       continue
     }
     const size = fieldByteSize(field)
-    out[name] = _readField(dv, off, field)
+    if (off + size > bytes.length) throw _refusal(bytes, off, size, `field "${name}" of type ${field.type}`)
+    out[name] = _readField(dv, off, field, name)
     off += size
   }
+  if (off !== bytes.length) throw new RangeError(`[ComponentSchema] custom block has ${bytes.length - off} trailing bytes`)
   return out
 }
 
-function _readField(dv, off, field) {
+function _readField(dv, off, field, name) {
   switch (field.type) {
     case 'u8': return dv.getUint8(off)
-    case 'bool': return dv.getUint8(off) === 1
-    case 'enum': return field.enum[dv.getUint8(off)] ?? field.enum[0]
+    case 'bool': {
+      const b = dv.getUint8(off)
+      if (b !== 0 && b !== 1) throw new RangeError(`[ComponentSchema] field "${name}" bool byte ${b} is outside the declared 0 or 1`)
+      return b === 1
+    }
+    case 'enum': {
+      const idx = dv.getUint8(off)
+      if (idx >= field.enum.length) throw new RangeError(`[ComponentSchema] field "${name}" enum ordinal ${idx} is outside 0..${field.enum.length - 1}`)
+      return field.enum[idx]
+    }
     case 'u16': return dv.getUint16(off, true)
     case 'i16': return dv.getInt16(off, true)
-    case 'f32': return dv.getFloat32(off, true)
-    case 'f64': return dv.getFloat64(off, true)
+    case 'f32': {
+      const v = dv.getFloat32(off, true)
+      if (!Number.isFinite(v)) throw new RangeError(`[ComponentSchema] field "${name}" is not a finite f32`)
+      return v
+    }
+    case 'f64': {
+      const v = dv.getFloat64(off, true)
+      if (!Number.isFinite(v)) throw new RangeError(`[ComponentSchema] field "${name}" is not a finite f64`)
+      return v
+    }
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
 }
