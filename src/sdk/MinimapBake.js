@@ -1,8 +1,8 @@
 import { Worker } from 'node:worker_threads'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, minimapTaggedBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, LEGACY_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolveTerrainConfig, minimapDescriptor, minimapBakeParams, minimapBaseName, minimapTaggedBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, LEGACY_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../static/BakeCodeVersion.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 import { findWorldFile, worldRoots } from './WorldLocator.js'
@@ -15,7 +15,9 @@ import(workerData.bakeModUrl)
   .then(m => m.bakeMinimap(workerData.opts))
   .then(r => parentPort.postMessage({ png: r.png, header: r.header }), e => parentPort.postMessage({ error: (e && e.stack) || String(e) }))`
 
-const worldDir = () => join(process.cwd(), 'apps', 'world')
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+const worldDir = () => join(REPO_ROOT, 'apps', 'world')
 const inFlightBakes = new Map()
 const backgroundBakes = new Map()
 const onDemandBakes = new Map()
@@ -45,7 +47,7 @@ export function isMinimapStale(header, tcfg) {
 }
 
 function bakeOffMainThread(opts) {
-  const bakeModUrl = pathToFileURL(join(process.cwd(), 'scripts', 'bake-minimap.mjs')).href
+  const bakeModUrl = pathToFileURL(join(REPO_ROOT, 'scripts', 'bake-minimap.mjs')).href
   return new Promise((resolve, reject) => {
     const worker = new Worker(BAKE_WORKER_SOURCE, { eval: true, workerData: { bakeModUrl, opts } })
     worker.once('message', m => { if (m.error) reject(new Error(m.error)); else resolve(m) })
@@ -77,13 +79,7 @@ async function bakeAndWrite(base, tcfg) {
   const outPng = join(worldDir(), `${base}.png`)
   const outJson = join(worldDir(), `${base}.json`)
   const t0 = Date.now()
-  const { png, header } = await bakeOffMainThread({
-    seed: tcfg.seed | 0, radius: tcfg.radius, reliefScale: tcfg.reliefScale, anchorDir: tcfg.anchorDir,
-    hashVersion: minimapBakeParams(tcfg).hashVersion,
-    carves: minimapBakeParams(tcfg).carves,
-    extent: minimapExtentOf(tcfg),
-    res: minimapResOf(tcfg), center: tcfg.center || [0, 0],
-  })
+  const { png, header } = await bakeOffMainThread({ ...minimapBakeParams(tcfg), seed: tcfg.seed | 0 })
   mkdirSync(worldDir(), { recursive: true })
   const tmpTag = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const tmpPng = `${outPng}.tmp-${tmpTag}`
