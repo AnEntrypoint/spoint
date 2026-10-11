@@ -10,14 +10,19 @@ const ARC_VELOCITY = 8
 const TELEPORT_MOVE_MS = 200
 const TELEPORT_SETTLE_MS = 200
 
+const FADE_IDLE = 'idle'
+const FADE_IN = 'fadeIn'
+const FADE_DELAY = 'delay'
+const FADE_OUT = 'fadeOut'
+
 const fadeMachine = createMachine({
   id: 'fade',
-  initial: 'idle',
+  initial: FADE_IDLE,
   states: {
-    idle: { on: { START: 'fadeIn' } },
-    fadeIn: { on: { FULL: 'delay' } },
-    delay: { on: { RESUME: 'fadeOut' } },
-    fadeOut: { on: { DONE: 'idle' } }
+    [FADE_IDLE]: { on: { START: FADE_IN } },
+    [FADE_IN]: { on: { FULL: FADE_DELAY, CANCEL: FADE_IDLE } },
+    [FADE_DELAY]: { on: { RESUME: FADE_OUT, CANCEL: FADE_IDLE } },
+    [FADE_OUT]: { on: { DONE: FADE_IDLE } }
   }
 })
 
@@ -130,7 +135,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function endTeleport(aborted) {
     clearTimeout(teleportTimer); teleportTimer = 0
     teleportPending = null
-    if (aborted) _fadeActor.send({ type: 'DONE' })
+    if (aborted) { fadeOpacity = 0; fadeDelayElapsed = 0; _fadeActor.send({ type: 'CANCEL' }) }
   }
 
   function computeParabolicArc(origin, direction) {
@@ -159,9 +164,9 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function updateFade(dt) {
     if (!fadeQuad) fadeQuad = createScreenQuad({ renderOrder: 9999, z: -0.1, material: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }) })
     const fs = _fadeActor.getSnapshot().value
-    if (fs === 'fadeIn') { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; _fadeActor.send({ type: 'FULL' }) } }
-    else if (fs === 'delay') { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; _fadeActor.send({ type: 'RESUME' }) } }
-    else if (fs === 'fadeOut') { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; _fadeActor.send({ type: 'DONE' }) } }
+    if (fs === FADE_IN) { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; _fadeActor.send({ type: 'FULL' }) } }
+    else if (fs === FADE_DELAY) { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; _fadeActor.send({ type: 'RESUME' }) } }
+    else if (fs === FADE_OUT) { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; _fadeActor.send({ type: 'DONE' }) } }
     setQuadOpacity(fadeQuad, fadeOpacity)
   }
 
