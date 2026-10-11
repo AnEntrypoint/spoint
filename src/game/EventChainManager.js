@@ -5,6 +5,7 @@ export class EventChainManager {
     this.inventories = new Map()
     this.activeDelayedActions = []
     this.eventLogs = []
+    this._idSeq = 0
     this.maxLogs = options.maxLogs || 100
     this.ctx = options.ctx || null
 
@@ -17,7 +18,9 @@ export class EventChainManager {
 
   addChain(chainSpec) {
     if (!chainSpec.id) {
-      chainSpec.id = 'chain_' + Math.random().toString(36).substr(2, 9)
+      chainSpec.id = this._nextId('chain')
+    } else {
+      this._observeId(chainSpec.id)
     }
     const chain = {
       id: chainSpec.id,
@@ -47,6 +50,16 @@ export class EventChainManager {
 
   getChains() {
     return Array.from(this.chains.values())
+  }
+
+  _nextId(prefix) {
+    this._idSeq += 1
+    return prefix + '_' + this._idSeq
+  }
+
+  _observeId(id) {
+    const stamped = /^[^_]+_(\d+)$/.exec(String(id))
+    if (stamped) this._idSeq = Math.max(this._idSeq, Number(stamped[1]))
   }
 
   setVariable(name, value) {
@@ -266,7 +279,7 @@ export class EventChainManager {
         const prefabId = action.prefabId || action.appName || 'box-static'
         const pos = action.position || context.position || [0, 0, 0]
         const config = action.config || {}
-        const spawnId = action.spawnEntityId || ('spawned_' + Math.random().toString(36).substr(2, 6))
+        const spawnId = action.spawnEntityId || this._nextId('spawned')
 
         if (this.ctx && this.ctx.world && typeof this.ctx.world.spawn === 'function') {
           const spawned = this.ctx.world.spawn(spawnId, {
@@ -434,6 +447,7 @@ export class EventChainManager {
     this.variables.clear()
 
     if (Array.isArray(data.chains)) {
+      for (const c of data.chains) this._observeId(c && c.id)
       for (const c of data.chains) {
         this.addChain(c)
       }
