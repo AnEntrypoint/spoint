@@ -2,7 +2,7 @@ import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
 import { MapspinnerPipelineCache, TERRAIN_PATCH_VERTEX_BUFFERS } from './pipeline-cache.js'
 import { M4 } from '../gl-render-mat4.js'
 import { THC_BAKE_RES, createHeightBakePipeline, bakeHeightTileTexture } from './height-bake-compute.js'
-import { parseComposeHeightInputs } from './compose-height-inputs.js'
+import { parseComposeHeightPoolInputs } from './compose-height-inputs.js'
 import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_WGSL } from './sky-render.js'
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 import { resolvePoolParams, resolveWetness } from '../pool-params.js'
@@ -602,11 +602,12 @@ function createBufferWithData(device, data, usage) {
 export function createComposeHeightParams(device, opts = {}) {
   const defRadius = opts.defRadius
   if (!Number.isFinite(defRadius) || defRadius <= 0) throw new TypeError('createComposeHeightParams: opts.defRadius must be a positive finite number')
-  const { hpfRes, sculptRes, hpfPool: hpfPoolData, sculptTex: sculptTexData } = parseComposeHeightInputs({
+  const { hpfRes, sculptRes, hpfPool: hpfPoolData, sculptTex: sculptTexData, poolRes } = parseComposeHeightPoolInputs({
     hpfRes: opts.hpfRes,
     sculptRes: opts.sculptRes,
     hpfPool: opts.hpfPoolData,
     sculptTex: opts.sculptTexData,
+    poolRes: opts.poolRes,
   })
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : defRadius / RELIEF_DESIGN_RADIUS_M
   const paramsBuf = new ArrayBuffer(16)
@@ -617,7 +618,7 @@ export function createComposeHeightParams(device, opts = {}) {
     opts.landBias || 0, opts.beachShelfM || 150, opts.sculptActive || 0, opts.sculptExtent || 0,
   ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const sculptCenter = opts.sculptCenter || [0, 0]
-  const scalarB = createBufferWithData(device, new Float32Array([sculptCenter[0], sculptCenter[1], defRadius, opts.poolRes || 0]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
+  const scalarB = createBufferWithData(device, new Float32Array([sculptCenter[0], sculptCenter[1], defRadius, poolRes]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const up = opts.sculptUp || [0, 1, 0]
   const east = opts.sculptEast || [1, 0, 0]
   const north = opts.sculptNorth || [0, 0, 1]
@@ -628,7 +629,7 @@ export function createComposeHeightParams(device, opts = {}) {
   ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const hpfPool = createBufferWithData(device, hpfPoolData, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const sculptTex = createBufferWithData(device, sculptTexData, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
-  return { paramsU, scalarA, scalarB, basis, hpfPool, sculptTex }
+  return { paramsU, scalarA, scalarB, basis, hpfPool, sculptTex, poolRes }
 }
 
 export function createFrameUniformBuffer(device) {
@@ -754,7 +755,6 @@ export class PatchGridRenderer {
     this.depthFormat = opts.depthFormat || 'depth24plus'
     this.pipelineCache = opts.pipelineCache || new MapspinnerPipelineCache(device)
     this.mode = opts.mode === 'sample' ? 'sample' : 'compute'
-    this.poolRes = opts.poolRes || THC_BAKE_RES
     this.poolLayers = Math.max(1, opts.poolLayers || 1)
 
     const geo = buildGridGeometry(this.gridSize)
@@ -763,8 +763,9 @@ export class PatchGridRenderer {
     this.gridIndexBuffer = createBufferWithData(device, geo.indices, GPUBufferUsage.INDEX)
 
     const composeHeightOpts = opts.composeHeight || { defRadius: resolvePlanetRadiusM({ radiusM: opts.defRadius }, 'mapspinner webgpu patch-grid') }
-    if (this.mode === 'sample' && composeHeightOpts.poolRes == null) composeHeightOpts.poolRes = this.poolRes
+    if (composeHeightOpts.poolRes == null) composeHeightOpts.poolRes = opts.poolRes ?? THC_BAKE_RES
     this.composeHeightParams = createComposeHeightParams(device, composeHeightOpts)
+    this.poolRes = this.composeHeightParams.poolRes
     this.frameUniformBuffer = createFrameUniformBuffer(device)
 
     const p = this.composeHeightParams
