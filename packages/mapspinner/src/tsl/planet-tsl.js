@@ -16,14 +16,12 @@ import { runModuleWorkerJob } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
 import { SCULPT_RES } from './sculpt-tsl.js'
 import { createWaterTSL } from './water-tsl.js'
+import { resolveLodConfig, applyLodConfig } from '../lod-config.js'
 
 const GRID_SIZE = TD.gridMeshSize
-const LOD_STEP = 3.6
-const LOD_POP_ALTITUDE_MUL = 8.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
 const INITIAL_QUAD_CAPACITY = 2048
-const DEFAULT_FOVY = 0.785
 const DEFAULT_SUN_DIR = [0, 0.6, 0.8]
 const TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS = 10
 const WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS = -1
@@ -78,8 +76,6 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const R = opts.radius || 6360000
   if (!Number.isFinite(R) || R <= 0) throw new TypeError(`mapspinner tsl planet: opts.radius must be a positive finite number, got ${opts.radius}`)
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : R / 63600000.0
-  const maxLevel = opts.maxLevel ?? 11
-  const splitFactor = opts.splitFactor ?? TD.splitFactor
   const hpfRes = opts.hpfTexRes || 128
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
   const carves = opts.carves || []
@@ -156,17 +152,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
-    const sf = (typeof window !== 'undefined' && window.__splitFactor != null)
-      ? Math.max(0.05, +window.__splitFactor)
-      : splitFactor
-    const ml = (typeof window !== 'undefined' && window.__maxLevel != null)
-      ? Math.max(2, Math.min(22, window.__maxLevel | 0))
-      : maxLevel
-    const distF = (typeof window !== 'undefined' && window.__distFactor != null)
-      ? +window.__distFactor
-      : sf * LOD_POP_ALTITUDE_MUL
-    qt.computeSplitDist(sf * LOD_STEP, viewportH, fovy)
-    qt.setConfig(R, ml, distF)
+    const lod = resolveLodConfig(opts, fovy)
+    applyLodConfig(qt, R, viewportH, lod)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
@@ -232,8 +219,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   function frame(camWorldPos, camTarget, fovy, displayMode, sunDir, time, up, surfElev, shadowInfo, view) {
     const canvas = renderer.domElement
     const w = canvas.width || 1, h = canvas.height || 1
-    const fy = fovy || DEFAULT_FOVY
-    const res = quadsFor(camWorldPos, camTarget, fy, up || [0, 1, 0], w, h, surfElev)
+    const res = quadsFor(camWorldPos, camTarget, fovy, up || [0, 1, 0], w, h, surfElev)
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     u.camDir.value.set(camWorldPos[0] / camDist, camWorldPos[1] / camDist, camWorldPos[2] / camDist)

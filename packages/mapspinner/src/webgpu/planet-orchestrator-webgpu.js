@@ -11,9 +11,8 @@ import { createTransmittanceLutTexture, createScatteringLutTexture, createAtmosp
 import { WaterRenderer, WaterOcclusionProbe, createSceneCopyTexture, captureSceneCopy } from './water-render.js'
 import { BilinearUpscale, Fsr1Upscale, DepthWriteback } from './vdrs-composite.js'
 import { SHAPE_UNIFORM_DEFAULTS } from '../terrain-defaults.js'
+import { resolveLodConfig, applyLodConfig } from '../lod-config.js'
 
-const LOD_LEAN = 0.35
-const LOD_POP_ALTITUDE_MUL = 8.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
 const SCULPT_RES = 256
@@ -97,8 +96,6 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   if (!supportsPlanetWebGPU(renderer)) throw new Error('mapspinner webgpu planet: renderer has no usable WebGPU device/context')
   const device = renderer.backend.device
   const R = opts.radius || 6360000
-  const maxLevel = opts.maxLevel ?? 11
-  const splitFactor = opts.splitFactor ?? 0.6
   const hpfRes = opts.hpfTexRes || 128
 
   const hpf = createAnchorField({ seed: opts.hpfSeed || 1337 })
@@ -160,14 +157,12 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const { near, far } = nearFarForCam(R, camDist, camDist - R, surfElev)
-    const proj = perspectiveZeroToOne(fovy || 0.785, aspect, near, far)
+    const lod = resolveLodConfig(opts, fovy)
+    const proj = perspectiveZeroToOne(lod.fovy, aspect, near, far)
     const viewRel = M4.lookAt([0, 0, 0], fwd, camUp)
     const viewProjNoEye = M4.mul(proj, viewRel)
 
-    const LOD_STEP = 3.6
-    let sf = splitFactor * LOD_LEAN
-    qt.computeSplitDist(sf * LOD_STEP, dh, fovy || 0.785)
-    qt.setConfig(R, maxLevel, sf * LOD_POP_ALTITUDE_MUL)
+    applyLodConfig(qt, R, dh, lod)
 
     extractFrustumPlanes(viewProjNoEye, cullScratch.planes)
     cullScratch.ex = camWorldPos[0]; cullScratch.ey = camWorldPos[1]; cullScratch.ez = camWorldPos[2]
@@ -211,7 +206,7 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     patchGrid.updateFrame({ viewProjNoEye, camDir: [camDirX, camDirY, camDirZ], camAlt, sunDir: sun })
     sky.updateUniforms({
       camRotCols: computeCamRotCols(viewRel),
-      projDiag: [(1 / Math.tan((fovy || 0.785) / 2)) / aspect, 1 / Math.tan((fovy || 0.785) / 2)],
+      projDiag: [(1 / Math.tan(fovy / 2)) / aspect, 1 / Math.tan(fovy / 2)],
       skyCamWorld: [camWorldPos[0] / 1000, camWorldPos[1] / 1000, camWorldPos[2] / 1000],
       skySunDir: sun,
       skyR: R / 1000,

@@ -1,13 +1,12 @@
 import { Quadtree } from './quadtree.js';
 import { initMapspinnerRender } from './gl-render.js';
 import { createAnchorField } from './anchor-field.js';
-import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 
 import { FACE_FRAME, dot, worldToFaceLocal, quadOutsideFrustum, extractFrustumPlanes, pickFace, CULL_ELEV_FRAC } from './planet-orchestrator-cull.js';
 export { FACE_FRAME, dot, worldToFaceLocal, quadOutsideFrustum, extractFrustumPlanes, pickFace } from './planet-orchestrator-cull.js';
 
-const LOD_LEAN = 0.35;
-const LOD_POP_ALTITUDE_MUL = 8.0;
+import { LOD_LEAN, lodDistFactor, resolveLodConfig, applyLodConfig } from './lod-config.js';
+
 const NEAR_NADIR_LOOK_DOT = -0.95;
 const MOUNTAIN_ELEVAMP_LO = 16.8, MOUNTAIN_ELEVAMP_HI = 18.6;
 
@@ -19,8 +18,6 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     throw new TypeError(`mapspinner: opts.gridMeshSize must be an integer >= 2, got ${opts.gridMeshSize}`);
   }
   const R = opts.radius || 6360.0;
-  const maxLevel = opts.maxLevel ?? 11;
-  const splitFactor = opts.splitFactor ?? TD.splitFactor;
   const gridMeshSize = opts.gridMeshSize || 11;
   const _geomorphLod = !!opts.geomorphLod
 
@@ -165,10 +162,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
                fallbackCount: c.fallbackCount, maxFallbackLevel: c.maxFallbackLevel, frontFallback: c.frontFallback, cached: true };
     }
 
-    let sf = (typeof window !== 'undefined' && window.__splitFactor != null)
-      ? Math.max(0.05, +window.__splitFactor) : splitFactor;
+    const lod = resolveLodConfig(opts, fovy);
+    let sf = lod.splitFactor;
     const altKm = Math.max(0, (camDist - R) / 1000);
-    if (opts.altSplitRamp && (typeof window === 'undefined' || window.__splitFactor == null)) {
+    if (opts.altSplitRamp && !lod.splitFactorOverridden) {
       const PEAK = 1.4;
       let mul;
       if (altKm >= 700) {
@@ -190,11 +187,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
       }
       sf = sf * mul * LOD_LEAN;
     }
-    const LOD_STEP = 3.6;
-    qt.computeSplitDist(sf * LOD_STEP, gl.drawingBufferHeight || 480, fovy);
-    const distF = (typeof window !== 'undefined' && window.__distFactor != null) ? +window.__distFactor : sf * LOD_POP_ALTITUDE_MUL;
-    let mxl = (typeof window !== 'undefined' && window.__maxLevel != null)
-      ? Math.max(2, Math.min(22, window.__maxLevel|0)) : maxLevel;
+    let mxl = lod.maxLevel;
     const DECK_CAP_ALT_KM = (typeof window !== 'undefined' && window.__deckCapAltKm != null) ? +window.__deckCapAltKm : 1.0;
     let DECK_CAP_LEVEL = 12;
     if (hpf && hpf.sampleDir) {
@@ -202,12 +195,11 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
       const mountainWeight = Math.max(0, Math.min(1, (nA.elevAmp - MOUNTAIN_ELEVAMP_LO) / (MOUNTAIN_ELEVAMP_HI - MOUNTAIN_ELEVAMP_LO)));
       DECK_CAP_LEVEL = 12 + Math.round(2 * mountainWeight);
     }
-    const _maxLevelOverridden = (typeof window !== 'undefined' && window.__maxLevel != null);
-    if (!_maxLevelOverridden && altKm < DECK_CAP_ALT_KM && mxl > DECK_CAP_LEVEL) mxl = DECK_CAP_LEVEL;
-    if (!_maxLevelOverridden && altKm >= 30 && mxl > 4) {
+    if (!lod.maxLevelOverridden && altKm < DECK_CAP_ALT_KM && mxl > DECK_CAP_LEVEL) mxl = DECK_CAP_LEVEL;
+    if (!lod.maxLevelOverridden && altKm >= 30 && mxl > 4) {
       mxl -= (altKm >= 700) ? 2 : 1;
     }
-    qt.setConfig(R, mxl, distF);
+    applyLodConfig(qt, R, gl.drawingBufferHeight || 480, { splitFactor: sf, maxLevel: mxl, distFactor: lodDistFactor(sf), fovy: lod.fovy });
     const splitDist = sf + 1.0;
 
     const quads = (_pipelineQuads === _quadsPoolA) ? _quadsPoolB : _quadsPoolA;
