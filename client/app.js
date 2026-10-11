@@ -2373,7 +2373,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       }
     }
     if (_animLodSkip) continue
-    if (anim.setWeapon) { const wn=equipNameOf(_equipment, ps.weapon||0); if (wn) anim.setWeapon(wn) }
+    if (anim.setWeapon) { const { name: wn }=equipNameOf(_equipment, ps.weapon||0); if (wn) anim.setWeapon(wn) }
     try { anim.update(animStep,ps.velocity,ps.onGround,ps.health,ps._aiming||false,(ps.crouch||0)&CROUCH_FLAG_BIT,mesh.rotation.y) }
     catch (_animErr) { if (id===lid) window.__animErr={msg:_animErr&&_animErr.message,stack:_animErr&&_animErr.stack,vel:ps.velocity&&ps.velocity.slice()} }
     if (id===lid&&(window.__wantAnimProbe||_showStats)&&anim.getDebug) { const _vx=ps.velocity?.[0]||0,_vz=ps.velocity?.[2]||0; window.__animProbe={...anim.getDebug(),speed:Math.sqrt(_vx*_vx+_vz*_vz),onGround:ps.onGround} }
