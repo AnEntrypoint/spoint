@@ -45,14 +45,14 @@ function clearAbove(raycast, x, surfaceY, z, headroom) {
 
 function hasHeadroom(raycast, x, surfaceY, z, headroom, radius) {
   if (!clearAbove(raycast, x, surfaceY, z, headroom)) return false
-  if (!(radius > 0) || !(headroom > radius)) return true
+  if (!(radius > 0)) return true
   const rimBaseY = surfaceY + radius
   for (const [ox, oz] of RIM_OFFSETS) if (!clearAbove(raycast, x + ox * radius, rimBaseY, z + oz * radius, headroom - radius)) return false
   return true
 }
 
 export function spawnSurfaceY(raycast, pose, { standingOffset, headroom = 2 * standingOffset, terrainY = null, radius = 0 }) {
-  if (typeof raycast !== 'function' || !Number.isFinite(pose?.[1]) || !(standingOffset > 0) || !(headroom > 0)) return null
+  if (typeof raycast !== 'function' || !Number.isFinite(pose?.[1]) || !(standingOffset > 0) || !(headroom > 0) || !(radius >= 0) || !(headroom > radius)) return null
   const x = pose[0], z = pose[2]
   const poseY = Number.isFinite(terrainY) ? Math.max(pose[1], terrainY) : pose[1]
   const feetY = poseY - standingOffset
