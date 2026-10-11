@@ -17,14 +17,21 @@ export function latLonToDir(latDeg, lonDeg) {
   return [c * Math.cos(lo), Math.sin(la), c * Math.sin(lo)]
 }
 
+export function parseDir3(value, what = 'dir') {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) throw new TypeError(`${what} must be [x,y,z] finite`)
+  const length = Math.hypot(value[0], value[1], value[2])
+  if (!(length > 0)) throw new TypeError(`${what} must name a direction; the zero vector names no point on the planet`)
+  return { dir: [value[0] / length, value[1] / length, value[2] / length], length }
+}
+
 export function dirToLatLon(d) {
-  const l = Math.hypot(d[0], d[1], d[2]) || 1
-  return { lat: Math.asin(d[1] / l) / DEG, lon: Math.atan2(d[2], d[0]) / DEG }
+  const { dir } = parseDir3(d)
+  return { lat: Math.asin(dir[1]) / DEG, lon: Math.atan2(dir[2], dir[0]) / DEG }
 }
 
 export function angleFromAnchorDeg(frame, dir) {
-  const l = Math.hypot(dir[0], dir[1], dir[2]) || 1
-  return Math.acos(Math.max(-1, Math.min(1, dot(dir, frame.up) / l))) / DEG
+  const { dir: unit } = parseDir3(dir)
+  return Math.acos(Math.max(-1, Math.min(1, dot(unit, frame.up)))) / DEG
 }
 
 function rayMissM(frame, d, x, y, z) {
@@ -33,9 +40,7 @@ function rayMissM(frame, d, x, y, z) {
 }
 
 export function dirToLocalXZ(frame, dir, heightAt) {
-  const l = Math.hypot(dir[0], dir[1], dir[2])
-  if (!(l > 0)) return null
-  const d = [dir[0] / l, dir[1] / l, dir[2] / l]
+  const { dir: d } = parseDir3(dir, 'teleport dir')
   if (!(dot(d, frame.up) > MIN_UP_DOT)) return null
   const seedReader = typeof frame.cpuElevationAtDir === 'function' ? frame.cpuElevationAtDir : frame.elevationAtDir
   const dirElevation = typeof seedReader === 'function' ? seedReader(d) : null
