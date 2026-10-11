@@ -10,8 +10,29 @@ export const DEFAULT_CONFIG = {
   xpPerKill: 10
 }
 
-export function createProgressionSystem(config = {}) {
+const CONFIG_VALIDATORS = {
+  baseXpPerLevel: (v) => Number.isFinite(v) && v >= 0,
+  curveScalar: (v) => Number.isFinite(v),
+  maxLevel: (v) => Number.isInteger(v) && v >= 1,
+  xpPerKill: (v) => Number.isFinite(v) && v >= 0
+}
+
+function resolveConfig(config) {
   const cfg = { ...DEFAULT_CONFIG, ...config }
+  for (const [key, valid] of Object.entries(CONFIG_VALIDATORS)) {
+    if (config[key] === undefined) {
+      cfg[key] = DEFAULT_CONFIG[key]
+      continue
+    }
+    if (!valid(config[key])) {
+      throw new TypeError(`[progression] config.${key} = ${String(config[key])} is not a legal value`)
+    }
+  }
+  return cfg
+}
+
+export function createProgressionSystem(config = {}) {
+  const cfg = resolveConfig(config)
 
   const playerProgression = new Map()
   let ticksElapsed = 0
