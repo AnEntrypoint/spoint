@@ -152,7 +152,7 @@ function readTps() {
   const app = window.__app
   const tps = app && app.engine && app.engine._tps
   if (!tps) return null
-  const juice = window.__funJuice
+  const juice = tps.juice ? tps.juice.counters : null
   return {
     playerId: (app.client && app.client.playerId) ?? null,
     kills: tps.kills ?? 0,

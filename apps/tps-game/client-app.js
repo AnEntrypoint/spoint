@@ -36,12 +36,10 @@ const NO_STREAK = Object.freeze({ known: false, streak: null })
 const streakFromWire = (wire) =>
   Number.isInteger(wire) && wire >= 1 ? Object.freeze({ known: true, streak: wire }) : NO_STREAK
 
-const funJuice = () => (typeof window === 'undefined' ? null : (window.__funJuice || null))
-
 function creditKill(tps, streak) {
   const now = Date.now()
   tps.killTime = now; tps.kills += 1
-  const killJuice = funJuice(); if (killJuice) killJuice.kill++
+  if (tps.juice) tps.juice.counters.kill++
   tps.streak = streak.known ? streak.streak : (withinMs(now, tps.lastKillTime, STREAK_WINDOW_MS) ? tps.streak + 1 : 1)
   tps.lastKillTime = now
   tps.juice?.tone(420, 0.28, 0.2, 760 + Math.min(4, tps.streak - 1) * 120)
@@ -56,10 +54,8 @@ function adoptStreak(tps, streak) {
 }
 
 function makeJuice() {
+  const counters = { tones: [], hit: 0, headshot: 0, kill: 0, empty: 0, muted: false }
   let actx = null
-  if (typeof window !== 'undefined' && !funJuice()) {
-    window.__funJuice = { tones: [], hit: 0, headshot: 0, kill: 0, empty: 0, muted: false }
-  }
   const ensure = () => {
     if (typeof window === 'undefined') return null
     if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)() } catch (e) { return null } }
@@ -67,7 +63,7 @@ function makeJuice() {
     return actx
   }
   const tone = (freq, dur, vol = 0.18, rampTo = freq) => {
-    const jz = funJuice(); if (jz) { jz.tones.push({ freq, dur }); if (jz.muted) return }
+    counters.tones.push({ freq, dur }); if (counters.muted) return
     const a = ensure(); if (!a) return
     const t0 = a.currentTime
     const osc = a.createOscillator(); const g = a.createGain()
@@ -79,7 +75,7 @@ function makeJuice() {
     osc.connect(g).connect(a.destination)
     osc.start(t0); osc.stop(t0 + dur + 0.02)
   }
-  return { tone }
+  return { counters, tone }
 }
 
 function makeOverlay() {
@@ -179,7 +175,7 @@ export const tpsGameClient = {
   },
   onEvent(payload, engine) {
     const tps = engine._tps
-    const jz = funJuice()
+    const jz = tps?.juice?.counters ?? null
     const now = Date.now()
     if (payload.type === 'hit' && payload.target) {
       engine.players.setExpression(payload.target, 'angry', 0.6)
