@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs'
 import { createStaticHandler } from '../sdk/StaticHandler.js'
 import { buildStaticDirs } from '../sdk/server.js'
 import {
-  regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
+  parseRegionId, regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
 import { resolveAppsDirs } from '../sdk/ServerBoot.js'
 import {
@@ -17,6 +17,26 @@ import {
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const WORKER_ENTRY = join(SDK_ROOT, 'src/sharding/RegionWorkerEntry.js')
+
+export const HANDOFF_IDLE = null
+export const PLAYER_IDENTITY_UNMINTED = 'player-identity-unminted'
+export const HANDOFF_UNMINTED = 'handoff-unminted'
+
+export function playerIdentity(region, localPlayerId) {
+  if (!parseRegionId(region).ok) return null
+  if (localPlayerId === null || localPlayerId === undefined) return null
+  return { region, localPlayerId }
+}
+
+export function handoffTo(toRegion, fromRegion, fromLocalId) {
+  if (!parseRegionId(toRegion).ok || !parseRegionId(fromRegion).ok) return null
+  if (fromLocalId === null || fromLocalId === undefined) return null
+  return { toRegion, fromRegion, fromLocalId }
+}
+
+function refuseWorkerMessage(regionId, code, detail) {
+  console.error(`[router] refused worker message from region ${regionId}: ${code} ${JSON.stringify(detail ?? null)}`)
+}
 
 export class RegionRouter {
   constructor(config = {}) {
@@ -163,6 +183,7 @@ export class RegionRouter {
   }
 
   _localToRouterId(regionId, localPlayerId) {
+    if (localPlayerId === null || localPlayerId === undefined) return null
     for (const [routerId, p] of this.players) {
       if (p.region === regionId && p.localPlayerId === localPlayerId) return routerId
     }
@@ -181,7 +202,12 @@ export class RegionRouter {
       console.warn(`[router] boundary crossing to ${msg.toRegion} refused for player ${msg.playerId} (from ${fromRegion}): a handoff to ${player.handoff.toRegion} is still in flight`)
       return
     }
-    player.handoff = { toRegion: msg.toRegion, fromRegion, fromLocalId: msg.playerId }
+    const handoff = handoffTo(msg.toRegion, fromRegion, msg.playerId)
+    if (!handoff) {
+      refuseWorkerMessage(fromRegion, HANDOFF_UNMINTED, { toRegion: msg.toRegion ?? null, fromRegion, fromLocalId: msg.playerId ?? null })
+      return
+    }
+    player.handoff = handoff
     toEntry.proc.send({
       type: 'ACCEPT_HANDOFF', playerId: msg.playerId, fromRegion, state: msg.state, sessionToken: msg.sessionToken
     })
@@ -189,14 +215,20 @@ export class RegionRouter {
 
   _handleHandoffAccepted(msg) {
     const player = this._playerFor(msg.fromRegion, msg.oldPlayerId)
+    const identity = playerIdentity(msg.region, msg.newLocalPlayerId)
     if (!player) {
       const toEntry = this.workers.get(msg.region)
       toEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.newLocalPlayerId })
       return
     }
+    if (!identity) {
+      refuseWorkerMessage(msg.region, PLAYER_IDENTITY_UNMINTED, { fromRegion: msg.fromRegion, newLocalPlayerId: msg.newLocalPlayerId ?? null })
+      this.workers.get(msg.region)?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.newLocalPlayerId })
+      return
+    }
     const oldEntry = this.workers.get(msg.fromRegion)
-    player.region = msg.region
-    player.localPlayerId = msg.newLocalPlayerId
+    player.region = identity.region
+    player.localPlayerId = identity.localPlayerId
     player.sessionToken = msg.sessionToken
     player.handoff = null
     oldEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.oldPlayerId })
@@ -226,6 +258,7 @@ export class RegionRouter {
     socket.on('message', (data) => {
       const p = this.players.get(routerId)
       if (!p) return
+      if (p.localPlayerId === null || p.localPlayerId === undefined) return
       const targetEntry = this.workers.get(p.region)
       if (!targetEntry || !targetEntry.ready) return
       const buf = data instanceof Buffer ? data : Buffer.from(data)
@@ -246,7 +279,15 @@ export class RegionRouter {
       entry.proc.send({ type: 'CLIENT_CONNECT', playerId: routerId, requestId })
     }).catch(e => { console.error('[router] client connect failed:', e.message); socket.close(); return null })
     if (!readyMsg) { this.players.delete(routerId); return }
-    player.localPlayerId = readyMsg.localPlayerId
+    const identity = playerIdentity(player.region, readyMsg.localPlayerId)
+    if (!identity) {
+      this.players.delete(routerId)
+      this.workers.get(region)?.proc.send({ type: 'CLIENT_DISCONNECT', playerId: routerId })
+      refuseWorkerMessage(region, PLAYER_IDENTITY_UNMINTED, { requestId, localPlayerId: readyMsg.localPlayerId ?? null })
+      socket.close()
+      return null
+    }
+    player.localPlayerId = identity.localPlayerId
     return routerId
   }
 
