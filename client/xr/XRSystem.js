@@ -23,9 +23,9 @@ export function createXRSystem(renderer, scene, camera) {
   let xrBaseReferenceSpace = null
   let xrRebaseTimer = 0
   let arButton = null
-  let arPriorState = null
+  let arHold = null
   let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
-  let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: 1.6, teleportEnabled: false }
+  let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: STAND_EYE_HEIGHT_M, teleportEnabled: false }
   const widgets = createXRWidgets(renderer, scene, camera, vrSettings)
 
   function setVRSettings(patch) {
@@ -105,11 +105,20 @@ export function createXRSystem(renderer, scene, camera) {
     })
   }
 
+  function claimARPresentation() {
+    if (arHold) return
+    const background = scene.background
+    arHold = { background, hidBackground: background !== null, hidCanvas: renderer.domElement.style.display !== 'none' }
+    scene.background = null
+    renderer.domElement.style.display = 'none'
+  }
+
   function restoreARPresentation() {
-    if (!arPriorState) return
-    scene.background = arPriorState.background
-    renderer.domElement.style.display = arPriorState.canvasDisplay
-    arPriorState = null
+    const hold = arHold
+    if (!hold) return
+    arHold = null
+    if (hold.hidBackground && scene.background === null) scene.background = hold.background
+    if (hold.hidCanvas && renderer.domElement.style.display === 'none') renderer.domElement.style.display = ''
     if (arButton) { arButton.textContent = 'Enter XR'; arButton.classList.remove('xr-exit'); arButton.classList.add('btn-primary') }
   }
 
@@ -118,7 +127,7 @@ export function createXRSystem(renderer, scene, camera) {
     arButton = await createXRButton(renderer,
       async () => {
         const ok = await xrControls.start()
-        if (ok) { arPriorState = { background: scene.background, canvasDisplay: renderer.domElement.style.display }; scene.background = null; renderer.domElement.style.display = 'none' }
+        if (ok) claimARPresentation()
         return ok
       },
       async () => {
