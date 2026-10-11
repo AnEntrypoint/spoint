@@ -7,6 +7,7 @@ import {
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
 import { packWallPlanes, unpackWallPlanes } from '../shared/wallPlaneWire.js'
+import { inputDepthFromWire } from '../shared/inputDepthWire.js'
 import { SNAPSHOT_ENTITY_ENC_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
@@ -31,7 +32,7 @@ export function encodeSelfBlock(p) {
 }
 
 export function decodeSelfBlock(me, out) {
-  out.inputSequence = me[0] || 0; out.inputBuffer = me[1] ?? -1
+  out.inputSequence = me[0] || 0; out.inputBuffer = inputDepthFromWire(me[1])
   out.groundNormal = unpackGroundNormal(me[2] || 0, out.groundNormal || [0, 1, 0])
   out.wallPlanes = unpackWallPlanes(me[3], out.wallPlanes || [])
   return out
