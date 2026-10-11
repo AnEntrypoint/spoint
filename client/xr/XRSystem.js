@@ -128,8 +128,7 @@ export function createXRSystem(renderer, scene, camera) {
         const local = getPlayerState(getPlayerId())
         if (local?.position) {
           const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
-          const pos = { x: -local.position[0], y: -(local.position[1] + eyeHeight), z: -local.position[2] }
-          renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
+          offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeight, z: local.position[2] })
           camera.position.set(local.position[0], local.position[1] + eyeHeight, local.position[2])
         }
       }, 100)
