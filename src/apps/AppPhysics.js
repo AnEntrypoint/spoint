@@ -1,6 +1,6 @@
 import { extractMeshFromGLB, extractMeshFromGLBAsync, extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { MSG } from '../protocol/MessageTypes.js'
-import { nonNeg } from '../shared/vecGuard.js'
+import { nonNeg, num } from '../shared/vecGuard.js'
 
 function motionType(ent) {
   return ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
@@ -60,6 +60,14 @@ async function _addTrimeshColliderImpl(ent, runtime) {
   }
 }
 
+const BOX_SIZE_SHAPE = 'must be a number or a length-3 array of non-negative finite numbers'
+
+function boxHalfExtents(s, name) {
+  const raw = Array.isArray(s) ? s : [s, s, s]
+  if (raw.length !== 3) throw new TypeError(`${name} ${BOX_SIZE_SHAPE}`)
+  return raw.map(x => nonNeg(x, name))
+}
+
 export function buildPhysicsAPI(ent, runtime) {
   const api = {
     setInteractable: (radius = 3) => {
@@ -77,11 +85,10 @@ export function buildPhysicsAPI(ent, runtime) {
       ent._ccdPolicy = v ?? 'auto'
     },
     addBoxCollider: (s, shapeKey) => {
-      const rawHe = Array.isArray(s) ? s : [s, s, s]
-      if (rawHe.length !== 3 || rawHe.some(x => typeof x !== 'number' || !Number.isFinite(x) || x < 0)) throw new TypeError('physics.addBoxCollider: size must be a number or a length-3 array of non-negative finite numbers')
-      ent.collider = { type: 'box', size: s }
+      const half = boxHalfExtents(s, 'physics.addBoxCollider: size')
+      ent.collider = { type: 'box', size: half }
       const sc = ent.scale || [1, 1, 1]
-      const he = [rawHe[0] * sc[0], rawHe[1] * sc[1], rawHe[2] * sc[2]]
+      const he = [half[0] * sc[0], half[1] * sc[1], half[2] * sc[2]]
       const mt = motionType(ent)
       const bodyOpts = { mass: ent.mass, linearDamping: ent._linearDamping, angularDamping: ent._angularDamping, linearCast: resolveCCD(ent, mt) }
       if (shapeKey) bodyOpts.shapeKey = shapeKey
@@ -125,13 +132,14 @@ export function buildPhysicsAPI(ent, runtime) {
       return p
     },
     addConvexCollider: (points) => {
-      if (!Array.isArray(points) || points.length < 9 || points.length % 3 !== 0 || points.some(x => typeof x !== 'number' || !Number.isFinite(x))) throw new TypeError('physics.addConvexCollider: points must be a flat array of at least 9 finite numbers in [x,y,z,...] triples')
-      ent.collider = { type: 'convex', points }
+      if (!Array.isArray(points) || points.length < 9 || points.length % 3 !== 0) throw new TypeError('physics.addConvexCollider: points must be a flat array of at least 9 finite numbers in [x,y,z,...] triples')
+      const verts = points.map(x => num(x, 'physics.addConvexCollider: point'))
+      ent.collider = { type: 'convex', points: verts }
       const mt = motionType(ent)
       const ccd = resolveCCD(ent, mt)
-      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
+      if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: verts, motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
       if (runtime._physics) {
-        const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
+        const bid = runtime._physics.addBody('convex', verts, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
         registerBody(ent, runtime, bid, mt)
       }
     },
