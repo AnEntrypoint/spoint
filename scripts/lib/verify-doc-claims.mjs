@@ -448,6 +448,25 @@ let p50StruckCount = 0;
 console.log('p50 citations invalidated (section 0 or AGENTS INVALID rules): ' + p50InvalidatedCount);
 console.log('p50 citations struck or refuted (outside section 0): ' + p50StruckCount);
 console.log('p50 findings (figure cites p50 without INVALIDATED or STRUCK/REFUTED): ' + p50Findings.length);
+const PROVENANCE_SRC = '\\[(LANDED|DERIVED|STRUCK|REFUTED|UNSOURCED)\\]';
+const provenanceFindings = [];
+let provenanceRows = 0;
+{
+  let seenHeading = false;
+  let questionSection = false;
+  (fileLines('docs/measurement-figures.md') || []).forEach((line, idx) => {
+    if (line.startsWith('## ')) { seenHeading = true; questionSection = /^## .*Open questions/.test(line); }
+    if (!seenHeading || questionSection) return;
+    if (!/^- /.test(line) || !/[0-9]/.test(line)) return;
+    const tags = [...line.matchAll(new RegExp(PROVENANCE_SRC, 'g'))].map((m) => m[1]);
+    if (tags.length === 0 && !/\[(STAT|INSTR|ADAPTER|RES|W):/.test(line)) return;
+    provenanceRows++;
+    if (tags.length === 1) return;
+    provenanceFindings.push({ kind: tags.length === 0 ? 'provenance-missing' : 'provenance-multiple', at: 'docs/measurement-figures.md:' + (idx + 1), tags, text: line.trim().slice(0, 120) });
+  });
+}
+console.log('provenance figure rows checked: ' + provenanceRows);
+console.log('provenance findings (figure row without exactly one provenance tag): ' + provenanceFindings.length);
 const DEFAULT_CLAIM_KEYS = ['dprAuto'];
 const DEFAULT_RULE_DOCS = [process.env.VERIFY_DEFAULT_RULE_DOC || 'docs/measurement-figures.md', 'AGENTS.md'];
 const defaultValueFindings = [];
@@ -468,7 +487,7 @@ for (const key of DEFAULT_CLAIM_KEYS) {
   }
 }
 console.log('default-value claims checked: ' + defaultClaimLines);
-const allClear = findings.length === 0 && keyFindings.length === 0 && foldFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0 && defaultValueFindings.length === 0;
+const allClear = findings.length === 0 && keyFindings.length === 0 && foldFindings.length === 0 && writeOnlyFindings.length === 0 && p50Findings.length === 0 && provenanceFindings.length === 0 && defaultValueFindings.length === 0;
 console.log('RESULT: ' + (allClear ? 'PASS' : 'FAIL'));
 console.log('paths checked: ' + pathsChecked + ' (+' + dirsChecked + ' directories)');
 console.log('path:line claims checked: ' + linesChecked + ' (symbol ' + linesSymbolAsserted + ', derived ' + linesDerived + ', existence-only ' + linesExistenceOnly + ', symbol-absent ' + linesSymbolAbsent + ')');
@@ -481,4 +500,5 @@ if (foldFindings.length) { console.log('--- fold findings ---'); for (const f of
 if (writeOnlyFindings.length) { console.log('--- write-only findings ---'); for (const f of writeOnlyFindings) console.log(JSON.stringify(f)); }
 if (p50Findings.length) { console.log('--- p50 findings ---'); for (const f of p50Findings) console.log(JSON.stringify(f)); }
 if (defaultValueFindings.length) { console.log('--- default-value findings ---'); for (const f of defaultValueFindings) console.log(JSON.stringify(f)); }
+if (provenanceFindings.length) { console.log('--- provenance findings ---'); for (const f of provenanceFindings) console.log(JSON.stringify(f)); }
 process.exit(allClear ? 0 : 1);
