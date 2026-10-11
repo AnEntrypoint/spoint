@@ -8,7 +8,9 @@ const MAX_LIFT_BODY_HEIGHTS = 2
 const MAX_COLUMN_RAYS = 64
 
 function hitY(r) {
-  return r && r.hit && Number.isFinite(r.position?.[1]) ? r.position[1] : null
+  if (!r || !r.hit) return null
+  if (!Number.isFinite(r.position?.[1])) throw new TypeError('a raycast reporting a hit must report a finite position[1]')
+  return r.position[1]
 }
 
 function walkable(r) {
