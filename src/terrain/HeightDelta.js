@@ -1,4 +1,5 @@
 import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
+import { heightStrokeReplay, replayStrokes } from './brushStroke.js'
 
 export const CELL_M = 1
 
@@ -12,7 +13,7 @@ function cellKey(cx, cz) {
   return (cx + OFF) * BIG + (cz + OFF)
 }
 
-export function createHeightDelta(strokes) {
+export function createHeightDelta(strokes, baseHeightFn) {
   const cells = new Map()
   const appliedStrokes = []
 
@@ -170,19 +171,11 @@ export function createHeightDelta(strokes) {
 
   function clear() { cells.clear(); appliedStrokes.length = 0 }
 
-  return { applyRaiseBrush, applySmoothBrush, applyFlattenBrush, applyRectangularCarve, deltaAt, wrapHeightFn, toJSON, clear, get cellCount() { return cells.size }, get strokeCount() { return appliedStrokes.length } }
+  const api = { applyRaiseBrush, applySmoothBrush, applyFlattenBrush, applyRectangularCarve, deltaAt, wrapHeightFn, toJSON, clear, get cellCount() { return cells.size }, get strokeCount() { return appliedStrokes.length } }
+  replayStrokes(strokes, heightStrokeReplay(api, baseHeightFn))
+  return api
 }
 
 export function loadHeightDelta(json, baseHeightFn) {
-  const hd = createHeightDelta()
-  if (json && Array.isArray(json.strokes)) {
-    for (const s of json.strokes) {
-      if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.z) || !Number.isFinite(s.radius) || !Number.isFinite(s.strength)) continue
-      if (s.brush === 'smooth') hd.applySmoothBrush(s.x, s.z, s.radius, s.strength)
-      else if (s.brush === 'flatten') { if (typeof baseHeightFn === 'function' && Number.isFinite(s.targetHeight)) hd.applyFlattenBrush(baseHeightFn, s.x, s.z, s.radius, s.targetHeight, s.strength) }
-      else if (s.brush === 'rectangularCarve') { if (typeof baseHeightFn === 'function' && Number.isFinite(s.targetDepth) && Number.isFinite(s.halfWidth) && Number.isFinite(s.halfDepth)) hd.applyRectangularCarve(baseHeightFn, s.x, s.z, s.halfWidth, s.halfDepth, s.targetDepth, s.strength) }
-      else hd.applyRaiseBrush(s.x, s.z, s.radius, s.strength)
-    }
-  }
-  return hd
+  return createHeightDelta(json && json.strokes, baseHeightFn)
 }

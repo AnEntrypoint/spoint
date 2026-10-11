@@ -1,4 +1,5 @@
 import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
+import { biomeStrokeReplay, replayStrokes } from './brushStroke.js'
 
 export const CELL_M = 8
 
@@ -96,19 +97,14 @@ export function createBiomeOverride(strokes) {
 
   function clear() { cells.clear(); appliedStrokes.length = 0 }
 
-  return {
+  const api = {
     applyPaintBrush, overrideAt, wrapClimateField, toJSON, clear,
     get cellCount() { return cells.size }, get strokeCount() { return appliedStrokes.length },
   }
+  replayStrokes(strokes, biomeStrokeReplay(api))
+  return api
 }
 
 export function loadBiomeOverride(json) {
-  const bo = createBiomeOverride()
-  if (json && Array.isArray(json.strokes)) {
-    for (const s of json.strokes) {
-      if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.z) || !Number.isFinite(s.radius) || !s.target) continue
-      bo.applyPaintBrush(s.x, s.z, s.radius, s.target, s.strength)
-    }
-  }
-  return bo
+  return createBiomeOverride(json && json.strokes)
 }
