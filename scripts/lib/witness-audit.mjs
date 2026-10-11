@@ -211,7 +211,8 @@ const HIGH_CHECKS = [
         const name = m[1]
         if (!COUNTER_NAME.test(name)) continue
         const incremented = new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*(?:\\+\\+|--|\\+=|-=|\\*=|\\/=|=[^=])`)
-        if (incremented.test(text)) continue
+        const body = text.slice(0, m.index) + text.slice(m.index + m[0].length)
+        if (incremented.test(body)) continue
         rows.push({ line: lineOf(text, m.index), text: m[0].trim().slice(0, 160) })
       }
       return rows.slice(0, MAX_EVIDENCE_PER_CHECK)
@@ -263,6 +264,35 @@ const LOW_CHECKS = [
     },
   },
 ]
+
+const TRIP_FIXTURES = {
+  'no-verdict-emitted': "console.log('done')\n",
+  'verdict-cannot-fail': "console.log('RESULT: PASS')\n",
+  'verdict-not-a-decision': "console.log('RESULT: ' + n)\n",
+  'bare-exit-zero': 'process.exit(0)\n',
+  'tail-exit-always-zero': 'measure()\nprocess.exit(0)\n',
+  'verdict-array-never-appended': 'const failures = []\nprocess.exitCode = failures.length\n',
+  'ws-polyfill-missing': "const url = 'ws://127.0.0.1:8080'\n",
+  'bare-flag-parses-to-true': "const bare = 'true'\nconst n = Number(args.ticks)\n",
+  'nan-flag': "const ticks = Number('true')\n",
+  'self-comparison': 'if (got === got) report()\n',
+  'dead-counter': 'let hitCount = 0;\nconsole.log(hitCount)\n',
+  'flag-gated-arm': "const BASELINE = process.env.BASELINE === '1'\nif (BASELINE) {\n  step()\n  step()\n  step()\n  step()\n  step()\n  step()\n  step()\n  step()\n  step()\n  step()\n}\n",
+  'swallowed-error': 'try { run() } catch (e) { console.log(e) }\n',
+  'empty-catch': 'try { run() } catch {}\n',
+}
+
+function blindChecks(checks, fixtures) {
+  const rows = []
+  for (const check of checks) {
+    const fixture = fixtures[check.id]
+    if (fixture === undefined) continue
+    let hits = []
+    try { hits = check.find(fixture) } catch { hits = [] }
+    if (hits.length === 0) rows.push(check.id)
+  }
+  return rows
+}
 
 function gitTrackedScripts() {
   const done = spawnSync('git', ['ls-files', '--', 'scripts'], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true })
@@ -384,6 +414,15 @@ function main() {
     if (scanned.has(file)) continue
     const rows = Object.values(baseline[file]).reduce((sum, n) => sum + n, 0)
     regressions.push(`${file} holds ${rows} known finding(s) in ${BASELINE_FILE} but this scan never reached it, so those dead gate(s) cannot be told apart from fixed ones -- delete the file or re-baseline`)
+  }
+  for (const id of blindChecks([...HIGH_CHECKS, ...LOW_CHECKS], TRIP_FIXTURES)) {
+    regressions.push(`check [${id}] no longer trips its own trip fixture, so a detector that went blind reads as a fixed gate -- repair ${id}.find or its fixture`)
+  }
+  const baselineIds = new Set()
+  for (const counts of Object.values(baseline)) for (const id of Object.keys(counts)) baselineIds.add(id)
+  for (const id of baselineIds) {
+    if (TRIP_FIXTURES[id] !== undefined) continue
+    regressions.push(`${BASELINE_FILE} holds [${id}] with no trip fixture, so its count falling to zero cannot be told apart from a detector that went blind -- add ${id} to TRIP_FIXTURES`)
   }
   if (regressions.length > 0) {
     console.log(`RESULT: FAIL ${regressions.length} new dead gate(s): ${regressions.join('; ')}`)
