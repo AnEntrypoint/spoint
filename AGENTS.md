@@ -161,7 +161,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `AppRuntime._attachApp` does `apps.set` BEFORE awaiting `setup()`; `spawnEntity` attaches apps fire-and-forget: collect tagged entities on the first `update()` tick.
 - `src/apps/CustomVersion.js`: `Reflect.set` is a deliberate raw write; a read must not reach the set trap and bump `_customV`.
 - Spawn: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) gates release on `terrainFieldMissingAt`/`coversPosition` (max `SPAWN_HOLD_MAX_MS=20000`); its `staticCollidersPendingNear` is true whenever `AppRuntime._pendingTrimeshBuilds.size > 0`, regardless of spawn point.
-- Respawn clearance is shared: `AppGameplay.js pickSpawnPoint` + tps-game use one `footprintBlockers` sampler (17 down-ray columns; surface > `MAX_FOOTPRINT_INTRUSION_M` 0.15 m above a column bottom = `intruding`); `apps/tps-game/respawn-clearance.js` exports `spawnClearanceMarginM`.
+- Respawn clearance is shared: `AppGameplay.js pickSpawnPoint` + tps-game use one `footprintBlockers` sampler (17 down-ray columns; surface > `MAX_FOOTPRINT_INTRUSION_M` 0.15 m above a column bottom = `intruding`); the margin is that constant itself (`src/apps/AppGameplay.js:20`, read by `scripts/spawn-clearance-witness.mjs:54`) -- `apps/tps-game/respawn-clearance.js` exports no `spawnClearanceMarginM`.
 - `BrowserServer.js`: `_lastTodSync` + `_deliveredWorldFingerprints` are MODULE level, so stall recovery + HostMigration rebuild a fresh BrowserServer in the same page.
 - Singleplayer worker identity comes from `INIT.worldName`; the snapshot is one IDB key `world-snapshot` per origin.
 - `FloatingOrigin.js update()` does `camera.position.set(0,0,0)` on rebase, not `+= -delta`.

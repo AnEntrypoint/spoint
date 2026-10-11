@@ -751,6 +751,21 @@
   text: 'Claim: the dprAuto registry key defaults to true, enabling adaptive DPR. Re-derived against the CURRENT AGENTS.md after e28fa3e97b: AGENTS.md:178 states ''`dprAuto` defaults `false` (`client/core/RenderControls.js`), matching every preset''. Live code agrees: client/core/RenderControls.js:11 ''{ key: ''''dprAuto'''', group: ''''resolution'''', type: ''''boolean'''', default: false,''. Claim refuted; nothing in the current doc asserts it. No edit to AGENTS.md (read-only slice; 17 concurrent hops cite it).'
   witness: 'codesearch 1791695708383-500-721fe8837176de1b (literal __dprAuto in AGENTS.md, 1 hit, line 178, exhaustive); codesearch 1791695831229-500-bea0dea3676bceaf (literal dprAuto in client/core/RenderControls.js, line 11 ''default: false''); bash 1791695750532-500-da44ea8de7f724a4 (scripts/verify-doc-claims-witness.mjs -> RESULT: PASS exit 0, default-value claims checked: 1); exec_js 1791695663960-500-87ee88d6dae0c94a (stems config-lock/dirty-filter/git-push/dpr-auto/docclaim absent from spoint, gm and gm-wt-r280 prd.yml); exec_js 1791695382075-500-30a45286bd9475ca (six row ids absent from every C:/dev/*/.gm/prd.yml)'
   session_id: orch-main-r275-w1
+- id: ORCH-publish-git-lane-starved
+  title: 'spoint publish blocked: the git serial lane starves every commit and pull'
+  phase: MILNER
+  body: 'The orchestrator''s own publish cannot land. git_pull aborted on a dirty worktree (.gm/prd.yml, vendor/design) with ''Index was not unstashed''; git_commit starved three times and git_push twice (dispatch_starved_waiting_for_serial_lane, lane git, 4 to 8 waiters, holders orch-main-r272-sub1 and orch-main-r251-sub3 running past 240 s). Branch is ahead 17 / behind 7. Witness: dispatch ids 1791687540254-500-b9c67d6bbf20f0b (pull abort), 1791687888723-16382, 1791688034040-16452, 1791687547828-16234. Depends on the FIFO admission and lane-hold watchdog work in C:/dev/gm.'
+  depends_on: []
+  session_id: orch-main
+  status: pending
+- id: ORCH-publish-starved-r310-1
+  SESSION_ID: orch-main
+  title: Orchestrator publish starves twice behind a foreign session's repeated git_push
+  why: 'The tip of main (94b298f325, b9bc1d4978, 40782f87be and their ancestors) is unpushed. git_push dispatched twice (1791691926393-500-33ac91e8287178b, 1791692117911-500-a923f8431c89e7aa) and both starved at the 120 s cap with error_code dispatch_starved_waiting_for_serial_lane, lane_waiters 3 then 5. Every starvation names the same holder shape: a git_push from foreign session f73df536-0f66-49a1-8888-2a064d23416a (-hhotscbx, -4nck7pny, -hi5oiy67, -8ap9ohwp), i.e. one session re-pushing while holding the single git lane for minutes. git_pull cannot clear it either: it aborts on a worktree dirty with other lanes'' edits (apps/_lib/*, .gm/prd.yml, vendor/design) with ''Index was not unstashed''. Until the lane is fair, the publish needs a lane-free window, not more retries.'
+  surface: orchestrator-publish
+  witness: 1791692117911-500-a923f8431c89e7aa
+  session_id: orch-main
+  status: pending
 - id: docclaim-gm-config-lock-1
   SESSION_ID: orch-main-r275-w1
   status: pending
@@ -804,3 +819,9 @@
   text: 'Claim: the dirty-path filter over-matches shared doc names (a doc many lanes touch) and so gates deny on foreign dirt. Re-derived live on spoint while 17 lanes hold edits: git_status reports modified 15 of 2673 changed paths and AGENTS.md is NOT among them (modified counts by directory: .gm 2, apps/tps-game 1, src/client 1, src/game 2, src/sdk 1, src/sharding 5, types 1, vendor 2). The 203 index-LF/worktree-CRLF files AGENTS.md names as false-modified are likewise absent from the modified set, so neither shared doc names nor the CRLF class is being over-matched right now. Also: the current AGENTS.md contains no instance of the word ''dirty'' at all (it says ''foreign dirt''), so there is no stale doc sentence asserting the claim. Refuted on the current tree; no edit to AGENTS.md.'
   witness: 'git_status 1791696014132-500-445352665af26799 (spoint: head cfd3c9e03bf3f8c2d639c5c8e036098f533bafca, changed_paths 2673, modified 15, untracked 2658, AGENTS.md not modified); codesearch 1791695821681-500-4a5524e88201bfca (literal ''dirty'' in AGENTS.md -> 0 hits over 195 lines, exhaustive); codesearch 1791695867071-500-1e53bfc82a214f5b0 (literal dirty_filter across C:/dev/gm -> 0 over 2075 files)'
   session_id: orch-main-r275-w1
+- id: SPECDRIFT-ag-88-1
+  title: AGENTS.md:88 and scripts/lib/verify-doc-claims.mjs:50 still name nearbyHorizontal, renamed to nearbyCylinder
+  body: 'CLAIM: AGENTS.md:88 documents the flat AOI query as src/spatial/Octree.js nearbyHorizontal. A later lane renamed it nearbyCylinder(position, radius, halfHeight, out) -- Octree.js:117-118 -- and the flat ring''s vertical extent is now FLAT_RING_HALF_HEIGHT_M at src/stage/Stage.js:4. The doc verifier pins the same stale name at scripts/lib/verify-doc-claims.mjs:50, so one rename has to move both or the verifier checks text no code has. Witness: hop PARNAS src/spatial receipt (session orch-main-r310-sub2-p1, ring witness PASS 4/4 on the current tree, dispatch 1791697944703-500-a1cdaa080d95ecc8). CLOSE: rename both sites together and re-run the doc-claims verifier; the numbers pinned in that sentence must survive the edit.'
+  witness: hop PARNAS src/spatial receipt, dispatch 1791697944703-500-a1cdaa080d95ecc8 (ring witness PASS 4/4); codesearch 1791698162089-500-a6330a93010f568c (nearbyHorizontal absent from src/, nearbyCylinder present)
+  session_id: orch-main
+  status: pending
