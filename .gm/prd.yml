@@ -751,3 +751,56 @@
   text: 'Claim: the dprAuto registry key defaults to true, enabling adaptive DPR. Re-derived against the CURRENT AGENTS.md after e28fa3e97b: AGENTS.md:178 states ''`dprAuto` defaults `false` (`client/core/RenderControls.js`), matching every preset''. Live code agrees: client/core/RenderControls.js:11 ''{ key: ''''dprAuto'''', group: ''''resolution'''', type: ''''boolean'''', default: false,''. Claim refuted; nothing in the current doc asserts it. No edit to AGENTS.md (read-only slice; 17 concurrent hops cite it).'
   witness: 'codesearch 1791695708383-500-721fe8837176de1b (literal __dprAuto in AGENTS.md, 1 hit, line 178, exhaustive); codesearch 1791695831229-500-bea0dea3676bceaf (literal dprAuto in client/core/RenderControls.js, line 11 ''default: false''); bash 1791695750532-500-da44ea8de7f724a4 (scripts/verify-doc-claims-witness.mjs -> RESULT: PASS exit 0, default-value claims checked: 1); exec_js 1791695663960-500-87ee88d6dae0c94a (stems config-lock/dirty-filter/git-push/dpr-auto/docclaim absent from spoint, gm and gm-wt-r280 prd.yml); exec_js 1791695382075-500-30a45286bd9475ca (six row ids absent from every C:/dev/*/.gm/prd.yml)'
   session_id: orch-main-r275-w1
+- id: docclaim-gm-config-lock-1
+  SESSION_ID: orch-main-r275-w1
+  status: pending
+  severity: MEDIUM
+  surface: gm-mcp/src/release-bridge.js (the only live lock acquire in the gm tree)
+  title: 'docclaim rerun: gm-config-lock-native-acquire-reads-as-busy -- no AGENTS.md basis remains; live lock still answers busy on contention'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev; the doc-claim half is moot, the code half is live and unfixed.
+  text: 'Doc-claim half: neither the current spoint AGENTS.md nor C:/dev/gm/AGENTS.md carries any line about a config lock or a native acquire (literal ''config-lock'' -> 0 hits in gm/AGENTS.md and 0 hits across 2075 gm files / 483876 lines), so there is no stale doc sentence left to re-run. Code half, re-derived live: gm-mcp/src/release-bridge.js:338 acquireLock() takes the lock with openSync(lockPath,''wx'') and, on EEXIST with a live holder younger than LOCK_STALE_MS, returns null after at most 2 attempts with no wait; runReleaseBridge line 378 maps a null lock to { outcome: ''busy'' }. So a contended native acquire is reported as busy rather than queued. Open: whether that is intended backpressure or the defect the retired row named; needs the gm lane, not this AGENTS.md slice.'
+  witness: 'codesearch 1791695763388-500-16e32c82863c71b8 (literal config-lock in C:/dev/gm/AGENTS.md -> 0, 107 lines, exhaustive); codesearch 1791695847210-500-ed1d0e6b83ace7a6 (literal config-lock across C:/dev/gm, 2075 files / 483876 lines -> 0); codesearch 1791696017978-500-a705039732ed3bf5 (literal acquire in gm-mcp/src -> release-bridge.js:338, :377); Read C:/dev/gm/gm-mcp/src/release-bridge.js:338-378 (acquireLock + ''if (!lockPath) return { outcome: ''''busy'''' }'')'
+  acceptance: 'A decision recorded in the gm lane: either acquireLock waits/retries with a bounded backoff and reports which pid holds the lock, or ''busy'' is documented as intended backpressure in the prose that owns it.'
+  session_id: orch-main-r275-w1
+- id: docclaim-rs-plugkit-main-1
+  SESSION_ID: orch-main-r275-w1
+  status: pending
+  severity: HIGH
+  surface: AnEntrypoint/rs-plugkit branch main (HEAD cddd35858f1ac18cc6a4f719bf96b3a14eae5098)
+  title: 'docclaim rerun: rs-plugkit-main-does-not-build -- CONFIRMED live, CI on main HEAD is red'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev; the claim is true right now.
+  text: 'Re-derived live on 2026-10-11: rs-plugkit main HEAD is cddd35858f1ac18cc6a4f719bf96b3a14eae5098 (''Merge branch ''''main'''' of https://github.com/AnEntrypoint/rs-plugkit'', 2026-10-11T07:01:01+02:00). Two CI runs on that exact headSha finish conclusion ''failure'' (created 2026-10-11T05:01:17Z and 05:01:18Z), while the preceding head 3f66830ec59a1998d2c67f1244ce6124c9ebfe03 finished ''success'' at 03:17:36Z. So rs-plugkit main does not build, at HEAD, right now. Not a doc claim: neither the spoint AGENTS.md nor gm/AGENTS.md asserts anything about the rs-plugkit build, so nothing to re-run there (gm/AGENTS.md:86 only says a rebuild shall pass --features slim).'
+  witness: bash 1791696141102-9-74d355a69effe402 (gh run list -R AnEntrypoint/rs-plugkit --branch main --limit 3 --json conclusion,headSha,createdAt -> failure,failure on cddd358; success on 3f66830); git_log 1791696086644-500-56867daf4470b21e (repo C:/dev/gm/rs-plugkit, HEAD cddd358 merge of origin/main); codesearch 1791695764613-500-d609e609... (literal rs-plugkit in C:/dev/gm/AGENTS.md, line 86)
+  acceptance: CI on AnEntrypoint/rs-plugkit main HEAD reports success, and the failing jobs on cddd358 are named and fixed in the gm lane.
+  session_id: orch-main-r275-w1
+- id: docclaim-rs-plugkit-head-1
+  SESSION_ID: orch-main-r275-w1
+  status: pending
+  severity: MEDIUM
+  surface: C:/dev/gm/rs-plugkit (submodule, HEAD cddd358)
+  title: 'docclaim rerun: gm-rs-plugkit-head-calls-uncommitted-remote-moved-hunk -- uncommitted hunks at HEAD confirmed, ''remote-moved'' not established'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev; half the claim is confirmed live, half is unproven.
+  text: 'Re-derived live: rs-plugkit HEAD cddd35858f1ac18cc6a4f719bf96b3a14eae5098 is itself ''Merge branch ''''main'''' of https://github.com/AnEntrypoint/rs-plugkit'' (2026-10-11T07:01:01+02:00), so HEAD sits on the remote main it merged. git_status at that HEAD: dirty true, 5 modified tracked files (CHANGELOG.md, crates/plugkit-core/src/orchestrator/cas.rs, mod.rs, prd.rs, yaml_util.rs) and 6 untracked (incl. crates/plugkit-core/src/orchestrator/prd_repair.rs). So an uncommitted hunk at HEAD is real. What this witness does NOT establish: that any hunk was ''remote-moved'' (no git_show/diff of a named hunk was run, and no doc line in the current AGENTS.md asserts it). Open until someone names the hunk.'
+  witness: 'git_status 1791696126633-500-cf939c2f1a72b0f0 (repo C:/dev/gm/rs-plugkit: head cddd35858f1ac18cc6a4f719bf96b3a14eae5098, dirty true, modified 5, untracked 6); git_log 1791696086644-500-56867daf4470b21e (HEAD cddd358 ''Merge branch ''''main'''' of https://github.com/AnEntrypoint/rs-plugkit''); exec_js 1791695382075-500-30a45286bd9475ca (row id absent from every C:/dev/*/.gm/prd.yml)'
+  acceptance: 'Name the specific hunk: git_show/git_diff at rs-plugkit HEAD showing which lines moved on the remote, or close the row as unreproducible with that dispatch recorded.'
+  session_id: orch-main-r275-w1
+- id: docclaim-gm-git-push-1
+  SESSION_ID: orch-main-r275-w1
+  status: completed
+  severity: LOW
+  surface: AGENTS.md:27 (spoint Working rules)
+  title: 'docclaim rerun: gm-git-push-head-publishes-other-lanes-commits -- refuted by current AGENTS.md:27'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev.
+  text: 'Claim: pushing HEAD publishes other lanes'' commits. Re-derived against the CURRENT AGENTS.md after e28fa3e97b: AGENTS.md:27 reads ''Commit lanmower, main-only: `git_commit {message, paths}` (pathless `git_finalize` sweeps another lane''s edit); push `git_push {rev:"HEAD"}`, bare `{branch:...}` gate-denied while foreign dirt exists.'' The current doc makes rev:HEAD the sanctioned push form and puts the foreign-dirt guard on the BARE branch form, which is the opposite of the retired claim. Refuted by the current text; no edit to AGENTS.md.'
+  witness: codesearch 1791695818115-500-f43c3a4479a1fb7 (literal git_push in AGENTS.md -> 1 hit, line 27, exhaustive); exec_js 1791695663960-500-87ee88d6dae0c94a (stems git-push/config-lock/dirty-filter absent from spoint, gm, gm-wt-r280 prd.yml)
+  session_id: orch-main-r275-w1
+- id: docclaim-gm-dirty-filter-1
+  SESSION_ID: orch-main-r275-w1
+  status: completed
+  severity: LOW
+  surface: spoint git_status dirty filter over shared doc names
+  title: 'docclaim rerun: gm-dirty-filter-over-matches-shared-doc-names -- not reproducible on the current tree'
+  subject: Re-filed under docclaim-<tag>-1 because the original row id is absent from every .gm/prd.yml under C:/dev.
+  text: 'Claim: the dirty-path filter over-matches shared doc names (a doc many lanes touch) and so gates deny on foreign dirt. Re-derived live on spoint while 17 lanes hold edits: git_status reports modified 15 of 2673 changed paths and AGENTS.md is NOT among them (modified counts by directory: .gm 2, apps/tps-game 1, src/client 1, src/game 2, src/sdk 1, src/sharding 5, types 1, vendor 2). The 203 index-LF/worktree-CRLF files AGENTS.md names as false-modified are likewise absent from the modified set, so neither shared doc names nor the CRLF class is being over-matched right now. Also: the current AGENTS.md contains no instance of the word ''dirty'' at all (it says ''foreign dirt''), so there is no stale doc sentence asserting the claim. Refuted on the current tree; no edit to AGENTS.md.'
+  witness: 'git_status 1791696014132-500-445352665af26799 (spoint: head cfd3c9e03bf3f8c2d639c5c8e036098f533bafca, changed_paths 2673, modified 15, untracked 2658, AGENTS.md not modified); codesearch 1791695821681-500-4a5524e88201bfca (literal ''dirty'' in AGENTS.md -> 0 hits over 195 lines, exhaustive); codesearch 1791695867071-500-1e53bfc82a214f5b0 (literal dirty_filter across C:/dev/gm -> 0 over 2075 files)'
+  session_id: orch-main-r275-w1
