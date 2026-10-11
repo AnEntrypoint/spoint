@@ -8,7 +8,21 @@ let running = false
 let frameCount = 0
 let lastStatsPost = 0
 let rafHandle = 0
+let seq = 0
+let run = 0
 const STATS_POST_INTERVAL_MS = 250
+
+function post(message) {
+  self.postMessage({ seq: ++seq, run, ...message })
+}
+
+function postError(code, message, stack) {
+  post({ type: 'error', code, message, stack: stack || null })
+}
+
+function dimsAreValid(width, height) {
+  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+}
 
 function buildScene(width, height) {
   scene = new THREE.Scene()
@@ -39,7 +53,7 @@ function tick(nowMs) {
   if (nowMs - lastStatsPost > STATS_POST_INTERVAL_MS) {
     lastStatsPost = nowMs
     const info = renderer.info
-    self.postMessage({
+    post({
       type: 'frame',
       frame: frameCount,
       ms: nowMs,
@@ -57,31 +71,43 @@ self.onmessage = (e) => {
     switch (msg.type) {
       case 'init': {
         const { canvas, width, height, dpr } = msg
+        if (running) {
+          postError('init-while-running', 'init refused: the render loop is already running (send stop first)')
+          break
+        }
+        if (!canvas) {
+          postError('init-no-canvas', 'init refused: msg.canvas is missing')
+          break
+        }
+        if (!dimsAreValid(width, height)) {
+          postError('bad-init-payload', 'init refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
+          break
+        }
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
         renderer.setPixelRatio(dpr || 1)
         renderer.setSize(width, height, false)
         buildScene(width, height)
         running = true
+        run++
         frameCount = 0
         lastStatsPost = 0
-        self.postMessage({ type: 'ready' })
+        post({ type: 'ready' })
         rafHandle = self.requestAnimationFrame(tick)
         break
       }
       case 'resize': {
         const { width, height, dpr } = msg
+        if (!dimsAreValid(width, height)) {
+          postError('bad-resize-payload', 'resize refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
+          break
+        }
         if (renderer && camera) {
           renderer.setPixelRatio(dpr || 1)
           renderer.setSize(width, height, false)
           camera.aspect = width / Math.max(1, height)
           camera.updateProjectionMatrix()
         } else {
-          self.postMessage({
-            type: 'error',
-            code: 'resize-no-render-target',
-            message: 'resize ignored: no renderer or camera (init has not run, or stop already ran)',
-            stack: null
-          })
+          postError('resize-no-render-target', 'resize ignored: no renderer or camera (init has not run, or stop already ran)')
         }
         break
       }
@@ -89,20 +115,15 @@ self.onmessage = (e) => {
         running = false
         if (rafHandle) self.cancelAnimationFrame(rafHandle)
         if (renderer) { renderer.dispose(); renderer = null }
-        self.postMessage({ type: 'stopped' })
+        post({ type: 'stopped' })
         break
       }
       default: {
-        self.postMessage({
-          type: 'error',
-          code: 'unknown-message-type',
-          message: 'unknown message type: ' + String(msg && msg.type),
-          stack: null
-        })
+        postError('unknown-message-type', 'unknown message type: ' + String(msg && msg.type))
         break
       }
     }
   } catch (err) {
-    self.postMessage({ type: 'error', message: String(err && err.message || err), stack: err && err.stack || null })
+    postError('handler-threw', String(err && err.message || err), err && err.stack)
   }
 }
