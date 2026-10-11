@@ -35,6 +35,16 @@ export function terrainCarvesOf(tcfg) {
   })
 }
 
+export function parseTerrainConfig(tcfg) {
+  if (!tcfg || typeof tcfg !== 'object' || Array.isArray(tcfg)) return { ok: false, path: '', reason: 'terrain config must be a plain object' }
+  if (tcfg.seed !== undefined && !Number.isFinite(tcfg.seed)) return { ok: false, path: 'seed', reason: 'must be a finite number' }
+  if (tcfg.radius !== undefined && !(Number.isFinite(tcfg.radius) && tcfg.radius > 0)) return { ok: false, path: 'radius', reason: 'must be a positive finite number' }
+  let hashVersion, carves
+  try { hashVersion = terrainHashVersionOf(tcfg) } catch (e) { return { ok: false, path: 'hashVersion', reason: e.message } }
+  try { carves = terrainCarvesOf(tcfg) } catch (e) { return { ok: false, path: 'carves', reason: e.message } }
+  return { ok: true, hashVersion, carves }
+}
+
 export function parseTerrainHashOverride(raw) {
   if (raw == null || raw === '') return null
   return terrainHashVersionOf({ hashVersion: Number(raw) })
@@ -64,16 +74,19 @@ export function minimapDescriptor(worldId, tcfg) {
 }
 
 export function terrainBakeKey(tcfg) {
-  const slice = { seed: tcfg.seed ?? null, radius: tcfg.radius ?? null, reliefScale: tcfg.reliefScale ?? null, anchorDir: tcfg.anchorDir || [0, 1, 0], hashVersion: terrainHashVersionOf(tcfg), carves: terrainHashVersionOf(tcfg) === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []) }
+  const hashVersion = terrainHashVersionOf(tcfg)
+  const slice = { seed: tcfg.seed ?? null, radius: tcfg.radius ?? null, reliefScale: tcfg.reliefScale ?? null, anchorDir: tcfg.anchorDir || [0, 1, 0], hashVersion, carves: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []) }
   return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
 }
 
 export function minimapBakeParams(tcfg) {
+  const parsed = parseTerrainConfig(tcfg)
+  if (!parsed.ok) throw new TypeError(`terrain ${parsed.path ? `${parsed.path}: ` : ''}${parsed.reason}`)
   return {
     radius: tcfg.radius,
     reliefScale: tcfg.reliefScale ?? null,
-    hashVersion: terrainHashVersionOf(tcfg),
-    carves: terrainCarvesOf(tcfg),
+    hashVersion: parsed.hashVersion,
+    carves: parsed.carves,
     anchorDir: tcfg.anchorDir || [0, 1, 0],
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),

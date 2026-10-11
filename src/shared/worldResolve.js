@@ -1,4 +1,5 @@
 import { resolveNetcodeProfile } from '../netcode/NetcodeProfile.js'
+import { parseTerrainConfig } from './terrainConfig.js'
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isNum = v => typeof v === 'number' && Number.isFinite(v)
@@ -26,9 +27,8 @@ function checkSlices(w) {
   for (const k of ['movement', 'camera', 'animation', 'scene', 'input']) if (w[k] !== undefined && !isObj(w[k])) return reject(k, 'must be an object')
   if (w.terrain !== undefined && w.terrain !== null && typeof w.terrain !== 'boolean') {
     if (!isObj(w.terrain)) return reject('terrain', 'must be an object, a boolean or null')
-    if (w.terrain.seed !== undefined && !isNum(w.terrain.seed)) return reject('terrain.seed', 'must be a finite number')
-    if (w.terrain.radius !== undefined && !(isNum(w.terrain.radius) && w.terrain.radius > 0)) return reject('terrain.radius', 'must be a positive finite number')
-    if (w.terrain.carves !== undefined && !Array.isArray(w.terrain.carves)) return reject('terrain.carves', 'must be an array')
+    const t = parseTerrainConfig(w.terrain)
+    if (!t.ok) return reject(t.path ? `terrain.${t.path}` : 'terrain', t.reason)
   }
   if (w.planetRadius !== undefined && !(isNum(w.planetRadius) && w.planetRadius > 0)) return reject('planetRadius', 'must be a positive finite number: the AOI cell lattice is flat unless this radius is the one resolveClusterConfig resolves from enabled clusters, and a zero, negative or non-finite radius silently serves flat cells under a planet')
   if (w.iceServers !== undefined) {
