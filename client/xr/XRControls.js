@@ -10,8 +10,12 @@ export class XRControls {
     this.anchorPosition = new THREE.Vector3(); this.anchorRotation = new THREE.Quaternion()
     this.cameraPosition = new THREE.Vector3(); this.cameraQuaternion = new THREE.Quaternion()
     this.planes = new Map(); this.planeMeshes = []
-    this.reticle = null; this.reticleVisible = false
+    this.reticle = null
   }
+
+  get reticleVisible() { return this.reticle !== null && this.reticle.visible === true }
+
+  set reticleVisible(v) { if (this.reticle) this.reticle.visible = v === true }
 
   createReticle() {
     const g = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2)
@@ -58,10 +62,10 @@ export class XRControls {
     if (!this.reticle) return
     const m = new THREE.Matrix4().fromArray(transform.matrix)
     this.reticle.position.setFromMatrixPosition(m); this.reticle.quaternion.setFromRotationMatrix(m)
-    this.reticle.visible = true; this.reticleVisible = true
+    this.reticle.visible = true
   }
 
-  hideReticle() { if (this.reticle) { this.reticle.visible=false; this.reticleVisible=false } }
+  hideReticle() { if (this.reticle) this.reticle.visible = false }
 
   placeAnchor() {
     if (!this.reticleVisible) return false

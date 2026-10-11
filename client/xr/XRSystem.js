@@ -22,7 +22,7 @@ export function createXRSystem(renderer, scene, camera) {
   let handsDetected = false
   let xrBaseReferenceSpace = null
   let xrRebaseTimer = 0
-  let arEnabled = false, arButton = null
+  let arButton = null
   let arPriorState = null
   let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
   let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: 1.6, teleportEnabled: false }
@@ -80,7 +80,7 @@ export function createXRSystem(renderer, scene, camera) {
   const FIXED_FOVEATION_LEVEL = 0.5
   function setupSessionListeners(getPlayerState, getPlayerId, camRef) {
     renderer.xr.addEventListener('sessionstart', () => {
-      if (!arEnabled && typeof renderer.xr.setFoveation === 'function') {
+      if (!xrControls.enabled && typeof renderer.xr.setFoveation === 'function') {
         try { renderer.xr.setFoveation(FIXED_FOVEATION_LEVEL) } catch (_) {}
       }
       if (camRef?.inputHandler) camRef.inputHandler.vrYaw = camRef.yaw
@@ -101,7 +101,16 @@ export function createXRSystem(renderer, scene, camera) {
     })
     renderer.xr.addEventListener('sessionend', () => {
       clearTimeout(xrRebaseTimer); xrRebaseTimer = 0; xrBaseReferenceSpace = null
+      restoreARPresentation()
     })
+  }
+
+  function restoreARPresentation() {
+    if (!arPriorState) return
+    scene.background = arPriorState.background
+    renderer.domElement.style.display = arPriorState.canvasDisplay
+    arPriorState = null
+    if (arButton) { arButton.textContent = 'Enter XR'; arButton.classList.remove('xr-exit'); arButton.classList.add('btn-primary') }
   }
 
   async function initAR() {
@@ -109,13 +118,11 @@ export function createXRSystem(renderer, scene, camera) {
     arButton = await createXRButton(renderer,
       async () => {
         const ok = await xrControls.start()
-        if (ok) { arEnabled = true; arPriorState = { background: scene.background, canvasDisplay: renderer.domElement.style.display }; scene.background = null; renderer.domElement.style.display = 'none' }
+        if (ok) { arPriorState = { background: scene.background, canvasDisplay: renderer.domElement.style.display }; scene.background = null; renderer.domElement.style.display = 'none' }
         return ok
       },
       async () => {
-        await xrControls.end(); arEnabled = false
-        if (arPriorState) { scene.background = arPriorState.background; renderer.domElement.style.display = arPriorState.canvasDisplay; arPriorState = null }
-        if (arButton) { arButton.textContent = 'Enter XR'; arButton.classList.remove('xr-exit'); arButton.classList.add('btn-primary') }
+        await xrControls.end(); restoreARPresentation()
       }
     )
     if (arButton) document.body.appendChild(arButton)
@@ -174,7 +181,7 @@ export function createXRSystem(renderer, scene, camera) {
     get isPresenting() { return renderer.xr.isPresenting },
     get vrSettings() { return Object.freeze({ ...vrSettings }) },
     get xrControls() { return xrControls },
-    get arEnabled() { return arEnabled },
+    get arEnabled() { return xrControls.enabled },
     getControllerModel: (h) => controllerModels.get(h),
     getControllerGrip: (h) => controllerGrips.get(h),
     getHandModel: (h) => handModels.get(h)
