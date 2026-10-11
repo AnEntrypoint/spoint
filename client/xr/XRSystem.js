@@ -163,7 +163,7 @@ export function createXRSystem(renderer, scene, camera) {
     widgets.updateFade(dt)
     const isMoving = inVR && local?.velocity ? Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2) > 0.5 : false
     widgets.updateVignette(dt, isMoving)
-    if (arEnabled) { const f = renderer.xr.getFrame(); if (f) xrControls.update(f, camera, scene) }
+    if (xrControls.enabled) { const f = renderer.xr.getFrame(); if (f) xrControls.update(f, camera, scene) }
   }
 
   initVRButton()
