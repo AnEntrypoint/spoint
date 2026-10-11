@@ -3,7 +3,6 @@ import { chartAnchorDecision, CHART_REANCHOR_HYSTERESIS_DEG } from '../shared/ch
 
 export function createChartReanchorService({ frame, radius, playerDirs, anchorsPerFace = CHART_ANCHORS_PER_FACE, hysteresisDeg = CHART_REANCHOR_HYSTERESIS_DEG }) {
   const lattice = createChartAnchorLattice(radius, anchorsPerFace)
-  if (!lattice) throw new Error(`chart reanchor needs a positive finite planet radius, got ${radius}`)
   const migrators = []
   const terrainMigrators = []
   let reanchorCount = 0, refusalCount = 0, lastRefusal = null
@@ -31,14 +30,17 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
   function step(dirs = playerDirs()) {
     if (!migrators.length) throw new Error('chart reanchor stepped with no registered state migrator: rotating the frame alone would leave every chart-local position, collider and client on the old chart')
     const decision = chartAnchorDecision({ lattice, frame, dirs, hysteresisDeg })
-    if (!decision) return null
-    if (decision.refusal) {
+    if (decision.kind === 'refusal') {
       refusalCount++
-      tally(decision.refusal)
-      if (lastRefusal?.reason !== decision.refusal) console.warn(`[chart-reanchor] refusing to re-anchor: ${decision.refusal}${decision.worstPlayerAngleDeg === undefined ? '' : ` (worst player ${decision.worstPlayerAngleDeg.toFixed(2)} deg from the anchor, walkable limit ${decision.walkableLimitDeg.toFixed(2)} deg)`}; players this far apart need per-cluster charts`)
-      lastRefusal = { reason: decision.refusal, decision, epoch: frame.chartEpoch }
+      tally(decision.reason)
+      const detail = decision.reason === 'party-spread-exceeds-walkable-chart'
+        ? ` (worst player ${decision.worstPlayerAngleDeg.toFixed(2)} deg from the anchor, walkable limit ${decision.walkableLimitDeg.toFixed(2)} deg)`
+        : ''
+      if (lastRefusal?.reason !== decision.reason) console.warn(`[chart-reanchor] refusing to re-anchor: ${decision.reason}${detail}; players this far apart need per-cluster charts`)
+      lastRefusal = { reason: decision.reason, decision, epoch: frame.chartEpoch }
       return null
     }
+    if (decision.kind === 'stay') return null
     const reason = refusalOf(decision)
     if (reason) {
       refusalCount++
