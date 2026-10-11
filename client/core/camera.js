@@ -1,7 +1,15 @@
 import * as THREE from 'three'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 
-const _groundAt = guardedGroundHeight('camera altitude ground', (x, z) => window.__terrain.frame.groundHeightLocal(x, z), 0)
+const _groundAt = (() => {
+  const guarded = guardedGroundHeight('camera altitude ground', (x, z) => window.__terrain.frame.groundHeightLocal(x, z))
+  let lastGround = 0
+  return (x, z) => {
+    const g = guarded(x, z)
+    if (!isNoGroundHeight(g)) lastGround = g
+    return lastGround
+  }
+})()
 const camTarget = new THREE.Vector3()
 const camRaycaster = new THREE.Raycaster()
 const camDir = new THREE.Vector3()
