@@ -608,3 +608,25 @@
   witness: 1791692024029-500-67f8ac7db849da8b
   detail: 'git_status 1791692024029-500-67f8ac7db849da8b scoped to src/game: modified = [src/game/AbilityTree.js, src/game/QuestSystem.js] at HEAD e475048ec9d1ab40bcce56dffc5a596f5f8161f4, staged 0. That dirt is another lane''s (see PARSEDV-ub1-s2-2, pending, for the bindHotkey half), so this hop left the file byte-identical and files this row instead. Finding: codesearch literal `throw` over src/game (1791691840225-500-58d3785e9706fcb4, exhaustive:true) returns 3 files and 0 hits in AbilityTree.js -- of the four src/game systems it alone has no precondition anywhere, while its public surface takes caller-supplied state at 15 entry points (outline 1791691794549-500-cb5fb4814346e6b6: castAbility :121, canCastAbility :104, applySnapshot :178, bindHotkey :154, tick :138, getCooldownsForNetwork :224, getPlayerAbilityInfo :238). Unblock: once PARSEDV-ub1-s2-2 lands and the file is clean, give AbilityTree the same precondition boundary QuestSystem.js:2 and StatsSystem.js:2 already have -- a stated contract error for a null playerId, an unknown abilityId and a malformed snapshot, instead of the sentinel returns that survive there today.'
   session_id: orch-main-r260-sub1-s2
+- id: GUARD-2-sub1-1
+  principle: GUARD
+  surface: src/behaviours
+  subject: src/behaviours/fireWeather.js:5-11
+  status: pending
+  witness: node scripts/fireWeather-witness.mjs
+  title: fireWeather rainByteOf collapses unknown type, malformed intensity and absent weather into one 0
+  text: 'Live: scripts/fireWeather-witness.mjs prints RESULT: PASS at HEAD 4d78408de7 (module_sha256 60f83b6e6a2a2c4aa7cef0c6997e56b1f735ee98e02ffd380b13ece067f5ca15; reply at .gm/exec-spool/out/bash-orch-main-h22-sub1-20380-1791693042234-18379.json.reply.txt). Three shipped checks pin the absorption: ''fog: unknown type yields no rain'' -> 0, ''rain: string intensity yields no rain'' -> 0, ''absent weather yields no rain'' -> 0. So throwing on an unrecognised w.type at :10 turns a GREEN tracked witness RED -- the shipped contract is a total function and the witness is its authority, so GUARD is not admissible here as a silent edit.'
+  why: 'There is no closed set of weather types: :8 and :9 name rain and snow and :10 returns 0 for everything else, so a typo (''Rain'') and a genuinely dry type (''fog'', ''clear'') are indistinguishable; :6 returns the same 0 for a non-finite intensity and for an absent weather object, so four causes share one sentinel that then drives the drying branch at :35.'
+  acceptance: Either enumerate the real weather types and reject every other string, with fireWeather-witness.mjs updated to pin that enumeration, or record in AGENTS.md that unknown-type-means-dry is the contract. A throw that reddens the shipped witness without that decision is refused.
+  session_id: orch-main-h22-sub1
+- id: GUARD-2-sub1-2
+  acceptance: 'Drive apps/fsm-arena/index.js buildMatchFSM through the real src/behaviours/gamemode.js and game-fsm.js inside the fsm-arena witness instead of the recorder, and pin the RESULT: FAIL it currently prints at HEAD.'
+  principle: GUARD
+  status: pending
+  subject: scripts/fsm-arena-index-witness.mjs:82-85
+  surface: src/behaviours
+  text: 'Live: node scripts/fsm-arena-index-witness.mjs exits 1 printing RESULT: FAIL at HEAD 4d78408de7 (W01..W20 all pass, so the failure is past W20). Its runSetup() at :82-85 replaces ctx.defineGameMode with a recorder that returns fakeFsm(''waiting'', 0, undefined), so no claim in it executes src/behaviours/gamemode.js. codeinsight impact (dispatch 1791693322162-500-2867166e136fcf93) names apps/fsm-arena/index.js:10 buildMatchFSM as the only caller of defineGameMode outside src/apps/AppContext.js:377, and it is never run against the runtime.'
+  title: fsm-arena witness stubs defineGameMode, so the shipped match FSM never runs against the real gamemode runtime
+  why: GUARD's proof obligation is that a guard fires when the real module runs; a witness that substitutes the module under test proves nothing about it, and the arena's own end builder at apps/fsm-arena/index.js:26 reads fsm.context.kills, which only the real runtime populates.
+  witness: node scripts/fsm-arena-index-witness.mjs
+  session_id: orch-main-h22-sub1

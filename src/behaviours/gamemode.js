@@ -1,6 +1,6 @@
 export function defineGameMode(spec = {}, appCtx = null) {
   if (!appCtx) throw new TypeError('[gamemode] appCtx is required')
-  if (spec !== null && typeof spec !== 'object') throw new TypeError('[gamemode] spec must be an object')
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new TypeError('[gamemode] spec must be an object')
   if (spec.winCondition != null && typeof spec.winCondition !== 'function') throw new TypeError('[gamemode] winCondition must be a function')
   if (spec.scoring != null && !['teams', 'players', 'none'].includes(spec.scoring)) throw new TypeError('[gamemode] scoring must be "teams", "players", or "none"')
   if (spec.phaseNames != null && (typeof spec.phaseNames !== 'object' || Array.isArray(spec.phaseNames))) throw new TypeError('[gamemode] phaseNames must be an object')
@@ -35,9 +35,9 @@ export function defineGameMode(spec = {}, appCtx = null) {
   const _defaultRoundEndMsg = (ctx, fsm) => ({ type: channel + '_round_end', round: fsm.context.round })
   const _defaultEndMsg = (ctx, fsm, scores) => ({ type: channel + '_over', rounds: fsm.context.round, scores })
 
-  function _broadcast(ctx, builder, fallback, ...extra) {
+  function _broadcast(ctx, fsm, builder, fallback, ...extra) {
     const fn = typeof builder === 'function' ? builder : fallback
-    const msg = fn(ctx, fsmRef, ...extra)
+    const msg = fn(ctx, fsm, ...extra)
     if (msg) ctx.network?.broadcast?.(msg)
   }
 
@@ -48,8 +48,6 @@ export function defineGameMode(spec = {}, appCtx = null) {
   function _callHook(fn, ctx, fsm) { if (typeof fn === 'function') fn(ctx, fsm) }
   function _callTick(fn, ctx, dt, fsm) { if (typeof fn === 'function') fn(ctx, dt, fsm) }
 
-  let fsmRef = null
-
   const fsm = appCtx.defineGameFSM({
     id: spec.id || 'game-mode',
     initial: N.lobby,
@@ -57,7 +55,7 @@ export function defineGameMode(spec = {}, appCtx = null) {
     states: {
       [N.lobby]: {
         enter: (ctx, fsm) => {
-          _broadcast(ctx, M.lobby, _defaultLobbyMsg)
+          _broadcast(ctx, fsm, M.lobby, _defaultLobbyMsg)
           _callHook(spec.onLobbyEnter, ctx, fsm)
         },
         tick: (ctx, dt, fsm) => _callTick(spec.onLobbyTick, ctx, dt, fsm),
@@ -68,14 +66,14 @@ export function defineGameMode(spec = {}, appCtx = null) {
       [N.warmup]: {
         enter: (ctx, fsm) => {
           fsm.context.lastSecond = -1
-          _broadcast(ctx, M.warmup, _defaultWarmupMsg)
+          _broadcast(ctx, fsm, M.warmup, _defaultWarmupMsg)
           _callHook(spec.onWarmupEnter, ctx, fsm)
         },
         tick: (ctx, dt, fsm) => {
           const remain = Math.ceil((countdownMs - fsm.timeInState) / 1000)
           if (remain !== fsm.context.lastSecond) {
             fsm.context.lastSecond = remain
-            _broadcast(ctx, M.countdown, _defaultCountdownMsg, Math.max(0, remain))
+            _broadcast(ctx, fsm, M.countdown, _defaultCountdownMsg, Math.max(0, remain))
           }
           _callTick(spec.onWarmupTick, ctx, dt, fsm)
         },
@@ -84,7 +82,7 @@ export function defineGameMode(spec = {}, appCtx = null) {
       [N.rounds]: {
         enter: (ctx, fsm) => {
           fsm.context.round++
-          _broadcast(ctx, M.roundStart, _defaultRoundStartMsg)
+          _broadcast(ctx, fsm, M.roundStart, _defaultRoundStartMsg)
           _callHook(spec.onRoundStart, ctx, fsm)
         },
         tick: (ctx, dt, fsm) => _callTick(spec.onRoundTick, ctx, dt, fsm),
@@ -93,7 +91,7 @@ export function defineGameMode(spec = {}, appCtx = null) {
       },
       [N.roundEnd]: {
         enter: (ctx, fsm) => {
-          _broadcast(ctx, M.roundEnd, _defaultRoundEndMsg)
+          _broadcast(ctx, fsm, M.roundEnd, _defaultRoundEndMsg)
           _callHook(spec.onRoundEnd, ctx, fsm)
         },
         after: {
@@ -106,14 +104,13 @@ export function defineGameMode(spec = {}, appCtx = null) {
       [N.end]: {
         final: true,
         enter: (ctx, fsm) => {
-          _broadcast(ctx, M.end, _defaultEndMsg, gamemode.getScores())
+          _broadcast(ctx, fsm, M.end, _defaultEndMsg, gamemode.getScores())
           _callHook(spec.onEnd, ctx, fsm)
         }
       }
     }
   })
 
-  fsmRef = fsm
   const gamemode = fsm
   gamemode.teams = teams
 
