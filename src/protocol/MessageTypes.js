@@ -1,6 +1,6 @@
 export const WIRE_PROTOCOL_VERSION = 5
 
-export const MSG = {
+export const MSG = Object.freeze({
   HANDSHAKE: 0x01,
   HANDSHAKE_ACK: 0x02,
   HEARTBEAT: 0x03,
@@ -135,10 +135,13 @@ export const MSG = {
   CHART_REANCHOR: 0xc6,
 
   CLUSTER_HANDOFF: 0xc7
-}
+})
 
 const nameMap = new Map()
-for (const [name, id] of Object.entries(MSG)) nameMap.set(id, name)
+for (const [name, id] of Object.entries(MSG)) {
+  if (nameMap.has(id)) throw new Error(`[MessageTypes] message id 0x${id.toString(16)} is declared by both ${nameMap.get(id)} and ${name}`)
+  nameMap.set(id, name)
+}
 
 export function msgName(id) {
   return nameMap.get(id) || `UNKNOWN(0x${id.toString(16)})`
@@ -153,7 +156,7 @@ export function isUnreliable(type) {
   return UNRELIABLE_MSGS.has(type)
 }
 
-export const DISCONNECT_REASONS = {
+export const DISCONNECT_REASONS = Object.freeze({
   NORMAL: 0,
   TIMEOUT: 1,
   KICKED: 2,
@@ -161,4 +164,4 @@ export const DISCONNECT_REASONS = {
   INVALID_SESSION: 4,
   RATE_LIMITED: 5,
   PROTOCOL_MISMATCH: 6
-}
+})

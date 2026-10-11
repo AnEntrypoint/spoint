@@ -142,15 +142,15 @@ export class FootIKSolver {
 
     const hitPoint = this.raycastCallback(rayOrigin, rayDirection, this.rayDistance)
 
-    if (hitPoint) {
-      const worldHeightAdjustment = (hitPoint.y - footWorld.y) * this.weight
-      const localHeightAdjustment = new THREE.Vector3(0, worldHeightAdjustment, 0)
-      if (this.footBone.parent) {
-        const parentWorldInverse = new THREE.Matrix4().copy(this.footBone.parent.matrixWorld).invert()
-        localHeightAdjustment.applyMatrix3(new THREE.Matrix3().setFromMatrix4(parentWorldInverse))
-      }
-      this.footBone.position.add(localHeightAdjustment)
+    if (!hitPoint || !Number.isFinite(hitPoint.y)) return this
+
+    const worldHeightAdjustment = (hitPoint.y - footWorld.y) * this.weight
+    const localHeightAdjustment = new THREE.Vector3(0, worldHeightAdjustment, 0)
+    if (this.footBone.parent) {
+      const parentWorldInverse = new THREE.Matrix4().copy(this.footBone.parent.matrixWorld).invert()
+      localHeightAdjustment.applyMatrix3(new THREE.Matrix3().setFromMatrix4(parentWorldInverse))
     }
+    this.footBone.position.add(localHeightAdjustment)
 
     return this
   }

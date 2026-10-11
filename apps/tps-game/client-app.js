@@ -10,13 +10,18 @@ const HIT_MARKER_WINDOW_MS = 150
 const HEADSHOT_MARKER_WINDOW_MS = 250
 const KILL_CONFIRM_WINDOW_MS = 1200
 const KILL_CONFIRM_WINDOW_MAX_MS = 2200
+const STREAK_WINDOW_MS = 3000
 const EXPRESSION_HOLD_MS = 500
+const CROSSHAIR_RECOIL_WINDOW_MS = 130
+const DMG_TAKEN_WINDOW_MS = 450
+const DAMAGE_FLASH_WINDOW_MS = 220
 const _expressionUntil = new Map()
 
 const rttMs = (engine) => engine?.client?.getRTT?.() || 0
 const markerRttPadMs = (engine) => Math.min(MARKER_RTT_PAD_MAX_MS, rttMs(engine))
 const killConfirmWindowMs = (engine) => Math.min(KILL_CONFIRM_WINDOW_MAX_MS, KILL_CONFIRM_WINDOW_MS + rttMs(engine))
-const withinMs = (now, at, windowMs) => now - (at || 0) < windowMs
+const remainingMs = (now, until) => (until || 0) - now
+const withinMs = (now, at, windowMs) => remainingMs(now, (at || 0) + windowMs) > 0
 const hitMarkerOn = (now, tps, engine) => withinMs(now, tps?.hitMarkerTime, HIT_MARKER_WINDOW_MS + markerRttPadMs(engine))
 const headshotMarkerOn = (now, tps, engine) => withinMs(now, tps?.headshotMarkerTime, HEADSHOT_MARKER_WINDOW_MS + markerRttPadMs(engine))
 const killConfirmOn = (now, tps, engine) => withinMs(now, tps?.killTime, killConfirmWindowMs(engine))
@@ -35,7 +40,7 @@ function creditKill(tps, streak) {
   const now = Date.now()
   tps.killTime = now; tps.kills += 1
   if (typeof window !== 'undefined' && window.__funJuice) window.__funJuice.kill++
-  tps.streak = streak.known ? streak.streak : (now - tps.lastKillTime < 3000 ? tps.streak + 1 : 1)
+  tps.streak = streak.known ? streak.streak : (withinMs(now, tps.lastKillTime, STREAK_WINDOW_MS) ? tps.streak + 1 : 1)
   tps.lastKillTime = now
   tps.juice?.tone(420, 0.28, 0.2, 760 + Math.min(4, tps.streak - 1) * 120)
 }
@@ -184,9 +189,9 @@ export const tpsGameClient = {
     }
     if (payload.type === 'hit' && tps && payload.shooter === engine.playerId) {
       tps.hitMarkerTime = now
-      const dmgFresh = now - (tps.dmgDealtTime || 0) > DMG_DEALT_WINDOW_MS
+      const dmgFresh = !withinMs(now, tps.dmgDealtTime, DMG_DEALT_WINDOW_MS)
       tps.lastDamageDealt = (dmgFresh ? 0 : (tps.lastDamageDealt || 0)) + (payload.damage || 0); tps.dmgDealtTime = now
-      const justPredicted = tps._predHitAt && now - tps._predHitAt < PREDICTED_TONE_DEDUP_MS
+      const justPredicted = withinMs(now, tps._predHitAt, PREDICTED_TONE_DEDUP_MS)
       tps._predHitAt = 0
       if (payload.headshot) { tps.headshotMarkerTime = now; if (window.__funJuice) window.__funJuice.headshot++; if (!justPredicted) tps.juice?.tone(1100, 0.08, 0.2); mobileVibrate(engine, [15, 30, 15]) }
       else { if (window.__funJuice) window.__funJuice.hit++; if (!justPredicted) tps.juice?.tone(820, 0.06, 0.18); mobileVibrate(engine, 20) }
@@ -236,16 +241,16 @@ export const tpsGameClient = {
   },
   onFrame(dt, engine) {
     const tps = engine._tps; if (!tps) return
+    const now = Date.now()
     engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || 30}`)
     engine.hud?.stat?.('reloading', tps.reloading)
-    if (tps.boost && Date.now() >= tps.boost.expiresAt) tps.boost = null
-    if (tps.flash && tps.flashOff && Date.now() >= tps.flashOff) { tps.flash.intensity = 0; tps.flashOff = 0 }
+    if (tps.boost && remainingMs(now, tps.boost.expiresAt) <= 0) tps.boost = null
+    if (tps.flash && tps.flashOff && remainingMs(now, tps.flashOff) <= 0) { tps.flash.intensity = 0; tps.flashOff = 0 }
     engine.players.setAiming(engine.playerId, tps.isAiming)
     const ov = tps.overlay; if (!ov) return
-    const now = Date.now()
     const cross = tps._elCross
     if (cross) {
-      const scale = now - tps.lastShootTime < 130 ? 1.6 : 1
+      const scale = withinMs(now, tps.lastShootTime, CROSSHAIR_RECOIL_WINDOW_MS) ? 1.6 : 1
       if (tps._lastCrossScale !== scale) { tps._lastCrossScale = scale; cross.style.transform = 'translate(-50%,-50%) scale(' + scale + ')' }
     }
     const hit = tps._elHit
@@ -265,11 +270,11 @@ export const tpsGameClient = {
       if (tps._lastKillText !== killText) { tps._lastKillText = killText; kill.textContent = killText; kill.style.opacity = onKill ? '1' : '0' }
     }
     const dd = tps._elDmgDealt
-    if (dd) { const on = now - (tps.dmgDealtTime || 0) < DMG_DEALT_WINDOW_MS; const t = on ? ('+' + (tps.lastDamageDealt || 0)) : ''; if (tps._lastDdText !== t) { tps._lastDdText = t; dd.textContent = t; dd.style.opacity = on ? '1' : '0' } }
+    if (dd) { const on = withinMs(now, tps.dmgDealtTime, DMG_DEALT_WINDOW_MS); const t = on ? ('+' + (tps.lastDamageDealt || 0)) : ''; if (tps._lastDdText !== t) { tps._lastDdText = t; dd.textContent = t; dd.style.opacity = on ? '1' : '0' } }
     const dtk = tps._elDmgTaken
-    if (dtk) { const on = now - (tps.lastHitTime || 0) < 450; const t = on && tps.lastDamageTaken ? ('-' + tps.lastDamageTaken) : ''; if (tps._lastDtkText !== t) { tps._lastDtkText = t; dtk.textContent = t; dtk.style.opacity = on ? '1' : '0' } }
+    if (dtk) { const on = withinMs(now, tps.lastHitTime, DMG_TAKEN_WINDOW_MS); const t = on && tps.lastDamageTaken ? ('-' + tps.lastDamageTaken) : ''; if (tps._lastDtkText !== t) { tps._lastDtkText = t; dtk.textContent = t; dtk.style.opacity = on ? '1' : '0' } }
     const shield = tps._elShield
-    if (shield) { const rem = (tps.spawnShieldUntil || 0) - now; const op = rem > 0 ? String(Math.min(0.6, rem / 1500 * 0.6)) : '0'; if (tps._lastShieldOp !== op) { tps._lastShieldOp = op; shield.style.opacity = op } }
+    if (shield) { const rem = remainingMs(now, tps.spawnShieldUntil); const op = rem > 0 ? String(Math.min(0.6, rem / COMBAT_CONFIG.spawnInvulnMs * 0.6)) : '0'; if (tps._lastShieldOp !== op) { tps._lastShieldOp = op; shield.style.opacity = op } }
     const lp = engine.client?.state?.players?.find(p => p.id === engine.playerId)
     const vig = tps._elVig
     {
@@ -279,7 +284,7 @@ export const tpsGameClient = {
     }
     if (vig) {
       const hp = lp?.health ?? 100
-      const dmgFlash = now - (tps.lastHitTime || 0) < 220 ? 0.32 : 0
+      const dmgFlash = withinMs(now, tps.lastHitTime, DAMAGE_FLASH_WINDOW_MS) ? 0.32 : 0
       const lowHp = hp > 0 && hp < 30 ? 0.12 + 0.06 * Math.sin(now / 180) : 0
       const op = String(Math.min(0.4, Math.max(dmgFlash, lowHp)))
       if (tps._lastVigOp !== op) { tps._lastVigOp = op; vig.style.opacity = op }

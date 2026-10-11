@@ -113,6 +113,10 @@ export class SkeletonUtils {
   static packSkeletonState(skeleton, buffer, offset = 0) {
     if (!skeleton || !skeleton.bones) return offset
     const stride = 4
+    const needed = offset + skeleton.bones.length * stride
+    if (buffer.length < needed) {
+      throw new Error('[SkeletonUtils] skeleton state buffer too short: need ' + needed + ' slots, got ' + buffer.length)
+    }
     for (const bone of skeleton.bones) {
       SkeletonUtils.packQuaternion(bone.quaternion, buffer, offset)
       offset += stride
@@ -123,8 +127,11 @@ export class SkeletonUtils {
   static unpackSkeletonState(skeleton, buffer, offset = 0) {
     if (!skeleton || !skeleton.bones) return offset
     const stride = 4
+    const needed = offset + skeleton.bones.length * stride
+    if (buffer.length < needed) {
+      throw new Error('[SkeletonUtils] skeleton state buffer too short: need ' + needed + ' slots, got ' + buffer.length)
+    }
     for (const bone of skeleton.bones) {
-      SkeletonUtils.unpackQuaternion(buffer, offset)
       bone.quaternion.copy(SkeletonUtils.unpackQuaternion(buffer, offset))
       offset += stride
     }
