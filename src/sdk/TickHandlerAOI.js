@@ -175,16 +175,12 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       }
       let relevantIds = appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds)
       if (relevantIds instanceof Set && relevantIds.size > baseRelevantIds.length) {
-        const ringSpatial = appRuntime?._stageLoader?._activeStage?.spatial
-        const positionOf = ringSpatial && typeof ringSpatial.getPosition === 'function' ? ringSpatial.getPosition.bind(ringSpatial) : null
         const r2 = relevanceRadius * relevanceRadius
+        const gate = [cvp[0], cvp[1], cvp[2]]
         const kept = new Set()
         for (const id of relevantIds) {
-          const p = positionOf ? positionOf(id) : null
-          if (!p) { kept.add(id); continue }
-          const dx = p[0] - cvp[0], dz = p[2] - cvp[2]
-          const dy = planetRadius > 0 ? p[1] - cvp[1] : 0
-          if (dx * dx + dy * dy + dz * dz <= r2) kept.add(id)
+          const p = _positionOfEntity(appRuntime, id)
+          if (!p || _withinAny(p, gate, planetRadius, r2)) kept.add(id)
         }
         relevantIds = kept
       }
@@ -213,6 +209,42 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
   ring = { relevantIds: relSet }
   _ringCache.set(cellKey, ring)
   return ring
+}
+
+function _positionOfEntity(appRuntime, id) {
+  const spatial = appRuntime?._stageLoader?._activeStage?.spatial
+  if (spatial && typeof spatial.getPosition === 'function') {
+    const p = spatial.getPosition(id)
+    if (p) return p
+  }
+  const e = appRuntime?.entities?.get(id)
+  return e && e.position ? e.position : null
+}
+
+function _withinAny(p, gatePoints, planetRadius, r2) {
+  const points = gatePoints.length / 3 | 0
+  for (let i = 0; i < points; i++) {
+    const dx = p[0] - gatePoints[i * 3]
+    const dy = planetRadius > 0 ? p[1] - gatePoints[i * 3 + 1] : 0
+    const dz = p[2] - gatePoints[i * 3 + 2]
+    if (dx * dx + dy * dy + dz * dz <= r2) return true
+  }
+  return false
+}
+
+function resolveDeliveredIds(ringRelevantIds, unmanagedIds, gatePoints, planetRadius, relevanceRadius, appRuntime) {
+  if (!unmanagedIds || unmanagedIds.length === 0) return ringRelevantIds
+  const delivered = new Set(ringRelevantIds)
+  if (!gatePoints || gatePoints.length < 3) {
+    for (const id of unmanagedIds) delivered.add(id)
+    return delivered
+  }
+  const r2 = relevanceRadius * relevanceRadius
+  for (const id of unmanagedIds) {
+    const p = _positionOfEntity(appRuntime, id)
+    if (!p || _withinAny(p, gatePoints, planetRadius, r2)) delivered.add(id)
+  }
+  return delivered
 }
 
 const _spatialCache = new Map()
@@ -323,4 +355,4 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   return { entities: trimmed, trimmedCount: dropSet.size }
 }
 
-export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, _cellCenterWorld, _spatialCache, _ringCache }
+export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, _cellCenterWorld, _spatialCache, _ringCache }

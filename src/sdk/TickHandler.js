@@ -10,7 +10,7 @@ import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
@@ -283,12 +283,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         if (!cellMap) { cellMap = new Map(); state.cellEntityMaps.set(cellKey, cellMap) }
         let shared = cached.sharedEncode
         if (!shared || shared.tick !== tick) {
-          let relevantIds = ring.relevantIds
-          if (unmanagedIds && unmanagedIds.length) {
-            const relSet = relevantIds === ring.relevantIds ? new Set(relevantIds) : relevantIds
-            for (const id of unmanagedIds) relSet.add(id)
-            relevantIds = relSet
-          }
+          const relevantIds = resolveDeliveredIds(ring.relevantIds, unmanagedIds, _cellViewersScratch.get(cellKey), planetRadius, relevanceRadius, appRuntime)
           const cellLastTick = state.cellLastTick.get(cellKey) || 0
           const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, clientSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
           shared = { tick, entities: r.encoded.entities, removed: r.encoded.removed, entityMap: r.entityMap }
@@ -313,12 +308,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         }
         state.playerCell.set(player.id, cellKey)
       } else {
-        let relevantIds = getPlayerPriorityIds(player.id, ring.relevantIds, dynCache, viewerPos, tick)
-        if (unmanagedIds && unmanagedIds.length) {
-          const relSet = relevantIds instanceof Set ? relevantIds : new Set(relevantIds)
-          for (const id of unmanagedIds) relSet.add(id)
-          relevantIds = relSet
-        }
+        const relevantIds = resolveDeliveredIds(getPlayerPriorityIds(player.id, ring.relevantIds, dynCache, viewerPos, tick), unmanagedIds, viewerPos, planetRadius, relevanceRadius, appRuntime)
         const clientLastTick = isNewPlayer ? 0 : (state.playerLastTick.get(player.id) || 0)
         const staticEntriesForCall = isNewPlayer ? state.lastStaticEntries : activeStaticEntries
         const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, prevPlayerMap, preEncodedPlayers, staticEntriesForCall, state.staticEntityMap, state.staticEntityIds, clientSeq, viewerPos, scratch, state.tombstoneLog, clientLastTick, snapshotHz)
