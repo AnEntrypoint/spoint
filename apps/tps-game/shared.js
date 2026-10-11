@@ -60,7 +60,7 @@ export function predictHit(origin, dir, players, selfId, headshotZone) {
   const direction = normalizeShotDirection(dir)
   if (!isFiniteVec3(origin) || !direction || !Array.isArray(players)) return null
   for (const p of players) {
-    if (!p || p.id === selfId || !isFiniteVec3(p.position)) continue
+    if (!p || String(p.id) === String(selfId) || !isFiniteVec3(p.position)) continue
     if ((p.health ?? 100) <= 0) continue
     const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
     if (!hit) continue
