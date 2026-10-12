@@ -58,6 +58,20 @@ const MIN_REAL_PIXELS = Number(flag('min-real-pixels', '400'))
 const DIFF_THRESHOLD = Number(flag('threshold', '8'))
 const NOISE_MARGIN = Number(flag('noise-margin', '3'))
 const QS = String(flag('qs', 'veg=none&nograss&norocks'))
+const RADIUS_LADDER = String(flag('radius-ladder', '12,6,3,1')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0)
+// Half-extents (metres) cascade 0's shadow camera is shrunk to, one A/B/A each. This is the only
+// instrument that can tell "the avatar is in the shadow map but only ~4 texels wide" from "the avatar
+// never reaches the shadow map": 2*E/mapSize is the metres-per-texel, so E=4 makes the same avatar
+// 0.45/(8/1024) = 58 texels wide instead of 3.8.
+const ZOOM_LADDER = String(flag('zoom', '8,3')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0)
+// renderer.shadowMap.type values to try, one A/B/A each: 0 = BasicShadowMap (a single hardware
+// compare, no PCF at all), 1 = PCFShadowMap (shipped), 2 = PCFSoftShadowMap. Unlike shadow.radius,
+// this swaps the filter function itself, so it cannot be fobbed off by a stale uniform.
+const SUNLIT = String(flag('sunlit', '0')) === '1'
+const STYPE_LADDER = String(flag('stype', '')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0)
+// shadow.bias values to try, one A/B/A each, with normalBias zeroed. bias is subtracted in the shadow
+// map's own [0,1] depth, so bias * (far - near) metres of slack is erased from every comparison.
+const BIAS_LADDER = String(flag('bias', '')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n >= 0)
 const PORT = String(flag('port', String(20000 + Math.floor(Math.random() * 20000))))
 
 const { vendorPinArgs } = await import(pathToFileURL(resolve(HERE, 'lib', 'witness-gpu.mjs')).href)
@@ -106,6 +120,8 @@ const INSTRUMENT = () => {
       frustumCulled: !!o.frustumCulled,
       verts: g && g.attributes && g.attributes.position ? g.attributes.position.count : null,
       mat: o.material ? (Array.isArray(o.material) ? o.material.map((m) => m && m.type).join('+') : (o.material.type || null)) : null,
+      matName: o.material && !Array.isArray(o.material) ? (o.material.name || null) : null,
+      matLights: o.material && !Array.isArray(o.material) ? (o.material.lights === undefined ? null : !!o.material.lights) : null,
       shadowSide: o.material && !Array.isArray(o.material) ? (o.material.shadowSide == null ? null : o.material.shadowSide) : null,
       dyn: !!(o.userData && o.userData.isDynamicShadowCaster),
     }
@@ -206,6 +222,102 @@ const INSTRUMENT = () => {
     }
   } catch (_) {}
 
+  // underPlayer compares ORIGINS, so one map mesh whose geometry spans the player but whose pivot is
+  // 50 m away is invisible to it -- which is how "nothing is under the player" and "what is under the
+  // player does not receive" stayed the same observation. This lifts each drawable's geometry bounding
+  // box into world space and names every surface that actually spans the column the player stands in,
+  // nearest-top first, with its receiveShadow flag.
+  // One mesh's world AABB. Instanced/Batched meshes place their geometry with PER-INSTANCE matrices,
+  // so geometry.boundingBox times matrixWorld is the box of instance 0 alone -- reporting that as the
+  // object's extent is how a map that spans the whole world reads as "not under the player". Union
+  // the first 64 instances.
+  const worldAabbOf = (o) => {
+    const g = o.geometry
+    if (!g) return null
+    if (!g.boundingBox) { try { g.computeBoundingBox() } catch (_) { return null } }
+    const bb = g.boundingBox
+    if (!bb) return null
+    o.updateMatrixWorld(true)
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+    const add = (e) => {
+      for (let c = 0; c < 8; c++) {
+        const bx = (c & 1) ? bb.max.x : bb.min.x
+        const by = (c & 2) ? bb.max.y : bb.min.y
+        const bz = (c & 4) ? bb.max.z : bb.min.z
+        const wx = e[0] * bx + e[4] * by + e[8] * bz + e[12]
+        const wy = e[1] * bx + e[5] * by + e[9] * bz + e[13]
+        const wz = e[2] * bx + e[6] * by + e[10] * bz + e[14]
+        if (wx < minX) minX = wx; if (wx > maxX) maxX = wx
+        if (wy < minY) minY = wy; if (wy > maxY) maxY = wy
+        if (wz < minZ) minZ = wz; if (wz > maxZ) maxZ = wz
+      }
+    }
+    const im = o.instanceMatrix
+    if (im && im.array && o.count) {
+      const mw = o.matrixWorld.elements
+      const a = im.array
+      const n = Math.min(o.count, 64)
+      for (let i = 0; i < n; i++) {
+        const b = i * 16
+        const e = new Array(16)
+        for (let r = 0; r < 4; r++) for (let c2 = 0; c2 < 4; c2++) {
+          e[r * 4 + c2] = mw[r * 4] * a[b + c2] + mw[r * 4 + 1] * a[b + 4 + c2] + mw[r * 4 + 2] * a[b + 8 + c2] + mw[r * 4 + 3] * a[b + 12 + c2]
+        }
+        add(e)
+      }
+    } else add(o.matrixWorld.elements)
+    if (minX === Infinity) return null
+    return [minX, minY, minZ, maxX, maxY, maxZ]
+  }
+  const round6 = (v) => v.map((n) => +n.toFixed(1))
+  const groundUnder = []
+  // Every drawable of any size, biggest first: the map is whatever this world's ground is, and "the
+  // ground under the player does not receive shadows" is only a mechanism once the thing under the
+  // player is named.
+  const sceneInventory = []
+  // The surface the feet actually rest on, topmost first. A receiver list taken at boot misses the
+  // ground when the ground streams in later, and "which object is the ground" is the whole question
+  // once every caster toggle measures zero on it.
+  const feetUnder = []
+  try {
+    const r0 = roots[0]
+    if (r0 && d.scene && d.camera) {
+      r0.updateMatrixWorld(true)
+      const V = Object.getPrototypeOf(d.camera.position).constructor
+      const p = new V().setFromMatrixPosition(r0.matrixWorld)
+      const rows = []
+      const inv = []
+      const under = []
+      d.scene.traverse((o) => {
+        if (!isDrawable(o)) return
+        const box = worldAabbOf(o)
+        if (!box) return
+        const [minX, minY, minZ, maxX, maxY, maxZ] = box
+        const d2 = desc(o)
+        d2.aabb = round6(box)
+        d2.instanced = !!(o.isInstancedMesh || o.isBatchedMesh)
+        if (o.visible === true) inv.push(d2)
+        if (p.x < minX || p.x > maxX || p.z < minZ || p.z > maxZ) return
+        d2.topRelFeetM = +(maxY - p.y).toFixed(2)
+        rows.push(d2)
+        if (o.visible !== true || maxY > p.y + 0.5) return
+        d2.spanXM = +(maxX - minX).toFixed(1)
+        d2.spanZM = +(maxZ - minZ).toFixed(1)
+        under.push(d2)
+      })
+      rows.sort((a, b) => Math.abs(a.topRelFeetM) - Math.abs(b.topRelFeetM))
+      under.sort((a, b) => b.aabb[4] - a.aabb[4])
+      for (const u of under) { if (feetUnder.length >= 8) break; feetUnder.push(u) }
+      for (const r of rows) { if (groundUnder.length >= 12) break; groundUnder.push(r) }
+      inv.sort((a, b) => {
+        const va = (a.aabb[3] - a.aabb[0]) * (a.aabb[4] - a.aabb[1]) * (a.aabb[5] - a.aabb[2])
+        const vb = (b.aabb[3] - b.aabb[0]) * (b.aabb[4] - b.aabb[1]) * (b.aabb[5] - b.aabb[2])
+        return vb - va
+      })
+      for (const r of inv) { if (sceneInventory.length >= 20) break; sceneInventory.push(r) }
+    }
+  } catch (_) {}
+
   return {
     localId: String(localId),
     camMode: (d.cam && typeof d.cam.getMode === 'function') ? d.cam.getMode() : null,
@@ -216,6 +328,9 @@ const INSTRUMENT = () => {
     pipeline: (window.__shadowPipeline && window.__shadowPipeline.debug) ? window.__shadowPipeline.debug() : null,
     shadowCameras: casters,
     underPlayer,
+    groundUnder,
+    feetUnder,
+    sceneInventory,
     players,
     receiveShadowCount: receivers.length,
     receiveShadowSample: receivers.slice(0, 4),
@@ -384,9 +499,82 @@ const SHADOW_LIVE = () => {
 const APPLY = (mode) => {
   const d = window.debug || {}
   const out = { mode, touched: 0, receivers: 0, dirty: [] }
+  // Where the player is, per arm. Measured on live24: the local player WALKED 49 m across one run
+  // ([-25,0.08,-45] -> [17.2,0.1,-10.25]) and the same-state control read 392296 px, i.e. that run
+  // was not a measurement of anything. Recording the position and the projected pixel per arm makes
+  // the drift visible and lets a rect be anchored on where the player actually was in that arm.
+  try {
+    if (d.playerMeshes && d.playerMeshes.size && d.camera) {
+      let root = null
+      d.playerMeshes.forEach((r) => { if (!root) root = r })
+      if (root) {
+        root.updateMatrixWorld(true)
+        const e = root.matrixWorld.elements
+        out.pos = [+e[12].toFixed(2), +e[13].toFixed(2), +e[14].toFixed(2)]
+        const V = Object.getPrototypeOf(d.camera.position).constructor
+        const v = new V(e[12], e[13], e[14]).project(d.camera)
+        out.scr = [Math.round((v.x * 0.5 + 0.5) * window.innerWidth), Math.round((-v.y * 0.5 + 0.5) * window.innerHeight)]
+      }
+    }
+  } catch (_) {}
   const drawables = (root, fn) => {
     try { root.traverse((o) => { if (o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.isBatchedMesh) fn(o) }) } catch (_) {}
   }
+  // A 19 m slab with receiveShadow at the avatar's feet, and a 1.2 m box at the same place. The slab
+  // takes "is there a receiver where the shadow lands, and is it on screen" out of the experiment;
+  // the box is the population control on that slab -- a plain Mesh at the same spot either throws a
+  // shadow onto it or the slab arm's null result says nothing about the avatar. Both are built from
+  // constructors the live scene already carries, so the witness imports nothing of its own.
+  const ensureProbe2 = (tag, opts) => {
+    const w = window
+    const key = '__ps' + tag
+    if (w[key]) return w[key]
+    let Geo = null, Mat = null, Mes = null, Attr = null
+    try {
+      d.scene.traverse((it) => {
+        if (!it.isMesh || !it.geometry || !it.material) return
+        if (!Geo) Geo = Object.getPrototypeOf(it.geometry).constructor
+        if (!Attr && it.geometry.attributes && it.geometry.attributes.position) Attr = Object.getPrototypeOf(it.geometry.attributes.position).constructor
+        if (!Mat) Mat = Object.getPrototypeOf(it.material).constructor
+        if (!Mes && !it.isSkinnedMesh && !it.isInstancedMesh && !it.isBatchedMesh) Mes = Object.getPrototypeOf(it).constructor
+      })
+    } catch (_) {}
+    if (!Geo || !Mat || !Mes || !Attr || !d.playerMeshes || !d.playerMeshes.size) return null
+    let p = null
+    for (const root of d.playerMeshes.values()) {
+      root.updateMatrixWorld(true)
+      p = new (Object.getPrototypeOf(root.position).constructor)().setFromMatrixPosition(root.matrixWorld)
+      break
+    }
+    if (!p) return null
+    const g = new Geo()
+    g.setAttribute('position', new Attr(new Float32Array([
+      -0.6, -0.6, -0.6, 0.6, -0.6, -0.6, 0.6, 0.6, -0.6, -0.6, 0.6, -0.6,
+      -0.6, -0.6, 0.6, 0.6, -0.6, 0.6, 0.6, 0.6, 0.6, -0.6, 0.6, 0.6,
+    ]), 3))
+    g.setIndex([0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0])
+    g.computeVertexNormals()
+    g.computeBoundingSphere()
+    const m = new Mes(g, new Mat({ color: opts.color, roughness: 1, metalness: 0 }))
+    m.name = 'ps-' + tag
+    m.castShadow = !!opts.cast
+    m.receiveShadow = !!opts.receive
+    if (opts.scale) m.scale.set(opts.scale[0], opts.scale[1], opts.scale[2])
+    m.position.set(p.x + (opts.dx || 0), p.y + (opts.dy || 0), p.z + (opts.dz || 0))
+    m.updateMatrixWorld(true)
+    d.scene.add(m)
+    m.updateMatrixWorld(true)
+    if (!w.__psDraws) w.__psDraws = {}
+    w.__psDraws[tag] = 0
+    m.onBeforeShadow = function () { const dd = w.__psDraws || (w.__psDraws = {}); dd[tag] = (dd[tag] || 0) + 1 }
+    w[key] = m
+    return m
+  }
+  const probeState = (o, tag) => o ? {
+    visible: o.visible, castShadow: o.castShadow, receiveShadow: o.receiveShadow,
+    parent: o.parent ? o.parent.type : null, layers: o.layers.mask,
+    scale: [o.scale.x, o.scale.y, o.scale.z], draws: (window.__psDraws || {})[tag],
+  } : null
   // The cube and the probe are shadow-only (layer 30), so the player standing at that spot is the
   // only thing that can still occlude the ground their shadow lands on. Hide it for those arms.
   const _hidePlayer = mode === 'hide-player' || mode === 'cube-on' || mode === 'cube-off' || mode === 'probe-on' || mode === 'probe-off'
@@ -523,6 +711,179 @@ const APPLY = (mode) => {
     const idx = Number(String(mode).split(':')[1] || 0)
     const o = (window.__psControls || [])[idx]
     if (o) { o.castShadow = mode.startsWith('ctl-on'); out.touched++; out.ctl = { idx, name: o.name || o.type, castShadow: o.castShadow } }
+  } else if (mode.startsWith('airbox:')) {
+    // AIRBOX: a PLAIN Mesh caster (not a SkinnedMesh) hanging 2.2 m above the avatar's feet, in the
+    // same column of air the avatar occupies, toggled while the avatar stays cast-on. It is the one
+    // instrument that splits the two things a null avatar result can mean: if the box's shadow lands
+    // on this ground and the avatar's does not, the loss is in the avatar's own caster (a skinned
+    // shadow render object); if the box throws nothing either, then no caster reaches this ground and
+    // "the player has no shadow" was never about the player. It hangs in the air on purpose -- the
+    // earlier slab receiver was invisible because it z-fought the map floor 0.03 m under it.
+    const on = mode.split(':')[1] !== 'off'
+    const air = ensureProbe2('air', { color: 0x2266cc, cast: true, dy: 2.2, scale: [0.45, 0.45, 0.45] })
+    if (air) { air.visible = true; air.castShadow = on; out.touched++ }
+    out.airbox = { on, air: probeState(air, 'air') }
+  } else if (mode.startsWith('umb:')) {
+    // UMBRELLA: a 4 m caster hung UP-SUN of the player at a height that puts its own shadow on his
+    // feet. The sun's unit vector from the player here is (+0.625, +0.635, -0.454), so a caster h
+    // metres up has to sit h*(0.985, -0.716) away in (x, z) for its shadow to land on him: 6 m up is
+    // (+5.91, -4.29). AIRBOX asks whether ANY caster reaches this ground; this asks whether a caster
+    // whose shadow provably covers the feet darkens the feet. A live AIRBOX with a null umbrella is
+    // the ground sampling the shadow map somewhere other than where the ground is.
+    const on = mode.split(':')[1] !== 'off'
+    if (mode.split(':')[1] === 'hide') { const h = ensureProbe2('umb', null); if (h) { h.visible = false; h.castShadow = false; out.touched++ } out.umb = { hidden: true, umb: probeState(h, 'umb') }; return out }
+    const H = 6
+    const umb = ensureProbe2('umb', { color: 0x1144aa, cast: true, dx: +(H * 0.985).toFixed(2), dy: H, dz: +(H * -0.7155).toFixed(2), scale: [3.33, 3.33, 3.33] })
+    if (umb) { umb.visible = true; umb.castShadow = on; out.touched++ }
+    out.umb = { on, h: H, umb: probeState(umb, 'umb') }
+  } else if (mode === 'force-on' || mode === 'force-off') {
+    // FORCE: identical to cast-on/cast-off, plus light.shadow.needsUpdate = true on EVERY light found
+    // by traversing the scene (APPLY's tail already forces it on window.__shadowPipeline.lights, so
+    // this arm is a CONTROL on that: it proves the update gate is out of the experiment and that a
+    // null A/B is not "the map was never re-rendered after the toggle"). ShadowNode.updateBefore
+    // renders the shadow map only when `shadow.needsUpdate || shadow.autoUpdate`, and both read false
+    // here, so without the flag the map would only redraw when createShadowCasterTracker dirties a
+    // cascade -- and that tracker re-evaluates castsShadow() only inside its `poseChanged` branch.
+    const on = mode === 'force-on'
+    if (d.playerMeshes && d.playerMeshes.forEach) d.playerMeshes.forEach((root) => { drawables(root, (o) => { o.castShadow = on; out.touched++ }) })
+    const forced = []
+    try {
+      d.scene.traverse((o) => {
+        if (!o.isLight || !o.castShadow || !o.shadow) return
+        o.shadow.needsUpdate = true
+        forced.push({ n: o.name || o.type, needsUpdate: o.shadow.needsUpdate, autoUpdate: o.shadow.autoUpdate })
+      })
+    } catch (_) {}
+    out.force = { on, forced }
+  } else if (mode.startsWith('ovr-')) {
+    // OVR: three swaps in ONE shadow-override NodeMaterial for every caster (ShadowFilterNode's
+    // shadowMaterialLib, keyed by light). `material.allowOverride = false` is the documented handle
+    // that makes this object keep its OWN material in the shadow pass, so if the loss lives in the
+    // override-material pipeline built for the skinned avatar -- and not in the caster, the light or
+    // the ground -- this is the arm that shows it: same avatar, same light, same ground, own material.
+    const on = mode === 'ovr-on'
+    if (d.playerMeshes && d.playerMeshes.forEach) {
+      d.playerMeshes.forEach((root) => {
+        drawables(root, (o) => {
+          if (o.material && o.material.allowOverride !== false) { o.material.allowOverride = false; o.material.needsUpdate = true }
+          o.castShadow = on
+          out.touched++
+        })
+      })
+    }
+    out.ovr = { on, allowOverride: false }
+  } else if (mode.startsWith('skinproxy:')) {
+    // SKINPROXY: the avatar's OWN geometry, OWN material and OWN world transform hung on a plain
+    // Mesh. Every input to the draw is bit-identical except isSkinnedMesh, so if this throws a
+    // shadow where the avatar throws none, the loss is in the skinned path and nothing else about
+    // this caster, this light or this ground can explain it. AIRBOX controls the place; this
+    // controls the object.
+    const on = mode.split(':')[1] !== 'off'
+    const w = window
+    if (!w.__psSkin && d.playerMeshes && d.playerMeshes.size) {
+      for (const root of d.playerMeshes.values()) {
+        let src = null
+        try { root.traverse((o) => { if (!src && (o.isSkinnedMesh || o.isMesh) && o.geometry) src = o }) } catch (_) {}
+        if (!src) continue
+        let Mes = null
+        try {
+          d.scene.traverse((it) => {
+            if (Mes) return
+            if (it.isMesh && !it.isSkinnedMesh && !it.isInstancedMesh && !it.isBatchedMesh) Mes = Object.getPrototypeOf(it).constructor
+          })
+        } catch (_) {}
+        if (!Mes) continue
+        root.updateMatrixWorld(true)
+        src.updateMatrixWorld(true)
+        const proxy = new Mes(src.geometry, src.material)
+        proxy.name = 'ps-skinproxy'
+        proxy.matrixAutoUpdate = false
+        proxy.matrix.copy(src.matrixWorld)
+        proxy.matrixWorld.copy(src.matrixWorld)
+        proxy.castShadow = false
+        proxy.receiveShadow = false
+        d.scene.add(proxy)
+        proxy.updateMatrixWorld(true)
+        w.__psSkin = proxy
+        break
+      }
+    }
+    if (w.__psSkin) {
+      w.__psSkin.visible = true
+      w.__psSkin.castShadow = on
+      out.touched++
+      out.skinproxy = { on, verts: w.__psSkin.geometry ? w.__psSkin.geometry.attributes.position.count : 0 }
+    } else {
+      out.skinproxy = { on, built: false }
+    }
+  } else if (mode.startsWith('slabcube:')) {
+    // SLAB + BOX CONTROL: the box's castShadow A/B/A on a receiver that is certainly under it and
+    // certainly on screen, with the avatar hidden so nothing standing at that spot can occlude the
+    // box's own shadow. If the box throws a shadow here and the avatar does not, the loss is in the
+    // avatar's own caster; if the box throws nothing either, no caster reaches this ground at all.
+    const on = mode.split(':')[1] !== 'off'
+    const slab = ensureProbe2('slab', { color: 0xdddddd, receive: true, scale: [16, 0.05, 16], dy: -0.05 })
+    const box = ensureProbe2('box', { color: 0x884422, cast: true, dy: 0.6 })
+    if (slab) { slab.visible = true; slab.receiveShadow = true; out.touched++ }
+    if (box) { box.visible = true; box.castShadow = on; out.touched++ }
+    if (d.playerMeshes && d.playerMeshes.forEach) d.playerMeshes.forEach((root) => { root.visible = false })
+    out.slabcube = { on, slab: probeState(slab, 'slab'), box: probeState(box, 'box') }
+  } else if (mode.startsWith('slab:')) {
+    // SLAB + AVATAR: the avatar's own castShadow A/B/A on that same slab. Same place, same frustum,
+    // same light -- the only thing this removes is the possibility that nothing in the shipped scene
+    // receives where the avatar's shadow actually lands.
+    const on = mode.split(':')[1] !== 'off'
+    const slab = ensureProbe2('slab', { color: 0xdddddd, receive: true, scale: [16, 0.05, 16], dy: -0.05 })
+    if (slab) { slab.visible = true; slab.receiveShadow = true; out.touched++ }
+    // The box is the OTHER arm's caster: leaving it visible here would put a second shadow on the
+    // slab and a 1.2 m body in front of the avatar's own shadow.
+    if (window.__psbox) window.__psbox.visible = false
+    if (d.playerMeshes && d.playerMeshes.forEach) {
+      d.playerMeshes.forEach((root) => { root.visible = true; drawables(root, (o) => { o.castShadow = on; out.touched++ }) })
+    }
+    out.slab = { on, slab: probeState(slab, 'slab'), box: probeState(window.__psbox || null, 'box') }
+  } else if (mode.startsWith('zoom:')) {
+    // Shrink cascade 0's orthographic shadow camera to +-E metres around the same centre. The avatar
+    // is at NDC (0, 0.001) in it, so it stays dead centre; what changes is metres-per-texel, which is
+    // the only thing that decides how many texels of shadow map the avatar's 0.45 m silhouette is.
+    const E = Number(mode.split(':')[1])
+    const lights = (window.__shadowPipeline && window.__shadowPipeline.lights) || []
+    const l = lights[0]
+    if (l && l.shadow && l.shadow.camera && Number.isFinite(E) && E > 0) {
+      const sc = l.shadow.camera
+      sc.left = -E; sc.right = E; sc.top = E; sc.bottom = -E
+      sc.updateProjectionMatrix()
+      l.shadow.needsUpdate = true
+      out.zoom = { extent: E, texelWorld: (2 * E) / ((l.shadow.mapSize && l.shadow.mapSize.x) || 1024) }
+    }
+  } else if (mode.startsWith('stype:')) {
+    // Swap the PCF filter FUNCTION rather than its radius. ShadowNode.js:535 picks the filter from
+    // renderer.shadowMap.type at shader-build time, so this is the one arm that can tell "the blur
+    // erases the avatar" from "the avatar's depth never reaches the map" without trusting a uniform.
+    const n = Number(mode.split(':')[1])
+    if (d.renderer && d.renderer.shadowMap) { d.renderer.shadowMap.type = n; out.touched++ }
+    out.stype = { type: n, read: d.renderer && d.renderer.shadowMap ? d.renderer.shadowMap.type : null }
+  } else if (mode.startsWith('bias:')) {
+    const b = Number(mode.split(':')[1])
+    const lights = (window.__shadowPipeline && window.__shadowPipeline.lights) || []
+    for (const l of lights) { if (l && l.shadow) { l.shadow.bias = b; l.shadow.normalBias = 0; out.touched++ } }
+    out.bias = { bias: b, normalBias: 0, farNear: (lights[0] && lights[0].shadow && lights[0].shadow.camera) ? lights[0].shadow.camera.far - lights[0].shadow.camera.near : null }
+  } else if (mode.startsWith('radius:')) {
+    // PCF RADIUS LADDER. three's PCFShadowFilter -- the filter PCFShadowMap selects -- takes five
+    // Vogel-disk taps and NO centre tap: every tap sits at least 0.316*radius TEXELS away from the
+    // fragment's own texel, so a shadow narrower than ~0.63*radius texels is never sampled at its
+    // own centre and disappears. `shadow.radius` is a texel count, so it says nothing until it is
+    // read against that cascade's metres-per-texel (2*extent/mapSize): at cascade 0 here that is
+    // 0.117 m, so radius 12 is a 1.4 m disk -- wider than a character.
+    const parts = String(mode).split(':')
+    const r = Number(parts[1])
+    const on = parts[2] !== 'off'
+    const lights = (window.__shadowPipeline && window.__shadowPipeline.lights) || []
+    for (const l of lights) { if (l && l.shadow) { l.shadow.radius = r; out.touched++ } }
+    if (d.playerMeshes && d.playerMeshes.forEach) {
+      d.playerMeshes.forEach((root) => { root.visible = true; drawables(root, (o) => { o.castShadow = on; out.touched++ }) })
+    }
+    out.radius = { set: r, castShadow: on }
   } else if (mode === 'bias-zero') {
     // bias is applied in the shadow map's own [0,1] depth, so bias * (far - near) metres of depth
     // slack is subtracted from every comparison: a caster whose shadow is shallower than that
@@ -830,16 +1191,21 @@ try {
 
   const t0 = Date.now()
   let ready = false
+  let lastR = null
   while (Date.now() - t0 < 180000) {
     const r = await page.evaluate(() => ({
       revealedAt: (window.__app && window.__app.revealedAt) || 0,
       players: window.debug && window.debug.playerMeshes ? window.debug.playerMeshes.size : 0,
       hasVrm: !!(window.debug && window.debug.playerMeshes && [...window.debug.playerMeshes.values()].some((m) => m && m.children && m.children.length > 0)),
     })).catch(() => null)
+    lastR = r
     if (r && r.revealedAt && r.players > 0 && r.hasVrm) { ready = true; break }
     await wait(500)
   }
-  if (!ready) throw new Error('page never reached revealedAt with a populated player mesh')
+  // A boot failure has to say WHICH predicate never held: "never reached revealedAt" is three
+  // different faults (the app never revealed, no player mesh, or a player mesh with no avatar in it)
+  // and each one has a different fix.
+  if (!ready) throw new Error('page never reached revealedAt with a populated player mesh: last=' + JSON.stringify(lastR) + ' after ' + (Date.now() - t0) + 'ms')
   console.log('[player-shadow] ready in ' + (Date.now() - t0) + 'ms')
   await wait(SETTLE_MS)
 
@@ -888,6 +1254,8 @@ try {
     playerLod: snap.playerLod,
     shadowCameras: snap.shadowCameras,
     underPlayer: snap.underPlayer,
+    groundUnder: snap.groundUnder,
+    sceneInventory: snap.sceneInventory,
   }, null, 2))
 
   const hooked = await page.evaluate(HOOK_SHADOW)
@@ -897,6 +1265,11 @@ try {
   // register as within-arm instability and be thrown away by the spread gate.
   await page.evaluate(APPLY, 'cube-off')
   await page.evaluate(APPLY, 'probe-off')
+  // Build the slab and the box NOW, hidden, for the same reason: a mesh that first appears mid-arm
+  // shows up one frame late, and a receiver that arrives between two arms is measured as drift.
+  await page.evaluate(APPLY, 'slab:on')
+  await page.evaluate(APPLY, 'slabcube:off')
+  await page.evaluate(APPLY, 'slab:on')
   await wait(FRAME_MS * 2)
   await wait(FRAME_MS)
   const live0 = await page.evaluate(SHADOW_LIVE)
@@ -909,9 +1282,60 @@ try {
   // them a null result on A vs B would be indistinguishable from a broken measurement.
   const shots = {}
   const seq = []
-  for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`A${k}`, 'cast-on'])
-  for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`B${k}`, 'cast-off'])
-  for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`C${k}`, 'cast-on'])
+  // UMBRELLA FIRST, before the avatar arms: measured on live25, the frame is only stable for ~9 s
+  // after the first capture (at t~9.5 s the whole lower half of the frame flips brightness and stays
+  // flipped), so the one arm that can say whether ANY caster darkens this ground has to run before
+  // that window closes. A 4 m caster hung UP-SUN of the player at a height that puts its own shadow
+  // on his feet: AIRBOX asks whether any caster reaches this ground; this asks whether a caster whose
+  // shadow provably covers the feet darkens the feet. A null here with a live AIRBOX is the ground
+  // sampling the shadow map somewhere other than where the ground is.
+  for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`UA${k}`, 'umb:on']); seq.push([`UB${k}`, 'umb:off']); seq.push([`UC${k}`, 'umb:on']) }
+  seq.push(['UZ', 'umb:hide'])
+  // INTERLEAVED, not blocked (A,A,A,B,B,B,C,C,C): measured on live24, the local player walks ~0.5 m/s
+  // in this world, so a blocked arm's three frames span ~3 s of walking and the same-state control
+  // came back at 392296 px. on/off/on keeps each triple inside ~1 s.
+  for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`A${k}`, 'cast-on']); seq.push([`B${k}`, 'cast-off']); seq.push([`C${k}`, 'cast-on']) }
+  // SUNLIT: MEASURED on live14 -- the ground the avatar stands on is ALREADY inside the map's own
+  // shadow (wide 100k px rect round the avatar: world casters off 47.4 -> on 34.8 mean luminance,
+  // and no-receive reads 47.3, i.e. every lumen of that darkening is a world caster's shadow). A
+  // fragment whose sun is already fully shadowed cannot show a second caster's shadow, so every
+  // A/B/A run against the shipped scene is blind by construction and its null result proves
+  // nothing. Turning every OTHER caster off puts the same ground in sunlight, and only then does
+  // the avatar's castShadow toggle have something it could change.
+  if (SUNLIT) {
+    seq.push(['L0', 'world-off'])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`NA${k}`, 'cast-on']); seq.push([`NB${k}`, 'cast-off']); seq.push([`NC${k}`, 'cast-on']) }
+    // AIRBOX, inside SUNLIT for the same reason: a shadow on ground that is already in shade moves no
+    // pixel, so the plain-mesh control has to run with the other casters off too, or it is blind in
+    // exactly the way the avatar arms were.
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`QA${k}`, 'airbox:on']); seq.push([`QB${k}`, 'airbox:off']); seq.push([`QC${k}`, 'airbox:on']) }
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`RA${k}`, 'skinproxy:on']); seq.push([`RB${k}`, 'skinproxy:off']); seq.push([`RC${k}`, 'skinproxy:on']) }
+    // OVR last inside SUNLIT: it permanently changes the avatar's materials, so nothing before it
+    // may be affected by it.
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`OA${k}`, 'ovr-on']); seq.push([`OB${k}`, 'ovr-off']); seq.push([`OC${k}`, 'ovr-on']) }
+  }
+  // SLAB, then SLAB+BOX, FIRST: measured over ~170 s the frame itself drifts (the TPS camera pulls
+  // back -- the avatar's screen height went 67 px to 37 px inside one run), so an arm at the end of
+  // the sequence is read against a different view than its control. The slab is a 19 m receiver at
+  // the avatar's feet: it takes "nothing receives where the shadow lands" out of the experiment. The
+  // box is the population control on that same slab with the avatar hidden.
+  // INTERLEAVED, not blocked: this project's dev server hot-reloads while other lanes commit, and one
+  // rebuild inside a blocked arm (on,on,on,off,off,off) moves the whole frame and the diff measures
+  // the rebuild instead of the shadow. on/off/on interleaved keeps any drift symmetric across the
+  // pair, and the third arm still gives the same-state control.
+  for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`SA${k}`, 'slab:on']); seq.push([`SB${k}`, 'slab:off']); seq.push([`SC${k}`, 'slab:on']) }
+  for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`TA${k}`, 'slabcube:on']); seq.push([`TB${k}`, 'slabcube:off']); seq.push([`TC${k}`, 'slabcube:on']) }
+  // ZOOM, next and early for the same reason: it permanently shrinks cascade 0's shadow camera, so
+  // every arm after it measures a different frustum than the shipped one.
+  // Half-extents (metres) cascade 0's shadow camera is shrunk to, one A/B/A each. This is the only
+  // instrument that can tell "the avatar is in the shadow map but only ~4 texels wide" from "the
+  // avatar never reaches the shadow map": 2*E/mapSize is the metres-per-texel, so E=8 makes the same
+  // 0.45 m avatar 0.45/(16/1024) = 29 texels wide instead of 3.8.
+  for (let i = 0; i < ZOOM_LADDER.length; i++) {
+    const e = ZOOM_LADDER[i]
+    seq.push([`ZS${i}`, `zoom:${e}`])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`ZA${i}${k}`, 'cast-on']); seq.push([`ZB${i}${k}`, 'cast-off']); seq.push([`ZC${i}${k}`, 'cast-on']) }
+  }
   seq.push(['D1', 'hide-player'])
   // CUBE: a 1.2 m box at the player's own feet, castShadow on, added to the live scene. It is the
   // pipeline's own proof that a caster in exactly this place can throw a shadow onto exactly this
@@ -932,6 +1356,35 @@ try {
   for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`WX${k}`, 'world-off'])
   for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`WY${k}`, 'world-on'])
   for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`WZ${k}`, 'world-off'])
+  // SLAB, then SLAB+BOX: see the block above -- these ran here first, the drift is why.
+  // Back to the shipped caster population before the slab arms, so they are read against the same
+  // world the A/B/C baseline was.
+  seq.push(['WR1', 'world-on'])
+  // RADIUS LADDER: it rewrites every cascade's shadow.radius, so no arm after it measures the
+  // shipped state. Each step is a full A/B/A (on, off, on), so every step carries its own control.
+  for (let i = 0; i < RADIUS_LADDER.length; i++) {
+    const r = RADIUS_LADDER[i]
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`G${i}${k}`, `radius:${r}:on`])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`H${i}${k}`, `radius:${r}:off`])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`I${i}${k}`, `radius:${r}:on`])
+  }
+  // No second ZOOM block here: it used to repeat later in the sequence and its shots overwrote the
+  // early block's, so the ladder that ran while the frame was still quiet was thrown away and the
+  // reported rows came from the drifted tail. One block, early, is the whole instrument.
+  for (let i = 0; i < STYPE_LADDER.length; i++) {
+    const t = STYPE_LADDER[i]
+    seq.push([`YS${i}`, `stype:${t}`])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`YA${i}${k}`, 'cast-on'])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`YB${i}${k}`, 'cast-off'])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`YC${i}${k}`, 'cast-on'])
+  }
+  for (let i = 0; i < BIAS_LADDER.length; i++) {
+    const b = BIAS_LADDER[i]
+    seq.push([`BS${i}`, `bias:${b}`])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`BA${i}${k}`, 'cast-on'])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`BB${i}${k}`, 'cast-off'])
+    for (let k = 1; k <= FRAMES_PER_ARM; k++) seq.push([`BC${i}${k}`, 'cast-on'])
+  }
   const tSeq = Date.now()
   for (const [name, mode] of seq) {
     const applied = await page.evaluate(APPLY, mode)
@@ -940,7 +1393,7 @@ try {
     const state = await page.evaluate(FRAME_STATE)
     const live = await page.evaluate(SHADOW_LIVE)
     shots[name] = { mode, ...applied, bytes: buf.length, atMs: Date.now() - tSeq, ...state, live }
-    console.log(`[player-shadow] ${name}: ${mode} t=${Date.now() - tSeq}ms bytes=${buf.length} touched=${applied.touched} receivers=${applied.receivers}`)
+    console.log(`[player-shadow] ${name}: ${mode} t=${Date.now() - tSeq}ms bytes=${buf.length} touched=${applied.touched} receivers=${applied.receivers} pos=${JSON.stringify(applied.pos || null)} scr=${JSON.stringify(applied.scr || null)} tod=${state.tod} cam=${JSON.stringify(state.camPos)} sun=${JSON.stringify(state.sunOffset)}`)
   }
   await page.evaluate(APPLY, 'cast-on')
 
@@ -965,6 +1418,42 @@ try {
   const probeSignal = stableDiff(PR, PS, DIFF_THRESHOLD, SPREAD_TOL)
   const worldOff = stableDiff(WX, WY, DIFF_THRESHOLD, SPREAD_TOL)
   const worldOffAgain = stableDiff(WZ, WY, DIFF_THRESHOLD, SPREAD_TOL)
+  const radiusLadder = RADIUS_LADDER.map((r, i) => {
+    const G = arm(`G${i}`), H = arm(`H${i}`), I = arm(`I${i}`)
+    const applied = ((shots[`G${i}1`] || {}).live || {}).lights || []
+    return {
+      radius: r,
+      texelWorld: (snap.pipeline && snap.pipeline.cascades || []).map((c) => c.texelWorld),
+      appliedRadius: applied.map((l) => l.radius),
+      signal_castOn_vs_castOff: stableDiff(G, H, DIFF_THRESHOLD, SPREAD_TOL),
+      control_castOn_vs_castOn: stableDiff(G, I, DIFF_THRESHOLD, SPREAD_TOL),
+    }
+  })
+  const stypeLadder = STYPE_LADDER.map((t, i) => ({
+    shadowMapType: t,
+    applied: (shots[`YS${i}`] || {}).stype || null,
+    signal_castOn_vs_castOff: stableDiff(arm(`YA${i}`), arm(`YB${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+    control_castOn_vs_castOn: stableDiff(arm(`YA${i}`), arm(`YC${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+  }))
+  const biasLadder = BIAS_LADDER.map((b, i) => ({
+    bias: b,
+    applied: (shots[`BS${i}`] || {}).bias || null,
+    signal_castOn_vs_castOff: stableDiff(arm(`BA${i}`), arm(`BB${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+    control_castOn_vs_castOn: stableDiff(arm(`BA${i}`), arm(`BC${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+  }))
+  const sunlitArm = SUNLIT ? { signal: stableDiff(arm('NA'), arm('NB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('NA'), arm('NC'), DIFF_THRESHOLD, SPREAD_TOL), worldOff: (shots.L0 || {}).touched || 0 } : null
+  const airArm = SUNLIT ? { signal: stableDiff(arm('QA'), arm('QB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('QA'), arm('QC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.QA1 || {}).airbox || null } : null
+  const umbArm = SUNLIT ? { signal: stableDiff(arm('UA'), arm('UB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('UA'), arm('UC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.UA1 || {}).umb || null } : null
+  const skinArm = SUNLIT ? { signal: stableDiff(arm('RA'), arm('RB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('RA'), arm('RC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.RA1 || {}).skinproxy || null } : null
+  const ovrArm = SUNLIT ? { signal: stableDiff(arm('OA'), arm('OB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('OA'), arm('OC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.OA1 || {}).ovr || null } : null
+  const slabArm = { signal: stableDiff(arm('SA'), arm('SB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('SA'), arm('SC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.SA1 || {}).slab || null }
+  const boxArm = { signal: stableDiff(arm('TA'), arm('TB'), DIFF_THRESHOLD, SPREAD_TOL), control: stableDiff(arm('TA'), arm('TC'), DIFF_THRESHOLD, SPREAD_TOL), state: (shots.TA1 || {}).slabcube || null }
+  const zoomLadder = ZOOM_LADDER.map((e, i) => ({
+    extentM: e,
+    applied: (shots[`ZS${i}`] || {}).zoom || null,
+    signal_castOn_vs_castOff: stableDiff(arm(`ZA${i}`), arm(`ZB${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+    control_castOn_vs_castOn: stableDiff(arm(`ZA${i}`), arm(`ZC${i}`), DIFF_THRESHOLD, SPREAD_TOL),
+  }))
   // Per-pixel median across each arm's frames: the estimator that survives one drifting frame.
   const medSignal = medianDiff(A, B, DIFF_THRESHOLD)
   const medControl = medianDiff(A, C, DIFF_THRESHOLD)
@@ -1009,7 +1498,18 @@ try {
     shadowTuning: (shots.A1.live.lights || []).map((l) => ({ name: l.name, bias: l.bias, normalBias: l.normalBias, radius: l.radius, intensity: l.intensity, near: l.near, far: l.far, camWorld: l.camWorld, lightWorld: l.lightWorld, players: l.players })),
     raw_A_last_vs_B_last: rawSignal,
     raw_noise_within_A: rawNoiseA,
-        shots,
+    radiusLadder,
+    sunlitArm,
+    airArm,
+    umbArm,
+    skinArm,
+    ovrArm,
+    slabArm,
+    boxArm,
+    zoomLadder,
+    stypeLadder,
+    biasLadder,
+    shots,
   }
   fs.writeFileSync(resolve(OUT, 'diff-' + LABEL + '.json'), JSON.stringify(report, null, 2))
   console.log('[player-shadow] signal          A(cast)   vs B(no cast) : ' + JSON.stringify(signal))
@@ -1020,6 +1520,33 @@ try {
   console.log('[player-shadow] WORLD      WY(all on) vs WZ(all off): ' + JSON.stringify(worldOffAgain))
   console.log('[player-shadow] CUBE        CU(on)    vs CV(off)     : ' + JSON.stringify(cubeSignal) + ' at=' + JSON.stringify(shots.CU1.cube || null))
   console.log('[player-shadow] unskinned   PR(on)    vs PS(off)     : ' + JSON.stringify(probeSignal) + ' mesh=' + JSON.stringify(shots.PR1.probe || null))
+  if (sunlitArm) console.log('[player-shadow] SUNLIT world casters off, avatar cast on/off: signal=' + JSON.stringify(sunlitArm.signal) + ' control=' + JSON.stringify(sunlitArm.control) + ' worldCastersTurnedOff=' + sunlitArm.worldOff)
+  if (airArm) console.log('[player-shadow] AIRBOX plain Mesh 2.2 m above the feet, world casters off: signal=' + JSON.stringify(airArm.signal) + ' control=' + JSON.stringify(airArm.control))
+  if (airArm) console.log('[player-shadow] AIRBOX state ' + JSON.stringify(airArm.state))
+  if (umbArm) console.log('[player-shadow] UMBRELLA 4 m caster 6 m up-sun, shadow aimed at the feet: signal=' + JSON.stringify(umbArm.signal) + ' control=' + JSON.stringify(umbArm.control))
+  if (umbArm) console.log('[player-shadow] UMBRELLA state ' + JSON.stringify(umbArm.state))
+  if (skinArm) console.log('[player-shadow] SKINPROXY avatar geometry/material on a plain Mesh, world casters off: signal=' + JSON.stringify(skinArm.signal) + ' control=' + JSON.stringify(skinArm.control))
+  if (skinArm) console.log('[player-shadow] SKINPROXY state ' + JSON.stringify(skinArm.state))
+  if (ovrArm) console.log('[player-shadow] OVR avatar keeps its own material in the shadow pass: signal=' + JSON.stringify(ovrArm.signal) + ' control=' + JSON.stringify(ovrArm.control) + ' state=' + JSON.stringify(ovrArm.state))
+  console.log('[player-shadow] SLAB  avatar cast on/off on a 19 m receiver at its feet: signal=' + JSON.stringify(slabArm.signal) + ' control=' + JSON.stringify(slabArm.control))
+  console.log('[player-shadow] SLAB  state ' + JSON.stringify(slabArm.state))
+  console.log('[player-shadow] SLAB  1.2 m box cast on/off on the same slab, avatar hidden: signal=' + JSON.stringify(boxArm.signal) + ' control=' + JSON.stringify(boxArm.control))
+  console.log('[player-shadow] SLAB  state ' + JSON.stringify(boxArm.state))
+  for (const row of stypeLadder) {
+    console.log('[player-shadow] STYPE type=' + row.shadowMapType + ' applied=' + JSON.stringify(row.applied)
+      + ' signalPx=' + row.signal_castOn_vs_castOff.realPixels + ' meanDelta=' + row.signal_castOn_vs_castOff.meanDelta
+      + ' controlPx=' + row.control_castOn_vs_castOn.realPixels + ' box=' + JSON.stringify(row.signal_castOn_vs_castOff.box))
+  }
+  for (const row of biasLadder) {
+    console.log('[player-shadow] BIAS bias=' + row.bias + ' applied=' + JSON.stringify(row.applied)
+      + ' signalPx=' + row.signal_castOn_vs_castOff.realPixels + ' meanDelta=' + row.signal_castOn_vs_castOff.meanDelta
+      + ' controlPx=' + row.control_castOn_vs_castOn.realPixels + ' box=' + JSON.stringify(row.signal_castOn_vs_castOff.box))
+  }
+  for (const row of zoomLadder) {
+    console.log('[player-shadow] ZOOM extent=' + row.extentM + 'm applied=' + JSON.stringify(row.applied)
+      + ' signalPx=' + row.signal_castOn_vs_castOff.realPixels + ' meanDelta=' + row.signal_castOn_vs_castOff.meanDelta
+      + ' controlPx=' + row.control_castOn_vs_castOn.realPixels + ' box=' + JSON.stringify(row.signal_castOn_vs_castOff.box))
+  }
   console.log('[player-shadow] MEDIAN signal  A(cast) vs B(no cast) : ' + JSON.stringify(medSignal))
   console.log('[player-shadow] MEDIAN control A(cast) vs C(cast)   : ' + JSON.stringify(medControl))
   console.log('[player-shadow] MEDIAN hide    A vs D(hidden)       : ' + JSON.stringify(medHide))
@@ -1038,6 +1565,12 @@ try {
   console.log('[player-shadow]   probe off ' + JSON.stringify(drawsPS))
   console.log('[player-shadow] shadow map redrew in arm A: ' + JSON.stringify(redrewA))
     console.log('[player-shadow] fresh shadow-camera NDC: ' + JSON.stringify((shots.A1.live.lights || []).map((l) => ({ n: l.name, p: l.players }))))
+  console.log('[player-shadow] PCF radius ladder (signal = cast-on vs cast-off, control = cast-on vs cast-on):')
+  for (const row of radiusLadder) {
+    console.log('[player-shadow]   radius=' + row.radius + ' applied=' + JSON.stringify(row.appliedRadius) + ' texelWorld=' + JSON.stringify(row.texelWorld)
+      + ' signalPx=' + row.signal_castOn_vs_castOff.realPixels + ' meanDelta=' + row.signal_castOn_vs_castOff.meanDelta
+      + ' controlPx=' + row.control_castOn_vs_castOn.realPixels + ' box=' + JSON.stringify(row.signal_castOn_vs_castOff.box))
+  }
   console.log('[player-shadow] raw within-arm noise A: ' + JSON.stringify(rawNoiseA) )
 
   const playersWithNoCaster = snap.players.filter((p) => p.meshes.length > 0 && p.meshes.every((m) => !m.castShadow))
