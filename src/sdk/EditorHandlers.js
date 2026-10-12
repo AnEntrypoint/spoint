@@ -169,6 +169,17 @@ export function createEditorHandlers(ctx) {
       connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `collider build failed for ${entity.model}`, entityId: entity.id, detail: err.message })
       throw err
     }
+    const refuseCollider = (what, reason) => {
+      const message = `[physics] ${what} refused: ${reason}`
+      console.error(`[collider] ${message}`)
+      entity.collider = null
+      entity._failedColliderType = type
+      connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `collider refused for ${entity.model ?? entity.id}`, entityId: entity.id, detail: message, reason })
+    }
+    if (type === 'trimesh' || type === 'convex') {
+      if (!entity.model) return refuseCollider(`${type} collider for entity ${entity.id}`, 'no-model')
+      if (type === 'trimesh' && motion !== 'static') return refuseCollider(`trimesh collider for entity ${entity.id} model ${entity.model}`, 'trimesh-is-static-only')
+    }
     if (type === 'trimesh' && entity.model) {
       entity.collider = { type: 'trimesh', model: entity.model }
       preventUnhandledRejection(
@@ -188,7 +199,7 @@ export function createEditorHandlers(ctx) {
           const raw = mesh.vertices
           const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
           entity.collider = { type: 'convex', points }
-          finish(ctx.physics.addBody('convex', points, entity.position, 'static', { rotation: entity.rotation }))
+          finish(ctx.physics.addBody('convex', points, entity.position, motion, { rotation: entity.rotation }))
         }).catch(e => failColliderBuild(`convex collider for entity ${entity.id} model ${entity.model}`, e))
       )
       return
