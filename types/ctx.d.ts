@@ -338,7 +338,7 @@ export interface LagCompensator {
   resolveViewTick(reportedTick: number, currentTick?: number): number | null;
   /** Per-shooter token bucket (10 rewinds, refilling 20/s); false means resolve the shot against current state. */
   acceptRewind(shooterId: number, nowMs?: number): boolean;
-  /** Player state blended between the two history samples bracketing a fractional tick, clamped to the oldest/newest sample, never extrapolated; pass `out` to reuse a result object. */
+  /** Player state blended between the two history samples bracketing a fractional tick, clamped to the oldest/newest sample, never extrapolated; pass `out` to reuse a result object. Null when the player is untracked or `tick` is not a finite number. */
   rewindAtTick(playerId: number, tick: number, out?: RewoundPlayerState | null): RewoundPlayerState | null;
   /** rewindAtTick at `latestTick - millisAgo` converted to ticks. */
   getPlayerStateAtTime(playerId: number, millisAgo: number): RewoundPlayerState | null;
