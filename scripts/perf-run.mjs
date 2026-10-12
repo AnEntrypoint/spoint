@@ -276,10 +276,29 @@ const GPU_PASS_ARM_SRC = `(() => {
   }
   const abName = (/[?&]gpuab=([^&]*)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1]
   const abPhaseMs = Number((/[?&]gpuabms=(\\d+)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1] || 5000)
+  const abBlocks = Math.max(1, Number((/[?&]gpuabblocks=(\\d+)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1] || 2))
   const AB_SETTLE_MS = 700
   let abOn = false
   let abFlipAt = -Infinity
-  if (abName) { window[abName] = abOn; setInterval(() => { abOn = !abOn; window[abName] = abOn; abFlipAt = Date.now() }, abPhaseMs) }
+  let abFlips = 0
+  let abBlock = 0
+  if (abName) {
+    window[abName] = abOn
+    abFlipAt = Date.now()
+    // Blocked, not alternating: every frame of block N runs at one state and every frame of block
+    // N+1 at the other, so a run pays abBlocks-1 transitions instead of runMs/abPhaseMs of them.
+    // A resolution-class A/B reallocates the drawing buffer and every render target sized from it
+    // on every flip, so per-phase flipping is both the cost and a measurement error the 700 ms
+    // settle cannot absorb. ?gpuabblocks=<n> buys interleaving back where it is actually wanted.
+    const abTimer = setInterval(() => {
+      abBlock++
+      if (abBlock >= abBlocks) { clearInterval(abTimer); return }
+      abOn = !abOn
+      window[abName] = abOn
+      abFlipAt = Date.now()
+      abFlips++
+    }, abPhaseMs)
+  }
   const tally = new Map()
   const perFrameTotals = []
   const abFrameTotals = { on: [], off: [] }
@@ -342,7 +361,7 @@ const GPU_PASS_ARM_SRC = `(() => {
     perFrameTotals.sort((a, c) => a - c)
     const pc = (p) => perFrameTotals.length ? perFrameTotals[Math.min(perFrameTotals.length - 1, Math.floor(p * perFrameTotals.length))] : null
     const abPc = (arr, p) => { if (!arr.length) return null; arr.sort((a, c) => a - c); return arr[Math.min(arr.length - 1, Math.floor(p * arr.length))] }
-    const abOut = abName ? { global: abName, phaseMs: abPhaseMs, on: { n: abFrameTotals.on.length, p50: abPc(abFrameTotals.on, 0.5) }, off: { n: abFrameTotals.off.length, p50: abPc(abFrameTotals.off, 0.5) } } : null
+    const abOut = abName ? { global: abName, phaseMs: abPhaseMs, blocks: abBlocks, flips: abFlips, on: { n: abFrameTotals.on.length, p50: abPc(abFrameTotals.on, 0.5) }, off: { n: abFrameTotals.off.length, p50: abPc(abFrameTotals.off, 0.5) } } : null
     return { hasFeature, hidden, ab: abOut, canvas: r.domElement ? r.domElement.width + 'x' + r.domElement.height : null, frameGpuMs: { n: perFrameTotals.length, p50: pc(0.5), p95: pc(0.95), p99: pc(0.99) }, passes }
   }
   return { ok: true, hasFeature }
