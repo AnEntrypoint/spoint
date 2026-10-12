@@ -3,6 +3,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
+import { argvNumber } from './lib/witness-args.mjs'
 
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const GPU_MODE = gpuModeFlag('gpu', 'accelerated')
@@ -13,10 +14,10 @@ function flagValue(name) {
   return hit ? hit.slice(name.length + 3) : ''
 }
 
-const HOLD_MS = Number(flagValue('hold-ms') || 3000)
-const SETTLE_MS = Number(flagValue('settle-ms') || 5000)
+const HOLD_MS = argvNumber(process.argv.slice(2), 'hold-ms', 3000)
+const SETTLE_MS = argvNumber(process.argv.slice(2), 'settle-ms', 5000)
 const WORLD = flagValue('world') || 'e2e-ci-arena'
-const SERVER_TICK = Number(flagValue('server-tick') || 0)
+const SERVER_TICK = argvNumber(process.argv.slice(2), 'server-tick', 0)
 
 const pageLogs = new Map()
 
@@ -106,7 +107,7 @@ async function main() {
     await waitFor(pageB, (id) => window.__client?.state?.players?.some(p => p.id === id), idA, { label: 'B sees A' })
     await waitFor(pageA, () => { const s = window.__client?.getLocalState?.(); return s?.onGround === true }, undefined, { label: 'A onGround', timeoutMs: 20000 }).catch(() => console.warn('[prediction-drift] A never reported onGround'))
 
-    const WARMUP_FPS = Number(flagValue('warmup-fps') || 30)
+    const WARMUP_FPS = argvNumber(process.argv.slice(2), 'warmup-fps', 30)
     let warmFps = 0
     const warmStart = Date.now()
     while (Date.now() - warmStart < 180000) {
@@ -148,9 +149,9 @@ async function main() {
     const clientTravel = Math.hypot(released.local[0] - start.local[0], released.local[2] - start.local[2])
     const serverTravelAtRelease = Math.hypot(released.server[0] - start.server[0], released.server[2] - start.server[2])
     const frameRate = (released.frames - start.frames) / holdSec
-    const UNACKED_CAP = Number(flagValue('unacked-cap') || 24)
-    const DIVERGENCE_CAP_M = Number(flagValue('divergence-cap') || 3)
-    const SETTLE_TOL_M = Number(flagValue('settle-tol') || 0.5)
+    const UNACKED_CAP = argvNumber(process.argv.slice(2), 'unacked-cap', 24)
+    const DIVERGENCE_CAP_M = argvNumber(process.argv.slice(2), 'divergence-cap', 3)
+    const SETTLE_TOL_M = argvNumber(process.argv.slice(2), 'settle-tol', 0.5)
     console.log(`[prediction-drift] hold=${holdSec.toFixed(2)}s clientTravel=${clientTravel.toFixed(3)}m serverTravel=${serverTravelAtRelease.toFixed(3)}m ratio=${(serverTravelAtRelease / clientTravel).toFixed(3)}`)
     console.log(`[prediction-drift] inputsSent=${released.inputSeq - start.inputSeq} (${((released.inputSeq - start.inputSeq) / holdSec).toFixed(1)}/s) serverTps=${serverTps === null ? 'null' : serverTps.toFixed(1)} unacked=${released.unacked} historyLen=${released.historyLen}`)
 

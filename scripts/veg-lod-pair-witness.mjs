@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as THREE from 'three'
 import { createWebGPULodInstancer } from '../client/core/WebGPULodInstancer.js'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const argv = process.argv.slice(2)
 const ARGS = new Map()
@@ -13,16 +14,16 @@ for (let i = 0; i < argv.length; i++) {
 }
 const flag = (n, d) => (ARGS.has(n) ? String(ARGS.get(n)) : String(d))
 
-const PAIRS = Number(flag('pairs', '4'))
-const TREES = Number(flag('trees', '1500'))
-const FRAMES = Number(flag('frames', '120'))
-const CHURN = Number(flag('churn', '0.1'))
-const HIDDEN = Number(flag('hidden', '0.05'))
-const EXTENT = Number(flag('extent', '900'))
-const SPEED = Number(flag('speed', '45'))
-const MESH_FAR = Number(flag('mesh-far', '90'))
-const CHECK_EVERY = Number(flag('check-every', '8'))
-const SHARE_MAX_FRAC = Number(flag('share-max-frac', '0.52'))
+const PAIRS = flagNumber(flag, 'pairs', 4, argv)
+const TREES = flagNumber(flag, 'trees', 1500, argv)
+const FRAMES = flagNumber(flag, 'frames', 120, argv)
+const CHURN = flagNumber(flag, 'churn', 0.1, argv)
+const HIDDEN = flagNumber(flag, 'hidden', 0.05, argv)
+const EXTENT = flagNumber(flag, 'extent', 900, argv)
+const SPEED = flagNumber(flag, 'speed', 45, argv)
+const MESH_FAR = flagNumber(flag, 'mesh-far', 90, argv)
+const CHECK_EVERY = flagNumber(flag, 'check-every', 8, argv)
+const SHARE_MAX_FRAC = flagNumber(flag, 'share-max-frac', 0.52, argv)
 const DT = 1 / 60
 
 const LOD_DISTANCES = [0, 14, 35]

@@ -10,6 +10,7 @@ import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters, vendorGpuArgs } fr
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { flagListNumber, flagNumber, numericListFlag } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -28,31 +29,31 @@ const flag = (n, d) => (ARGS.has(n) ? ARGS.get(n) : d)
 const has = (n) => ARGS.has(n)
 
 const LABEL = flag('label', String(Date.now()))
-const SECONDS = Number(flag('seconds', '120'))
-const WARMUP_SECONDS = Number(flag('warmup', '3'))
+const SECONDS = flagNumber(flag, 'seconds', 120, argv)
+const WARMUP_SECONDS = flagNumber(flag, 'warmup', 3, argv)
 const BACKEND = flag('backend', 'webgl')
 const GPU = flag('gpu', 'nvidia')
 const WALK = !has('no-walk')
-const LEG_MS = Number(flag('leg', '10000'))
-const INPUT_WAIT_MS = Number(flag('input-wait', '60000'))
+const LEG_MS = flagNumber(flag, 'leg', 10000, argv)
+const INPUT_WAIT_MS = flagNumber(flag, 'input-wait', 60000, argv)
 const EXTRA_QUERY = flag('extra', '')
 const KNOB_SPEC = String(flag('knob', (/[?&]knob=([^&]*)/.exec('&' + EXTRA_QUERY) || [])[1] || ''))
 const KNOB_QUERY = KNOB_SPEC && !/[?&]knob=/.test('&' + EXTRA_QUERY) ? '&knob=' + encodeURIComponent(KNOB_SPEC) : ''
 const WORLD = String(flag('world', 'tps-game'))
 const ROOM_MODE = String(flag('room', 'singleplayer'))
 const ROUTE = flag('walk-route', '')
-const WALK_SPEED = Number(flag('walk-speed', '7'))
+const WALK_SPEED = flagNumber(flag, 'walk-speed', 7, argv)
 const WALKER = ROUTE.length > 0
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', argv)
 const GPU_PASSES = has('gpu-passes')
 const SERVE_ROOT = resolve(String(flag('serve-root', ROOT)))
 const WORKTREE_META = has('worktree-meta') ? JSON.parse(readFileSync(String(flag('worktree-meta', '')), 'utf8')) : null
 const SERVER_ONLY = has('server-only')
 const INPUT_WAIT_EFFECTIVE_MS = WALKER ? 0 : INPUT_WAIT_MS
-const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = p.split(',').map(Number); return { x: n[0], z: n[1] } }) : []
+const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = numericListFlag({ 'walk-route': p }, 'walk-route', null, ',', 2); return { x: n[0], z: n[1] } }) : []
 const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
 const HEIGHT_PROBE = has('probe-heights')
-const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
+const HARD_TIMEOUT_MS = flagNumber(flag, 'hard-timeout', 600000, argv)
 const REQUIRED_MARKS = String(flag('require-mark', 'boot:scenery-built')).split(',').map((s) => s.trim()).filter(Boolean)
 const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames,veg')).split(',').map((s) => s.trim()).filter(Boolean)
 const REQUIRE_ACCELERATED = has('require-accelerated')
@@ -527,7 +528,7 @@ async function main() {
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)))
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })
     if (KNOBS.length) await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
-    const _cdpTimeoutMs = Number(flag('cdp-timeout', '25000'))
+    const _cdpTimeoutMs = flagNumber(flag, 'cdp-timeout', 25000, argv)
     const _rawEval = page.evaluate.bind(page)
     page.evaluate = (...a) => Promise.race([_rawEval(...a), new Promise((_, rej) => setTimeout(() => rej(new Error('cdp evaluate timeout')), _cdpTimeoutMs))])
     const _rawSend = page._send.bind(page)

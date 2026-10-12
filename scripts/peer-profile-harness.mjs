@@ -3,13 +3,14 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mulberry32 } from './lib/net-conditioner.mjs'
 import { summarize } from './lib/netcode-metrics.mjs'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 const WORLD = args.world || 'rollback-duel'
-const DURATION_MS = Number(args.duration || 15000)
-const [LAT, JIT, LOSS] = (args.cond || '25/5/1').split('/').map(Number)
+const DURATION_MS = numericFlag(args, 'duration', 15000)
+const [LAT, JIT, LOSS] = numericListFlag(args, 'cond', [25, 5, 1], '/', 3)
 
 const { createServerDeps, wireServerHandlers } = await import('../src/sdk/server.js')
 const { createPeerSimSession } = await import('../src/netcode/PeerSimSession.js')
@@ -17,10 +18,10 @@ const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const baseWorld = await loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
 const profileName = args.profile || baseWorld.netcode?.profile || 'authoritative'
 const overrides = {}
-for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks', 'stallTicks', 'maxCatchUpTicks']) if (args[k] != null) overrides[k] = Number(args[k])
-const PEER_COUNT = Number(args.peers || baseWorld.netcode?.peers || 2)
-const KILL_PEER = args.killPeer || null, KILL_AT_MS = Number(args.killAtMs || 0)
-const CHEAT_PEER = args.cheatPeer || null, CHEAT_AT_MS = Number(args.cheatAtMs || 0)
+for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks', 'stallTicks', 'maxCatchUpTicks']) if (args[k] != null) overrides[k] = numericFlag(args, k, overrides[k])
+const PEER_COUNT = numericFlag(args, 'peers', baseWorld.netcode?.peers || 2)
+const KILL_PEER = args.killPeer || null, KILL_AT_MS = numericFlag(args, 'killAtMs', 0)
+const CHEAT_PEER = args.cheatPeer || null, CHEAT_AT_MS = numericFlag(args, 'cheatAtMs', 0)
 const DEAD_LANES = new Set(String(args.deadLink || '').split(',').map(s => s.trim()).filter(Boolean))
 const worldDef = { ...baseWorld, netcode: { ...baseWorld.netcode, [profileName]: { ...(baseWorld.netcode?.[profileName] || {}), ...overrides } } }
 
@@ -99,7 +100,7 @@ async function main() {
     const ctx = peers.get(pk)
     ctx.playerManager.addInput(ctx.peerSession.localPlayerId, scriptedInput(performance.now() - t0, i * 700), seq++)
   }, 1000 / 60))
-  for (const [i, pk] of roster.entries()) setTimeout(() => peers.get(pk).peerSession.start(), i * Number(args.startSkewMs || 400))
+  for (const [i, pk] of roster.entries()) setTimeout(() => peers.get(pk).peerSession.start(), i * numericFlag(args, 'startSkewMs', 400))
   if (KILL_PEER) setTimeout(() => { dead.add(KILL_PEER); peers.get(KILL_PEER).peerSession.loop.stop() }, KILL_AT_MS)
   let cheater = null
   if (CHEAT_PEER) setTimeout(() => { cheater = setInterval(() => cheat(peers.get(CHEAT_PEER)), 1000 / 60) }, CHEAT_AT_MS)

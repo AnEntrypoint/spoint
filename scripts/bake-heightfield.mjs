@@ -7,6 +7,7 @@ import { expandWorldPresets } from '../src/shared/worldPresets.js'
 import { resolveTerrainConfig, terrainBakeKey, terrainHashVersionOf, terrainCarvesOf, LEGACY_TERRAIN_HASH_VERSION } from '../src/shared/terrainConfig.js'
 import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
 import { HEIGHTFIELD_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -14,9 +15,9 @@ function parseArgs(argv) {
   return a
 }
 const args = parseArgs(process.argv.slice(2))
-const PORT = Number(args.port || process.env.PORT || 8090)
-const EXTENT = Number(args.extent || 512), RES = Number(args.res || 16)
-const CENTER = (args.center ? args.center.split(',').map(Number) : [0, 0])
+const PORT = numericFlag(args, 'port', process.env.PORT || 8090)
+const EXTENT = numericFlag(args, 'extent', 512), RES = numericFlag(args, 'res', 16)
+const CENTER = numericListFlag(args, 'center', [0, 0], ',')
 const OUT = args.out || 'data/heightfield.json'
 const WORLD = args.world === true ? (() => { throw new Error('[bake] --world needs a world name, e.g. --world tps-game') })() : (args.world || null)
 const PROBE_READY_MS = Number(process.env.GPU_EVAL_READY_MS || 90000)
@@ -97,9 +98,9 @@ const terrainIdentity = worldTerrain ? { seed: worldTerrain.seed, hashVersion: t
 const base = { chartEpoch: meta.chartEpoch ?? 0, anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, codeVersion: HEIGHTFIELD_BAKE_CODE_VERSION, ...terrainIdentity }
 
 let artifact
-const NODES_PER_SECTOR = Number(args.sector || 0)
+const NODES_PER_SECTOR = numericFlag(args, 'sector', 0)
 if (NODES_PER_SECTOR > 0) {
-  const Sn = NODES_PER_SECTOR, gridS = Math.ceil(N / Sn), bits = assertQuantBits(Number(args.bits || 8)), qmax = (1 << bits) - 1
+  const Sn = NODES_PER_SECTOR, gridS = Math.ceil(N / Sn), bits = assertQuantBits(numericFlag(args, 'bits', 8)), qmax = (1 << bits) - 1
   const sectorMin = new Array(gridS * gridS).fill(Infinity), sectorMax = new Array(gridS * gridS).fill(-Infinity)
   const sidx = (ix, iz) => Math.min((iz / Sn) | 0, gridS - 1) * gridS + Math.min((ix / Sn) | 0, gridS - 1)
   for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) { const si = sidx(ix, iz), v = heightsOrZero[iz * N + ix]; if (v < sectorMin[si]) sectorMin[si] = v; if (v > sectorMax[si]) sectorMax[si] = v }

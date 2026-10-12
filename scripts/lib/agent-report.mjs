@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { tmpdir } from 'node:os'
+import { numericFlag } from './witness-args.mjs'
 
 const DEFAULT_BLOCKS = 3
 const DEFAULT_CHARS = 6000
@@ -9,8 +10,8 @@ const MAX_WALK_DEPTH = 6
 function flagsOf(argv) {
   const out = {}
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--blocks') out.blocks = Number(argv[i + 1])
-    if (argv[i] === '--chars') out.chars = Number(argv[i + 1])
+    if (argv[i] === '--blocks') out.blocks = numericFlag({ blocks: argv[i + 1] ?? true }, 'blocks', DEFAULT_BLOCKS)
+    if (argv[i] === '--chars') out.chars = numericFlag({ chars: argv[i + 1] ?? true }, 'chars', DEFAULT_CHARS)
   }
   return out
 }

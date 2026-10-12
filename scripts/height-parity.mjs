@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { withGpuPage } from './lib/gpu-eval.mjs'
+import { numericFlag } from './lib/witness-args.mjs'
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -15,10 +16,10 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2))
-const N = Number(args.n || 7)
-const EXTENT = Number(args.extent || 256)
-const PORT = Number(args.port || process.env.PORT || 8090)
-const TOL = args.tol != null ? Number(args.tol) : null
+const N = numericFlag(args, 'n', 7)
+const EXTENT = numericFlag(args, 'extent', 256)
+const PORT = numericFlag(args, 'port', process.env.PORT || 8090)
+const TOL = numericFlag(args, 'tol', null)
 
 const BACKEND = typeof args.backend === 'string' ? args.backend : 'legacygl'
 

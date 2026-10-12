@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { flagNumber } from './witness-args.mjs'
 
 const REPO = 'AnEntrypoint/spoint'
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -52,7 +53,7 @@ function tailLines(lines, count) {
 
 function main() {
   const target = expandRev(process.argv.slice(2).find((a) => !a.startsWith('--')) ?? '')
-  const tailCount = Number(flag('tail', '20'))
+  const tailCount = flagNumber(flag, 'tail', 20, process.argv.slice(2))
   const jobFilter = flag('job', '')
   const customMatch = flag('match', '')
   if (!target) {

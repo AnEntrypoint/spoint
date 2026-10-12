@@ -24,6 +24,7 @@ import {
   createQualityGovernor, QUALITY_TIERS, MAX_TIER, GOVERNED_KNOBS, RESOLUTION_KEYS,
   FRAME_BUDGET_MS, LOWER_ABOVE_MS, RAISE_BELOW_MS, MIN_STEP_INTERVAL_MS,
 } from '../client/core/QualityGovernor.js'
+import { flagListNumber, flagNumber } from './lib/witness-args.mjs'
 
 const LABEL = 'quality-governor-witness'
 const ADMITTED_GPU_MODES = new Set(['software', 'swiftshader', 'accelerated', 'nvidia', 'amd'])
@@ -38,14 +39,14 @@ const PORT = flag('port', '3141')
 const WORLD = flag('world', 'tps-game')
 const GPU_MODE = flag('gpu', 'accelerated')
 const OVERLOAD = flag('overload', 'maxLevel=20,splitFactor=1.2,ssao=true,bloom=true,ssr=true')
-const TIMEOUT_MS = Number(flag('timeout', '180000'))
-const SETTLE_MS = Number(flag('settle', '3000'))
-const POLL_MS = Number(flag('poll', '500'))
-const MAX_SAMPLES = Number(flag('max-samples', '60'))
-const MIN_TIER = Number(flag('min-tier', '1'))
-const CONTROL_FRAMES = Number(flag('control-frames', '2010'))
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 180000, process.argv.slice(2))
+const SETTLE_MS = flagNumber(flag, 'settle', 3000, process.argv.slice(2))
+const POLL_MS = flagNumber(flag, 'poll', 500, process.argv.slice(2))
+const MAX_SAMPLES = flagNumber(flag, 'max-samples', 60, process.argv.slice(2))
+const MIN_TIER = flagNumber(flag, 'min-tier', 1, process.argv.slice(2))
+const CONTROL_FRAMES = flagNumber(flag, 'control-frames', 2010, process.argv.slice(2))
 const ARM = flag('arm', 'unlabelled')
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-quality-governor-witness')))
 

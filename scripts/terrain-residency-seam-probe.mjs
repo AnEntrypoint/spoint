@@ -3,12 +3,13 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
-const GRID = Number(args.grid ?? 32)
-const CELLS = args.cells ? String(args.cells).split(',').map(Number) : null
+const GRID = numericFlag(args, 'grid', 32)
+const CELLS = numericListFlag(args, 'cells', null, ',')
 const EXPERIMENTS = args.experiment ? String(args.experiment).split(',') : ['identical', 'baseline', 'sharedRange', 'blockSize1']
 
 const log = (...a) => { process.stdout.write(a.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' ') + '\n') }

@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
 import { createPreciseScheduler, ConditionedTransport, mulberry32 } from './lib/net-conditioner.mjs'
 import { summarize, stdev, dist3, createTruthTrack, effectiveDelay, detectPops, fmt } from './lib/netcode-metrics.mjs'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, numericListFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -26,7 +26,7 @@ const RESPAWN_JUMP_M = 3
 
 const args = parseArgs(process.argv.slice(2))
 if (args.precise === true || args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
-const DURATION_MS = numArg(args.duration, 20000)
+const DURATION_MS = numericFlag(args, 'duration', 20000)
 const WORLD = strArg(args.world, 'arena')
 const HARNESS_ARENA = {
   name: 'netcode-harness-arena', tickRate: 60, gravity: [0, -9.81, 0], placeableApps: ['box-static'], spawnPoints: [[0, 3, 0], [0, 3, 8]],
@@ -54,7 +54,7 @@ const HARNESS_CORNER = {
 const STAIR_STEPS = 8, STAIR_RISE = 0.2, STAIR_RUN = 0.5
 const SLOPE_HALF_DEPTH_M = 1
 const SLOPE_HALF_WIDTH_M = 200
-const SLOPE_DEG = numArg(args.slopeDeg, 25)
+const SLOPE_DEG = numericFlag(args, 'slopeDeg', 25)
 
 function slopeTiltQuat(deg) {
   const a = -deg * Math.PI / 360
@@ -84,20 +84,20 @@ const HARNESS_STAIRS = {
   harness: { shooterAt: [8, 1.2, 4], script: [[700, {}], [2500, { forward: true }], [700, {}], [2500, { backward: true }], [700, {}]] }
 }
 const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS, slope: HARNESS_SLOPE }
-const FPS = numArg(args.fps, 60)
-const BOTS = numArg(args.bots, 0)
+const FPS = numericFlag(args, 'fps', 60)
+const BOTS = numericFlag(args, 'bots', 0)
 const CHANNEL = strArg(args.channel, 'ws')
-const TICK_OVERRIDE = numArg(args.tick, null)
-const SNAP_HZ = numArg(args.snapHz, null)
-const RELEVANCE_M = numArg(args.relevance, 0)
+const TICK_OVERRIDE = numericFlag(args, 'tick', null)
+const SNAP_HZ = numericFlag(args, 'snapHz', null)
+const RELEVANCE_M = numericFlag(args, 'relevance', 0)
 const OUT_PATH_ARG = strArg(args.out, '') ? resolve(process.cwd(), args.out) : ''
-const AT_PARTS = typeof args.at === 'string' ? args.at.split(',').map(Number).filter(Number.isFinite) : []
+const AT_PARTS = typeof args.at === 'string' ? numericListFlag(args, 'at', [], ',') : []
 const AT = AT_PARTS.length === 3 ? AT_PARTS : null
 const HOLD = typeof args.hold === 'string' ? Object.fromEntries(args.hold.split(',').map(k => [k, true])) : null
 const PREDICT_MODES = (typeof args.predict === 'string' ? args.predict.split(',') : ['off', 'on']).map(s => s === 'on')
 const DEFAULT_CONDITIONS = [{ latencyMs: 0, jitterMs: 0, lossPct: 0 }, { latencyMs: 25, jitterMs: 5, lossPct: 1 }, { latencyMs: 50, jitterMs: 10, lossPct: 2 }, { latencyMs: 75, jitterMs: 15, lossPct: 5 }]
 const PARSED_CONDITIONS = typeof args.cond === 'string'
-  ? args.cond.split(';').map(c => { const [l, j, p] = c.split('/').map(Number); return { latencyMs: l, jitterMs: j, lossPct: p } }).filter(c => Number.isFinite(c.latencyMs) && Number.isFinite(c.jitterMs) && Number.isFinite(c.lossPct))
+  ? args.cond.split(';').map(c => { const [l, j, p] = numericListFlag({ cond: c }, 'cond', null, '/', 3); return { latencyMs: l, jitterMs: j, lossPct: p } }).filter(c => Number.isFinite(c.latencyMs) && Number.isFinite(c.jitterMs) && Number.isFinite(c.lossPct))
   : []
 const CONDITIONS = PARSED_CONDITIONS.length ? PARSED_CONDITIONS : DEFAULT_CONDITIONS
 

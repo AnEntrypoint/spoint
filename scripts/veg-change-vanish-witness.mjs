@@ -17,6 +17,7 @@ import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE, CLIENT_ROOT_RAW,
 } from './lib/served-client-root.mjs'
+import { flagListNumber, flagNumber } from './lib/witness-args.mjs'
 
 const LABEL = 'veg-change-vanish-witness'
 const LF = String.fromCharCode(10)
@@ -48,14 +49,14 @@ const MARKER_PATH = flag('marker-path', null)
 // for. Both roots run the current client sources, so this changes what the page loads, never
 // which code it runs. The stamp is restored on every exit path, including process.exit.
 const FORCE_RAW_ESM = flag('force-raw-esm', '0') !== '0'
-const PRE_FRAMES = Math.max(1, Number(flag('pre', '60')) | 0)
-const POST_FRAMES = Math.max(1, Number(flag('post', '60')) | 0)
-const READY_TIMEOUT_MS = Number(flag('ready-timeout', '420000'))
-const CAPTURE_TIMEOUT_MS = Number(flag('capture-timeout', '180000'))
-const SETTLE_MS = Number(flag('settle', '2500'))
-const MIN_FREE_GB = Number(flag('min-free-gb', '3'))
-const EXPECT_ZERO = Number(flag('expect-zero', '0'))
-const MAX_ZERO = Number(flag('max-zero', '0'))
+const PRE_FRAMES = Math.max(1, flagNumber(flag, 'pre', 60, process.argv.slice(2)) | 0)
+const POST_FRAMES = Math.max(1, flagNumber(flag, 'post', 60, process.argv.slice(2)) | 0)
+const READY_TIMEOUT_MS = flagNumber(flag, 'ready-timeout', 420000, process.argv.slice(2))
+const CAPTURE_TIMEOUT_MS = flagNumber(flag, 'capture-timeout', 180000, process.argv.slice(2))
+const SETTLE_MS = flagNumber(flag, 'settle', 2500, process.argv.slice(2))
+const MIN_FREE_GB = flagNumber(flag, 'min-free-gb', 3, process.argv.slice(2))
+const EXPECT_ZERO = flagNumber(flag, 'expect-zero', 0, process.argv.slice(2))
+const MAX_ZERO = flagNumber(flag, 'max-zero', 0, process.argv.slice(2))
 const ARM = flag('arm', 'unlabelled')
 const RESET_SCRATCH = flag('reset-scratch', '1') !== '0'
 const DRIVER_FILTER = flag('drivers', null)
@@ -65,7 +66,7 @@ const DRIVER_FILTER = flag('drivers', null)
 const WALK = flag('walk', '0') !== '0'
 // --look=1 turns the view through each capture (real CDP mouse moves while pointer-locked).
 const LOOK = flag('look', '0') !== '0'
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-veg-change-vanish-witness')))
 

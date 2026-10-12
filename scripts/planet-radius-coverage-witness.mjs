@@ -3,7 +3,7 @@ import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readdir, rm } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -11,10 +11,10 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = parseArgs(process.argv.slice(2))
 const WORLD = strArg(args.world, 'tps-game')
-const PLAYERS = numArg(args.players, 4)
-const WINDOW_TICKS = numArg(args.ticks, 40)
-const PROBE_RADIUS = numArg(args.planetRadius, 63600)
-const SPREAD_M = numArg(args.spread, 700)
+const PLAYERS = numericFlag(args, 'players', 4)
+const WINDOW_TICKS = numericFlag(args, 'ticks', 40)
+const PROBE_RADIUS = numericFlag(args, 'planetRadius', 63600)
+const SPREAD_M = numericFlag(args, 'spread', 700)
 
 const failures = []
 const measurements = []
@@ -375,7 +375,6 @@ async function armLive() {
   expect(planet.raw.neighbourCellsCalls > 0, 'live arm: setting planetRadius does make the cube-sphere branch execute (so neighbourCellsCalls discriminates, it is not a silent no-op)', `neighbourCellsCalls = ${planet.raw.neighbourCellsCalls} over ${planet.ticks} tick(s) at planetRadius ${PROBE_RADIUS}`)
   expect(planetCentres.length > 0 && planetMaxNorm > 10000, 'live arm: with planetRadius set, cell-centre query origins jump onto the sphere', `max |cellViewerPos| ${flatMaxNorm.toFixed(1)} m (flat) -> ${planetMaxNorm.toFixed(1)} m (planet), while the farthest served player sits ${playerMaxNorm.toFixed(1)} m from the origin`)
   expect(flatNonEmpty > 0 && planetNonEmpty === 0, 'live arm: with planetRadius set on chart-local coordinates the ring serves no dynamic entity at all while snapshots keep flowing', `${flatNonEmpty}/${flatCentres.length} non-empty base set(s) flat -> ${planetNonEmpty}/${planetCentres.length} at planetRadius ${PROBE_RADIUS}, over ${planet.ticks} tick(s) and ${planet.raw.cellComputes} cell compute(s)`)
-
 
   console.log('\nlive arm (real server, real PhysicsNetworkClient clients)')
   console.log('| arm | planetRadius | ticks | cell-centre solves | cell computes | neighbourCells calls | base computes | base hits |')

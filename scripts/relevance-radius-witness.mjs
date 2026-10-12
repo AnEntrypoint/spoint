@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { readFile, rm } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { createServer as createNetServer } from 'node:net'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, numericListFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -13,21 +13,21 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 
 const args = parseArgs(process.argv.slice(2))
-const COUNTS = strArg(args.counts, '8,24,64').split(',').map(Number).filter(Number.isFinite)
-const RADIUS = numArg(args.radius, 120)
-const REPS = numArg(args.reps, 2)
+const COUNTS = numericListFlag(args, 'counts', [8, 24, 64], ',')
+const RADIUS = numericFlag(args, 'radius', 120)
+const REPS = numericFlag(args, 'reps', 2)
 const DURATION = strArg(args.duration, '10000')
 const COND = strArg(args.cond, '0/0/0')
-const TICK = numArg(args.tick, 60)
-const TICK_WINDOW_HZ = numArg(args.tickWindowHz, 3)
-const WORTH_PCT = numArg(args.worthPct, 25)
+const TICK = numericFlag(args, 'tick', 60)
+const TICK_WINDOW_HZ = numericFlag(args, 'tickWindowHz', 3)
+const WORTH_PCT = numericFlag(args, 'worthPct', 25)
 const WORLD = strArg(args.world, 'arena')
 const AT = strArg(args.at, '0,1.2,-95')
 
-const AOI_PLAYERS = numArg(args.aoiPlayers, 8)
-const AOI_TICKS = numArg(args.aoiTicks, 60)
-const AOI_REPS = numArg(args.aoiReps, 2)
-const AOI_SPREAD_M = numArg(args.aoiSpread, 900)
+const AOI_PLAYERS = numericFlag(args, 'aoiPlayers', 8)
+const AOI_TICKS = numericFlag(args, 'aoiTicks', 60)
+const AOI_REPS = numericFlag(args, 'aoiReps', 2)
+const AOI_SPREAD_M = numericFlag(args, 'aoiSpread', 900)
 const AOI_CELL_BASE_MAX = 512
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))

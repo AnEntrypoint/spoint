@@ -7,6 +7,7 @@ import { sampleMinimapCell, shadeHeightGrid } from '../src/shared/MinimapBiome.j
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
 import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -153,13 +154,13 @@ export async function bakeMinimap(config) {
 
 function cliTerrainConfig(args, hashOverride, overrides = {}) {
   const tcfg = {
-    seed: Number(args.seed || 0),
-    radius: Number(args.radius || 63600),
-    reliefScale: args.reliefScale != null ? Number(args.reliefScale) : undefined,
+    seed: numericFlag(args, 'seed', 0),
+    radius: numericFlag(args, 'radius', 63600),
+    reliefScale: numericFlag(args, 'reliefScale', undefined),
     hashVersion: hashOverride ?? undefined,
     ...overrides,
   }
-  if (args.anchorDir) tcfg.anchorDir = args.anchorDir.split(',').map(Number)
+  if (args.anchorDir) tcfg.anchorDir = numericListFlag(args, 'anchorDir', null, ',')
   return tcfg
 }
 

@@ -9,6 +9,7 @@ import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { flagListNumber, flagNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -28,18 +29,18 @@ const has = (n) => ARGS.has(n)
 
 const LABEL = flag('label', 'veg-lod-browser-' + Date.now())
 const GPU = flag('gpu', 'nvidia')
-const STILL_SECONDS = Number(flag('still', '4'))
-const MOVE_SECONDS = Number(flag('move', '8'))
-const READY_TIMEOUT_MS = Number(flag('ready-timeout', '300000'))
-const VEG_WALK_MS = Number(flag('veg-walk', '240000'))
+const STILL_SECONDS = flagNumber(flag, 'still', 4, argv)
+const MOVE_SECONDS = flagNumber(flag, 'move', 8, argv)
+const READY_TIMEOUT_MS = flagNumber(flag, 'ready-timeout', 300000, argv)
+const VEG_WALK_MS = flagNumber(flag, 'veg-walk', 240000, argv)
 const EXTRA = flag('extra', 'at=200,0')
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', argv)
 const SCALING = !has('no-scaling')
 const ORACLE = !has('no-oracle')
-const ORACLE_INSTANCES = Number(flag('oracle-instances', '2000'))
-const ORACLE_FRAMES = Number(flag('oracle-frames', '40'))
-const ORACLE_SURVIVORS = Number(flag('oracle-survivors', '0'))
-const SCALING_COUNTS = String(flag('scaling-counts', '10000,50000')).split(',').map(Number)
+const ORACLE_INSTANCES = flagNumber(flag, 'oracle-instances', 2000, argv)
+const ORACLE_FRAMES = flagNumber(flag, 'oracle-frames', 40, argv)
+const ORACLE_SURVIVORS = flagNumber(flag, 'oracle-survivors', 0, argv)
+const SCALING_COUNTS = flagListNumber(flag, 'scaling-counts', [10000, 50000], ',', argv)
 
 const LAUNCH_VENDOR_ARGS = vendorPinArgs(GPU)
 

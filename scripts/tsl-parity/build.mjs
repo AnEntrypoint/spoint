@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
 import { bootBody, settleBody, captureBody, leftEdgeBody, dryParse } from './bodies.mjs'
+import { numericFlag } from '../lib/witness-args.mjs'
 
 const args = Object.fromEntries(process.argv.slice(2).filter(a => a.startsWith('--')).map(a => { const [k, ...v] = a.slice(2).split('='); return [k, v.join('=')] }))
 const extras = process.argv.slice(2).filter(a => a.startsWith('--extra=')).map(a => { const [k, ...v] = a.slice('--extra='.length).split('='); return [k, v.join('=')] })
@@ -10,7 +11,7 @@ if (!args.out || !args.session) {
   process.exit(2)
 }
 const pose = args.pose || '-2750,-750'
-const minVeg = Number(args['min-veg'] || 225)
+const minVeg = numericFlag(args, 'min-veg', 225)
 const host = args.host || 'http://localhost:3000'
 const stamp = Date.now()
 const forceBackend = args.forcewebgl ? '&forcewebgl=1' : ''

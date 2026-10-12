@@ -3,14 +3,15 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { numericFlag } from './lib/witness-args.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
-const CAP = Number(args.cap ?? 8)
-const RADIUS = Number(args.radius ?? 64)
-const STEP_M = Number(args.step ?? 30)
-const STEPS = Number(args.steps ?? 8)
+const CAP = numericFlag(args, 'cap', 8)
+const RADIUS = numericFlag(args, 'radius', 64)
+const STEP_M = numericFlag(args, 'step', 30)
+const STEPS = numericFlag(args, 'steps', 8)
 
 let failures = 0
 function check(label, ok, detail) {

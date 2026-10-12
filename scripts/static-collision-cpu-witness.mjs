@@ -2,6 +2,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { numericFlag } from './lib/witness-args.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -24,22 +25,22 @@ const MODE = args.mode || 'server'
 const ARM = args.arm || 'run'
 const OUT = args.out || null
 const EXPECT = args.expect || null
-const PLAYERS = Number(args.players || 4)
-const TICKS = Number(args.ticks || 400)
-const COL_STATICS = Number(args.colStatics || 500)
-const COL_MOVERS = Number(args.colMovers || 16)
-const COL_TICKS = Number(args.colTicks || 1000)
-const MICRO_ADDS = Number(args.microAdds || 2000)
-const MICRO_MOVES = Number(args.microMoves || 2000)
-const MICRO_REMOVES = Number(args.microRemoves || 2000)
-const MICRO_TIME_CALLS = Number(args.microTimeCalls || 20000)
-const MICRO_JITTER = Number(args.microJitter || 0)
+const PLAYERS = numericFlag(args, 'players', 4)
+const TICKS = numericFlag(args, 'ticks', 400)
+const COL_STATICS = numericFlag(args, 'colStatics', 500)
+const COL_MOVERS = numericFlag(args, 'colMovers', 16)
+const COL_TICKS = numericFlag(args, 'colTicks', 1000)
+const MICRO_ADDS = numericFlag(args, 'microAdds', 2000)
+const MICRO_MOVES = numericFlag(args, 'microMoves', 2000)
+const MICRO_REMOVES = numericFlag(args, 'microRemoves', 2000)
+const MICRO_TIME_CALLS = numericFlag(args, 'microTimeCalls', 20000)
+const MICRO_JITTER = numericFlag(args, 'microJitter', 0)
 const WORLD = args.world || 'tps-game'
-const WALK_STEP_M = Number(args.walkStepM || 0)
-const WALK_EVERY_MS = Number(args.walkEveryMs || 100)
-const SPREAD_M = Number(args.spreadM || 0)
-const BUTTONS = Number(args.buttons || 0)
-const BOXES = Number(args.boxes || 0)
+const WALK_STEP_M = numericFlag(args, 'walkStepM', 0)
+const WALK_EVERY_MS = numericFlag(args, 'walkEveryMs', 100)
+const SPREAD_M = numericFlag(args, 'spreadM', 0)
+const BUTTONS = numericFlag(args, 'buttons', 0)
+const BOXES = numericFlag(args, 'boxes', 0)
 const COL_COUNT_MAP = args.colCountMap !== '0'
 
 const failures = []

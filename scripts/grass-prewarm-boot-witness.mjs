@@ -10,6 +10,7 @@ import {
   assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE, CLIENT_ROOT_RAW,
 } from './lib/served-client-root.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
+import { flagListNumber, flagNumber } from './lib/witness-args.mjs'
 
 const LABEL = 'grass-prewarm-boot-witness'
 const ADMITTED_GPU_MODES = new Set(['software', 'swiftshader', 'accelerated', 'nvidia', 'amd'])
@@ -24,15 +25,15 @@ const PORT = flag('port', '3137')
 const PARAMS = flag('params', 'singleplayer')
 const WORLD = flag('world', 'tps-game')
 const GPU_MODE = flag('gpu', 'software')
-const REPS = Math.max(1, Number(flag('reps', '3')) | 0)
-const TIMEOUT_MS = Number(flag('timeout', '240000'))
-const MAX_PLAYABLE_MS = Number(flag('max-playable-ms', '0')) || null
-const MAX_PREWARM_MS = Number(flag('max-prewarm-ms', '0')) || null
-const MAX_GRASS_WAIT_MS = Number(flag('max-grass-wait-ms', '1500'))
-const MIN_GRASS_INSTANCES = Number(flag('min-grass-instances', '0')) || null
-const SETTLE_MS = Number(flag('settle', '0'))
+const REPS = Math.max(1, flagNumber(flag, 'reps', 3, process.argv.slice(2)) | 0)
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 240000, process.argv.slice(2))
+const MAX_PLAYABLE_MS = flagNumber(flag, 'max-playable-ms', 0, process.argv.slice(2)) || null
+const MAX_PREWARM_MS = flagNumber(flag, 'max-prewarm-ms', 0, process.argv.slice(2)) || null
+const MAX_GRASS_WAIT_MS = flagNumber(flag, 'max-grass-wait-ms', 1500, process.argv.slice(2))
+const MIN_GRASS_INSTANCES = flagNumber(flag, 'min-grass-instances', 0, process.argv.slice(2)) || null
+const SETTLE_MS = flagNumber(flag, 'settle', 0, process.argv.slice(2))
 const ARM = flag('arm', 'unlabelled')
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-grass-prewarm-witness')))
 

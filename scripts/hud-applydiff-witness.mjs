@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createElement, applyDiff } from 'webjsx'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
@@ -15,8 +16,8 @@ function flag(name, dflt) {
   const hit = ARGV.find((a) => a.startsWith(`--${name}=`))
   return hit ? hit.slice(name.length + 3) : dflt
 }
-const FRAMES = Number(flag('frames', '600'))
-const APPS = Number(flag('apps', '6'))
+const FRAMES = flagNumber(flag, 'frames', 600, ARGV)
+const APPS = flagNumber(flag, 'apps', 6, ARGV)
 const SHOW_STATS = flag('stats', 'true') === 'true'
 const INSTRUMENT = flag('instrument', 'on') === 'on'
 const TAG = '[hud-applydiff]'

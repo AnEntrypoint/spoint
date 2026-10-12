@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import * as THREE from 'three'
 import { createWebGPULodInstancer } from '../client/core/WebGPULodInstancer.js'
 import { measureUncontested, formatRowContention, fingerprintFields, describeContested } from './lib/timing-gate.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -23,16 +24,16 @@ const flag = (n, d) => (ARGS.has(n) ? String(ARGS.get(n)) : String(d))
 const has = (n) => ARGS.has(n)
 
 const SHAPES = flag('shapes', 'dense10k,dense50k,real').split(',').map((s) => s.trim()).filter(Boolean)
-const FRAMES = Number(flag('frames', '400'))
-const WARMUP = Number(flag('warmup', '120'))
-const SPACING = Number(flag('spacing', '3'))
-const SPEED = Number(flag('speed', '7'))
-const MESH_FAR = Number(flag('mesh-far', '90'))
-const REPEATS = Number(flag('repeats', '5'))
-const REF_ARMS = Number(flag('ref-arms', '1'))
-const REQUIRE_DROP = Number(flag('require-drop', '50'))
-const US_NOISE_LIMIT = Number(flag('us-noise-limit', '15'))
-const CONTEST_RETRIES = Number(flag('contest-retries', '3'))
+const FRAMES = flagNumber(flag, 'frames', 400, argv)
+const WARMUP = flagNumber(flag, 'warmup', 120, argv)
+const SPACING = flagNumber(flag, 'spacing', 3, argv)
+const SPEED = flagNumber(flag, 'speed', 7, argv)
+const MESH_FAR = flagNumber(flag, 'mesh-far', 90, argv)
+const REPEATS = flagNumber(flag, 'repeats', 5, argv)
+const REF_ARMS = flagNumber(flag, 'ref-arms', 1, argv)
+const REQUIRE_DROP = flagNumber(flag, 'require-drop', 50, argv)
+const US_NOISE_LIMIT = flagNumber(flag, 'us-noise-limit', 15, argv)
+const CONTEST_RETRIES = flagNumber(flag, 'contest-retries', 3, argv)
 const LABEL = flag('label', 'veg-lod-sweep-' + Date.now())
 const BASELINE = has('baseline') ? flag('baseline', '') : ''
 const DT = 1 / 60

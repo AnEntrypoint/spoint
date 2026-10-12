@@ -12,6 +12,7 @@ import { dirToLocalXZ, latLonToDir, dirToLatLon, angleFromAnchorDeg } from '../s
 import { elevationAtLocal } from '../src/terrain/PlanetFrame.js'
 import { resolveTerrainConfig, terrainHashVersionOf, terrainCarvesOf } from '../src/shared/terrainConfig.js'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
+import { numericFlag } from './lib/witness-args.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DEG = Math.PI / 180
@@ -360,16 +361,16 @@ function gridFieldDelta(a, b) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const worldName = String(args.world || 'tps-game')
-  const stepM = Number(args.step || 5000)
-  const fineStepM = Number(args.fine || 0.25)
-  const seamWindowM = Number(args.seamWindow || 1500)
+  const stepM = numericFlag(args, 'step', 5000)
+  const fineStepM = numericFlag(args, 'fine', 0.25)
+  const seamWindowM = numericFlag(args, 'seamWindow', 1500)
   const mode = String(args.mode || 'fixed')
-  const reanchorAngleDeg = Number(args.reanchorAngle ?? 28)
-  const anchorsPerFace = Number(args.anchorsPerFace || CHART_ANCHORS_PER_FACE)
-  const minimapRes = Number(args.minimapRes || 24)
-  const minimapExtent = Number(args.minimapExtent || 384)
-  const gridStride = Number(args.gridStride || 200)
-  const chunkM = Number(args.chunkM || 128)
+  const reanchorAngleDeg = numericFlag(args, 'reanchorAngle', 28)
+  const anchorsPerFace = numericFlag(args, 'anchorsPerFace', CHART_ANCHORS_PER_FACE)
+  const minimapRes = numericFlag(args, 'minimapRes', 24)
+  const minimapExtent = numericFlag(args, 'minimapExtent', 384)
+  const gridStride = numericFlag(args, 'gridStride', 200)
+  const chunkM = numericFlag(args, 'chunkM', 128)
   const verbose = !!args.verbose
 
   const tcfg = await loadWorld(worldName)

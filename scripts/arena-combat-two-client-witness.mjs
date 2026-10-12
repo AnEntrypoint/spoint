@@ -3,6 +3,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, probeGpu, rasterizerClass, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 function flag(name, dflt = null) {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -18,12 +19,12 @@ const PROXY = flag('proxy', null)
 const PARAMS = flag('params', '')
 const GPU_MODE = gpuModeFlag()
 const REQUIRE_ACCELERATED = has('require-accelerated')
-const READY_TIMEOUT_MS = Number(flag('timeout', '180000'))
-const SHOTS = Number(flag('shots', '10'))
-const SETTLE_MS = Number(flag('settle', '4000'))
-const PLAYABLE_TIMEOUT_MS = Number(flag('playable-timeout', '120000'))
+const READY_TIMEOUT_MS = flagNumber(flag, 'timeout', 180000, process.argv.slice(2))
+const SHOTS = flagNumber(flag, 'shots', 10, process.argv.slice(2))
+const SETTLE_MS = flagNumber(flag, 'settle', 4000, process.argv.slice(2))
+const PLAYABLE_TIMEOUT_MS = flagNumber(flag, 'playable-timeout', 120000, process.argv.slice(2))
 const EXPECT_PLAYERS = flag('expect-players', null)
-const SWEEP_PX = Number(flag('sweep', '0'))
+const SWEEP_PX = flagNumber(flag, 'sweep', 0, process.argv.slice(2))
 const EXPECT_DAMAGE = has('expect-damage')
 const PROBE = flag('probe', null)
 

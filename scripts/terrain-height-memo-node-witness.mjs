@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PLANET_FRAME = resolve(ROOT, 'src/terrain/PlanetFrame.js')
@@ -17,12 +18,12 @@ for (let i = 0; i < argv.length; i++) {
 }
 const flag = (n, d) => (ARGS.has(n) ? ARGS.get(n) : d)
 
-const FRAMES = Number(flag('frames', '600'))
-const PER_FRAME = Number(flag('per-frame', '64'))
-const STEP_M = Number(flag('step', '2'))
-const METRES_PER_FRAME = Number(flag('speed', '5')) / 60
-const RADIUS = Number(flag('radius', '63600'))
-const SEED = Number(flag('seed', '1337'))
+const FRAMES = flagNumber(flag, 'frames', 600, argv)
+const PER_FRAME = flagNumber(flag, 'per-frame', 64, argv)
+const STEP_M = flagNumber(flag, 'step', 2, argv)
+const METRES_PER_FRAME = flagNumber(flag, 'speed', 5, argv) / 60
+const RADIUS = flagNumber(flag, 'radius', 63600, argv)
+const SEED = flagNumber(flag, 'seed', 1337, argv)
 
 const MIN_FRAMES = 600
 const MIN_SAMPLES = 1

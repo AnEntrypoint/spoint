@@ -1,11 +1,12 @@
 import { packQuat, unpackQuat } from '../src/netcode/SnapshotBinFormat.js'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const flag = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith('--' + name + '='))
   return hit ? hit.slice(name.length + 3) : dflt
 }
-const SEED = Number(flag('seed', '20261011')) || 20261011
-const CASES = Math.max(1, Number(flag('cases', '3000')) || 3000)
+const SEED = flagNumber(flag, 'seed', 20261011, process.argv.slice(2))
+const CASES = Math.max(1, flagNumber(flag, 'cases', 3000, process.argv.slice(2)))
 
 function mulberry32(a) {
   return function () {

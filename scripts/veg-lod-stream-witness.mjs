@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as THREE from 'three'
 import { measureUncontested, fingerprintFields, describeContested } from './lib/timing-gate.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -26,16 +27,16 @@ const MODULE_URL = /^(file|data|node|https?):/.test(MODULE) ? MODULE : pathToFil
 const { createWebGPULodInstancer } = await import(MODULE_URL)
 
 const SHAPES = flag('shapes', 'dense2k,real90').split(',').map((s) => s.trim()).filter(Boolean)
-const FRAMES = Number(flag('frames', '400'))
-const WARMUP = Number(flag('warmup', '120'))
-const SPACING = Number(flag('spacing', '3'))
-const SPEED = Number(flag('speed', '7'))
-const MESH_FAR = Number(flag('mesh-far', '90'))
-const ADDS_PER_FRAME = Number(flag('adds-per-frame', '4'))
-const REPEATS = Number(flag('repeats', '5'))
-const CONTEST_RETRIES = Number(flag('contest-retries', '3'))
-const REQUIRE_DROP = Number(flag('require-drop', '50'))
-const MAX_VISITS_PER_LIVE = Number(flag('max-visits-per-live', '0.6'))
+const FRAMES = flagNumber(flag, 'frames', 400, argv)
+const WARMUP = flagNumber(flag, 'warmup', 120, argv)
+const SPACING = flagNumber(flag, 'spacing', 3, argv)
+const SPEED = flagNumber(flag, 'speed', 7, argv)
+const MESH_FAR = flagNumber(flag, 'mesh-far', 90, argv)
+const ADDS_PER_FRAME = flagNumber(flag, 'adds-per-frame', 4, argv)
+const REPEATS = flagNumber(flag, 'repeats', 5, argv)
+const CONTEST_RETRIES = flagNumber(flag, 'contest-retries', 3, argv)
+const REQUIRE_DROP = flagNumber(flag, 'require-drop', 50, argv)
+const MAX_VISITS_PER_LIVE = flagNumber(flag, 'max-visits-per-live', 0.6, argv)
 const LABEL = flag('label', 'veg-lod-stream-' + Date.now())
 const BASELINE = has('baseline') ? flag('baseline', '') : ''
 const DT = 1 / 60

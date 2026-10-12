@@ -3,7 +3,7 @@ import { createServer as createNetServer } from 'node:net'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFileSync } from 'node:fs'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = parseArgs(process.argv.slice(2))
@@ -11,7 +11,7 @@ const DEV = args.dev === true || args.dev === 'true'
 if (!DEV) process.env.SPOINT_NO_WATCH = '1'
 const WORLD = strArg(args.world, 'lockstep-rts')
 const EXPECTED_PROFILE = strArg(args.profile, 'lockstep')
-const HOLD_MS = numArg(args.holdMs, 0)
+const HOLD_MS = numericFlag(args, 'holdMs', 0)
 const URL_OUT = strArg(args.urlOut, '')
 const PROFILE_WARNING_ID = 'netcode-profile-warning'
 

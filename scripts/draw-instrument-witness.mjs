@@ -7,6 +7,7 @@ import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -19,10 +20,10 @@ const has = (name) => process.argv.includes(`--${name}`)
 
 const PORT = flag('port', '3137')
 const BACKEND = flag('backend', 'webgl')
-const FRAMES = Number(flag('frames', '10'))
+const FRAMES = flagNumber(flag, 'frames', 10, process.argv.slice(2))
 const PARAMS = flag('params', 'singleplayer')
-const TIMEOUT_MS = Number(flag('timeout', '240000'))
-const SETTLE_MS = Number(flag('settle', '6000'))
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 240000, process.argv.slice(2))
+const SETTLE_MS = flagNumber(flag, 'settle', 6000, process.argv.slice(2))
 const WORLD = flag('world', 'tps-game')
 const REQUIRE_ACCELERATED = has('require-accelerated')
 const EXPECT_VENDOR = flag('expect-vendor', null)

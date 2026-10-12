@@ -6,12 +6,13 @@ import { decodePng, regionMasks, regionMean, regionMeanAbs } from './png.mjs'
 import {
   assertServedClientRoot, clientRootTag, CLIENT_ROOT_BUNDLE,
 } from '../lib/served-client-root.mjs'
+import { flagNumber } from '../lib/witness-args.mjs'
 
 const arg = (k, d) => { const h = process.argv.find(a => a.startsWith('--' + k + '=')); return h ? h.slice(k.length + 3) : d }
 
 const HOST = arg('host', 'http://localhost:3002')
 const POSE = arg('pose', '-2750,-750')
-const MIN_VEG = Number(arg('min-veg', '233'))
+const MIN_VEG = flagNumber(arg, 'min-veg', 233, process.argv.slice(2))
 const OUT = path.resolve(arg('out', path.join('data', 'tsl-parity-nv-' + Date.now())))
 const ACCELERATED = !process.argv.includes('--software')
 const K = 3

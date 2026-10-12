@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { PredictionEngine } from '../src/client/PredictionEngine.js'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -21,27 +22,27 @@ const args = Object.fromEntries(process.argv.slice(2).map(a => {
 }))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-const TICKS = Number(args.ticks || 450)
-const PEN_TOL_M = Number(args.penTol || 0.05)
-const APPROACH_PEN_TOL_M = Number(args.approachPenTol || 0.2)
-const APPROACH_OVER_TOL_MAX = Number(args.approachOverTolMax || 2)
-const TRANSIENT_PEN_TOL_M = Number(args.transientPenTol || 0.25)
-const DIVERGENCE_SLACK_TICKS = Number(args.divergenceSlackTicks || 1)
-const MIN_LEAD_FRAC = Number(args.minLeadFrac || 0.2)
-const MIN_HELD_TICKS = Number(args.minHeldTicks || 60)
-const MIN_SLIDE_TICKS = Number(args.minSlideTicks || 40)
-const WARMUP_TICKS = Number(args.warmupTicks || 10)
-const SETTLE_TIMEOUT_MS = Number(args.settleTimeoutMs || 30000)
-const ARM_TIMEOUT_MS = Number(args.armTimeoutMs || 120000)
-const CONTACT_SDF_M = Number(args.contactSdf || 1)
-const CYCLES = Number(args.cycles || 2)
-const CYCLE_TICKS = Number(args.cycleTicks || 170)
-const SLIDE_YAWS_DEG = (args.slideYaws || '25,75').split(',').map(Number)
+const TICKS = numericFlag(args, 'ticks', 450)
+const PEN_TOL_M = numericFlag(args, 'penTol', 0.05)
+const APPROACH_PEN_TOL_M = numericFlag(args, 'approachPenTol', 0.2)
+const APPROACH_OVER_TOL_MAX = numericFlag(args, 'approachOverTolMax', 2)
+const TRANSIENT_PEN_TOL_M = numericFlag(args, 'transientPenTol', 0.25)
+const DIVERGENCE_SLACK_TICKS = numericFlag(args, 'divergenceSlackTicks', 1)
+const MIN_LEAD_FRAC = numericFlag(args, 'minLeadFrac', 0.2)
+const MIN_HELD_TICKS = numericFlag(args, 'minHeldTicks', 60)
+const MIN_SLIDE_TICKS = numericFlag(args, 'minSlideTicks', 40)
+const WARMUP_TICKS = numericFlag(args, 'warmupTicks', 10)
+const SETTLE_TIMEOUT_MS = numericFlag(args, 'settleTimeoutMs', 30000)
+const ARM_TIMEOUT_MS = numericFlag(args, 'armTimeoutMs', 120000)
+const CONTACT_SDF_M = numericFlag(args, 'contactSdf', 1)
+const CYCLES = numericFlag(args, 'cycles', 2)
+const CYCLE_TICKS = numericFlag(args, 'cycleTicks', 170)
+const SLIDE_YAWS_DEG = numericListFlag(args, 'slideYaws', [25, 75], ',')
 const SAMPLE_MS = 4
-const REST_LOOKAHEAD_MS = Number(args.restLookaheadMs || 30)
-const REST_EPS_M = Number(args.restEps || 0.01)
-const SETTLE_MS = Number(args.settleMs || 40)
-const MOVE_EPS_M = Number(args.moveEps || 0.005)
+const REST_LOOKAHEAD_MS = numericFlag(args, 'restLookaheadMs', 30)
+const REST_EPS_M = numericFlag(args, 'restEps', 0.01)
+const SETTLE_MS = numericFlag(args, 'settleMs', 40)
+const MOVE_EPS_M = numericFlag(args, 'moveEps', 0.005)
 const UNIT_WARM = 40
 const UNIT_SNAP_EVERY = 3
 const UNIT_SETTLE_SNAPS = 30
@@ -431,6 +432,23 @@ function unitAckClampArm() {
   }
 }
 
+function unitStalledAckArm() {
+  const { pe, vel, seq, tick } = latchEngine({ onGround: true, advanceServer: true })
+  const wedgedWhileMoving = pe.horizontallyWedged === true
+  pe.onServerSnapshot(serverSnapshot(pe, pe.lastServerState.position, vel, true, seq + 1), tick + 5000)
+  const wedgedAfterOneStalledAck = pe.horizontallyWedged === true
+  pe.onServerSnapshot(serverSnapshot(pe, pe.lastServerState.position, vel, true, seq + 2), tick + 5001)
+  const wedgedAfterTwoStalledAcks = pe.horizontallyWedged === true
+  return {
+    arm: 'unit-stalled-ack',
+    wedgedWhileMoving,
+    wedgedAfterOneStalledAck,
+    wedgedAfterTwoStalledAcks,
+    serverVelH: round(Math.hypot(vel[0], vel[2]), 4),
+  }
+}
+
+
 const ARMS = [
   { name: 'static-headon', wallBody: 'static', yaw: 0, slide: false },
   { name: 'kinematic-headon', wallBody: 'kinematic', yaw: 0, slide: false },
@@ -459,6 +477,7 @@ const unitResults = [
   unitResyncArm(),
   unitAirborneArm(),
   unitAckClampArm(),
+  unitStalledAckArm(),
 ]
 for (const u of unitResults) console.log('[wedge-unit] ' + JSON.stringify(u))
 
@@ -524,6 +543,15 @@ expect(ac.latchedBefore === true, `unit-ack-clamp: the block latched before the 
 expect(ac.bogusAckRejected === true, `unit-ack-clamp: an out-of-range inputSequence did not move _lastAckedSeq: ${ac.ackBefore} -> ${ac.ackAfterBogus}`)
 expect(ac.ackAdvancedAfter === true, `unit-ack-clamp: normal acks still advance after a rejected one (ended at ${ac.ackAfterBogus})`)
 expect(ac.wedgedAfterRecovery === false, `unit-ack-clamp: the block cleared once the server resumed moving (wedged ${ac.wedgedAfterRecovery})`)
+
+const st = byArm['unit-stalled-ack']
+
+expect(st.wedgedWhileMoving === false, `unit-stalled-ack: a server that keeps delivering new positions never latches the block (wedged ${st.wedgedWhileMoving})`)
+
+expect(st.wedgedAfterOneStalledAck === false, `unit-stalled-ack: one ack reporting ${st.serverVelH} m/s while the server stands still is not evidence of a block (wedged ${st.wedgedAfterOneStalledAck})`)
+
+expect(st.wedgedAfterTwoStalledAcks === true, `unit-stalled-ack: a stall that persists across two consecutive acks still latches the block (wedged ${st.wedgedAfterTwoStalledAcks})`)
+
 
 if (failures.length) {
   for (const f of failures) console.log('FAIL: ' + f)

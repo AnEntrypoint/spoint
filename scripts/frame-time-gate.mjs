@@ -16,6 +16,7 @@ import { contentionWatch, contentionMark, contentionVerdict, formatContention } 
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { argvNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -37,10 +38,10 @@ const UNLOCKED_RAF_ARGS = UNLOCK_RAF ? ['--disable-frame-rate-limit', '--disable
 const VENDOR_ARGS = VENDOR ? vendorPinArgs(VENDOR) : []
 const LOAD_TIMEOUT_MS = 480_000
 const READY_PROBE_STALL_LIMIT = 3
-const CAPTURE_MS = Number((process.argv.find(a => a.startsWith('--capture-ms=')) || '').slice('--capture-ms='.length)) || 8000
+const CAPTURE_MS = argvNumber(process.argv.slice(2), 'capture-ms', 8000)
 const CAPTURE_TIMEOUT_MS = CAPTURE_MS * 6 + 60_000
 const VEGETATION_FLOOR = 1000
-const VEGETATION_WAIT_MS = Number((process.argv.find(a => a.startsWith('--veg-wait-ms=')) || '').slice('--veg-wait-ms='.length)) || 420_000
+const VEGETATION_WAIT_MS = argvNumber(process.argv.slice(2), 'veg-wait-ms', 420_000)
 const SETTLE_POLL_MS = 3000
 const SETTLE_STABLE_POLLS = 3
 const SETTLE_PROBE_MS = 2000
@@ -50,7 +51,7 @@ const SETTLE_SLOW_PROBE_LIMIT = 3
 const GPU_FINGERPRINT_TOLERANCE = 1.25
 const GPU_CONTROL_INSTABILITY_FACTOR = 1.5
 const GPU_CONTROL_ARGS = gpuControlArgs({ accelerated: ACCELERATED, vendorArgs: VENDOR_ARGS, unlockedRafArgs: UNLOCKED_RAF_ARGS })
-const SETTLE_BUDGET_MS = Number((process.argv.find(a => a.startsWith('--settle-budget-ms=')) || '').slice('--settle-budget-ms='.length)) || 240_000
+const SETTLE_BUDGET_MS = argvNumber(process.argv.slice(2), 'settle-budget-ms', 240_000)
 
 function chromeProcessCount() {
   if (process.platform !== 'win32') return null

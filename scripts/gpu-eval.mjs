@@ -1,4 +1,5 @@
 import { withGpuPage, drainedSampleGroundMExpr } from './lib/gpu-eval.mjs'
+import { numericFlag } from './lib/witness-args.mjs'
 
 const BOOL_FLAGS = new Set(['drain'])
 function parseArgs(argv) {
@@ -16,7 +17,7 @@ if (!exprIn) { console.error("usage: node scripts/gpu-eval.mjs [--drain] [--back
 const expr = args.drain ? drainedSampleGroundMExpr(`(${exprIn})`) : exprIn
 
 const backend = typeof args.backend === 'string' ? args.backend : 'legacygl'
-const out = await withGpuPage({ port: Number(args.port || process.env.PORT || 8090), backend, angle: typeof args.angle === 'string' ? args.angle : null }, async (evalIn, { screenshot, probeGpu }) => {
+const out = await withGpuPage({ port: numericFlag(args, 'port', process.env.PORT || 8090), backend, angle: typeof args.angle === 'string' ? args.angle : null }, async (evalIn, { screenshot, probeGpu }) => {
   const gpu = await probeGpu()
   console.error(`[gpu-eval] renderer=${gpu.renderer} vendor=${gpu.vendor} accelerated=${gpu.accelerated}`)
   if (args.shot) { await screenshot(args.shot); console.error(`[gpu-eval] wrote ${args.shot}`) }

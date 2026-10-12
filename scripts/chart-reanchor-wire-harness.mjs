@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
+import { numericFlag } from './lib/witness-args.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -16,15 +17,15 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 const SCENARIO = args.scenario || 'forced'
 const AWARE = args.aware !== 'off'
-const ANCHORS = Number(args.anchors || (SCENARIO === 'natural' ? 32 : 2048))
-const HYSTERESIS = Number(args.hyst ?? (SCENARIO === 'natural' ? 0.75 : 0))
-const TARGET_EPOCHS = Number(args.epochs || (SCENARIO === 'chain' ? 14 : 1))
+const ANCHORS = numericFlag(args, 'anchors', (SCENARIO === 'natural' ? 32 : 2048))
+const HYSTERESIS = numericFlag(args, 'hyst', (SCENARIO === 'natural' ? 0.75 : 0))
+const TARGET_EPOCHS = numericFlag(args, 'epochs', (SCENARIO === 'chain' ? 14 : 1))
 const MIRROR = args.mirror !== 'off'
 const SERVICE = args.service !== 'off'
 const WORLD = args.world || 'smooth'
-const SMOOTH_RELIEF_SCALE = Number(args.relief ?? 0.0005)
-const CONTROL_SECONDS = Number(args.seconds || 20)
-const RUN_LIMIT_MS = Number(args.limitMs || 240000)
+const SMOOTH_RELIEF_SCALE = numericFlag(args, 'relief', 0.0005)
+const CONTROL_SECONDS = numericFlag(args, 'seconds', 20)
+const RUN_LIMIT_MS = numericFlag(args, 'limitMs', 240000)
 const FRAME_MS = 16
 
 const { createServer } = await import('../src/sdk/server.js')
@@ -442,7 +443,7 @@ async function scenarioReorder() {
   await mover.client.requestTeleport('to', { x: 300, z: 300 })
   await settle(server, mover)
   const stopFrames = startFrames(mover)
-  mover.delayMs = Number(args.delayMs ?? 120)
+  mover.delayMs = numericFlag(args, 'delayMs', 120)
   const serverTrace = []
   const clientSteps = new Map()
   if (args.serverTrace === '1') { const peT = mover.client._msgHandler.getPredEngine(); const addInputOriginal = peT.addInput.bind(peT); peT.addInput = (input, a, b) => { const seq = addInputOriginal(input, a, b); clientSteps.set(seq, { z: peT.localState.position[2], x: peT.localState.position[0], y: peT.localState.position[1], vz: peT.localState.velocity[2], epoch: mover.client._chart.epoch }); return seq }; const applyOriginal = peT.applyChartTransfer.bind(peT); peT.applyChartTransfer = (pass, ackSeq) => { applyOriginal(pass, ackSeq); for (const e of peT.inputHistory) clientSteps.set(e.sequence, { ...clientSteps.get(e.sequence), replayedZ: e.position[2], replayedX: e.position[0], replayedY: e.position[1], replayedVz: e.velocity[2] }) } }

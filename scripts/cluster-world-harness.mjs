@@ -2,6 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir } from 'node:fs/promises'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -9,7 +10,7 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 const SCENARIO = args.scenario || 'hosting'
-const RELIEF = Number(args.relief ?? 0.0005)
+const RELIEF = numericFlag(args, 'relief', 0.0005)
 
 const { createClusterRuntime } = await import('../src/sharding/ClusterRuntime.js')
 const { ClusterWorldCapacityError } = await import('../src/sharding/ClusterWorldHost.js')
@@ -216,7 +217,7 @@ async function scenarioHeap() {
   const { worldDef, serverConfig } = await baseWorld({ enabled: true })
   const { createClusterServerWorldFactory } = await import('../src/sharding/ClusterServerWorld.js')
   const factory = createClusterServerWorldFactory({ baseWorldDef: worldDef, serverConfig })
-  const wanted = Number(args.worlds ?? 8)
+  const wanted = numericFlag(args, 'worlds', 8)
   const worlds = []
   const perWorld = []
   for (let i = 0; i < wanted; i++) {
@@ -303,7 +304,7 @@ async function scenarioCensus() {
     }
   }
 
-  const playerCount = Math.max(1, Math.min(Number(args.players ?? 2), 8))
+  const playerCount = Math.max(1, Math.min(numericFlag(args, 'players', 2), 8))
   const clients = []
   for (let i = 0; i < playerCount; i++) {
     const c = makeClient(world.url)
@@ -354,7 +355,7 @@ async function scenarioCensus() {
   }
   const terrainStreamer = physics._terrainStreamer ?? null
   const centreSweep = []
-  for (const n of (args.centers ?? '8,16,32,64').split(',').map(Number)) {
+  for (const n of numericListFlag(args, 'centers', [8, 16, 32, 64], ',')) {
     const centres = centersFor(n)
     const stop = startSampling(`centres-${n}`)
     const t0 = performance.now()
@@ -370,7 +371,7 @@ async function scenarioCensus() {
     centreSweep.push(row)
   }
 
-  const dynamicBudget = Number(args.dynamics ?? worldDef.physicsBodyBudget ?? 512)
+  const dynamicBudget = numericFlag(args, 'dynamics', worldDef.physicsBodyBudget ?? 512)
   const stopDyn = startSampling(`dynamics-${dynamicBudget}`)
   const dynamicIds = []
   const spread = Math.ceil(Math.sqrt(dynamicBudget))
@@ -515,7 +516,7 @@ async function scenarioHandoff() {
   tracked.get('M').heading.walking = true
   let phase = 'approach'
   let lastLog = 0
-  while (performance.now() - t0 < Number(args.limitMs || 420000)) {
+  while (performance.now() - t0 < numericFlag(args, 'limitMs', 420000)) {
     refresh()
     runtime.manager.step()
     await runtime.coordinator.settle()
@@ -570,7 +571,7 @@ async function scenarioTilt() {
   const centre = anchorBasis([0.3, 0.7, 0.4])
   const { createClusterServerWorldFactory } = await import('../src/sharding/ClusterServerWorld.js')
   const factory = createClusterServerWorldFactory({ baseWorldDef: worldDef, serverConfig })
-  const separationM = Number(args.separation ?? 6000)
+  const separationM = numericFlag(args, 'separation', 6000)
   const dirA = tangentLocalToDir(centre, R, -separationM / 2, 0)
   const dirB = tangentLocalToDir(centre, R, separationM / 2, 0)
   const spawnDir = dirB
@@ -635,7 +636,7 @@ if (!run) { console.error(`unknown scenario ${SCENARIO}; one of ${Object.keys(SC
 const result = await run().catch(e => { failures.push(`scenario ${SCENARIO} threw before it could report anything: ${e?.message ?? e}`); return null })
 console.log(`=====RESULT=====
 ${JSON.stringify({ scenario: SCENARIO, ...result }, null, 1)}`)
-const pendingHandles = await quiesceLoop(Number(args.quiesceMs ?? 10000))
+const pendingHandles = await quiesceLoop(numericFlag(args, 'quiesceMs', 10000))
 log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
 if (measurements.length === 0) failures.push(`scenario ${SCENARIO} checked no measurement, so its exit code says nothing about how the cluster world behaved`)
 for (const f of failures) console.error(`[cluster-harness] FAIL ${f}`)

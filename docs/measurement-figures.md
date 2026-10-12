@@ -50,6 +50,7 @@ Witness for every entry below: the instrument-lane counts from a368d997 as quote
 - `[INSTR:frame-time-gate.mjs:36]` [DERIVED] no `perf-run.mjs` instrument unlocks vsync. `--disable-frame-rate-limit --disable-gpu-vsync` exist only in `frame-time-gate.mjs:36`, behind `UNLOCK_RAF`. Arms idle into the vsync cap otherwise.
 - `[INSTR:perf-run.mjs]` [LANDED] `info.render.calls` is CUMULATIVE and is the only reliable liveness signal; `drawCalls` and `.triangles` read 0 on the measured backend.
 - `[INSTR:perf-run.mjs drawsInstrument.authoritativeField]` the authoritative draw count is that field. `vegProfile.meshInstances` is absent on `WebGPULodInstancer`.
+- `[STAT:count] [INSTR:scripts/lib/witness-args.mjs, live refusal runs over 51 tracked scripts] [LANDED]` a numeric CLI flag now refuses instead of measuring nothing: bare `--tol` and `--tol=abc` each exit 2 printing `--tol needs a finite number, got "abc"`, so no arm runs on a knob that parsed to NaN or to a default. Enumerated against every command line this file records, none was produced with an inert knob: each passes its value with `=`, which the older `Number(...)` read honoured, or names a boolean or string flag. The one knob that ever was inert, `?gpuabms=`, is the struck row in section 5. `--no-walk` is honoured: `perf-run.mjs` reads it as `has('no-walk')` and empties the movement legs, so the static arm really is static.
 - Per-pass timing statistics (percentiles, averages, the contention and noise bands) are INVALIDATED; their entries are in section 0.
 
 ## 2. Frame-time baselines

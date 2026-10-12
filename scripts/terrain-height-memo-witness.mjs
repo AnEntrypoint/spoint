@@ -5,6 +5,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -20,8 +21,8 @@ for (let i = 0; i < argv.length; i++) {
 }
 const flag = (n, d) => (ARGS.has(n) ? ARGS.get(n) : d)
 
-const SECONDS = Number(flag('seconds', '45'))
-const WARMUP_MS = Number(flag('warmup', '10000'))
+const SECONDS = flagNumber(flag, 'seconds', 45, argv)
+const WARMUP_MS = flagNumber(flag, 'warmup', 10000, argv)
 const WORLD = String(flag('world', 'tps-game'))
 const GPU = String(flag('gpu', 'nvidia'))
 const KNOB = flag('knob', null)

@@ -3,13 +3,14 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 const ONLY = args.only || 'all'
-const GRID = Number(args.grid ?? 40)
-const CELLS = args.cells ? String(args.cells).split(',').map(Number) : [114, 115]
+const GRID = numericFlag(args, 'grid', 40)
+const CELLS = numericListFlag(args, 'cells', [114, 115], ',')
 
 const SHARED_SAMPLE_MAX_DIFF_M = 1e-6
 const SEAM_MAX_DIFF_M = 0.05

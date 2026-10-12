@@ -1,5 +1,6 @@
 import { writeFileSync, renameSync, existsSync, readFileSync, readdirSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
+import { numericFlag } from './witness-args.mjs'
 
 const DEFAULT_SESSION_ID = 'f73df536-0f66-49a1-8888-2a064d23416a'
 const DEFAULT_TIMEOUT_MS = 180000
@@ -37,8 +38,7 @@ function parseArgs(argv) {
 
 function numberFlag(flags, name, fallback) {
   if (!flags.has(name)) return fallback
-  const value = Number(flags.get(name))
-  return Number.isFinite(value) ? value : fallback
+  return numericFlag({ [name]: flags.get(name) }, name, fallback)
 }
 
 function findProjectRoot(start) {

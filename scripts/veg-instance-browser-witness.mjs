@@ -6,6 +6,7 @@ import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { flagNumber, numericListFlag } from './lib/witness-args.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -23,10 +24,10 @@ const flag = (n, d) => (ARGS.has(n) ? ARGS.get(n) : d)
 
 const GPU = flag('gpu', 'amd')
 const AT = String(flag('at', '-500,-500'))
-const SETTLE_MS = Number(flag('settle', '45000'))
-const WALK_MS = Number(flag('walk', '0'))
+const SETTLE_MS = flagNumber(flag, 'settle', 45000, argv)
+const WALK_MS = flagNumber(flag, 'walk', 0, argv)
 const ROUTE = String(flag('route', '-60,-12.5;-60,-60;0,-60'))
-const WALK_SPEED = Number(flag('walk-speed', '7'))
+const WALK_SPEED = flagNumber(flag, 'walk-speed', 7, argv)
 const EXPECT_VENDOR = flag('expect-vendor', GPU)
 const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
 
@@ -172,7 +173,7 @@ try {
   ]
 
   if (WALK_MS > 0) {
-    const waypoints = ROUTE.split(';').map((p) => { const n = p.split(',').map(Number); return { x: n[0], z: n[1] } })
+    const waypoints = ROUTE.split(';').map((p) => { const n = numericListFlag({ route: p }, 'route', null, ',', 2); return { x: n[0], z: n[1] } })
     const started = await page.evaluate((wpts, speed) => {
       const route = window.__spoint && window.__spoint.route
       if (typeof route !== 'function') return { ok: false, reason: 'window.__spoint.route is not a function' }

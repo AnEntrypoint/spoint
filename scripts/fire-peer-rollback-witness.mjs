@@ -3,12 +3,13 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mulberry32 } from './lib/net-conditioner.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
+import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
-const DURATION_MS = Number(args.duration || 15000)
-const [LAT, JIT, LOSS] = (args.cond || '25/5/1').split('/').map(Number)
+const DURATION_MS = numericFlag(args, 'duration', 15000)
+const [LAT, JIT, LOSS] = numericListFlag(args, 'cond', [25, 5, 1], '/', 3)
 
 const { createServerDeps, wireServerHandlers } = await import('../src/sdk/server.js')
 const { createPeerSimSession } = await import('../src/netcode/PeerSimSession.js')
@@ -109,7 +110,7 @@ async function run(profileName) {
     const ctx = peers.get(pk)
     ctx.playerManager.addInput(ctx.peerSession.localPlayerId, scriptedInput(performance.now() - t0, i * 700), seq++)
   }, 1000 / 60))
-  for (const [i, pk] of roster.entries()) setTimeout(() => peers.get(pk).peerSession.start(), i * Number(args.startSkewMs || 400))
+  for (const [i, pk] of roster.entries()) setTimeout(() => peers.get(pk).peerSession.start(), i * numericFlag(args, 'startSkewMs', 400))
   await new Promise(r => setTimeout(r, DURATION_MS))
   feeders.forEach(clearInterval)
 

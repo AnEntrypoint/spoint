@@ -2,6 +2,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { numericFlag } from './lib/witness-args.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -20,21 +21,21 @@ const args = Object.fromEntries(process.argv.slice(2).map(a => {
 }))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-const PLAYERS = Number(args.players || 64)
-const RADIUS_KM = Number(args.radiusKm || 52)
-const DROP_M = Number(args.dropM || 120)
-const TICKS = Number(args.ticks || 120)
-const REPS = Number(args.reps || 10)
+const PLAYERS = numericFlag(args, 'players', 64)
+const RADIUS_KM = numericFlag(args, 'radiusKm', 52)
+const DROP_M = numericFlag(args, 'dropM', 120)
+const TICKS = numericFlag(args, 'ticks', 120)
+const REPS = numericFlag(args, 'reps', 10)
 const WORLD = args.world || 'tps-game'
 const INJECT = args.inject || 'none'
 const OUT = args.out || null
-const LANDING_MIN = Number(args.landingMin || 24)
-const REUSE_DIVISOR = Number(args.reuseDivisor || 8)
-const ARM_TIMEOUT_MS = Number(args.armTimeoutMs || 180000)
-const LANDING_TIMEOUT_MS = Number(args.landingTimeoutMs || 180000)
-const LANDING_DROP_M = Number(args.landingDropM || 4)
-const LANDING_CELL_M = Number(args.landingCellM || 18)
-const LANDING_RADIUS_KM = Number(args.landingRadiusKm ?? 0)
+const LANDING_MIN = numericFlag(args, 'landingMin', 24)
+const REUSE_DIVISOR = numericFlag(args, 'reuseDivisor', 8)
+const ARM_TIMEOUT_MS = numericFlag(args, 'armTimeoutMs', 180000)
+const LANDING_TIMEOUT_MS = numericFlag(args, 'landingTimeoutMs', 180000)
+const LANDING_DROP_M = numericFlag(args, 'landingDropM', 4)
+const LANDING_CELL_M = numericFlag(args, 'landingCellM', 18)
+const LANDING_RADIUS_KM = numericFlag(args, 'landingRadiusKm', 0)
 
 const failures = []
 function expect(cond, label) {

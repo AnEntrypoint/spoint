@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, readFileSync, renameSync, rmSync } from 'node
 import { spawn } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { numericFlag } from './lib/witness-args.mjs'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const LOCK_DIR = join(REPO_ROOT, '.gpu-lock')
@@ -114,10 +115,11 @@ function startHeartbeat(owner) {
 }
 
 function numFlag(argv, name, fallback) {
+  const eq = argv.find(a => a.startsWith(`--${name}=`))
+  if (eq !== undefined) return numericFlag({ [name]: eq.slice(name.length + 3) }, name, fallback)
   const i = argv.indexOf(`--${name}`)
   if (i === -1) return fallback
-  const value = Number(argv[i + 1])
-  return Number.isFinite(value) ? value : fallback
+  return numericFlag({ [name]: argv[i + 1] ?? true }, name, fallback)
 }
 
 function argSplit(argv) {

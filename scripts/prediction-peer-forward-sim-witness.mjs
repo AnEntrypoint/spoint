@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFile, rm } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -13,14 +13,14 @@ const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 
 const args = parseArgs(process.argv.slice(2))
 const CONDITIONS = strArg(args.cond, '0/0/0;50/10/2;100/20/3').split(';')
-const REPS = numArg(args.reps, 3)
+const REPS = numericFlag(args, 'reps', 3)
 const DURATION = strArg(args.duration, '15000')
 const WORLD = strArg(args.world, 'arena')
 const HOLD = strArg(args.hold, 'forward')
 const ARMS = strArg(args.arms, 'push,control').split(',')
-const MAX_ERR_CM = numArg(args.maxErrCm, Infinity)
-const MAX_POPS = numArg(args.maxPops, Infinity)
-const ROW = numArg(args.row, 2)
+const MAX_ERR_CM = numericFlag(args, 'maxErrCm', Infinity)
+const MAX_POPS = numericFlag(args, 'maxPops', Infinity)
+const ROW = numericFlag(args, 'row', 2)
 
 const ARM_FLAGS = { push: [], control: ['--peerSeparation=off'] }
 

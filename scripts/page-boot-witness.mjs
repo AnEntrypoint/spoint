@@ -6,6 +6,7 @@ import { unreachedReasons } from './lib/witness-reachability.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE, CLIENT_ROOT_RAW,
 } from './lib/served-client-root.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 function flag(name, dflt = null) {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -18,8 +19,8 @@ const PARAMS = flag('params', 'singleplayer')
 const SETUP = flag('set', null)
 const WAITS = String(flag('wait', 'window.__app && window.__app.loadingMachine && window.__app.loadingMachine.isReady')).split('|').map(s => s.trim()).filter(Boolean)
 const REQUIRES = String(flag('require', '')).split('|').map(s => s.trim()).filter(Boolean)
-const TIMEOUT_MS = Number(flag('timeout', '180000'))
-const OBSERVE_MS = Number(flag('observe', '0'))
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 180000, process.argv.slice(2))
+const OBSERVE_MS = flagNumber(flag, 'observe', 0, process.argv.slice(2))
 const PROXY = flag('proxy', null)
 const WORLD = flag('world', 'tps-game')
 const HEADLESS = !has('headed')
@@ -195,7 +196,7 @@ async function main() {
     const levelCounts = consoleEntries.reduce((acc, e) => { acc[e.level] = (acc[e.level] || 0) + 1; return acc }, {})
     console.log(`[page-boot-witness] console entries=${consoleEntries.length} levels=${JSON.stringify(levelCounts)} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length} cancelledRequests=${cancelledRequests.length} consoleErrors=${consoleErrorEntries.length} unallowedConsoleErrors=${unallowedConsoleErrors.length}`)
     const warnErr = has('console-all') ? consoleEntries : consoleEntries.filter(e => e.level === 'warning' || e.level === 'error' || e.level === 'exception')
-    const consoleLimit = Number(flag('console-limit', '20'))
+    const consoleLimit = flagNumber(flag, 'console-limit', 20, process.argv.slice(2))
     const shown = consoleLimit === 0 ? warnErr : warnErr.slice(0, consoleLimit)
     for (const e of shown) console.log(`  [${e.level}] ${e.text.slice(0, 240)}`)
     for (const e of unallowedConsoleErrors) console.log(`  [unallowed-console-error] ${e.text.slice(0, 240)}`)

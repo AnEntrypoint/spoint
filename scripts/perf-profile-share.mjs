@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const argv = process.argv.slice(2)
 const ARGS = new Map()
@@ -14,9 +15,9 @@ for (let i = 0; i < argv.length; i++) {
 const flag = (n, d) => (ARGS.has(n) ? String(ARGS.get(n)) : String(d))
 const positional = argv.filter((a) => !a.startsWith('--'))
 
-const TOP = Number(flag('top', '25'))
+const TOP = flagNumber(flag, 'top', 25, argv)
 const MATCH = flag('match', 'updateLOD')
-const MIN_PCT = Number(flag('min-pct', '0'))
+const MIN_PCT = flagNumber(flag, 'min-pct', 0, argv)
 
 if (!positional.length) {
   console.log('usage: node scripts/perf-profile-share.mjs [--match=updateLOD] [--top=25] <profile.cpuprofile> [...]')

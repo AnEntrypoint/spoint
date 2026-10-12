@@ -5,6 +5,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const argv = process.argv.slice(2)
 function flag(name, dflt = null) {
@@ -15,12 +16,12 @@ function flag(name, dflt = null) {
 const PORT = flag('port', '3139')
 const WORLD = flag('world', 'tps-game')
 const PARAMS = flag('params', 'singleplayer')
-const TIMEOUT_MS = Number(flag('timeout', '360000'))
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 360000, argv)
 const EXPECT = flag('expect', 'hit')
-const MAX_WALK = Number(flag('max-walk', '0'))
-const MAX_PHASE_MS = Number(flag('max-phase-ms', '0'))
+const MAX_WALK = flagNumber(flag, 'max-walk', 0, argv)
+const MAX_PHASE_MS = flagNumber(flag, 'max-phase-ms', 0, argv)
 const REQUIRE_APP = flag('require-app', null)
-const SETTLE_MS = Number(flag('settle', '1500'))
+const SETTLE_MS = flagNumber(flag, 'settle', 1500, argv)
 const NO_MANIFEST = argv.includes('--no-manifest')
 const GPU_MODE = gpuModeFlag()
 const ROOT = join(process.cwd())

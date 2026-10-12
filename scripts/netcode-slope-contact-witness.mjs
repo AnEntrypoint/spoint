@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFile, rm } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
+import { numericFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -14,13 +14,13 @@ const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 const args = parseArgs(process.argv.slice(2))
 const WORLD = strArg(args.world, 'slope')
 const WANT_KIND = strArg(args.kind, 'slope')
-const TICK = numArg(args.tick, 60)
-const TICK_WINDOW_HZ = numArg(args.tickWindowHz, 2)
-const REPS = numArg(args.reps, 3)
-const MAX_ATTEMPTS = numArg(args.maxAttempts, 8)
+const TICK = numericFlag(args, 'tick', 60)
+const TICK_WINDOW_HZ = numericFlag(args, 'tickWindowHz', 2)
+const REPS = numericFlag(args, 'reps', 3)
+const MAX_ATTEMPTS = numericFlag(args, 'maxAttempts', 8)
 const DURATION = strArg(args.duration, '12000')
 const COND = strArg(args.cond, '0/0/0')
-const MIN_KIND_ACKS = numArg(args.minKindAcks, 50)
+const MIN_KIND_ACKS = numericFlag(args, 'minKindAcks', 50)
 const HOLD = strArg(args.hold, 'forward')
 
 const fmt = (v, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '-')

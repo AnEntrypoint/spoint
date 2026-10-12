@@ -6,6 +6,7 @@ import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const argv = process.argv.slice(2)
 function flag(name, dflt = null) {
@@ -17,8 +18,8 @@ const PORT = flag('port', '3167')
 const WORLD = flag('world', 'sandbox')
 const PARAMS = flag('params', 'singleplayer')
 const EXPECT = flag('expect', 'absent')
-const TIMEOUT_MS = Number(flag('timeout', '240000'))
-const SETTLE_MS = Number(flag('settle', '3000'))
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 240000, argv)
+const SETTLE_MS = flagNumber(flag, 'settle', 3000, argv)
 const GPU_MODE = gpuModeFlag()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')

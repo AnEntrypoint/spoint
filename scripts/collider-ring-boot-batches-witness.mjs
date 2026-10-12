@@ -5,18 +5,19 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { measureUncontested, formatRowContention, describeContested, contestedRows } from './lib/timing-gate.mjs'
 import { cpuPerThousand } from './lib/counted-work.mjs'
+import { numericFlag } from './lib/witness-args.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
-const PLAYERS = Number(args.players ?? 64)
-const SEPARATION = Number(args.separation ?? 1000)
+const PLAYERS = numericFlag(args, 'players', 64)
+const SEPARATION = numericFlag(args, 'separation', 1000)
 const DRAIN_MS = 16
-const CAP_OVERRIDE = args.cap ? Number(args.cap) : null
-const MAXCENTERS_OVERRIDE = args.maxCenters ? Number(args.maxCenters) : null
-const CONTEST_RETRIES = Number(args.contestRetries ?? 1)
-const BOOT_CPU_CEILING = Number(args.bootCpuCeiling ?? 1.25)
-const BOOT_BUDGET = Number(args.bootBudget ?? 6)
+const CAP_OVERRIDE = numericFlag(args, 'cap', null)
+const MAXCENTERS_OVERRIDE = numericFlag(args, 'maxCenters', null)
+const CONTEST_RETRIES = numericFlag(args, 'contestRetries', 1)
+const BOOT_CPU_CEILING = numericFlag(args, 'bootCpuCeiling', 1.25)
+const BOOT_BUDGET = numericFlag(args, 'bootBudget', 6)
 
 const BASELINE = {
   16: { live: 768, hash: 'e821e07b' },
