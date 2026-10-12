@@ -39,12 +39,13 @@ function checkSlices(w) {
     for (const k of PLAYER_POSITIVE_KEYS) if (w.player[k] !== undefined && !(isNum(w.player[k]) && w.player[k] > 0)) return reject(`player.${k}`, 'must be a positive finite number')
   }
   for (const k of ['movement', 'camera', 'animation', 'scene', 'input']) if (w[k] !== undefined && !isObj(w[k])) return reject(k, 'must be an object')
+  if (w.terrain === true) return reject('terrain', 'must be a terrain config object, false or null: true declares no terrain config and no terrain consumer parses it')
   if (w.terrain !== undefined && w.terrain !== null && typeof w.terrain !== 'boolean') {
-    if (!isObj(w.terrain)) return reject('terrain', 'must be an object, a boolean or null')
+    if (!isObj(w.terrain)) return reject('terrain', 'must be a terrain config object, false or null')
     const t = parseTerrainConfig(w.terrain)
     if (!t.ok) return reject(t.path ? `terrain.${t.path}` : 'terrain', t.reason)
   }
-  if (w.planetRadius !== undefined && !(isNum(w.planetRadius) && w.planetRadius > 0)) return reject('planetRadius', 'must be a positive finite number: the AOI cell lattice is flat unless this radius is the one resolveClusterConfig resolves from enabled clusters, and a zero, negative or non-finite radius silently serves flat cells under a planet')
+  if (w.planetRadius !== undefined && !(isNum(w.planetRadius) && w.planetRadius >= 0)) return reject('planetRadius', 'must be a finite number >= 0 (0 declares a flat world)')
   if (w.iceServers !== undefined) {
     if (!Array.isArray(w.iceServers)) return reject('iceServers', 'must be an array of RTCIceServer objects')
     const bad = w.iceServers.findIndex(s => !isObj(s) || !(typeof s.urls === 'string' || (Array.isArray(s.urls) && s.urls.every(u => typeof u === 'string'))))
