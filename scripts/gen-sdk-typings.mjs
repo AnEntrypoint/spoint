@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, symlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname, posix } from 'node:path'
+import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  SOURCE_REL, GENERATED_REL, DIGEST_LINE, MAX_BUFFER,
+  indexSource, recordedDigest, normalizeEol
+} from './lib/appcontext-closure.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -17,11 +20,7 @@ const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
 const CHECK_ONLY = process.argv.includes('--check')
 const PRE_COMMIT = process.argv.includes('--pre-commit')
-const SOURCE_REL = 'src/apps/AppContext.js'
-const GENERATED_REL = 'client/editor/sdk-typings.generated.d.ts'
 const SNAPSHOT_DIR = join(ROOT, '.gm', 'tmp', 'sdk-typings-staged')
-const DIGEST_LINE = '// source digest: '
-const MAX_BUFFER = 256 * 1024 * 1024
 
 function git(...args) {
   const env = { ...process.env }
@@ -33,130 +32,17 @@ function gitIndex(...args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: MAX_BUFFER })
 }
 
-function normalizeEol(text) {
-  return text.replace(/\r\n/g, '\n')
-}
-
-function gitCatFileBatch(shas) {
-  const out = execFileSync('git', ['cat-file', '--batch'], {
-    cwd: ROOT,
-    input: Buffer.from(shas.join('\n') + '\n', 'utf8'),
-    maxBuffer: MAX_BUFFER
-  })
-  const got = new Map()
-  let off = 0
-  while (off < out.length) {
-    const nl = out.indexOf(0x0a, off)
-    if (nl < 0) break
-    const header = out.slice(off, nl).toString('utf8').split(' ')
-    off = nl + 1
-    if (header.length < 3) continue
-    const size = Number(header[2])
-    if (!Number.isFinite(size) || size < 0) break
-    got.set(header[0], out.slice(off, off + size).toString('utf8'))
-    off += size + 1
-  }
-  return got
-}
-
-function importSpecifiers(text) {
-  const specs = []
-  const patterns = [
-    /\bfrom\s*['"]([^'"\n]+)['"]/g,
-    /\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g,
-    /(?:^|[\n;{}])\s*import\s*['"]([^'"\n]+)['"]/g
-  ]
-  for (const re of patterns) {
-    let m
-    while ((m = re.exec(text))) specs.push(m[1])
-  }
-  return specs
-}
-
-function resolveClosureMember(has, fromRel, spec) {
-  if (!spec.startsWith('.')) return null
-  const base = posix.normalize(posix.join(posix.dirname(fromRel), spec))
-  for (const candidate of [base, base + '.js', base + '.mjs', posix.join(base, 'index.js')]) {
-    if (has(candidate)) return candidate
-  }
-  return null
-}
-
-function indexSource() {
-  const shas = new Map()
-  for (const line of gitIndex('ls-files', '--stage').split('\n')) {
-    const tab = line.indexOf('\t')
-    if (tab < 0) continue
-    const meta = line.slice(0, tab).trim().split(/\s+/)
-    if (meta.length < 2) continue
-    shas.set(line.slice(tab + 1), meta[1])
-  }
-  const contents = new Map()
-  const load = (want) => {
-    const got = gitCatFileBatch(want)
-    for (const sha of want) contents.set(sha, got.has(sha) ? got.get(sha) : null)
-  }
-  const has = (rel) => shas.has(rel)
-  const read = (rel) => {
-    const sha = shas.get(rel)
-    if (sha === undefined) return null
-    if (!contents.has(sha)) load([sha])
-    return contents.get(sha)
-  }
-  let members = null
-  return {
-    members() {
-      if (members !== null) return members
-      const seen = new Set()
-      let frontier = [SOURCE_REL]
-      for (;;) {
-        const want = new Set()
-        for (const rel of frontier) {
-          const sha = shas.get(rel)
-          if (sha !== undefined && !contents.has(sha)) want.add(sha)
-        }
-        if (want.size) load([...want])
-        const next = []
-        for (const rel of frontier) {
-          if (seen.has(rel)) continue
-          seen.add(rel)
-          const text = read(rel)
-          if (text === null) continue
-          for (const spec of importSpecifiers(text)) {
-            const member = resolveClosureMember(has, rel, spec)
-            if (member !== null && !seen.has(member)) next.push(member)
-          }
-        }
-        if (next.length === 0) break
-        frontier = next
-      }
-      members = [...seen].sort()
-      return members
-    },
-    digest() {
-      const outer = createHash('sha256')
-      for (const rel of this.members()) {
-        const text = read(rel)
-        if (text === null) continue
-        const inner = createHash('sha256').update(normalizeEol(text), 'utf8').digest('hex')
-        outer.update(rel + '\u0000' + inner + '\n')
-      }
-      return outer.digest('hex')
-    }
-  }
-}
-
 function discardStagedSnapshot() {
   rmSync(SNAPSHOT_DIR, { recursive: true, force: true })
   try { git('worktree', 'prune') } catch { }
 }
 
-function materializeStagedSnapshot(index) {
+async function materializeStagedSnapshot(index) {
   discardStagedSnapshot()
   git('worktree', 'add', '--detach', SNAPSHOT_DIR, 'HEAD')
   symlinkSync(join(ROOT, 'node_modules'), join(SNAPSHOT_DIR, 'node_modules'), 'junction')
   const staged = new Set(stagedPaths())
-  for (const rel of index.members()) {
+  for (const rel of await index.members()) {
     if (!staged.has(rel)) continue
     const target = join(SNAPSHOT_DIR, rel)
     let content
@@ -185,11 +71,6 @@ function findEmittedDeclaration(root, fileName) {
   return null
 }
 
-function recordedDigest(text) {
-  const m = text.match(/\/\/ source digest: ([0-9a-f]{64})/)
-  return m === null ? null : m[1]
-}
-
 function stagedPaths() {
   return gitIndex('diff', '--cached', '--name-only').split('\n').map(s => s.trim()).filter(Boolean)
 }
@@ -203,13 +84,14 @@ function refuse(lines) {
   process.exit(1)
 }
 
-function checkStagedClosure() {
+async function checkStagedClosure() {
   const staged = stagedPaths()
   if (staged.length === 0) return
-  const index = indexSource()
-  const touched = staged.filter(p => index.members().includes(p))
+  const index = indexSource(ROOT)
+  const members = await index.members()
+  const touched = staged.filter(p => members.includes(p))
   if (touched.length === 0) return
-  const digest = index.digest()
+  const digest = await index.digest()
 
   if (!staged.includes(GENERATED_REL)) {
     refuse([
@@ -234,7 +116,7 @@ function checkStagedClosure() {
       `fix: git add ${touched.join(' ')} && npm run gen-typings && git add ${GENERATED_REL}`
     ])
   }
-  console.log(`[gen-sdk-typings] ${GENERATED_REL} matches the staged ${SOURCE_REL} import closure (${digest.slice(0, 12)}, ${index.members().length} files)`)
+  console.log(`[gen-sdk-typings] ${GENERATED_REL} matches the staged ${SOURCE_REL} import closure (${digest.slice(0, 12)}, ${members.length} files)`)
 }
 
 function extractMemberNames(dtsText) {
@@ -280,7 +162,7 @@ async function main() {
     process.exit(1)
   }
   if (PRE_COMMIT) {
-    checkStagedClosure()
+    await checkStagedClosure()
     return
   }
   if (!existsSync(TSC_BIN)) {
@@ -288,11 +170,11 @@ async function main() {
     process.exit(1)
   }
 
-  const index = indexSource()
+  const index = indexSource(ROOT)
   const tmp = mkdtempSync(join(tmpdir(), 'sdk-typings-'))
   try {
-    const tscTarget = materializeStagedSnapshot(index)
-    const digest = index.digest()
+    const tscTarget = await materializeStagedSnapshot(index)
+    const digest = await index.digest()
     const emittedName = 'AppContext.d.ts'
     const args = [
       '--ignoreConfig',

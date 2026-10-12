@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { SOURCE_REL, GENERATED_REL, MAX_BUFFER, catFileBatch, makeIndex, normalizeEol, recordedDigest } from './appcontext-closure.mjs'
 
 const REPO = 'AnEntrypoint/spoint'
 const ROOT = process.cwd()
@@ -21,6 +22,11 @@ function parseArgv(argv) {
 
 function ghToken() {
   return execFileSync('gh', ['auth', 'token'], { encoding: 'utf8' }).trim()
+}
+
+function refuse(lines) {
+  for (const line of lines) console.error('[git-api-publish] ' + line)
+  process.exit(1)
 }
 
 async function main() {
@@ -48,26 +54,129 @@ async function main() {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + path + ' :: ' + text.slice(0, 500))
     return JSON.parse(text)
   }
+  async function remoteBlobText(sha) {
+    const blob = await gh('/repos/' + repo + '/git/blobs/' + sha)
+    if (typeof blob.content === 'string' && blob.content.length > 0) {
+      return Buffer.from(blob.content, blob.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8')
+    }
+    const r = await fetch('https://api.github.com/repos/' + repo + '/git/blobs/' + sha, { headers: { ...H, Accept: 'application/vnd.github.raw' } })
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' /repos/' + repo + '/git/blobs/' + sha)
+    return await r.text()
+  }
 
   const tip = (await gh('/repos/' + repo + '/git/ref/heads/main')).object.sha
-  const tree = []
-  const local = {}
+
+  const prepared = []
   for (const rel of args.paths) {
-    const lf = readFileSync(ROOT + '/' + rel, 'utf8').replace(/\r\n/g, '\n')
-    const blob = await gh('/repos/' + repo + '/git/blobs', {
-      method: 'POST',
-      body: JSON.stringify({ content: Buffer.from(lf, 'utf8').toString('base64'), encoding: 'base64' }),
-    })
-    tree.push({ path: rel, mode: '100644', type: 'blob', sha: blob.sha })
-    local[rel] = execFileSync('git', ['hash-object', '--path=' + rel, rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+    prepared.push({ rel, text: normalizeEol(readFileSync(ROOT + '/' + rel, 'utf8')), buffer: null })
   }
   for (const rel of args.binary) {
+    const buffer = readFileSync(ROOT + '/' + rel)
+    prepared.push({ rel, text: buffer.toString('utf8'), buffer })
+  }
+  const local = {}
+  for (const p of prepared) {
+    local[p.rel] = execFileSync('git', ['hash-object', '--path=' + p.rel, p.rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+  }
+
+  const enforceClosureGate = async () => {
+    const publishing = new Set(prepared.map(p => p.rel))
+    const listing = await gh('/repos/' + repo + '/git/trees/' + tip + '?recursive=1')
+    if (listing.truncated) {
+      throw new Error('closure gate: the tip tree ' + tip + ' came back truncated, so the ' + SOURCE_REL + ' import closure cannot be enumerated; refusing to publish unverified')
+    }
+    const atTip = new Map()
+    for (const entry of listing.tree) if (entry.type === 'blob') atTip.set(entry.path, entry.sha)
+    if (!atTip.has(SOURCE_REL)) {
+      throw new Error('closure gate: ' + SOURCE_REL + ' is absent from tip tree ' + tip + '; this is not the spoint closure')
+    }
+    const byPath = new Map(prepared.map(p => [p.rel, p]))
+    const blobCache = new Map()
+    const has = (rel) => atTip.has(rel) || publishing.has(rel)
+    const read = async (rel) => {
+      if (byPath.has(rel)) return byPath.get(rel).text
+      const sha = atTip.get(rel)
+      if (sha === undefined) return null
+      if (blobCache.has(sha)) return blobCache.get(sha)
+      let text
+      try {
+        text = execFileSync('git', ['cat-file', 'blob', sha], { cwd: ROOT, encoding: 'utf8', maxBuffer: MAX_BUFFER })
+      } catch {
+        text = await remoteBlobText(sha)
+      }
+      blobCache.set(sha, text)
+      return text
+    }
+
+    const preload = async (rels) => {
+      const wanted = []
+      for (const rel of rels) {
+        if (byPath.has(rel)) continue
+        const sha = atTip.get(rel)
+        if (sha === undefined || blobCache.has(sha)) continue
+        wanted.push([rel, sha])
+      }
+      if (wanted.length === 0) return
+      const shas = [...new Set(wanted.map(w => w[1]))]
+      let batch = new Map()
+      try {
+        batch = catFileBatch(shas, ROOT)
+      } catch {
+        batch = new Map()
+      }
+      for (const [, sha] of wanted) {
+        if (blobCache.has(sha)) continue
+        blobCache.set(sha, batch.has(sha) ? batch.get(sha) : await remoteBlobText(sha))
+      }
+    }
+
+    const index = makeIndex({ has, read, preload })
+    const members = await index.members()
+    const memberSet = new Set(members)
+    const changed = [...publishing].filter(rel => memberSet.has(rel) && atTip.get(rel) !== local[rel])
+    const digest = await index.digest()
+
+    if (publishing.has(GENERATED_REL)) {
+      const recorded = recordedDigest(byPath.get(GENERATED_REL).text)
+      if (recorded === null) {
+        refuse([
+          'REFUSING PUBLISH: ' + GENERATED_REL + ' carries no source digest, so it cannot be checked against this tree.',
+          'it predates the digest header or was hand-edited.',
+          'fix: npm run gen-typings, then publish ' + GENERATED_REL + ' again'
+        ])
+      }
+      if (recorded !== digest) {
+        refuse([
+          'REFUSING PUBLISH: ' + GENERATED_REL + ' was generated from source digest ' + recorded.slice(0, 12) + ',',
+          'but the tree this publish would write digests the ' + SOURCE_REL + ' import closure to ' + digest.slice(0, 12) + '.',
+          'the committed artifact would not match the committed source, so the CI drift step would fail.',
+          'closure member(s) carried by this publish: ' + (changed.length ? changed.join(', ') : '(none)') + '.',
+          'fix: npm run gen-typings over exactly the closure content you are publishing, then publish ' + GENERATED_REL + ' in the same commit as every changed closure member'
+        ])
+      }
+      console.log('[git-api-publish] closure gate: ' + GENERATED_REL + ' matches the ' + SOURCE_REL + ' import closure of the tree being written (' + digest.slice(0, 12) + ', ' + members.length + ' files)')
+      return
+    }
+
+    if (changed.length) {
+      refuse([
+        'REFUSING PUBLISH: ' + changed.join(', ') + ' is part of the ' + SOURCE_REL + ' import closure,',
+        'but ' + GENERATED_REL + ' is not part of this commit.',
+        'the committed artifact would still describe the previous closure, so the CI drift step would fail.',
+        'fix: npm run gen-typings && publish ' + GENERATED_REL + ' together with ' + changed.join(' ')
+      ])
+    }
+  }
+  await enforceClosureGate()
+
+  const tree = []
+  for (const p of prepared) {
+    const content = p.buffer === null ? Buffer.from(p.text, 'utf8') : p.buffer
     const blob = await gh('/repos/' + repo + '/git/blobs', {
       method: 'POST',
-      body: JSON.stringify({ content: readFileSync(ROOT + '/' + rel).toString('base64'), encoding: 'base64' }),
+      body: JSON.stringify({ content: content.toString('base64'), encoding: 'base64' }),
     })
-    tree.push({ path: rel, mode: '100644', type: 'blob', sha: blob.sha })
-    local[rel] = execFileSync('git', ['hash-object', '--path=' + rel, rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+    tree.push({ path: p.rel, mode: '100644', type: 'blob', sha: blob.sha })
   }
 
   const newTree = await gh('/repos/' + repo + '/git/trees', {
