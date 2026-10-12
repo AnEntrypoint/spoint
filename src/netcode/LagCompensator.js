@@ -59,6 +59,7 @@ export class LagCompensator {
 
   resolveViewTick(reportedTick, currentTick = this.latestTick) {
     if (typeof reportedTick !== 'number' || !Number.isFinite(reportedTick)) { this.stats.rejected++; return null }
+    if (typeof currentTick !== 'number' || !Number.isFinite(currentTick)) throw new RangeError(`resolveViewTick needs a finite currentTick, got ${String(currentTick)}`)
     if (reportedTick > currentTick + FUTURE_TOLERANCE_TICKS) { this.stats.rejected++; return null }
     const oldest = currentTick - this.windowTicks
     if (reportedTick < oldest) { this.stats.clamped++; return oldest }
