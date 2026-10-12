@@ -13,6 +13,7 @@ import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
+import { assertTreeTextureMaxPx, halvingsFor, mipChainBytes } from './TreeTextureBudget.js'
 
 const _dbgVeg = dbg('vegetation')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -101,9 +102,24 @@ const _span = (step, t0, t1) => {
 }
 const _now = () => (typeof performance !== 'undefined' ? performance.now() : 0)
 
-const TREE_TEXTURE_HALVINGS = 4
 const halvedBySource = new WeakMap()
 const halvedOutputs = new WeakSet()
+const _halveRefusals = []
+const _halveCounts = {}
+
+export function treeTextureHalveRefusals() { return _halveRefusals.slice() }
+
+export function treeTextureStats() {
+  const byKind = {}
+  for (const k of Object.keys(_halveCounts)) byKind[k] = { ..._halveCounts[k] }
+  return byKind
+}
+
+function halveCountsFor(kind) {
+  let c = _halveCounts[kind]
+  if (!c) { c = { seen: 0, halved: 0, notDecoded: 0, sourceBytes: 0, residentBytes: 0 }; _halveCounts[kind] = c }
+  return c
+}
 
 function halveOnce(tex) {
   const w = tex.image.width >> 1, h = tex.image.height >> 1
@@ -120,29 +136,49 @@ function halveOnce(tex) {
   return next
 }
 
-function halveTexture(tex) {
+function halveTexture(tex, maxPx, kind) {
   const img = tex && tex.image
-  if (!img || halvedOutputs.has(tex) || !(img.width > 64)) return tex
-  const cached = halvedBySource.get(img)
+  if (!img) return tex
+  if (halvedOutputs.has(tex)) return tex
+  const w = img.width | 0
+  if (!(w > 0)) {
+    // An undecoded image cannot be budgeted, and handing the full-size original
+    // back is exactly the silent no-op this budget exists to remove, so the miss
+    // is recorded where a witness can count it instead of passing unnoticed.
+    halveCountsFor(kind).notDecoded++
+    _halveRefusals.push({ reasonCode: 'texture-not-decoded', kind, maxPx })
+    console.error(`[veg-tex] ${kind} texture still undecoded at halve time -- ${maxPx}px budget not applied`)
+    return tex
+  }
+  let byMax = halvedBySource.get(img)
+  if (!byMax) { byMax = new Map(); halvedBySource.set(img, byMax) }
+  const cached = byMax.get(maxPx)
   if (cached) return cached
+  const halvings = halvingsFor(w, maxPx)
   let cur = tex
-  for (let i = 0; i < TREE_TEXTURE_HALVINGS && cur.image.width > 64; i++) cur = halveOnce(cur)
+  for (let i = 0; i < halvings; i++) cur = halveOnce(cur)
   halvedOutputs.add(cur)
-  halvedBySource.set(img, cur)
+  byMax.set(maxPx, cur)
+  const c = halveCountsFor(kind)
+  c.seen++
+  if (halvings > 0) c.halved++
+  c.sourceBytes += mipChainBytes(w, img.height | 0)
+  c.residentBytes += mipChainBytes(cur.image.width | 0, cur.image.height | 0)
   return cur
 }
 
-export function halveTreeMaterialTextures(mat) {
+export function halveTreeMaterialTextures(mat, maxPx, kind = 'tree') {
   if (!mat) return
+  assertTreeTextureMaxPx(maxPx, `halveTreeMaterialTextures(${kind}) maxPx`)
   const _t0 = _now()
-  try { _halveTreeMaterialTextures(mat) } finally { _span('halve-tex', _t0) }
+  try { _halveTreeMaterialTextures(mat, maxPx, kind) } finally { _span('halve-tex', _t0) }
 }
 
-function _halveTreeMaterialTextures(mat) {
+function _halveTreeMaterialTextures(mat, maxPx, kind) {
   for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap', 'alphaMap', 'bumpMap']) {
     const t = mat[k]
     if (!t || !t.isTexture) continue
-    const next = halveTexture(t)
+    const next = halveTexture(t, maxPx, kind)
     if (next !== t) { mat[k] = next; mat.needsUpdate = true }
   }
 }

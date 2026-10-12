@@ -13,7 +13,8 @@ import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { leafGateM, LEAF_OFF_UNLIMITED_M } from './QualityGovernor.js'
-import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H, halveTreeMaterialTextures } from './VegetationBuild.js'
+import { resolveTreeTextureBudget } from './TreeTextureBudget.js'
+import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H, halveTreeMaterialTextures, treeTextureStats, treeTextureHalveRefusals } from './VegetationBuild.js'
 import { contactOcclusionField, treeContactStamps, contactFieldLoadChunk, contactFieldUnloadChunk } from '/src/terrain/ContactOcclusionField.js'
 import { createWebGPULodInstancer, LOD_REEVAL_MOVE_M } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
@@ -56,6 +57,7 @@ export async function createVegetation(opts = {}) {
   const biomeOverride = createBiomeOverride()
   const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
   const cfg = opts.cfg || {}
+  const TEX_BUDGET = resolveTreeTextureBudget({ search: (typeof location !== 'undefined') ? location.search : '', cfg })
   const worldSeed = (opts.worldSeed ?? cfg.seed ?? 0) | 0
   if (!renderer || !scene || !frame) throw new Error('createVegetation: renderer/scene/frame required')
   const isWebGPU = !!renderer.isWebGPURenderer
@@ -162,8 +164,8 @@ export async function createVegetation(opts = {}) {
       for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
       bootSpan('simplify', label, _t); _t = performance.now()
       await awaitMatTextures([sp.branchMat, sp.leafMat])
-      halveTreeMaterialTextures(sp.branchMat)
-      halveTreeMaterialTextures(sp.leafMat)
+      halveTreeMaterialTextures(sp.branchMat, TEX_BUDGET.barkMaxPx, 'bark')
+      halveTreeMaterialTextures(sp.leafMat, TEX_BUDGET.leafMaxPx, 'leaf')
       if (isWebGPU) {
         applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
         applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
@@ -268,6 +270,7 @@ export async function createVegetation(opts = {}) {
     }
   }
   performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
+  if (typeof window !== 'undefined') window.__vegTexBudget = { budget: TEX_BUDGET, stats: treeTextureStats(), refusals: treeTextureHalveRefusals() }
   const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
 
   try {
