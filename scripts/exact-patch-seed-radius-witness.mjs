@@ -75,6 +75,7 @@ const RING_M = num('ring', 61.6)
 const ANGLES = num('angles', 48)
 const RADII_PER_BIN = num('radii', 3)
 const PASSES = num('passes', 3)
+const WALL_PASSES = num('wallPasses', 3)
 const WITH_GRASS = !flag('nograss')
 const WITH_VEG = !flag('noveg')
 const MAX_KEYS = num('keys', 12)
@@ -441,25 +442,35 @@ for (const [siteName, anchorDir] of SITES) {
   // placement, not microseconds of solver. Each arm keeps its fastest of two passes.
   if (WITH_VEG && vegKeys.length) {
     const placeAll = (place, name) => {
-      const f = Object.create(frame)
-      Object.defineProperty(f, 'elevationAtDir', { value: solvers[name], writable: true, configurable: true })
-      Object.defineProperty(f, 'groundHeightLocal', { value: exact.placementFrame.groundHeightLocal, writable: true, configurable: true })
+      // The very frame placement uses, with only the elevation solver swapped, so the arm is the
+      // only thing that differs from the pass that recorded the directions.
+      const f = exact.placementFrame
+      const restore = f.elevationAtDir
+      // The solver returns { h, ... } for the report; placement's elevationAtDir is a number.
+      const arm = solvers[name]
+      f.elevationAtDir = (d) => arm(d).h
       const t0 = process.hrtime.bigint()
       let placed = 0
+      let threw = 0
       for (const k of vegKeys) {
-        try { const l = place(f, k); if (l) placed += l.length } catch (e) { /* a chunk that throws places nothing */ }
+        try { const l = place(f, k); if (l) placed += l.length } catch (e) { threw++; /* a chunk that throws places nothing */ }
       }
-      return { ms: Number(process.hrtime.bigint() - t0) / 1e6, placed }
+      const ms = Number(process.hrtime.bigint() - t0) / 1e6
+      f.elevationAtDir = restore
+      return { ms, placed, threw }
     }
     const wall = {}
     for (const n of ARM_NAMES) wall[n] = null
-    for (let p = 0; p < 2; p++) {
+    const seen = {}
+    for (let p = 0; p < WALL_PASSES; p++) {
       for (const n of ARM_NAMES) {
         const m = placeAll((f, k) => placementsForVegChunk(k, f, vegAnchorField, worldSeed), n)
+        ;(seen[n] = seen[n] || []).push(r3(m.ms))
         if (!wall[n] || m.ms < wall[n].ms) wall[n] = m
       }
     }
-    console.log(`[exact-patch-radius] ${siteName}: real vegetation placement wall over ${vegKeys.length} chunk(s): ` + ARM_NAMES.map((n) => `${n}=${r3(wall[n].ms)}ms(${wall[n].placed})`).join('  '))
+    console.log(`[exact-patch-radius] ${siteName}: wall passes ` + ARM_NAMES.map((n) => `${n}=[${seen[n].join(',')}]`).join(' '))
+    console.log(`[exact-patch-radius] ${siteName}: real vegetation placement wall over ${vegKeys.length} chunk(s): ` + ARM_NAMES.map((n) => `${n}=${r3(wall[n].ms)}ms(${wall[n].placed} placed, ${wall[n].threw} chunk(s) threw)`).join('  '))
     for (const n of ARM_NAMES) {
       vegWall[n] = vegWall[n] === null ? wall[n].ms : vegWall[n] + wall[n].ms
       vegPlacedTotal[n] += wall[n].placed
