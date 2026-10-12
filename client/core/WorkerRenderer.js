@@ -1,6 +1,7 @@
 const TERMINATE_AFTER_STOP_REQUEST_MS = 250
 const WORKER_FRAME_LIVE_BOUND_MS = 1000
 const WORKER_STOP_CONFIRM_TIMEOUT_MS = 1000
+const RUN_STATE_START_FAILED = 'start-failed'
 
 export function classifyWorkerFrameWindow(frames, waitStartMs, waitEndMs, pageVisible) {
   const arrivals = []
@@ -64,9 +65,30 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
 
   let current = null
   let runCount = 0
+  const runRecords = new WeakMap()
   const onStats = opts.onStats || null
   const onError = opts.onError || null
   const onStopped = opts.onStopped || null
+
+  function runHandleFor(record) {
+    const handle = Object.freeze({ id: record.id })
+    runRecords.set(handle, record)
+    return handle
+  }
+
+  function resolveRun(handle) {
+    if (handle === null || handle === undefined) return { kind: 'no-run', record: null }
+    const record = runRecords.get(handle)
+    if (record === undefined) return { kind: 'foreign-run', record: null }
+    if (record !== current) return { kind: 'retired-run', record }
+    return { kind: 'current', record }
+  }
+
+  function terminalStopResult(record) {
+    if (record.state === 'stopped') return { ok: true, reason: 'stopped', ms: 0, message: record.stoppedMessage }
+    if (record.state === RUN_STATE_START_FAILED) return { ok: false, reason: 'start-failed', ms: 0, message: null }
+    return null
+  }
 
   function createRunRecord(worker) {
     return {
@@ -76,6 +98,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       stopSettlement: null,
       acceptedSeq: 0,
       acceptedRun: null,
+      unstampedRejected: 0,
       staleGenerationRejected: 0,
       staleRunRejected: 0,
       outOfOrderRejected: 0,
@@ -121,7 +144,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   function acceptWorkerMessage(record, msg) {
     if (record !== current) { record.staleGenerationRejected++; return false }
     const stamp = parseWorkerStamp(msg)
-    if (stamp === null) return false
+    if (stamp === null) { record.unstampedRejected++; return false }
     if (record.acceptedRun !== null && stamp.run < record.acceptedRun) { record.staleRunRejected++; return false }
     if (stamp.seq <= record.acceptedSeq) { record.outOfOrderRejected++; return false }
     record.acceptedSeq = stamp.seq
@@ -134,6 +157,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
         run: 0,
         seq: 0,
         workerRun: null,
+        unstampedRejected: 0,
         staleGenerationRejected: 0,
         staleRunRejected: 0,
         outOfOrderRejected: 0
@@ -143,6 +167,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       run: current.id,
       seq: current.acceptedSeq,
       workerRun: current.acceptedRun,
+      unstampedRejected: current.unstampedRejected,
       staleGenerationRejected: current.staleGenerationRejected,
       staleRunRejected: current.staleRunRejected,
       outOfOrderRejected: current.outOfOrderRejected
@@ -153,6 +178,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     if (current !== null && current.state !== 'stopped') {
       return Promise.reject(new Error('createWorkerRenderer: start() refused while run ' + current.id + ' is ' + current.state + ' and still holds the canvas'))
     }
+    const previous = current
     return new Promise((resolve, reject) => {
       let worker = null
       try {
@@ -163,6 +189,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       }
 
       const record = createRunRecord(worker)
+      const handle = runHandleFor(record)
       current = record
 
       let settled = false
@@ -179,7 +206,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
           if (record.state !== 'starting') return
           record.readyAtMs = nowMs()
           record.state = 'running'
-          if (!settled) { settled = true; clearTimeout(timer); resolve() }
+          if (!settled) { settled = true; clearTimeout(timer); resolve(handle) }
         } else if (msg.type === 'frame') {
           if (record.state !== 'running') return
           record.lastStats = msg
@@ -207,9 +234,31 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       const height = Math.max(1, Math.round(rect.height || canvasEl.height || 150))
       const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1
 
-      const offscreen = canvasEl.transferControlToOffscreen()
+      let offscreen = null
+      try {
+        offscreen = canvasEl.transferControlToOffscreen()
+      } catch (e) {
+        settled = true
+        clearTimeout(timer)
+        abandonRun(record, previous)
+        reject(startRefused(handle, e))
+        return
+      }
       worker.postMessage({ type: 'init', canvas: offscreen, width, height, dpr }, [offscreen])
     })
+  }
+
+  function abandonRun(record, restoreTo) {
+    record.state = RUN_STATE_START_FAILED
+    try { record.worker.terminate() } catch (_) {}
+    current = restoreTo
+  }
+
+  function startRefused(handle, cause) {
+    const err = new Error('createWorkerRenderer: start() refused: canvas control was already transferred (' + String((cause && cause.message) || cause) + ')')
+    err.reason = 'canvas-already-transferred'
+    err.runHandle = handle
+    return err
   }
 
   function resize(width, height, dpr) {
@@ -247,19 +296,30 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     setTimeout(() => finishStop(record, { type: 'stop-terminated' }), TERMINATE_AFTER_STOP_REQUEST_MS)
   }
 
-  function stop() {
-    const record = current
-    if (record === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
-    if (record.state === 'stopped') return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: record.stoppedMessage })
-    requestStop(record)
-    return awaitStopped(record)
+  function stopTarget(handle) {
+    if (handle === undefined) {
+      return current === null ? { kind: 'no-worker', record: null } : { kind: 'current', record: current }
+    }
+    return resolveRun(handle)
   }
 
-  function awaitStopped(record) {
-    const target = record === undefined ? current : record
-    if (target === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
-    if (target.state === 'stopped') return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: target.stoppedMessage })
-    if (target.stopSettlement !== null) return target.stopSettlement.promise
+  function stop(handle) {
+    const target = stopTarget(handle)
+    if (target.record === null) return Promise.resolve({ ok: false, reason: target.kind, ms: 0, message: null })
+    const terminal = terminalStopResult(target.record)
+    if (terminal !== null) return Promise.resolve(terminal)
+    if (target.kind === 'retired-run') return Promise.resolve({ ok: false, reason: 'retired-run', ms: 0, message: null })
+    requestStop(target.record)
+    return target.record.stopSettlement.promise
+  }
+
+  function awaitStopped(handle) {
+    const target = resolveRun(handle)
+    if (target.record === null) return Promise.resolve({ ok: false, reason: target.kind, ms: 0, message: null })
+    const terminal = terminalStopResult(target.record)
+    if (terminal !== null) return Promise.resolve(terminal)
+    if (target.kind === 'retired-run') return Promise.resolve({ ok: false, reason: 'retired-run', ms: 0, message: null })
+    if (target.record.stopSettlement !== null) return target.record.stopSettlement.promise
     return Promise.resolve({ ok: false, reason: 'not-stopping', ms: 0, message: null })
   }
 
