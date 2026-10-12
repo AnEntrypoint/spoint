@@ -23,7 +23,7 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-build-failure-witness.mjs', must: /RESULT: PASS/ },
   { file: 'player-manager-send-failure-witness.mjs', must: /RESULT: PASS/ },
   { file: 'static-collision-cpu-witness.mjs', must: /RESULT: PASS/ },
-  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /resident=\d+ dropped=0[\s\S]*RESULT: PASS/ },
+  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /resident=\d+[^\n]*\bdropped=0\b[\s\S]*RESULT: PASS/ },
   { file: 'transport-churn-witness.mjs', must: /\[transport-churn\] RESULT: PASS/ },
   { file: 'veg-lod-stream-witness.mjs', must: /RESULT: PASS/ },
   { file: 'veg-lod-sweep-witness.mjs', must: /RESULT: PASS/ },
