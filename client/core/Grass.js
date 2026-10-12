@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { RenderControls } from './RenderControls.js'
 import { commitTileExtent } from './TileExtent.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
@@ -10,13 +11,15 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import { dbg } from './debug-log.js'
-import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind, makeGrassMaterial } from './GrassMaterial.js'
+import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind, makeGrassMaterial, setGrassSun } from './GrassMaterial.js'
 import { makeClumpGeo } from './GrassClump.js'
 import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
 import { runWarmPasses } from './ProgramReadiness.js'
 
-const GRASS_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float', instShadow: 'float' }
+const GRASS_ATTRIBUTE_SCHEMA = { windShadow: 'vec2', groundTint: 'vec4' }
+const _windShadowArr = [0, 0], _groundTintArr = [0, 0, 0, 0]
+const _windShadowVec = new THREE.Vector2(), _groundTintVec = new THREE.Vector4()
 
 export { MAX_BENDERS, MAX_DECALS }
 
@@ -25,11 +28,13 @@ const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
 const _occBoxMat = new THREE.MeshBasicMaterial()
 
 const DROP_MARGIN = 16
-const CLUMP_WIDTH_MIN = 1.35
-const CLUMP_WIDTH_SPAN = 0.7
+const CLUMP_WIDTH_MIN = 2.268
+const CLUMP_WIDTH_SPAN = 1.176
 const CLUMP_HEIGHT_SCALE = 0.75
+const GRASS_ANIM_SPEED = 0.25
 const REGROWTH_DISABLED_HALF_LIFE_S = 1e12
-const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
+const CULL_ENTRY_BUDGET = 8192
+const _up = new THREE.Vector3(0, 1, 0), _nrm = new THREE.Vector3(), _q = new THREE.Quaternion(), _qTilt = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 
 export async function createGrass(opts = {}) {
   const { renderer, scene, frame } = opts
@@ -41,19 +46,19 @@ export async function createGrass(opts = {}) {
   if (!renderer || !scene || !frame) throw new Error('createGrass: renderer/scene/frame required')
   if (cfg.grass === false) return null
 
-  const renderDistance = Number.isFinite(cfg.grassRenderDistance) ? cfg.grassRenderDistance : 44
+  const renderDistance = Number.isFinite(cfg.grassRenderDistance) ? cfg.grassRenderDistance : 61.6
   const ringRadius = renderDistance, dropRadius = ringRadius + DROP_MARGIN
   const ringRadiusSq = ringRadius * ringRadius
   const dropRadiusSq = dropRadius * dropRadius
-  const MAX_INSTANCES = Number.isFinite(cfg.grassMaxInstances) ? cfg.grassMaxInstances : 40000
+  const MAX_INSTANCES = Number.isFinite(cfg.grassMaxInstances) ? cfg.grassMaxInstances : 540000
   const INIT_CAP = Math.min(MAX_INSTANCES, 4096)
 
   const wind = makeWind()
   const isWebGPU = !!renderer.isWebGPURenderer
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
-  const geoNear = makeClumpGeo(3, 4)
-  const geoMid = makeClumpGeo(1, 2)
+  const geoNear = makeClumpGeo(3, 1)
+  const geoMid = makeClumpGeo(1, 1)
 
   let mat, im, imMid, grassNodes = null
   if (isWebGPU) {
@@ -67,7 +72,7 @@ export async function createGrass(opts = {}) {
     im = new InstancedMesh2(geoNear, mat, { capacity: INIT_CAP, renderer })
     imMid = new InstancedMesh2(geoMid, mat, { capacity: Math.min(INIT_CAP, 2048), renderer })
     for (const m of [im, imMid]) {
-      m.initUniformsPerInstance({ vertex: { windPhase: 'float', instShadow: 'float' }, fragment: { tint: 'float' } })
+      m.initUniformsPerInstance({ vertex: { windShadow: 'vec2', groundTint: 'vec4' } })
       m.perObjectFrustumCulled = false
       m.frustumCulled = false
     }
@@ -110,14 +115,25 @@ export async function createGrass(opts = {}) {
       targetMesh.addInstances(batch, (e, id) => {
         const p = list[_ci++]
         e.position.set(p.x, p.y, p.z)
-        _q.setFromAxisAngle(_v.set(0, 1, 0), p.yaw)
-        e.quaternion.copy(_q)
+        _q.setFromAxisAngle(_up, p.yaw)
+        _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
+        e.quaternion.copy(_q.premultiply(_qTilt))
         const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * p.tint
         e.scale.set(width, p.scale * CLUMP_HEIGHT_SCALE, width)
-        entries.push({ id, windPhase: p.windPhase, tint: p.tint, shadow: Number.isFinite(p.shadow) ? p.shadow : 1 })
+        entries.push({ id, windPhase: p.windPhase, tint: p.tint, shadow: Number.isFinite(p.shadow) ? p.shadow : 1, groundR: p.groundR, groundG: p.groundG, groundB: p.groundB })
       })
       totalInstances += batch
-      for (const en of entries) { try { targetMesh.setUniformAt(en.id, 'windPhase', en.windPhase); targetMesh.setUniformAt(en.id, 'tint', en.tint); targetMesh.setUniformAt(en.id, 'instShadow', en.shadow) } catch (_) {} }
+      for (const en of entries) {
+        try {
+          _windShadowArr[0] = en.windPhase; _windShadowArr[1] = en.shadow
+          _groundTintArr[0] = en.groundR; _groundTintArr[1] = en.groundG; _groundTintArr[2] = en.groundB; _groundTintArr[3] = en.tint
+          if (isWebGPU) { targetMesh.setUniformAt(en.id, 'windShadow', _windShadowArr); targetMesh.setUniformAt(en.id, 'groundTint', _groundTintArr) }
+          else {
+            targetMesh.setUniformAt(en.id, 'windShadow', _windShadowVec.fromArray(_windShadowArr))
+            targetMesh.setUniformAt(en.id, 'groundTint', _groundTintVec.fromArray(_groundTintArr))
+          }
+        } catch (_) {}
+      }
     }
     const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [centerX, centerZ], [minX, minZ, maxX, maxZ], _minY, _maxY, 1)
     loaded.set(key, { entries, mesh: targetMesh, ...extent, occluded: false, inFrustum: true })
@@ -202,7 +218,7 @@ export async function createGrass(opts = {}) {
   function startInflight(key, px, pz) {
     loaded.set(key, { entries: [], pending: true })
     exactFrame.beginChunk()
-    _inflight = { key, cursor: createGrassChunkCursor(key, exactFrame.placementFrame, anchorField, worldSeed), px, pz, missing: false }
+    _inflight = { key, cursor: createGrassChunkCursor(key, exactFrame.placementFrame, anchorField, worldSeed, undefined, () => exactFrame.missing), px, pz, missing: false }
     if (stepInflight()) finishInflight()
   }
 
@@ -210,6 +226,7 @@ export async function createGrass(opts = {}) {
   const IDLE_EPS = 0.05
   const cullFreeze = createCullFreeze((auto) => { setInstancedCullAuto(im, auto); setInstancedCullAuto(imMid, auto); profile.cullFrozen = !auto })
   let _cullDirty = true
+  let _cullBacklog = false
 
   function cullChunksToFrustum(camera) {
     const tc0 = (typeof performance !== 'undefined') ? performance.now() : 0
@@ -217,6 +234,8 @@ export async function createGrass(opts = {}) {
     _projMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     _frustum.setFromProjectionMatrix(_projMat)
     let culledCount = 0
+    let entryBudget = CULL_ENTRY_BUDGET
+    _cullBacklog = false
     for (const cell of loaded.values()) {
       if (cell.pending) continue
       if (cell.empty) continue
@@ -225,6 +244,8 @@ export async function createGrass(opts = {}) {
       const inFrustum = _frustum.intersectsBox(_cullBox)
       if (!inFrustum) culledCount++
       if (inFrustum === cell.inFrustum) continue
+      if (entryBudget <= 0) { _cullBacklog = true; continue }
+      entryBudget -= cell.entries.length
       cell.inFrustum = inFrustum
       if (cell.occluded) continue
       const mesh = cell.mesh || im
@@ -238,24 +259,12 @@ export async function createGrass(opts = {}) {
     if (!camera) return
     const live = _cullDirty
     _cullDirty = false
-    if (!cullFreeze.step(camera, pose, live)) cullChunksToFrustum(camera)
+    const frozen = cullFreeze.step(camera, pose, live)
+    if (!frozen || _cullBacklog) cullChunksToFrustum(camera)
   }
 
-  function setBenders(list) {
-    if (typeof window !== 'undefined' && window.__grassBend === false) list = null
-    const arr = wind.uBenderPosXZ.value
-    let n = 0
-    if (list) {
-      for (let i = 0; i < list.length && n < MAX_BENDERS; i++) {
-        const b = list[i]
-        let bx, bz
-        if (b && Array.isArray(b.position)) { bx = b.position[0]; bz = b.position[2] }
-        else if (b && Number.isFinite(b.x)) { bx = b.x; bz = b.z }
-        if (Number.isFinite(bx) && Number.isFinite(bz)) { arr[n * 2] = bx; arr[n * 2 + 1] = bz; n++ }
-      }
-    }
-    for (let i = n; i < MAX_BENDERS; i++) { arr[i * 2] = UNUSED_BENDER_SLOT_XZ; arr[i * 2 + 1] = UNUSED_BENDER_SLOT_XZ }
-    wind.uBenderCount.value = n
+  function setBenders() {
+    wind.uBenderCount.value = 0
   }
   if (Number.isFinite(cfg.grassBendRadius)) wind.uGrassBendRadius.value = cfg.grassBendRadius
   if (Number.isFinite(cfg.grassBendStrength)) wind.uGrassBendStrength.value = cfg.grassBendStrength
@@ -286,7 +295,7 @@ export async function createGrass(opts = {}) {
   let _lastDecalRefreshMs = -Infinity
 
   function tickWind(dt) {
-    wind.uGrassTime.value += dt
+    wind.uGrassTime.value += dt * GRASS_ANIM_SPEED
     if (typeof window !== 'undefined' && window.__grassWind != null) wind.uGrassWind.value = +window.__grassWind
   }
 
@@ -307,7 +316,7 @@ export async function createGrass(opts = {}) {
       streamRing(px, pz)
       if ((!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)) _cullDirty = true
       wind.uCamPosXZ.value.set(px, pz)
-      const decalOff = (typeof window !== 'undefined' && window.__grassDecalsOff === true)
+      const decalOff = RenderControls.get('grassDecalsOff') === true
       const nowMs = t0 || ((typeof performance !== 'undefined') ? performance.now() : Date.now())
       const decalTimeDue = (nowMs - _lastDecalRefreshMs) >= DECAL_REFRESH_MS
       if (decalOff) {
@@ -380,7 +389,7 @@ export async function createGrass(opts = {}) {
 
   const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
   const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
-  const PREWARM_SLICE_MS = 24
+  const PREWARM_SLICE_MS = 96
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = _nowMs()
@@ -408,7 +417,7 @@ export async function createGrass(opts = {}) {
   function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
+  const api = { update, setSun: (sun) => setGrassSun(wind, sun), streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__grass = api
   return api
 }

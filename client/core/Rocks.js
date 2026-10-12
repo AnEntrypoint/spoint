@@ -10,6 +10,10 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { makeRocksMaterialTSL } from './RocksTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
+import { contactOcclusionField, contactFieldLoadChunk, contactFieldUnloadChunk, contactFieldRecentre, rockContactStamps } from '/src/terrain/ContactOcclusionField.js'
+
+let _syncContactOcclusion = null
+import('/node_modules/mapspinner/src/tsl/contact-occlusion-tsl.js').then((m) => { _syncContactOcclusion = m.syncContactOcclusion })
 
 const _dbgRocks = dbg('rocks')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -102,7 +106,7 @@ export async function createRocks(opts = {}) {
   maxVerts += 64; maxIdx += 64
 
   const mat = renderer.isWebGPURenderer
-    ? makeRocksMaterialTSL()
+    ? await makeRocksMaterialTSL(frame.radius)
     : applyRockTexture(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.0 }))
   const bm = new THREE.BatchedMesh(MAX_INSTANCES, maxVerts, maxIdx, mat)
   bm.frustumCulled = false
@@ -164,6 +168,7 @@ export async function createRocks(opts = {}) {
     const c = placementRing.centre(key)
     const extent = commitTileExtent('rocks tile ground height', (x, z) => frame.groundHeightLocal(x, z), c, b, _minY, _maxY, 2)
     loaded.set(key, { ids, ...extent, occluded: false })
+    contactFieldLoadChunk(contactOcclusionField, 'r' + String(key), rockContactStamps(list || []))
     _occCands = null
     meshes[0].count = totalInstances
     profile.loads++
@@ -171,6 +176,7 @@ export async function createRocks(opts = {}) {
   }
 
   function unloadChunk(key) {
+    contactFieldUnloadChunk(contactOcclusionField, 'r' + String(key))
     const cell = loaded.get(key); if (!cell) return
     for (const id of cell.ids) { try { bm.deleteInstance(id); totalInstances-- } catch (_) {} }
     loaded.delete(key); _occCands = null; meshes[0].count = totalInstances; profile.unloads++
@@ -234,7 +240,9 @@ export async function createRocks(opts = {}) {
     else if (camera) { camera.getWorldPosition(_camPos); px = _camPos.x; pz = _camPos.z }
     if (Number.isFinite(px) && Number.isFinite(pz)) {
       const _beforeLoaded = loaded.size
+      contactFieldRecentre(contactOcclusionField, px, pz)
       streamRing(px, pz)
+      if (_syncContactOcclusion) _syncContactOcclusion(contactOcclusionField)
       if (loaded.size !== _beforeLoaded) _cullDirty = true
     }
     profile.totalInstances = totalInstances; profile.visibleInstances = bm.instanceCount || totalInstances
@@ -260,12 +268,13 @@ export async function createRocks(opts = {}) {
     try { bm.dispose && bm.dispose() } catch (e) { _dbgRocks('BatchedMesh dispose failed:', e?.message || e) }
     try { mat.dispose() } catch (e) { _dbgRocks('material dispose failed:', e?.message || e) }
     for (const g of geos) { try { g && g.dispose() } catch (e) { _dbgRocks('rock geometry dispose failed:', e?.message || e) } }
+    for (const key of loaded.keys()) contactFieldUnloadChunk(contactOcclusionField, 'r' + String(key))
     loaded.clear(); _occCands = null; totalInstances = 0; meshes.length = 0
     if (typeof window !== 'undefined' && window.__rocks && window.__rocks._bm === bm) delete window.__rocks
   }
 
   const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
-  const PREWARM_SLICE_MS = 24
+  const PREWARM_SLICE_MS = 96
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
