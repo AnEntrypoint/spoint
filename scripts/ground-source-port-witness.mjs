@@ -110,14 +110,23 @@ function runChecks(M, Patch) {
     return { ok, detail: `groundSourceOf('substituted')===second=${served === second} names=${JSON.stringify(frame.groundSources)}` }
   })
 
-  guarded('P09-a-prototype-linked-install-mutates-the-shared-frame', () => {
+  guarded('P09-a-prototype-linked-install-keeps-the-override-off-the-shared-frame', () => {
     const frame = freshFrame(M)
     frame._patchHeightOrNull = () => 3
+    const cpuBefore = frame.cpuGroundHeightLocal
     const h = Patch.createExactPatchFrame(frame)
     const own = Object.prototype.hasOwnProperty.call(h.placementFrame, 'groundHeightLocal')
-    const shared = frame.groundHeightLocal !== frame.cpuGroundHeightLocal
-    const ok = own === false && shared === true && frame.groundSource === 'substituted'
-    return { ok, detail: `own_property=${own} shared_frame_swapped=${shared} frame.groundSource=${frame.groundSource}` }
+    const swapped = frame.groundHeightLocal !== cpuBefore
+    const substitutedNames = frame.groundSources.filter((n) => n === 'substituted').length
+    const derivedY = h.placementFrame.groundHeightLocal(10, 20)
+    const sharedY = frame.groundHeightLocal(10, 20)
+    const ok = own === true
+      && swapped === false
+      && substitutedNames === 0
+      && frame.groundSource === 'cpu-solve'
+      && derivedY === 3
+      && sharedY !== 3
+    return { ok, detail: `own_property=${own} shared_frame_swapped=${swapped} substituted_names=${substitutedNames} frame.groundSource=${frame.groundSource} derived_y=${derivedY} shared_y=${sharedY}` }
   })
 
   guarded('P10-the-patch-adapter-throws-NoGroundHeightError-and-marks-missing', () => {
