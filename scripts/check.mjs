@@ -23,6 +23,7 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-build-failure-witness.mjs', must: /RESULT: PASS/ },
   { file: 'player-manager-send-failure-witness.mjs', must: /RESULT: PASS/ },
   { file: 'static-collision-cpu-witness.mjs', must: /RESULT: PASS/ },
+  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /resident=\d+ dropped=0[\s\S]*RESULT: PASS/ },
   { file: 'transport-churn-witness.mjs', must: /\[transport-churn\] RESULT: PASS/ },
   { file: 'veg-lod-stream-witness.mjs', must: /RESULT: PASS/ },
   { file: 'veg-lod-sweep-witness.mjs', must: /RESULT: PASS/ },
@@ -35,9 +36,12 @@ const NO_GPU_WITNESSES = [
   { file: 'edge-collider-draco-witness.mjs', must: /0 byte\(s\) written into the tracked tree/ },
   { file: 'collider-turnover-witness.mjs', must: /resident per cycle before->started->stopped/ },
   { file: 'cpu-skip-witness.mjs', must: /row2_encodePerSnapshotCall/ },
+  { file: 'snapshot-perplayer-encode-witness.mjs', must: /RESULT: PASS -- \d+ recipient\(s\), 0 re-encode\(s\) with a warm cache, 0 byte mismatch\(es\) over \d+ wire record\(s\)/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /carries netcode\.profile/ },
   { file: 'agents-md-facts-witness.mjs', must: /RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=\d+ failed=0/ },
+  { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] RESULT: PASS \d+ tick\(s\) over \d+ node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick/ },
+  { file: 'terrain-quad-upload-witness.mjs', must: /\[quad-upload\] RESULT: PASS -- 2 config\(s\), 0 upload\(s\) issued for 1200 frame\(s\) whose payload was unchanged/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000

@@ -19,6 +19,7 @@ import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
 import { resolveCCD } from './AppPhysics.js'
+import { extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 const _nonNegOrDefault = (fallback, v, name) => {
   if (v == null) return fallback
@@ -101,6 +102,7 @@ export class AppRuntime {
 
   resolveAssetPath(p) {
     if (!p) return p
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) return p
     if (!_resolve) { const rel = p.startsWith('./') ? p.slice(1) : p; return rel.startsWith('/') ? rel : '/' + rel }
     const cwdRoot = _resolve(process.cwd())
     const local = _resolve(p)
@@ -180,8 +182,13 @@ export class AppRuntime {
     const pending = [...this._pendingTrimeshBuilds]
     if (!pending.length) return { waited: 0, timedOut: false }
     let timedOut = false
-    const timeout = new Promise(resolve => setTimeout(() => { timedOut = true; resolve() }, timeoutMs))
-    await Promise.race([Promise.allSettled(pending), timeout])
+    let timer = null
+    const timeout = new Promise(resolve => { timer = setTimeout(() => { timedOut = true; resolve() }, timeoutMs) })
+    try {
+      await Promise.race([Promise.allSettled(pending), timeout])
+    } finally {
+      clearTimeout(timer)
+    }
     if (timedOut) console.warn(`[AppRuntime] waitForPendingTrimeshBuilds timed out after ${timeoutMs}ms with ${this._pendingTrimeshBuilds.size}/${pending.length} still pending`)
     return { waited: pending.length, timedOut }
   }
@@ -217,24 +224,7 @@ export class AppRuntime {
       if (p) { entity.parent = config.parent; p.children.add(entityId) }
     }
     this._hydrateInteractable(entityId, entity)
-    if (config.autoTrimesh && entity.model && this._physics) {
-      entity.collider = { type: 'trimesh', model: entity.model }
-      const settled = this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0, entity.position || [0,0,0], entity.scale || [1,1,1], entity.rotation || [0,0,0,1])
-        .then(id => { this._deferOrRun(() => { if (this.entities.has(entityId)) { entity._physicsBodyId = id; this._physicsBodyToEntityId?.set(id, entityId) } }) })
-        .catch(e => {
-          const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
-          console.error(`[AppRuntime] ${err.message}`)
-          entity.collider = null
-          entity._failedColliderType = 'trimesh'
-          this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })
-          this._deferOrRun(() => {
-            if (!this.entities.has(entityId)) return
-            this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${entity.model}`, entityId, detail: err.message })
-          })
-          throw err
-        })
-      this.trackTrimeshBuild(settled)
-    }
+    if ((config.autoTrimesh || config.app === 'placed-model') && entity.model && this._physics) this._startTrimeshBuild(entityId, entity)
     if (config.app) this._attachApp(entityId, config.app).catch(e => this._logAppError(`attachApp(${config.app})`, e))
     if (config.behaviours) this._attachBehaviours(entityId, config.behaviours).catch(e => this._logAppError(`attachBehaviours(${entityId})`, e))
     this._spatialInsert(entity)
@@ -386,6 +376,27 @@ export class AppRuntime {
     this.detachApp(entityId); this._detachBehaviours(entityId); this._spatialRemove(entityId); this.entities.delete(entityId)
   }
 
+  _primitiveBodyDef(entity, mt) {
+    const c = entity.collider
+    if (!c) return undefined
+    const sc = entity.scale || _UNIT_SCALE
+    const uniform = Math.max(sc[0], sc[1], sc[2])
+    const opts = { mass: entity.mass, linearDamping: entity._linearDamping, angularDamping: entity._angularDamping, linearCast: resolveCCD(entity, mt) }
+    if (c.type === 'box') return { shapeType: 'box', params: [c.size[0] * sc[0], c.size[1] * sc[1], c.size[2] * sc[2]], motionType: mt, opts }
+    if (c.type === 'sphere') return { shapeType: 'sphere', params: c.radius * uniform, motionType: mt, opts }
+    if (c.type === 'capsule') return { shapeType: 'capsule', params: [c.radius * uniform, c.height * uniform / 2], motionType: mt, opts }
+    return undefined
+  }
+
+  _admitEntityBody(entity, entityId, def) {
+    const bid = this._physics.addBody(def.shapeType, def.params, entity.position, def.motionType, { ...def.opts, rotation: entity.rotation })
+    entity._physicsBodyId = bid
+    entity._bodyActive = true
+    entity._bodyTier = 'physical'
+    this._physicsBodyToEntityId.set(bid, entityId)
+    if (def.motionType === 'dynamic') this._activeDynamicIds.add(entityId)
+  }
+
   changeBodyType(entityId, newBodyType) {
     const entity = this.entities.get(entityId)
     if (!entity || !newBodyType || newBodyType === entity.bodyType) return false
@@ -410,11 +421,68 @@ export class AppRuntime {
     else if (entity._bodyDef) {
       entity._bodyDef.motionType = mt
       if (entity._bodyDef.opts) entity._bodyDef.opts.linearCast = resolveCCD(entity, mt)
-    }
+    } else entity._bodyDef = this._primitiveBodyDef(entity, mt)
+    const def = mt === 'static' ? this._primitiveBodyDef(entity, mt) : entity._bodyDef
+    if (this._physics && def) this._admitEntityBody(entity, entityId, def)
+    else if (this._physics) this._admitModelOrDefaultBody(entityId, entity, mt)
     this._lodIds = null
     this._lodIdArr = null
     this._staticVersion++
     return true
+  }
+
+  _startTrimeshBuild(entityId, entity) {
+    entity.collider = { type: 'trimesh', model: entity.model }
+    const settled = this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0, entity.position || [0,0,0], entity.scale || [1,1,1], entity.rotation || [0,0,0,1])
+      .then(id => { this._deferOrRun(() => {
+        if (this.entities.has(entityId) && entity.bodyType === 'static') { entity._physicsBodyId = id; this._physicsBodyToEntityId?.set(id, entityId) }
+        else this._physics.removeBody(id)
+      }) })
+      .catch(e => {
+        const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
+        console.error(`[AppRuntime] ${err.message}`)
+        entity.collider = null
+        entity._failedColliderType = 'trimesh'
+        this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })
+        this._deferOrRun(() => {
+          if (!this.entities.has(entityId)) return
+          this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${entity.model}`, entityId, detail: err.message })
+        })
+        throw err
+      })
+    this.trackTrimeshBuild(settled)
+  }
+
+  _startConvexBuild(entityId, entity, mt) {
+    entity.collider = { type: 'convex', model: entity.model }
+    const scale = entity.scale || _UNIT_SCALE
+    const built = extractAllVerticesFromGLBAsync(this.resolveAssetPath(entity.model)).then(mesh => {
+      if (!this.entities.has(entityId) || entity.bodyType !== mt || entity._physicsBodyId !== undefined) return
+      const points = Array.from(mesh.vertices, (v, i) => v * scale[i % 3])
+      const opts = { mass: entity.mass, linearDamping: entity._linearDamping, angularDamping: entity._angularDamping, linearCast: resolveCCD(entity, mt) }
+      entity._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts }
+      this._admitEntityBody(entity, entityId, entity._bodyDef)
+    }).catch(e => {
+      const err = colliderBuildError(`convex collider for entity ${entityId} model ${entity.model}`, e)
+      console.error(`[AppRuntime] ${err.message}`)
+      entity.collider = null
+      entity._failedColliderType = 'convex'
+      this._log('app_error', { label: `convex(${entity.model})`, message: err.message }, { sourceEntity: entityId })
+      throw err
+    })
+    this.trackTrimeshBuild(built)
+  }
+
+  _admitModelOrDefaultBody(entityId, entity, mt) {
+    const modelShaped = entity.model && (!entity.collider || entity.collider.type === 'trimesh' || entity.collider.type === 'convex')
+    if (mt === 'static') {
+      if (modelShaped) this._startTrimeshBuild(entityId, entity)
+      return
+    }
+    if (modelShaped) { this._startConvexBuild(entityId, entity, mt); return }
+    if (!entity.collider) entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
+    const def = this._primitiveBodyDef(entity, mt)
+    if (def) { entity._bodyDef = def; this._admitEntityBody(entity, entityId, def) }
   }
 
   _hydrateInteractable(entityId, entity) {
@@ -502,18 +570,24 @@ export class AppRuntime {
   _markDirty(id) { this._snapshotVersion++; const v = this._entityVersions.get(id) || 0; this._entityVersions.set(id, v + 1) }
   _snap(entities) { return { tick: this.currentTick, timestamp: Date.now(), entities } }
   getSnapshot() {
+    const e = []
+    for (const [id, en] of this.entities) e.push(this._snapshotEncoding(id, en))
+    this._pruneSnapshotEncCache()
+    return this._snap(e)
+  }
+  _snapshotEncoding(id, en) {
     if (this._snapshotEncVersion !== SNAPSHOT_ENCODE_CODE_VERSION) { this._snapshotEncCache.clear(); this._snapshotEncVersion = SNAPSHOT_ENCODE_CODE_VERSION }
     const cache = this._snapshotEncCache
-    const e = []
-    for (const [id, en] of this.entities) {
-      const enc = cache.get(id)
-      if (enc !== undefined && this._snapshotEncCurrent(enc, en)) { e.push(enc); continue }
-      const fresh = this._encodeEntity(id, en)
-      cache.set(id, fresh)
-      e.push(fresh)
-    }
-    if (cache.size > this.entities.size + 64) for (const id of cache.keys()) if (!this.entities.has(id)) cache.delete(id)
-    return this._snap(e)
+    const enc = cache.get(id)
+    if (enc !== undefined && this._snapshotEncCurrent(enc, en)) return enc
+    const fresh = this._encodeEntity(id, en)
+    cache.set(id, fresh)
+    return fresh
+  }
+  _pruneSnapshotEncCache() {
+    const cache = this._snapshotEncCache
+    if (cache.size <= this.entities.size + 64) return
+    for (const id of cache.keys()) if (!this.entities.has(id)) cache.delete(id)
   }
   _snapshotEncCurrent(enc, en) {
     const p = en.position; if (!p) return false
@@ -543,7 +617,7 @@ export class AppRuntime {
     Object.defineProperty(entity, '_pbidRaw', { value: undefined, writable: true, enumerable: false, configurable: true })
     Object.defineProperty(entity, '_physicsBodyId', this._pbidDesc)
   }
-  getSnapshotForPlayer(pos, r, skipStatic=false) { const e=[], rel=new Set(this.relevantEntities(pos,r)); for (const id of (skipStatic?this._dynamicEntityIds:this.entities.keys())) { const en=this.entities.get(id); if (en&&(rel.has(id)||en.custom?._interior)) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
+  getSnapshotForPlayer(pos, r, skipStatic=false) { const e=[], rel=new Set(this.relevantEntities(pos,r)); for (const id of (skipStatic?this._dynamicEntityIds:this.entities.keys())) { const en=this.entities.get(id); if (en&&(rel.has(id)||en.custom?._interior)) e.push(this._snapshotEncoding(id,en)) } this._pruneSnapshotEncCache(); return this._snap(e) }
   getDynamicEntitiesRaw() { const o=[]; for (const id of this._activeDynamicIds) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this.getUnmanagedDynamicIds()) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this._sleepingDynamicIds) o.push({ id, _sleeping:true }); for (const id of this._suspendedEntityIds) o.push({ id, _sleeping:true }); return o }
   getRelevantDynamicIds(pos, r) { return this.relevantEntities(pos, r) }
   getRelevantDynamicIdsWithStarvation(pos, r, viewerKey, maxTicksStarved = 300, baseIds = null) {
