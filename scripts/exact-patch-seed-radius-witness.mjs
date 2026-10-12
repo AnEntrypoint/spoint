@@ -510,7 +510,7 @@ for (const [siteName, anchorDir] of SITES) {
 
 // ---- report -------------------------------------------------------------------------------------
 const pctOver = (l) => (l.length ? r3((l.filter((v) => v > PARITY_TOL_M).length / l.length) * 100) : NaN)
-const f8 = (v) => (v === v ? v.toFixed(8) : '    -    ')
+const f8 = (v) => (finite(v) ? v.toFixed(8) : '    -    ')
 console.log('')
 console.log(`[exact-patch-radius] bin            n   |anchor-legacy|       |conv-legacy|        |agree-legacy|         anchorVsZero     meshServed%`)
 console.log(`[exact-patch-radius]                        mean        max      mean        max      mean        max        max         (anchor converged)`)
