@@ -7,6 +7,12 @@ export const MESH_SURFACE_NO_GROUND = null
 export function isMeshSurfaceNoGround(v) { return v === MESH_SURFACE_NO_GROUND }
 
 const QUARTER_PI = Math.PI / 4
+// The fixed point a direction's height is solved to, and the test that an answer is the surface's
+// rather than the seed's: the same two numbers client/core/ExactPatchFrame.js uses for the mesh
+// surface, so a vertex read from the lattice and a vertex read from the sampler cannot disagree
+// about what "reached the ground" means.
+const MESH_SOLVE_ITERS = 4
+const MESH_SOLVE_TOL_M = 1e-6
 const DEFAULT_FOCUS_RADIUS_M = 240
 const DEFAULT_MAX_QUADS = 128
 const FOOTPRINT_INFLATE_M = 1
@@ -62,12 +68,47 @@ export function createTerrainMeshSurface(opts = {}) {
   const U = frame.up, E = frame.east, N = frame.north
   const heightAtDir = opts.heightAtDir
   const quadsFn = opts.quads
+  // The shared lattice: the sample buffer the collider builds its field from
+  // (src/terrain/LatticeSurface.js). Where it covers a vertex it IS the ground, so the vertex reads
+  // it instead of asking the sampler to solve the same point again -- one copy, not two answers.
+  const lattice = (opts.lattice && typeof opts.lattice.covers === 'function' && typeof opts.lattice.heightAtLocal === 'function') ? opts.lattice : null
+
+  // A direction is not a chart-local (x,z): the point along it sits at radial distance rho, and its
+  // chart-local height is the height AT the (x,z) that same rho implies, so
+  //   rho * du - base = H(rho * de, rho * dn)
+  // is one fixed point in rho -- the same one client/core/ExactPatchFrame.js solves for the mesh
+  // surface, so the two agree about what "the ground along this direction" means. Near the chart's
+  // anchor it contracts in a step or two, because x and z move by the direction's own east/north
+  // components. An answer that has NOT converged is a function of the seed and not of the surface,
+  // so it is refused and the sampler answers instead: no vertex silently loses its ground.
+  function latticeHeightAtDir(d) {
+    const len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+    if (!(len > 0)) return NaN
+    const de = (d[0] * E[0] + d[1] * E[1] + d[2] * E[2]) / len
+    const du = (d[0] * U[0] + d[1] * U[1] + d[2] * U[2]) / len
+    const dn = (d[0] * N[0] + d[1] * N[1] + d[2] * N[2]) / len
+    if (!(Math.abs(du) > 1e-9)) return NaN
+    let rho = R + (Number.isFinite(frame.anchorHeight) ? frame.anchorHeight : 0)
+    let converged = false
+    for (let k = 0; k < MESH_SOLVE_ITERS; k++) {
+      const x = rho * de, z = rho * dn
+      if (!lattice.covers(x, z)) return NaN
+      const y = lattice.heightAtLocal(x, z)
+      if (!Number.isFinite(y)) return NaN
+      const next = (y + base) / du
+      if (!Number.isFinite(next)) return NaN
+      const step = next - rho
+      rho = next
+      if (Math.abs(step) <= MESH_SOLVE_TOL_M) { converged = true; break }
+    }
+    return converged ? rho - R : NaN
+  }
 
   const focus = [0, 0]
   const near = []
   const built = new Map()
   const candidates = []
-  const stats = { syncs: 0, builds: 0, queries: 0, served: 0, unserved: 0, rescans: 0, nearQuads: 0 }
+  const stats = { syncs: 0, builds: 0, queries: 0, served: 0, unserved: 0, rescans: 0, nearQuads: 0, latticeVertexHits: 0, latticeVertexMisses: 0 }
   let gridSize = 0
   let flip = null
   let version = 0
@@ -95,7 +136,13 @@ export function createTerrainMeshSurface(opts = {}) {
       const v = oy + (j / g) * l
       for (let i = 0; i <= g; i++) {
         if (!deformDir(face, ox + (i / g) * l, v, R, _dir)) return null
-        const h = heightAtDir(_dir)
+        let h = NaN
+        if (lattice) {
+          h = latticeHeightAtDir(_dir)
+          if (Number.isFinite(h)) stats.latticeVertexHits++
+          else stats.latticeVertexMisses++
+        }
+        if (!Number.isFinite(h)) h = heightAtDir(_dir)
         if (!Number.isFinite(h)) return null
         const s = R + h
         const wx = _dir[0] * s, wy = _dir[1] * s, wz = _dir[2] * s

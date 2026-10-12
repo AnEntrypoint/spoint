@@ -79,7 +79,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     return _createFallbackBackdrop()
   }
   const _lightPlanet = typeof location !== 'undefined' && location.search.includes('lightplanet')
-  let planet, sampler, frame, meshSurface
+  let planet, sampler, frame, meshSurface, sharedLattice
   async function _initPlanet() {
     if (_lightPlanet) return { frame: () => {}, clearCache: () => {} }
     let lastErr
@@ -106,9 +106,23 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     performance.mark('terrain:planet-init')
     performance.mark('boot:backdrop:planet-initialised')
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
+    // The one copy of the ground: the baked sample field the server's collider builds from. Where it
+    // covers a point it IS the ground, so the mesh mirror reads it instead of solving the sampler per
+    // vertex, and grass, vegetation and rock placement -- which all ask the mirror through
+    // client/core/ExactPatchFrame.js -- sit on the collider's own lattice rather than on a third
+    // surface. Where it does not cover, every consumer keeps solving exactly as it did before.
+    sharedLattice = null
+    try {
+      const { loadLatticeSurface } = await import('/src/terrain/LatticeSurface.js')
+      sharedLattice = await loadLatticeSurface({ url: cfg.bakedHeightfield, tcfg: cfg, frame })
+      if (sharedLattice) console.log(`[terrain] shared lattice: ${sharedLattice.N} nodes over ${sharedLattice.extent}m (${sharedLattice.stepM.toFixed(4)}m) -> the mesh mirror reads the collider's own samples instead of re-solving them`)
+    } catch (e) {
+      sharedLattice = null
+      console.warn('[terrain] shared lattice unavailable -> the mesh mirror keeps solving the sampler:', e?.message || e)
+    }
     if (typeof planet.drawnQuads === 'function') {
       try {
-        meshSurface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: planet.drawnQuads })
+        meshSurface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: planet.drawnQuads, lattice: sharedLattice })
         frame.renderMeshHeightAtLocal = meshSurface.heightAtLocal
       } catch (e) {
         meshSurface = null
@@ -146,7 +160,9 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     return _createFallbackBackdrop()
   }
 
-  const registerDebugGlobals = () => { if (typeof window === 'undefined') return; window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats() }; window.__colliderProbe = colliderProbe }
+  // sharedLattice and meshSurface are the one copy and its only reader-side instrument, so a witness
+  // can count how many vertex heights came from the copy instead of from a fresh solve.
+  const registerDebugGlobals = () => { if (typeof window === 'undefined') return; window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats(), sharedLattice: () => sharedLattice, meshSurface: () => meshSurface }; window.__colliderProbe = colliderProbe }
   registerDebugGlobals()
 
   const COLLIDER_PROBE_MAX_UP_DOT = 0.05
