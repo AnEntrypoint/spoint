@@ -25,6 +25,10 @@ const ARMS = String(arg('arms', 'page,pageNamed,ctx,ctxNamed,launchVp,winsize,fi
 const WATCH = arg('watch', null)
 const SETTLE_MS = Number(arg('settle', 1200))
 const SAMPLE_MS = Number(arg('sample-ms', 400))
+// The box has one accelerated browser session and a sibling lane can hold it for a
+// long time, so the default wait is generous: a witness that gives up reports an
+// error, and an error is not a measurement.
+const LEASE_WAIT_MS = Number(arg('lease-wait-ms', 600000))
 
 const PS_ALL_WINDOWS = `
 $ErrorActionPreference='Stop'
@@ -154,13 +158,14 @@ async function watch(cmd) {
 // that deliberately asks for more than the default: it exists to show the window grows
 // to fit instead of scaling the page down, and it is reported outside the constancy set.
 function armShape(name) {
-  if (name === 'page') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid }), page: (b) => b.newPage(), constancy: true }
-  if (name === 'pageNamed') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid }), page: (b) => b.newPage({ viewport: DEFAULT_VIEWPORT }), constancy: true }
-  if (name === 'ctx') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid }), page: async (b) => (await b.newContext()).newPage(), constancy: true }
-  if (name === 'ctxNamed') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid }), page: async (b) => (await b.newContext({ viewport: DEFAULT_VIEWPORT })).newPage(), constancy: true }
-  if (name === 'launchVp') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid, viewport: DEFAULT_VIEWPORT }), page: (b) => b.newPage(), constancy: true }
-  if (name === 'winsize') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid, args: ['--window-size=1280,810'] }), page: (b) => b.newPage({ viewport: DEFAULT_VIEWPORT }), constancy: true }
-  if (name === 'fit1080') return { launch: () => chromium.launch({ owner: 'window-size-constancy-' + process.pid }), page: (b) => b.newPage({ viewport: { width: Math.round(DEFAULT_VIEWPORT.width * 1.5), height: Math.round(DEFAULT_VIEWPORT.height * 1.5) } }), constancy: false }
+  const L = (extra) => chromium.launch({ owner: 'window-size-constancy-' + process.pid, leaseWaitMs: LEASE_WAIT_MS, ...extra })
+  if (name === 'page') return { launch: () => L({}), page: (b) => b.newPage(), constancy: true }
+  if (name === 'pageNamed') return { launch: () => L({}), page: (b) => b.newPage({ viewport: DEFAULT_VIEWPORT }), constancy: true }
+  if (name === 'ctx') return { launch: () => L({}), page: async (b) => (await b.newContext()).newPage(), constancy: true }
+  if (name === 'ctxNamed') return { launch: () => L({}), page: async (b) => (await b.newContext({ viewport: DEFAULT_VIEWPORT })).newPage(), constancy: true }
+  if (name === 'launchVp') return { launch: () => L({ viewport: DEFAULT_VIEWPORT }), page: (b) => b.newPage(), constancy: true }
+  if (name === 'winsize') return { launch: () => L({ args: ['--window-size=1280,810'] }), page: (b) => b.newPage({ viewport: DEFAULT_VIEWPORT }), constancy: true }
+  if (name === 'fit1080') return { launch: () => L({}), page: (b) => b.newPage({ viewport: { width: Math.round(DEFAULT_VIEWPORT.width * 1.5), height: Math.round(DEFAULT_VIEWPORT.height * 1.5) } }), constancy: false }
   throw new Error('unknown arm ' + name)
 }
 
