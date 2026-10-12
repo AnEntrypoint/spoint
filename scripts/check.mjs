@@ -48,6 +48,8 @@ const NO_GPU_WITNESSES = [
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
   { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
   { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=2[\s\S]*RESULT: PASS/ },
+  { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
+  { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -59,7 +61,6 @@ const SLOW_NO_GPU_WITNESSES = [
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
 const NO_GPU_WITNESS_ECHO_LINES = 6
-const NO_GPU_WITNESS_FAIL_ECHO_LINES = 20
 const NO_GPU_WITNESS_CAUSE_RE = /RESULT: FAIL|\[FAIL\]|^FAIL |FATAL|Error:|AssertionError|error TS\d+|npm ERR!/i
 
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin']
@@ -239,7 +240,12 @@ async function main() {
     console.error('check: no gpu-free witness is listed, so the gpu-free witness arm proves nothing')
     process.exit(1)
   }
+  // The arm no longer exits at the first red witness: one failure used to hide every sibling after
+  // it plus both post-arm gates, so a lane could not tell its own status from CI's output. Each
+  // witness is an independent process with its own timeout, verdict regex and `must` regex, so a
+  // failure is recorded and the arm runs on; the build still fails, but on the complete list.
   let noGpuMs = 0
+  const noGpuFailures = []
   async function runNoGpuWitnesses(list, timeoutMs) {
     for (const spec of list) {
       const rel = join('scripts', spec.file)
@@ -247,13 +253,15 @@ async function main() {
       try {
         source = readFileSync(rel, 'utf8')
       } catch (e) {
-        console.error(`check: gpu-free witness ${spec.file} is unreadable (${e.message}), so its assertions never ran`)
-        process.exit(1)
+        noGpuFailures.push({ file: spec.file, code: null, reasons: [`unreadable (${e.message}), so its assertions never ran`], echo: [] })
+        console.error(`check: gpu-free witness ${spec.file} FAILED (never ran, unreadable) -- recorded; the arm runs every witness so the failure list is complete`)
+        continue
       }
       const gpuHit = NO_GPU_WITNESS_GPU_SURFACE.exec(source)
       if (gpuHit !== null) {
-        console.error(`check: gpu-free witness ${spec.file} reaches the "${gpuHit[0]}" surface, so it cannot run where CI has no GPU -- move it behind SPOINT_GPU_WITNESS`)
-        process.exit(1)
+        noGpuFailures.push({ file: spec.file, code: null, reasons: [`reaches the "${gpuHit[0]}" surface, so it cannot run where CI has no GPU -- move it behind SPOINT_GPU_WITNESS`], echo: [] })
+        console.error(`check: gpu-free witness ${spec.file} FAILED (never ran, reaches the "${gpuHit[0]}" surface) -- recorded; the arm runs every witness so the failure list is complete`)
+        continue
       }
       const started = Date.now()
       let stdout = ''
@@ -279,32 +287,34 @@ async function main() {
       if (stdout.trim() === '') witnessFailures.push('printed nothing, so silence cannot be told apart from a witness that never asserted')
       if (spec.must && !spec.must.test(stdout)) witnessFailures.push(`printed no line matching ${spec.must}, so its assertions never ran`)
       if (witnessFailures.length > 0) {
-        console.error(`check: gpu-free witness ${spec.file}: ${witnessFailures.join('; ')}`)
-        for (const line of echoLines(`${stdout}\n${stderr}`, NO_GPU_WITNESS_FAIL_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
-        process.exit(1)
+        noGpuFailures.push({ file: spec.file, code, reasons: witnessFailures, echo: echoLines(`${stdout}\n${stderr}`, NO_GPU_WITNESS_ECHO_LINES) })
+        console.error(`check: gpu-free witness ${spec.file} FAILED (${(ms / 1000).toFixed(1)} s, exit ${code}): ${witnessFailures.join('; ')} -- recorded; the arm runs every witness so the failure list is complete`)
+      } else {
+        console.log(`check: gpu-free witness ${spec.file} ${(ms / 1000).toFixed(1)} s, exit 0, ${verdict.line ?? 'no RESULT: line, so exit 0 is the verdict'}`)
       }
-      console.log(`check: gpu-free witness ${spec.file} ${(ms / 1000).toFixed(1)} s, exit 0, ${verdict.line ?? 'no RESULT: line, so exit 0 is the verdict'}`)
     }
   }
   await runNoGpuWitnesses(NO_GPU_WITNESSES, NO_GPU_WITNESS_TIMEOUT_MS)
   await runNoGpuWitnesses(SLOW_NO_GPU_WITNESSES, SLOW_WITNESS_TIMEOUT_MS)
   const noGpuCount = NO_GPU_WITNESSES.length + SLOW_NO_GPU_WITNESSES.length
   console.log(`check: ${noGpuCount} gpu-free witness(es) ran in ${(noGpuMs / 1000).toFixed(1)} s with no GPU required`)
+
+  // These gates read committed state, not any witness's artefact, so a red witness above is no
+  // reason to withhold their verdicts.
+  const gateFailures = []
   try {
     const { stdout } = await execFileAsync(process.execPath, ['scripts/fire-witness-gate.mjs'], { maxBuffer: 16 * 1024 * 1024 })
     for (const line of stdout.split('\n')) if (line.trim()) console.log(`check: ${line}`)
   } catch (e) {
     const out = (e.stdout || '').toString()
     for (const line of out.split('\n')) if (line.trim()) console.error(`check: ${line}`)
-    console.error('check: fire witnesses:', (e.stderr || e.message || '').toString().trim())
-    process.exit(1)
+    gateFailures.push(`fire-witness-gate.mjs: ${(e.stderr || e.message || '').toString().trim()}`)
   }
   try {
     const { stdout } = await execFileAsync(process.execPath, ['scripts/check-frame-time-baselines.mjs'])
     for (const line of stdout.split('\n')) if (line.trim()) console.log(line)
   } catch (e) {
-    console.error('check: frame-time baselines:', (e.stderr || e.stdout || e.message || '').toString().trim())
-    process.exit(1)
+    gateFailures.push(`check-frame-time-baselines.mjs: ${(e.stderr || e.stdout || e.message || '').toString().trim()}`)
   }
   const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)
   for (const gpu of gpuArms) {
@@ -314,11 +324,23 @@ async function main() {
       for (const line of stdout.split('\n')) if (keep(line)) console.log(`check: ${line}`)
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
-      console.error(`check: vegetation browser witness on ${gpu}:`, (e.stderr || e.message || '').toString().trim())
-      process.exit(1)
+      gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
+  if (noGpuFailures.length > 0) {
+    console.error(`check: ${noGpuFailures.length} of ${noGpuCount} gpu-free witness(es) failed -- all ${noGpuCount} ran, so this is the complete failure list:`)
+    for (const f of noGpuFailures) {
+      console.error(`  FAIL ${f.file} exit ${f.code === null ? 'never ran' : f.code}: ${f.reasons.join('; ')}`)
+      for (const line of f.echo) console.error(`    ${f.file} out ${line}`)
+    }
+    console.error(`check: failing gpu-free witness(es): ${noGpuFailures.map((f) => f.file).join(', ')}`)
+  }
+  if (gateFailures.length > 0) {
+    console.error(`check: ${gateFailures.length} post-arm gate(s) failed:`)
+    for (const g of gateFailures) console.error(`  FAIL ${g}`)
+  }
+  if (noGpuFailures.length > 0 || gateFailures.length > 0) process.exit(1)
 }
 
 main().catch((e) => { console.error('check: harness error:', e); process.exit(2) })

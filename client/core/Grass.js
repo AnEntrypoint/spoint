@@ -57,7 +57,9 @@ export async function createGrass(opts = {}) {
   const isWebGPU = !!renderer.isWebGPURenderer
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
-  const geoNear = makeClumpGeo(3, 1)
+  // The wind bend is quadratic in the card height coordinate (gw = gv*gv*0.45), so three rows
+  // (two segments) is the fewest that still carries the curve; a fourth row only subdivides it.
+  const geoNear = makeClumpGeo(2, 1)
   const geoMid = makeClumpGeo(1, 1)
 
   let mat, im, imMid, grassNodes = null
