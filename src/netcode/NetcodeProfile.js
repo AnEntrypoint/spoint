@@ -17,8 +17,13 @@ function positiveInt(v, name, profile) {
   return v
 }
 
+const isObject = v => typeof v === 'object' && v !== null && !Array.isArray(v)
+const describe = v => { const json = JSON.stringify(v); return json === undefined ? String(v) : json }
+
 export function resolveNetcodeProfile(worldDef) {
-  const cfg = worldDef?.netcode || {}
+  const declared = worldDef?.netcode
+  if (declared !== undefined && declared !== null && !isObject(declared)) throw new Error(`[netcode] netcode must be an object declaring profile and per-profile options, got ${describe(declared)}`)
+  const cfg = declared ?? {}
   const name = cfg.profile ?? 'authoritative'
   if (!NETCODE_PROFILES.includes(name)) throw new Error(`[netcode] unknown netcode.profile '${name}' (expected one of ${NETCODE_PROFILES.join(', ')})`)
   const defaults = PROFILE_DEFAULTS[name] || {}
