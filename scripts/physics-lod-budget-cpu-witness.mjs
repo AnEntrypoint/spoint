@@ -10,18 +10,31 @@ const args = Object.fromEntries(process.argv.slice(2).map(a => {
   return [a.slice(2, eq), a.slice(eq + 1)]
 }))
 
-const POPULATION = Number(args.population || 800)
-const PLAYER_COUNT = Number(args.players || 4)
-const RADIUS = Number(args.radius || 30)
-const BUDGET = Number(args.budget || 512)
-const LOD_INTERVAL = Number(args.lodInterval || 32)
-const WARM_TICKS = Number(args.warm || 256)
-const MEASURE_TICKS = Number(args.ticks || 256)
-const SPREAD_M = Number(args.spreadM || 160)
-const DROP_Y = Number(args.dropY || 3)
-const PLAYER_SPEED = Number(args.playerSpeed || 0)
-const ORBIT_M = Number(args.orbitM || 24)
-const OUTLIER_MS = Number(args.outlierMs || 0.05)
+const TAG = '[physics-lod-budget]'
+
+function numericFlag(name, fallback) {
+  const raw = args[name]
+  if (raw === undefined || raw === null || raw === '') return fallback
+  const value = Number(raw)
+  if (!Number.isFinite(value)) {
+    console.error(`${TAG} --${name} needs a finite number, got ${JSON.stringify(raw)}`)
+    process.exit(2)
+  }
+  return value
+}
+
+const POPULATION = numericFlag('population', 800)
+const PLAYER_COUNT = numericFlag('players', 4)
+const RADIUS = numericFlag('radius', 30)
+const BUDGET = numericFlag('budget', 512)
+const LOD_INTERVAL = numericFlag('lodInterval', 32)
+const WARM_TICKS = numericFlag('warm', 256)
+const MEASURE_TICKS = numericFlag('ticks', 256)
+const SPREAD_M = numericFlag('spreadM', 160)
+const DROP_Y = numericFlag('dropY', 3)
+const PLAYER_SPEED = numericFlag('playerSpeed', 0)
+const ORBIT_M = numericFlag('orbitM', 24)
+const OUTLIER_MS = numericFlag('outlierMs', 0.05)
 const DT = 1 / 64
 const EXPECT_HASH = args.expect || null
 const REQUIRE_ENGAGED = args.requireEngaged === 'true'
@@ -31,7 +44,6 @@ const { fnv1aBytes } = await import('../src/shared/fnv1a.js')
 const { PhysicsWorld } = await import('../src/physics/World.js')
 const { mixinPhysics } = await import('../src/apps/AppRuntimePhysics.js')
 
-const TAG = '[physics-lod-budget]'
 const lines = []
 function emit(line) {
   lines.push(line)
