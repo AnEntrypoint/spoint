@@ -10,6 +10,7 @@ import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
+import { packSnapshotBytes, newRecordMemo } from '../netcode/SnapshotPacker.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
@@ -159,7 +160,17 @@ const _playersByIdScratch = new Map()
 const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
 const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined, me: undefined, chartEpoch: 0 }
 
-function packSnapshot(seq, encoded, me, chartEpoch) {
+function packSnapshot(seq, encoded, me, chartEpoch, recordMemo) {
+  if (recordMemo !== null) {
+    const spliced = packSnapshotBytes(MSG.SNAPSHOT, seq, encoded, me, chartEpoch, recordMemo)
+    if (spliced !== null) {
+      // packSnapshotBytes carves from a rolling arena and ConnectionManager hands the buffer to a
+      // transport that may outlive the tick, so the bytes are copied out before they are sent.
+      const buf = new Uint8Array(spliced)
+      recordSnapshotBytes(buf.length)
+      return buf
+    }
+  }
   _packPayload.seq = seq; _packPayload.tick = encoded.tick; _packPayload.serverTime = encoded.serverTime
   _packPayload.players = encoded.players; _packPayload.entities = encoded.entities
   _packPayload.removed = encoded.removed; _packPayload.delta = encoded.delta
@@ -250,6 +261,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     let unmanagedIds = null
     const served = selectServedPlayers(players, snapGroups, curGroup, false)
     groupPlayersByCell(served, planetRadius, relevanceRadius)
+    const recordMemo = newRecordMemo()
     for (const player of served) {
       if (dynCache === null) {
         const activeIds = appRuntime.getActiveDynamicIds()
@@ -327,7 +339,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       if (playerDots) encoded.dots = playerDots
       state.playerLastTick.set(player.id, tick)
       playerEntityMaps.set(player.id, entityMap)
-      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(playersById.get(player.id)), chartEpoch), SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(playersById.get(player.id)), chartEpoch, recordMemo), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
     if (dynCache !== null && (state.playerLastTick.size > 0 || state.cellLastTick.size > 0)) {
       let minTick = tick
@@ -353,8 +365,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     state.broadcastEntityMap = entityMap
     const selfById = _playersByIdScratch; selfById.clear()
     for (const p of playerSnap.players) selfById.set(p.id, p)
+    const broadcastMemo = newRecordMemo()
     for (const player of selectServedPlayers(players, snapGroups, curGroup, isKeyframe)) {
-      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id)), chartEpoch), SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id)), chartEpoch, broadcastMemo), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
   }
 }
@@ -494,6 +507,7 @@ export function createTickHandler(deps) {
       connections.broadcast(MSG.PEER_RTT_TABLE, { rtt: rttTable, pubkeys })
     }
     serverTimeOfDay.tick(dt)
+    serverWeather.tick(dt)
     if (players.length > 0 && serverTimeOfDay.shouldBroadcast()) {
       connections.broadcast(MSG.TIME_OF_DAY_SYNC, serverTimeOfDay.getSyncPayload())
     }

@@ -15,6 +15,10 @@ const KIND_UNSHAREABLE = 0
 const KIND_SCALARS = 1
 const KIND_WITH_BINS = 2
 
+// Counted work units for the share path: a witness reads these, because a share that is never
+// taken is indistinguishable from a share that costs nothing.
+export const snapshotPackCounts = { splices: 0, refusals: 0, recordPacks: 0, recordShares: 0 }
+
 const _heads = new Map()
 const _numbers = [0, 0, 0]
 const _fields = [undefined, undefined, undefined, undefined, undefined, undefined]
@@ -97,18 +101,20 @@ function sameScalars(values, rec) {
 
 function recordBytes(rec, memo) {
   const known = memo.byRef.get(rec)
-  if (known !== undefined) return known
+  if (known !== undefined) { if (known !== null) snapshotPackCounts.recordShares++; return known }
   const kind = recordKind(rec)
   if (kind === KIND_UNSHAREABLE) { memo.byRef.set(rec, null); return null }
   if (kind === KIND_WITH_BINS) {
     const bytes = new Uint8Array(pack(rec))
     memo.byRef.set(rec, bytes)
+    snapshotPackCounts.recordPacks++
     return bytes
   }
   const cached = memo.byId.get(rec[0])
-  if (cached !== undefined && sameScalars(cached.values, rec)) return cached.bytes
+  if (cached !== undefined && sameScalars(cached.values, rec)) { snapshotPackCounts.recordShares++; return cached.bytes }
   const bytes = new Uint8Array(pack(rec))
   memo.byId.set(rec[0], { values: rec.slice(), bytes })
+  snapshotPackCounts.recordPacks++
   return bytes
 }
 
@@ -119,7 +125,7 @@ export function newRecordMemo() {
 export function packSnapshotBytes(type, seq, encoded, me, chartEpoch, memo) {
   const head = snapshotHead(type)
   const players = encoded.players
-  if (head === null || !Array.isArray(players)) return null
+  if (head === null || !Array.isArray(players)) { snapshotPackCounts.refusals++; return null }
   const n = players.length
   _numbers[0] = seq; _numbers[1] = encoded.tick; _numbers[2] = encoded.serverTime
   const numbers = pack(_numbers)
@@ -129,11 +135,12 @@ export function packSnapshotBytes(type, seq, encoded, me, chartEpoch, memo) {
   let total = head.length + (numbers.length - 1) + arrayHeaderLength(n) + (tail.length - 1)
   for (let i = 0; i < n; i++) {
     const bytes = recordBytes(players[i], memo)
-    if (bytes === null) return null
+    if (bytes === null) { snapshotPackCounts.refusals++; return null }
     _recs[i] = bytes
     total += bytes.length
   }
   const out = carve(total)
+  snapshotPackCounts.splices++
   let offset = copyRange(out, head, 0, 0)
   offset = copyRange(out, numbers, 1, offset)
   offset = writeArrayHeader(out, offset, n)
