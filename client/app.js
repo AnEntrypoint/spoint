@@ -314,9 +314,17 @@ if (typeof window !== 'undefined') {
     },
   })
   timeOfDay.setPaused(true)
+  performance.mark('boot:renderer-services')
 }
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 const loadingMachine = createLoadingStateMachine()
+const _LOADING_INPUT_MARKS = new Set(['WORLD_CONFIG', 'ASSETS_DONE', 'ENVIRONMENT_DONE', 'FIRST_SNAPSHOT', 'MODELS_DONE'])
+const _sendLoadingInput = loadingMachine.send
+loadingMachine.send = (type, extra) => {
+  const name = typeof type === 'string' ? type : (type && type.type)
+  if (_LOADING_INPUT_MARKS.has(name)) performance.mark('boot:input-' + name.toLowerCase().replace(/_/g, '-'))
+  return _sendLoadingInput(type, extra)
+}
 if (window.__app) window.__app.loadingMachine = loadingMachine
 let _loadingFinished = false
 let _worldRevealed = false
@@ -1310,6 +1318,7 @@ let client; const _clientConfig = {
     else if (type===MSG.EDITOR_PRESENCE) { editorPresence.onPresenceMessage(payload) } },
   debug: false
 }
+performance.mark('boot:preclient-init')
 function _installCollisionDemotion(bridgeRef, _hostMigTest, { logLabel, getClient, setClient }) {
   let _demoted = false
   const _onPossibleCollision = ({ detail }) => {
@@ -1405,6 +1414,7 @@ if (_wwRoom && _netcodeProfile?.peerSimulated) {
   client = (_isSingleplayer || _isHost || _joinOffer) ? new BrowserServer({ ..._clientConfig, worldDef: _worldDef || undefined }) : new PhysicsNetworkClient(_clientConfig)
 }
 window.__client = client
+performance.mark('boot:client-created')
 
 if (typeof document !== 'undefined') {
   let _stallTick = 0, _stallHiddenAt = 0, _stallRecovering = false
@@ -2781,6 +2791,14 @@ function animate(ts) {
   if (_showStats) { const frameMs = _perf.lastMs; _profileSum += frameMs; if (++_profileFrames >= 120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum / _profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames = 0; _profileSum = 0 } }
 }
 renderer.setAnimationLoop(animate)
+performance.mark('boot:connect-start')
+const _terrainModulesWarm = (async () => {
+  try {
+    if (renderer && renderer.isWebGPURenderer) await import('/node_modules/mapspinner/src/tsl/planet-tsl.js')
+    else await import('mapspinner/planet-orchestrator')
+    await import('mapspinner/height-cpu')
+  } catch (_) {}
+})()
 client.connect().then(async ()=>{
   startInputLoop()
   const _editorToken = _params.get('editorToken')
