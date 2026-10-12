@@ -1,44 +1,30 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { numericFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const witnessOutDir = path.join(repoRoot, '.gm', 'witness-out')
-const args = Object.fromEntries(process.argv.slice(2).map(a => {
-  const eq = a.indexOf('=')
-  if (eq < 0) return [a.replace(/^--/, ''), 'true']
-  return [a.slice(2, eq), a.slice(eq + 1)]
-}))
+const args = parseArgs(process.argv.slice(2))
 
 const TAG = '[physics-lod-budget]'
 
-function numericFlag(name, fallback) {
-  const raw = args[name]
-  if (raw === undefined || raw === null || raw === '') return fallback
-  const value = Number(raw)
-  if (!Number.isFinite(value)) {
-    console.error(`${TAG} --${name} needs a finite number, got ${JSON.stringify(raw)}`)
-    process.exit(2)
-  }
-  return value
-}
-
-const POPULATION = numericFlag('population', 800)
-const PLAYER_COUNT = numericFlag('players', 4)
-const RADIUS = numericFlag('radius', 30)
-const BUDGET = numericFlag('budget', 512)
-const LOD_INTERVAL = numericFlag('lodInterval', 32)
-const WARM_TICKS = numericFlag('warm', 256)
-const MEASURE_TICKS = numericFlag('ticks', 256)
-const SPREAD_M = numericFlag('spreadM', 160)
-const DROP_Y = numericFlag('dropY', 3)
-const PLAYER_SPEED = numericFlag('playerSpeed', 0)
-const ORBIT_M = numericFlag('orbitM', 24)
-const OUTLIER_MS = numericFlag('outlierMs', 0.05)
+const POPULATION = numericFlag(args, 'population', 800)
+const PLAYER_COUNT = numericFlag(args, 'players', 4)
+const RADIUS = numericFlag(args, 'radius', 30)
+const BUDGET = numericFlag(args, 'budget', 512)
+const LOD_INTERVAL = numericFlag(args, 'lodInterval', 32)
+const WARM_TICKS = numericFlag(args, 'warm', 256)
+const MEASURE_TICKS = numericFlag(args, 'ticks', 256)
+const SPREAD_M = numericFlag(args, 'spreadM', 160)
+const DROP_Y = numericFlag(args, 'dropY', 3)
+const PLAYER_SPEED = numericFlag(args, 'playerSpeed', 0)
+const ORBIT_M = numericFlag(args, 'orbitM', 24)
+const OUTLIER_MS = numericFlag(args, 'outlierMs', 0.05)
 const DT = 1 / 64
-const EXPECT_HASH = args.expect || null
-const REQUIRE_ENGAGED = args.requireEngaged === 'true'
-const OUT = args.out || null
+const EXPECT_HASH = strArg(args.expect, null)
+const REQUIRE_ENGAGED = args.requireEngaged === true || args.requireEngaged === 'true'
+const OUT = strArg(args.out, null)
 
 const { fnv1aBytes } = await import('../src/shared/fnv1a.js')
 const { PhysicsWorld } = await import('../src/physics/World.js')
