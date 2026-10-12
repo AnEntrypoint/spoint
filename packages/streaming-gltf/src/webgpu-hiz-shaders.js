@@ -20,7 +20,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let d10 = textureLoad(srcTex, vec2<i32>(c10), 0).r;
   let d01 = textureLoad(srcTex, vec2<i32>(c01), 0).r;
   let d11 = textureLoad(srcTex, vec2<i32>(c11), 0).r;
-  let m = min(min(d00, d10), min(d01, d11));
+  let m = max(max(d00, d10), max(d01, d11));
   textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(m, m, m, 1.0));
 }`;
 
@@ -63,6 +63,10 @@ struct FrameParams {
   hzbLevels      : u32,
   hzbW           : f32,
   hzbH           : f32,
+  thresholdCount : u32,
+  cullDisable    : u32,
+  fallbackIndexCount : u32,
+  pad4           : u32,
 };
 
 struct IndirectArgs {
@@ -78,12 +82,17 @@ struct IndirectArgs {
 @group(0) @binding(2) var<storage, read_write> indirectArgs : array<IndirectArgs>;
 @group(0) @binding(3) var<storage, read_write> drawCount : atomic<u32>;
 @group(0) @binding(4) var hzbTex : texture_2d<f32>;
-@group(0) @binding(5) var hzbSampler : sampler;
+// No sampler: the cull reads the pyramid with textureLoad, and an unused binding
+// is dropped from an auto bind group layout, which then rejects the bind group.
+// Previous LOD index per cluster, owned by the CPU cull (ClusterLodMesh._curLod) and
+// uploaded each dispatch: the GPU cull must not keep a second copy of hysteresis state.
+@group(0) @binding(6) var<storage, read> lodState : array<i32>;
+@group(0) @binding(7) var<storage, read_write> frustumVisible : atomic<u32>;
 
 fn aabbOutsidePlane(mn: vec3<f32>, mx: vec3<f32>, plane: vec4<f32>) -> bool {
-  let px = select(mn.x, mx.x, plane.x >= 0.0);
-  let py = select(mn.y, mx.y, plane.y >= 0.0);
-  let pz = select(mn.z, mx.z, plane.z >= 0.0);
+  let px = select(mn.x, mx.x, plane.x > 0.0);
+  let py = select(mn.y, mx.y, plane.y > 0.0);
+  let pz = select(mn.z, mx.z, plane.z > 0.0);
   return (plane.x * px + plane.y * py + plane.z * pz + plane.w) < 0.0;
 }
 
@@ -99,9 +108,8 @@ fn frustumCulled(mn: vec3<f32>, mx: vec3<f32>, vp: mat4x4<f32>) -> bool {
   return false;
 }
 
-fn selectHzbLevel(spanPx: f32, maxLevel: u32) -> u32 {
-  let lvl = i32(ceil(log2(max(spanPx, 1.0))));
-  return u32(clamp(lvl, 0, i32(maxLevel)));
+fn hzbLevelFor(spanPx: f32, maxLevel: i32) -> i32 {
+  return clamp(i32(ceil(log2(max(spanPx, 1.0)))), 0, maxLevel);
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -121,37 +129,30 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     wmx = max(wmx, wp);
   }
 
-  if (frustumCulled(wmn, wmx, frame.viewProjection)) { return; }
+  if (frame.cullDisable == 0u && frustumCulled(wmn, wmx, frame.viewProjection)) { return; }
 
   let wcenter = (frame.world * vec4<f32>(c.sphereCenter, 1.0)).xyz;
   var minZ = 1.0;
   var minX = 1e30; var maxX = -1e30; var minY = 1e30; var maxY = -1e30;
   var anyInFront = false;
+  var allInFront = true;
   for (var i = 0u; i < 8u; i = i + 1u) {
     let lx = select(c.aabbMin.x, c.aabbMax.x, (i & 1u) != 0u);
     let ly = select(c.aabbMin.y, c.aabbMax.y, (i & 2u) != 0u);
     let lz = select(c.aabbMin.z, c.aabbMax.z, (i & 4u) != 0u);
     let wp = (frame.world * vec4<f32>(lx, ly, lz, 1.0)).xyz;
     let clip = frame.viewProjection * vec4<f32>(wp, 1.0);
-    if (clip.w <= 0.0001) { continue; }
+    if (clip.w <= 0.0001) { allInFront = false; continue; }
     anyInFront = true;
     let ndc = clip.xyz / clip.w;
     let sx = ndc.x * 0.5 + 0.5;
     let sy = ndc.y * 0.5 + 0.5;
-    let sz = ndc.z * 0.5 + 0.5;
+    // Clip z / w is already [0, 1] near-to-far, same as the depth attachment.
+    let sz = ndc.z;
     minX = min(minX, sx); maxX = max(maxX, sx);
     minY = min(minY, sy); maxY = max(maxY, sy);
     minZ = min(minZ, sz);
   }
-  if (anyInFront && frame.hzbLevels > 0u) {
-    let cx = clamp((minX + maxX) * 0.5, 0.0, 1.0);
-    let cy = clamp((minY + maxY) * 0.5, 0.0, 1.0);
-    let spanPx = max((maxX - minX) * frame.hzbW, (maxY - minY) * frame.hzbH);
-    let level = selectHzbLevel(spanPx, frame.hzbLevels - 1u);
-    let texel = textureLoad(hzbTex, vec2<i32>(i32(cx * frame.hzbW) >> i32(level), i32(cy * frame.hzbH) >> i32(level)), i32(level)).r;
-    if (minZ >= texel + 1e-5) { return; }
-  }
-
   let toCam = frame.cameraPos - wcenter;
   let distSq = max(dot(toCam, toCam), 1e-6);
   let basisX = vec3<f32>(frame.world[0][0], frame.world[0][1], frame.world[0][2]);
@@ -161,31 +162,75 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let worldRadius = c.sphereRadius * worldScale;
   let sizeSq = (frame.screenHeight * worldRadius) * (frame.screenHeight * worldRadius);
 
-  var lod = 2u;
-  if (c.lodCount <= 1u) {
-    lod = 0u;
-  } else {
-    let eff0 = frame.threshold0 * frame.hystUp;
-    if (sizeSq > eff0 * eff0 * frame.tanHalfSq * distSq) {
-      lod = 0u;
-    } else if (c.lodCount > 2u) {
-      let eff1 = frame.threshold1 * frame.hystUp;
-      if (sizeSq > eff1 * eff1 * frame.tanHalfSq * distSq) { lod = 1u; } else { lod = 2u; }
-    } else {
-      lod = 1u;
-    }
+  // Same threshold walk as ClusterLodMesh._pickLod, unrolled because a uniform
+  // address-space array<f32, N> is illegal in WGSL (16-byte element stride).
+  let cur = lodState[ci];
+  var lod = i32(frame.thresholdCount);
+  var picked = false;
+  if (frame.thresholdCount > 0u) {
+    let eff = frame.threshold0 * select(frame.hystDown, frame.hystUp, cur < 0 || cur > 0);
+    if (sizeSq > eff * eff * frame.tanHalfSq * distSq) { lod = 0; picked = true; }
   }
-  if (lod >= c.lodCount) { lod = c.lodCount - 1u; }
+  if (!picked && frame.thresholdCount > 1u) {
+    let eff = frame.threshold1 * select(frame.hystDown, frame.hystUp, cur < 0 || cur > 1);
+    if (sizeSq > eff * eff * frame.tanHalfSq * distSq) { lod = 1; picked = true; }
+  }
+  let avail = i32(c.lodCount);
+  if (lod >= avail) { lod = avail - 1; }
+  if (lod < 0) { lod = 0; }
 
   var offset = c.lod0Offset; var count = c.lod0Count;
-  if (lod == 1u) { offset = c.lod1Offset; count = c.lod1Count; }
-  if (lod == 2u) { offset = c.lod2Offset; count = c.lod2Count; }
+  if (lod == 1) { offset = c.lod1Offset; count = c.lod1Count; }
+  if (lod == 2) { offset = c.lod2Offset; count = c.lod2Count; }
+
+  // ClusterLodMesh counts a cluster as drawn on the frustum result alone, so the
+  // fallback group has to key off that count and not off the occluded draw count.
+  if (count != 0u) { atomicAdd(&frustumVisible, 1u); }
+
+  if (allInFront && anyInFront && frame.hzbLevels > 0u) {
+    minX = clamp(minX, 0.0, 1.0); maxX = clamp(maxX, 0.0, 1.0);
+    minY = clamp(minY, 0.0, 1.0); maxY = clamp(maxY, 0.0, 1.0);
+    let spanPx = max((maxX - minX) * frame.hzbW, (maxY - minY) * frame.hzbH);
+    let level = hzbLevelFor(spanPx, i32(frame.hzbLevels) - 1);
+    let lw = max(ceil(frame.hzbW / exp2(f32(level))), 1.0);
+    let lh = max(ceil(frame.hzbH / exp2(f32(level))), 1.0);
+    let x0 = clamp(i32(floor(minX * lw)), 0, i32(lw) - 1);
+    let x1 = clamp(i32(floor(maxX * lw)), 0, i32(lw) - 1);
+    // ndc y is up, texture rows are down: row = (1 - sy) * lh.
+    let y0 = clamp(i32(floor((1.0 - maxY) * lh)), 0, i32(lh) - 1);
+    let y1 = clamp(i32(floor((1.0 - minY) * lh)), 0, i32(lh) - 1);
+    // Every texel the rect touches, maxed: a single centre texel at one mip both
+    // misses occluders and reads a level that does not cover the rect.
+    var farthest = 0.0;
+    for (var yy = y0; yy <= y1; yy = yy + 1) {
+      for (var xx = x0; xx <= x1; xx = xx + 1) {
+        farthest = max(farthest, textureLoad(hzbTex, vec2<i32>(xx, yy), level).r);
+      }
+    }
+    if (minZ > farthest + 1e-5) { return; }
+  }
+
   if (count == 0u) { return; }
 
   let slot = atomicAdd(&drawCount, 1u);
   indirectArgs[slot].instanceCount = 1u;
   indirectArgs[slot].firstIndex = offset;
   atomicStore(&indirectArgs[slot].indexCount, count);
+  indirectArgs[slot].baseVertex = i32(frame.baseVertex);
+  indirectArgs[slot].firstInstance = frame.firstInstance;
+}
+
+// ClusterLodMesh._render emits one group spanning the whole LOD0 when no cluster
+// survives the cull; the GPU cull must emit the same draw or the two disagree.
+// Runs as a separate dispatch after main, so it sees main's final draw count.
+@compute @workgroup_size(1, 1, 1)
+fn fallbackMain() {
+  if (atomicLoad(&frustumVisible) != 0u) { return; }
+  if (frame.fallbackIndexCount == 0u) { return; }
+  let slot = atomicAdd(&drawCount, 1u);
+  indirectArgs[slot].instanceCount = 1u;
+  indirectArgs[slot].firstIndex = 0u;
+  atomicStore(&indirectArgs[slot].indexCount, frame.fallbackIndexCount);
   indirectArgs[slot].baseVertex = i32(frame.baseVertex);
   indirectArgs[slot].firstInstance = frame.firstInstance;
 }`;

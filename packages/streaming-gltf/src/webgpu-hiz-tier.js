@@ -2,14 +2,22 @@ import * as THREE from 'three';
 import { IndirectStorageBufferAttribute } from 'three/webgpu';
 import {
   HZB_SEED_WGSL, HZB_REDUCE_WGSL, CULL_LOD_WGSL,
-  CLUSTER_STRIDE_BYTES, INDIRECT_STRIDE_BYTES, flattenClusters
+  CLUSTER_STRIDE_BYTES, INDIRECT_STRIDE_BYTES, MAX_LOD_SLOTS, flattenClusters
 } from './webgpu-hiz-shaders.js';
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const _size = new THREE.Vector2();
 const HZB_WORKGROUP_DIM = 8;
 const CULL_WORKGROUP_SIZE = 64;
-const FRAME_PARAMS_FLOATS = 48;
+const FRAME_PARAMS_FLOATS = 52;
+const MAX_THRESHOLD_SLOTS = 2;
+
+function _drawingBufferHeight(renderer) {
+  if (!renderer || typeof renderer.getDrawingBufferSize !== 'function') return 0;
+  const sz = renderer.getDrawingBufferSize(_size);
+  return sz && sz.y > 0 ? sz.y : 0;
+}
 
 function compileShaderModule(device, label, code) {
   return device.createShaderModule({ code, label });
@@ -25,11 +33,13 @@ export class WebGpuHizTier {
     this._reducePipeline = null;
     this._cullPipeline = null;
     this._hzbMips = [];
+    this._hzbTex = null;
+    this._hzbView = null;
     this._hzbLevels = 0;
     this._hzbW = 0;
     this._hzbH = 0;
     this._meshBuffers = new Map();
-    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0 };
+    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0 };
   }
 
   supported() {
@@ -66,6 +76,11 @@ export class WebGpuHizTier {
       layout: 'auto',
       compute: { module: cullMod, entryPoint: 'main' },
     });
+    this._fallbackPipeline = device.createComputePipeline({
+      label: 'cluster-cull-fallback-pipeline',
+      layout: 'auto',
+      compute: { module: cullMod, entryPoint: 'fallbackMain' },
+    });
     this._pipelinesReady = true;
   }
 
@@ -81,22 +96,37 @@ export class WebGpuHizTier {
     width = Math.max(1, width | 0);
     height = Math.max(1, height | 0);
     if (this._hzbW === width && this._hzbH === height && this._hzbMips.length) return this._hzbMips.length;
-    for (const m of this._hzbMips) { m.texture.destroy(); }
+    if (this._hzbTex) { this._hzbTex.destroy(); this._hzbTex = null; this._hzbView = null; }
     this._hzbMips.length = 0;
     this._hzbW = width; this._hzbH = height;
+    // WebGPU derives mip sizes as max(1, w >> level), so the CPU chain must use the
+    // same floor rule or `_hzbLevels` stops matching the texture it indexes.
+    const dims = [];
     let w = width, h = height;
     for (;;) {
-      const texture = device.createTexture({
-        size: { width: w, height: h },
-        format: 'r32float',
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      });
-      this._hzbMips.push({ texture, view: texture.createView(), w, h });
+      dims.push({ w, h });
       if (w === 1 && h === 1) break;
-      w = Math.max(1, Math.ceil(w / 2));
-      h = Math.max(1, Math.ceil(h / 2));
+      w = Math.max(1, w >> 1);
+      h = Math.max(1, h >> 1);
     }
-    this._hzbLevels = this._hzbMips.length;
+    const levels = dims.length;
+    // One texture, one mip chain. The cull samples an arbitrary level with
+    // textureLoad, which a per-level (mipLevelCount 1) view cannot serve.
+    this._hzbTex = device.createTexture({
+      label: 'hzb-pyramid',
+      size: { width, height },
+      format: 'r32float',
+      mipLevelCount: levels,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this._hzbView = this._hzbTex.createView({ baseMipLevel: 0, mipLevelCount: levels });
+    for (let i = 0; i < levels; i++) {
+      this._hzbMips.push({
+        view: this._hzbTex.createView({ baseMipLevel: i, mipLevelCount: 1 }),
+        w: dims[i].w, h: dims[i].h,
+      });
+    }
+    this._hzbLevels = levels;
     this.stats.levels = this._hzbLevels;
     return this._hzbLevels;
   }
@@ -169,15 +199,30 @@ export class WebGpuHizTier {
     new Uint8Array(clusterBuf.getMappedRange()).set(new Uint8Array(flat));
     clusterBuf.unmap();
 
+    let overflow = 0;
+    for (const c of clusterSet.clusters) if (c.lods.length > MAX_LOD_SLOTS) overflow++;
+    if (overflow) this.stats.lodSlotOverflow = overflow;
+
+    // +1 slot: the cull can emit one more draw than there are clusters when no
+    // cluster survives and it falls back to the whole LOD0, like the CPU does.
     const indirectBuf = device.createBuffer({
-      size: Math.max(1, n) * INDIRECT_STRIDE_BYTES,
+      size: (n + 1) * INDIRECT_STRIDE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     const countBuf = device.createBuffer({
       size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
+    const visibleBuf = device.createBuffer({
+      size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    // Last LOD index per cluster, owned by the CPU cull and re-uploaded every
+    // dispatch: a GPU-side copy of that hysteresis state would drift.
+    const lodStateBuf = device.createBuffer({
+      size: Math.max(1, n) * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
-    const rec = { clusterSet, clusterBuf, indirectBuf, countBuf, n, lod0Count: mesh.lod0Count };
+    const rec = { clusterSet, clusterBuf, indirectBuf, countBuf, visibleBuf, lodStateBuf, n, lod0Count: mesh.lod0Count, lodSlot: new Int32Array(Math.max(1, n)) };
     this._meshBuffers.set(mesh, rec);
     return rec;
   }
@@ -188,6 +233,8 @@ export class WebGpuHizTier {
     rec.clusterBuf.destroy();
     rec.indirectBuf.destroy();
     rec.countBuf.destroy();
+    if (rec.visibleBuf) rec.visibleBuf.destroy();
+    if (rec.lodStateBuf) rec.lodStateBuf.destroy();
     if (rec.frameBuf) rec.frameBuf.destroy();
     if (rec.stagingBuf) rec.stagingBuf.destroy();
     if (rec.dummyTex) rec.dummyTex.destroy();
@@ -214,22 +261,24 @@ export class WebGpuHizTier {
     mesh.updateWorldMatrix(true, false);
     _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
 
-    const screenHeight = opts.screenHeight || 1080;
+    // Every input below mirrors ClusterLodMesh._cameraState / _pickLod. The cull is
+    // only allowed to differ by the occlusion term, so screen height, tanHalf,
+    // hysteresis and thresholds must be the CPU's, not local defaults.
+    const screenHeight = opts.screenHeight || _drawingBufferHeight(this.renderer) || mesh._screenHeight || 1080;
     const tanHalf = camera.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) : 1;
-    const hyst = opts.hysteresis != null ? opts.hysteresis : 0.15;
+    const hyst = opts.hysteresis != null ? opts.hysteresis : (mesh._hyst != null ? mesh._hyst : 0.15);
     const thresholds = mesh.lodThresholds || [120, 40];
+    const thresholdCount = Math.min(thresholds.length, MAX_THRESHOLD_SLOTS);
 
     const fp = new Float32Array(FRAME_PARAMS_FLOATS);
     fp.set(_m.elements, 0);
     fp.set(mesh.matrixWorld.elements, 16);
     _v.setFromMatrixPosition(camera.matrixWorld);
     fp[32] = _v.x; fp[33] = _v.y; fp[34] = _v.z; fp[35] = 0;
-    const hystUp = 1 + hyst;
-    const hystDown = 1 - hyst;
     fp[36] = screenHeight;
     fp[37] = tanHalf * tanHalf;
-    fp[38] = hystUp;
-    fp[39] = hystDown;
+    fp[38] = 1 + hyst;
+    fp[39] = 1 - hyst;
     fp[40] = thresholds[0] || 120;
     fp[41] = thresholds[1] || 40;
     const fpU32 = new Uint32Array(fp.buffer);
@@ -239,14 +288,27 @@ export class WebGpuHizTier {
     fpU32[45] = this._hzbLevels;
     fp[46] = this._hzbW || 1;
     fp[47] = this._hzbH || 1;
+    fpU32[48] = thresholdCount;
+    // The CPU skips the frustum test for these meshes too, so the GPU must as well.
+    fpU32[49] = mesh._spointNoClusterCull ? 1 : 0;
+    fpU32[50] = rec.lod0Count;
+    fpU32[51] = 0;
 
-    if (!rec.frameBuf) {
+    if (!rec.frameBuf || rec.frameBuf.size !== fp.byteLength) {
+      if (rec.frameBuf) rec.frameBuf.destroy();
       rec.frameBuf = device.createBuffer({ size: fp.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     }
     device.queue.writeBuffer(rec.frameBuf, 0, fp.buffer, fp.byteOffset, fp.byteLength);
-    device.queue.writeBuffer(rec.countBuf, 0, new Uint32Array([0]).buffer);
+    const zero = new Uint32Array([0]).buffer;
+    device.queue.writeBuffer(rec.countBuf, 0, zero);
+    device.queue.writeBuffer(rec.visibleBuf, 0, zero);
 
-    const hzbView = this._hzbMips.length ? this._hzbMips[0].view : null;
+    const curLod = (mesh._lodStateIn && mesh._lodStateIn.length >= rec.n) ? mesh._lodStateIn : mesh._curLod;
+    const lodSlot = rec.lodSlot;
+    for (let i = 0; i < rec.n; i++) lodSlot[i] = curLod && i < curLod.length ? curLod[i] : -1;
+    device.queue.writeBuffer(rec.lodStateBuf, 0, lodSlot.buffer, lodSlot.byteOffset, lodSlot.byteLength);
+
+    const hzbView = this._hzbView || rec.dummyView;
     if (!rec.dummySampler) rec.dummySampler = device.createSampler({});
     if (!rec.dummyTex) {
       rec.dummyTex = device.createTexture({ size: { width: 1, height: 1 }, format: 'r32float', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -261,7 +323,8 @@ export class WebGpuHizTier {
         { binding: 2, resource: { buffer: rec.indirectBuf } },
         { binding: 3, resource: { buffer: rec.countBuf } },
         { binding: 4, resource: hzbView || rec.dummyView },
-        { binding: 5, resource: rec.dummySampler },
+        { binding: 6, resource: { buffer: rec.lodStateBuf } },
+        { binding: 7, resource: { buffer: rec.visibleBuf } },
       ],
     });
 
@@ -270,6 +333,20 @@ export class WebGpuHizTier {
     pass.setPipeline(this._cullPipeline);
     pass.setBindGroup(0, bg);
     pass.dispatchWorkgroups(Math.ceil(rec.n / CULL_WORKGROUP_SIZE), 1, 1);
+    // Second dispatch in the SAME pass: it observes main's final draw count and
+    // reproduces ClusterLodMesh._render's "no cluster survived" full-LOD0 group.
+    const fbBg = device.createBindGroup({
+      layout: this._fallbackPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 1, resource: { buffer: rec.frameBuf } },
+        { binding: 2, resource: { buffer: rec.indirectBuf } },
+        { binding: 3, resource: { buffer: rec.countBuf } },
+        { binding: 7, resource: { buffer: rec.visibleBuf } },
+      ],
+    });
+    pass.setPipeline(this._fallbackPipeline);
+    pass.setBindGroup(0, fbBg);
+    pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
     device.queue.submit([encoder.finish()]);
 
@@ -294,13 +371,38 @@ export class WebGpuHizTier {
     return count;
   }
 
+  // Entities expose their cluster meshes as children of `entity.root`; there is no
+  // `_clusterLodMesh` field anywhere, so looking only there found nothing.
+  _clusterMeshesOf(entity) {
+    if (!entity) return null;
+    if (entity.clusterSet) return [entity];
+    if (entity._clusterLodMesh && entity._clusterLodMesh.clusterSet) return [entity._clusterLodMesh];
+    const root = entity.root || entity.object3d || null;
+    if (!root) return null;
+    const found = [];
+    for (const c of root.children) if (c && c.clusterSet) found.push(c);
+    if (!found.length) {
+      for (const c of root.children) {
+        c.traverse((o) => { if (o && o.clusterSet) found.push(o); });
+        if (found.length) break;
+      }
+    }
+    return found.length ? found : null;
+  }
+
   runQueries(camera, candidates) {
     if (!this.supported()) { this.stats.queried = 0; this.stats.occluded = 0; return; }
     this.stats.queried = 0;
+    // No pyramid means no occluder depth: the pass would reproduce the CPU cull and
+    // nothing else, for indirect draws nobody consumes. Skip it instead of paying it.
+    if (!this._hzbLevels) { this.stats.skippedNoPyramid++; return; }
     for (let i = 0; i < candidates.length; i++) {
-      const entity = candidates[i];
-      const mesh = entity && entity._clusterLodMesh;
-      if (mesh && mesh.clusterSet) this.cullAndBuildIndirect(mesh, camera);
+      const meshes = this._clusterMeshesOf(candidates[i]);
+      if (!meshes) continue;
+      for (let k = 0; k < meshes.length; k++) {
+        const mesh = meshes[k];
+        if (mesh && mesh.clusterSet) this.cullAndBuildIndirect(mesh, camera);
+      }
     }
   }
 
@@ -313,7 +415,8 @@ export class WebGpuHizTier {
   }
 
   dispose() {
-    for (const m of this._hzbMips) m.texture.destroy();
+    if (this._hzbTex) { this._hzbTex.destroy(); this._hzbTex = null; }
+    this._hzbView = null;
     this._hzbMips.length = 0;
     for (const mesh of Array.from(this._meshBuffers.keys())) this.unregisterClusterMesh(mesh);
     this._pipelinesReady = false;

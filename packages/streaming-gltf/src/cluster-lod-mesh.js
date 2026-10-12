@@ -25,6 +25,10 @@ export class ClusterLodMesh extends THREE.Mesh {
     this._screenHeight = opts.screenHeight || 1080;
     this._hyst = opts.hysteresis != null ? opts.hysteresis : 0.15;
     this._curLod = new Int8Array(clusterSet.clusters.length).fill(-1);
+    // The LOD index each cluster had at the START of this frame's selection, i.e.
+    // the input _pickLod actually read. The GPU cull consumes this so it never
+    // decides from a second, one-frame-skewed copy of the hysteresis state.
+    this._lodStateIn = new Int8Array(clusterSet.clusters.length).fill(-1);
 
     const n = clusterSet.clusters.length;
     this._starts = new Int32Array(n);
@@ -125,6 +129,7 @@ export class ClusterLodMesh extends THREE.Mesh {
     const drawnCi = this._drawnCi || (this._drawnCi = []);
     drawnCi.length = 0;
     const clusters = this.clusterSet.clusters;
+    this._lodStateIn.set(this._curLod);
     for (let ci = 0; ci < clusters.length; ci++) {
       const c = clusters[ci];
       const o3 = ci * 3;
