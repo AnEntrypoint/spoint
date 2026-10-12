@@ -274,7 +274,7 @@ const GPU_PASS_ARM_SRC = `(() => {
     return origUid(ctx)
   }
   const abName = (/[?&]gpuab=([^&]*)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1]
-  const abPhaseMs = Number((/[?&]gpuabms=(\d+)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1] || 5000)
+  const abPhaseMs = Number((/[?&]gpuabms=(\\d+)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1] || 5000)
   const AB_SETTLE_MS = 700
   let abOn = false
   let abFlipAt = -Infinity
