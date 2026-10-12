@@ -9,6 +9,7 @@ import {
   SOURCE_REL, GENERATED_REL, DIGEST_LINE, MAX_BUFFER,
   indexSource, recordedDigest, normalizeEol
 } from './lib/appcontext-closure.mjs'
+import { worktreeStateRev } from './lib/tree-under-test.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -39,7 +40,19 @@ function discardStagedSnapshot() {
 
 async function materializeStagedSnapshot(index) {
   discardStagedSnapshot()
-  git('worktree', 'add', '--detach', SNAPSHOT_DIR, 'HEAD')
+  // The digest recorded in the generated file is the work tree's closure, so the
+  // tree tsc runs over has to be the work tree too. HEAD is not it: lanes
+  // publish path-scoped through the GitHub Git API, so local HEAD lags remote
+  // main and a closure member can be edited in the work tree without ever being
+  // staged, which left the snapshot on a revision the digest does not describe.
+  // A clean checkout (CI) resolves to HEAD and this is unchanged.
+  const rev = worktreeStateRev(ROOT) ?? 'HEAD'
+  try {
+    git('worktree', 'add', '--detach', SNAPSHOT_DIR, rev)
+  } catch (e) {
+    if (rev === 'HEAD') throw e
+    git('worktree', 'add', '--detach', SNAPSHOT_DIR, 'HEAD')
+  }
   symlinkSync(join(ROOT, 'node_modules'), join(SNAPSHOT_DIR, 'node_modules'), 'junction')
   const staged = new Set(stagedPaths())
   for (const rel of await index.members()) {

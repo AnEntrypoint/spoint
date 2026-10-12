@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, resolve, dirname, relative, extname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { committedSource } from './tree-under-test.mjs'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const TARGET_DIR = join(REPO_ROOT, 'scripts')
@@ -300,10 +301,6 @@ function gitTrackedScripts() {
   return done.stdout.split('\n').map(s => s.trim()).filter(s => /\.(?:mjs|js)$/.test(s))
 }
 
-function committedText(rel) {
-  const done = spawnSync('git', ['show', `HEAD:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true })
-  return done.status === 0 ? done.stdout : null
-}
 
 function audit(text, name, checks) {
   const isWitness = DEFAULT_NAME_FILTER.test(name)
@@ -334,13 +331,21 @@ function main() {
       console.log('RESULT: FAIL witness-audit cannot list tracked files under scripts, so committed content was not audited')
       process.exit(1)
     }
+    // HEAD is not the committed tree of a shared checkout: lanes publish
+    // path-scoped through the GitHub Git API, so remote main runs ahead of local
+    // HEAD and a published path can be tracked while HEAD has never heard of it
+    // -- which made a shipped witness read as missing. A clean checkout keeps
+    // HEAD; anything else asks the published tree, named on the next line so no
+    // run is silent about which one answered.
+    const source = committedSource(REPO_ROOT)
+    console.log(`witness-audit: committed content read from ${source.label}`)
     for (const rel of tracked) {
       if (rel.split('/')[1] !== undefined && SKIP_DIRS.has(rel.split('/')[1])) continue
       if (rel.split('/').some(seg => seg.startsWith('.') && seg !== '.')) continue
       if (!allFiles && !DEFAULT_NAME_FILTER.test(rel)) continue
-      const text = committedText(rel)
+      const text = source.text(rel)
       if (text === null) {
-        console.log(`RESULT: FAIL witness-audit cannot read HEAD:${rel}, so committed content was not fully audited`)
+        console.log(`RESULT: FAIL witness-audit cannot read the committed copy of ${rel} (${source.label}), so committed content was not fully audited`)
         process.exit(1)
       }
       report.push({ file: rel, high: audit(text, rel, HIGH_CHECKS), low: audit(text, rel, LOW_CHECKS) })
