@@ -4,25 +4,30 @@ import { isMeshSurfaceNoGround } from '../../src/terrain/TerrainMeshSurface.js'
 const MESH_SOLVE_ITERS = 4
 const MESH_SOLVE_TOL_M = 1e-6
 
+// The solve is seeded with the chart's own anchor height instead of a live CPU sample: it is already
+// known, it costs nothing, and the iteration is a fixed point, so the seed decides how many samples
+// the solve takes rather than what it returns (measured: 26% less time over the same elevations, and
+// a height that differs from the CPU-seeded one by at most 1.3e-9 m, inside the solver's own 1e-6 m
+// tolerance -- scripts/exact-patch-seed-witness.mjs). The CPU sampler is still the ANSWER where the
+// rendered mesh has no ground to give, so it is still asked there, and only there.
 function meshElevationAtDir(frame, meshAt, fallback) {
   const radius = frame.radius
   const base = radius + frame.anchorHeight - frame.offsetY
   const E = frame.east, U = frame.up, N = frame.north
+  const seed = Number.isFinite(frame.anchorHeight) ? frame.anchorHeight : 0
   return (d) => {
-    const h0 = fallback(d)
-    if (!Number.isFinite(h0)) return h0
     const len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
-    if (!(len > 0)) return h0
+    if (!(len > 0)) return fallback(d)
     const de = (d[0] * E[0] + d[1] * E[1] + d[2] * E[2]) / len
     const du = (d[0] * U[0] + d[1] * U[1] + d[2] * U[2]) / len
     const dn = (d[0] * N[0] + d[1] * N[1] + d[2] * N[2]) / len
-    if (!(Math.abs(du) > 1e-9)) return h0
-    let r = radius + h0
+    if (!(Math.abs(du) > 1e-9)) return fallback(d)
+    let r = radius + seed
     for (let k = 0; k < MESH_SOLVE_ITERS; k++) {
       const y = meshAt(r * de, r * dn)
-      if (isMeshSurfaceNoGround(y)) return h0
+      if (isMeshSurfaceNoGround(y)) return fallback(d)
       const next = (y + base) / du
-      if (!Number.isFinite(next)) return h0
+      if (!Number.isFinite(next)) return fallback(d)
       const step = next - r
       r = next
       if (Math.abs(step) <= MESH_SOLVE_TOL_M) break
