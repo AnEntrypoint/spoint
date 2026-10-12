@@ -107,7 +107,7 @@ const _dbgWater = dbg('water')
 const _dbgBoot = dbg('boot')
 const _dbgEditor = dbg('editor')
 const _dbgInput = dbg('input')
-const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel, createCaveMeshes, createColliderDebug, createSculptOverlay, createOcclusionQueryBudget, createReplayBuffer, createSceneGraphCaptureFn, createMobileControlsUI }
+const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel, createCaveMeshes, createColliderDebug, createSculptOverlay, createOcclusionQueryBudget, createReplayBuffer, createSceneGraphCaptureFn, createMobileControlsUI, createCullingHub, createPlacementScheduler, createSpectatorMode }
 
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   navigator.serviceWorker.register('/service-worker.js').catch(() => {})
@@ -793,11 +793,19 @@ const _rebuildOcclusionQueryBudget = () => {
   if (prev && prev !== occlusionQueryBudget) { try { prev.dispose?.() } catch (_) {} }
   return occlusionQueryBudget
 }
-const cullingHub = createCullingHub()
-cullingHub.register('sceneOcclusion', () => sceneOcclusion.getStats ? sceneOcclusion.getStats() : (sceneOcclusion.stats || null))
-cullingHub.register('terrainOcclusion', () => (window.__terrain && window.__terrain.occlusionStats) ? window.__terrain.occlusionStats() : null)
-cullingHub.register('modelPool', () => modelPool.getStats ? modelPool.getStats() : null)
-cullingHub.register('occlusionQueryBudget', () => occlusionQueryBudget.getStats())
+let cullingHub = createCullingHub()
+// The hub is a pure registry of stat getters, so a swap re-runs the same four
+// registrations boot ran against whatever is live now.
+const _rebuildCullingHub = () => {
+  const prev = cullingHub
+  cullingHub = _hmrFactories.createCullingHub()
+  cullingHub.register('sceneOcclusion', () => sceneOcclusion.getStats ? sceneOcclusion.getStats() : (sceneOcclusion.stats || null))
+  cullingHub.register('terrainOcclusion', () => (window.__terrain && window.__terrain.occlusionStats) ? window.__terrain.occlusionStats() : null)
+  cullingHub.register('modelPool', () => modelPool.getStats ? modelPool.getStats() : null)
+  cullingHub.register('occlusionQueryBudget', () => occlusionQueryBudget.getStats())
+  if (prev && prev !== cullingHub && prev.dispose) { try { prev.dispose() } catch (_) {} }
+  return cullingHub
+}
 window.__runWebgpuComputeCull = () => import('./core/WebGPUCullingHubIntegration.js').then(m => m.runAndRegister(cullingHub, { scene, camera }))
 const pm = createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGraph, modelPool)
 const playerLOD = installPlayerLOD(scene, { renderer })
@@ -1008,6 +1016,9 @@ if (globalThis.__spointHmr) {
   hmr.subsystem('/core/ColliderDebug.js', m => { _hmrFactories.createColliderDebug = m.createColliderDebug; return _rebuildColliderDebug() })
   hmr.subsystem('/core/SculptOverlay.js', m => { _hmrFactories.createSculptOverlay = m.createSculptOverlay; return _rebuildSculptOverlay() })
   hmr.subsystem('/hud/MobileControlsUI.js', m => { _hmrFactories.createMobileControlsUI = m.createMobileControlsUI; return _rebuildMobileControls(_worldDef) })
+  hmr.subsystem('/core/CullingHub.js', m => { _hmrFactories.createCullingHub = m.createCullingHub; return _rebuildCullingHub() })
+  hmr.subsystem('/core/PlacementScheduler.js', m => { _hmrFactories.createPlacementScheduler = m.createPlacementScheduler; return _rebuildPlacementScheduler() })
+  hmr.subsystem('/core/SpectatorMode.js', m => { _hmrFactories.createSpectatorMode = m.createSpectatorMode; return _rebuildSpectatorMode() })
   const graphBuilders = { '/core/RenderGraph.js': ['createRenderGraph'], '/core/RenderGraph.nodes.js': ['buildRenderSectionNodes'], '/core/SSAO.js': ['buildSSAONodes'], '/core/Bloom.js': ['buildBloomNodes'], '/core/SSR.js': ['buildSSRNodes'], '/core/FSR1.js': ['buildFSR1Nodes'] }
   for (const [file, names] of Object.entries(graphBuilders)) hmr.accept(file, m => {
     for (const n of names) _hmrFactories[n] = m[n]
@@ -2215,12 +2226,23 @@ clientMachine.subscribe(() => {
 })
 client.send(MSG.LIST_APPS, {})
 let _frozenInput=false, _spectateTarget=null, _followEntity=null, _chatQuickWheel=null; const _specTmp=new THREE.Vector3()
-const spectatorMode = createSpectatorMode({
+let spectatorMode = _hmrFactories.createSpectatorMode({
   clientMachine, cam, pm,
   getLocalPlayerId: () => client.playerId,
   setSpectateTarget: id => { _spectateTarget = id },
 })
 if (window.__app) window.__app.spectatorMode = spectatorMode
+function _rebuildSpectatorMode() {
+  const prev = spectatorMode
+  spectatorMode = _hmrFactories.createSpectatorMode({
+    clientMachine, cam, pm,
+    getLocalPlayerId: () => client.playerId,
+    setSpectateTarget: id => { _spectateTarget = id },
+  })
+  if (window.__app) window.__app.spectatorMode = spectatorMode
+  if (prev && prev !== spectatorMode) { try { prev.dispose?.() } catch (_) {} }
+  return spectatorMode
+}
 let _specWasSpectator = false
 clientMachine.subscribe(() => {
   const isSpec = clientMachine.isSpectator
@@ -2504,10 +2526,19 @@ const _springBoneLodStats={updated:0,skipped:0}
 const _buildMainRenderGraph = () => _hmrFactories.createRenderGraph([..._hmrFactories.buildRenderSectionNodes(), ..._hmrFactories.buildSSAONodes(), ..._hmrFactories.buildBloomNodes(), ..._hmrFactories.buildSSRNodes(), ..._hmrFactories.buildFSR1Nodes()])
 let renderGraph = _buildMainRenderGraph()
 const _graphCtx = { res: {}, renderer, scene, camera, floatingOrigin, occlusionQueryBudget, pm }
-const placementScheduler = createPlacementScheduler(() => ({ vegetation, rocks, grass, camera, floatingOrigin, pm }))
+let placementScheduler = _hmrFactories.createPlacementScheduler(() => ({ vegetation, rocks, grass, camera, floatingOrigin, pm }))
 placementScheduler.start()
 _graphCtx.placementScheduler = placementScheduler
 if (typeof window !== 'undefined') window.__placementSchedulerInstance = placementScheduler
+function _rebuildPlacementScheduler() {
+  const prev = placementScheduler
+  placementScheduler = _hmrFactories.createPlacementScheduler(() => ({ vegetation, rocks, grass, camera, floatingOrigin, pm }))
+  placementScheduler.start()
+  _graphCtx.placementScheduler = placementScheduler
+  if (typeof window !== 'undefined') window.__placementSchedulerInstance = placementScheduler
+  if (prev && prev !== placementScheduler) { try { prev.stop?.() } catch (_) {} }
+  return placementScheduler
+}
 installSSAO(_graphCtx, renderer, scene, camera)
 installBloom(_graphCtx, renderer)
 installSSR(_graphCtx, renderer, scene, camera)
