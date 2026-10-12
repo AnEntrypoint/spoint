@@ -1,0 +1,33 @@
+landscape-change-hitch-witness --revert-async (v2, EARLY revert) -- expected value, written BEFORE the run
+row: PERF-landscape-change-hitch-r270-74
+instrument: scripts/landscape-change-hitch-witness.mjs --measure=45000 --settle=6000 --worst=12
+  --worst-cpu=6 --revert-async --rebuild-bundle, same arm as the after-run.
+
+WHY v1 DID NOT COUNT
+ v1 reverted AFTER boot. Because the fix was active during boot, every pipeline the warmup needs was
+ already compiled asynchronously before the walk began, so the window contained ZERO first draws
+ (createRenderPipeline 0, createShaderModule 0) and the worst scene-color inside a >=50ms frame was
+ 133.78ms. A window with no first draws cannot reintroduce a first-draw stall: v1 was vacuous, not
+ a refutation.
+ v2 reverts with an init script that un-wraps Pipelines.getForRender on a 4 ms poll from the moment
+ the renderer's Pipelines object exists, so the boot warmup itself compiles synchronously. The run
+ asserts `undone > 0` and `wrapped === false`, and a new floor guard
+ (--min-compiles=20: createRenderPipeline + createShaderModule + async requested) makes any window
+ with too few first draws FAIL instead of reading as a pass.
+
+EXPECTED (the stall comes back, on a window that actually has first draws)
+ 1. at least 20 first-draw compilation units in the window (floor guard), most of them
+    createRenderPipeline, and async requested ~0 from the walk.
+ 2. worst render:scene-color inside a >=50ms frame back above 300 ms, in the 400-1200 ms band of
+    the before-runs (1081.32 / 1110.18 ms). The after-run measured 72.98 ms.
+ 3. scene-color summed over the >=50ms frames back above 1000 ms (before 2372.18 ms, after
+    200.76 ms).
+ 4. wall max back above 500 ms (before 3582.195 ms, after 933.025 ms).
+ 5. p50/p95 again unchanged relative to the after-run: this is a tail mutation, not a steady state.
+
+FALSIFIERS
+ - createRenderPipeline stays 0 => the early revert did not reach the live renderer; the run is a
+   no-op (check `undone > 0` and the bundle's __spointOriginalGetForRender) and proves nothing.
+ - scene-color worst stays under ~150 ms with >=20 compiles => the before/after difference was not
+   caused by the fix, and the causal claim must be withdrawn.
+ - A p50/p95 shift => the windows are not comparable; no conclusion from either run.

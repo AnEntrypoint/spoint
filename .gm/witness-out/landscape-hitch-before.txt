@@ -1,0 +1,196 @@
+gpulock: orch-main-r270-74 holds the GPU lock
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 70ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (26 of 68 app(s), unchanged, 5ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (d3dc8d66c072e8e8))
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs 7f5dd4b1073f8ebb, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791812922873.5007) -- falling through to raw ESM worker
+(node:16940) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 849e135ffd2d) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 39ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257, 100.0% of the footprint is frozen at 0.41us a sample, 27.2ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 83ms(sample 68ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 117.4ms over 1 cluster batch(es) of 8 (pool prewarm 5.2ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 26.6ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[combat] 4 spawn point(s), 0 saved record(s)
+[trimesh] dropped 23 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[placed-model] loaded 4 saved entities
+[progressive] awaiting 1 environment bake(s) before serving
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[server] http://localhost:3271 @ 64 TPS
+[identity] pid=16940 sha=5e4b8969 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[landscape-change-hitch-witness] arm {"gpu":"ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU (0x00002520) Direct3D11 vs_5_0 ps_5_0, D3D11)","clientRoot":"client-root=bundle sha=c0138e5675ba bytes=1148760 hash-verified=bundle","viewport":"1280x720","world":"tps-game","measureMs":45000,"nodeCount":31}
+[landscape-change-hitch-witness] travel {"travelledM":319.2,"trackSamples":48,"end":[-85.40361785888672,-18.649858474731445,208.3507537841797]}
+[landscape-change-hitch-witness] wall(rAF delta) {"n":981,"p50":33.28,"p95":50.035,"p99":149.935,"max":6181.445,"avg":48.863}
+[landscape-change-hitch-witness] cpu(main-thread frame cost) {"n":982,"p50":24.475,"p95":50.66,"p99":106.51,"max":1207.56,"avg":30.416}
+[landscape-change-hitch-witness] frames over 50ms wall: 61 of 982 (6.21%)
+[landscape-change-hitch-witness] hitch attribution (dominant node inside every >=50ms frame):
+    48x  sum 3578.53ms  worst 1110.18ms  render:scene-color
+    11x  sum 159.15ms  worst 24.27ms  render:foliage-lod-sync
+    1x  sum 19.75ms  worst 19.75ms  frame:modelpool-update
+    1x  sum 11.06ms  worst 11.06ms  frame:scene-graph-tick
+[landscape-change-hitch-witness] gpu work units over the window: {"createBuffer":1661,"bufferBytes":102366248,"createTexture":1,"createRenderPipeline":52,"createShaderModule":80,"writeBuffer":217592,"writeBytes":401008166,"createBindGroup":839}
+[landscape-change-hitch-witness] worst single frame per node (top 25 of 31):
+    max  1110.185ms @frame    676  p99    66.16ms  p50     6.89ms  over8ms   343  runs     982  total  12129.71ms  render:scene-color
+    max   235.585ms @frame    144  p99      6.6ms  p50     0.53ms  over8ms     6  runs     982  total     981.4ms  frame:scene-graph-tick
+    max    45.865ms @frame    775  p99   23.845ms  p50     0.89ms  over8ms   116  runs     982  total   2664.29ms  render:foliage-lod-sync
+    max     34.61ms @frame    676  p99    1.995ms  p50     0.48ms  over8ms     3  runs     982  total    616.27ms  frame:weather-update
+    max     19.75ms @frame    146  p99    2.775ms  p50    1.185ms  over8ms     3  runs     982  total   1215.67ms  frame:modelpool-update
+    max    14.485ms @frame    681  p99     1.82ms  p50     0.45ms  over8ms     1  runs     982  total    638.09ms  render:terrain-depth-color
+    max      5.93ms @frame    678  p99     1.77ms  p50    0.025ms  over8ms     0  runs     982  total    234.72ms  render:visibility-commit
+    max      0.47ms @frame    663  p99     0.11ms  p50    0.035ms  over8ms     0  runs     982  total      38.8ms  frame:time-of-day
+    max     0.295ms @frame    775  p99    0.115ms  p50    0.045ms  over8ms     0  runs     982  total     46.49ms  frame:shadow-move-gate
+    max      0.28ms @frame     13  p99    0.115ms  p50     0.04ms  over8ms     0  runs     982  total     42.36ms  frame:camera-input-update
+    max      0.26ms @frame    178  p99    0.065ms  p50    0.025ms  over8ms     0  runs     982  total     24.37ms  frame:app-dispatch-frame
+    max     0.225ms @frame    200  p99    0.165ms  p50    0.005ms  over8ms     0  runs     982  total     13.84ms  frame:ui-render
+    max      0.21ms @frame    895  p99     0.02ms  p50    0.005ms  over8ms     0  runs     982  total      5.27ms  frame:editor-frame-update
+    max      0.21ms @frame     11  p99     0.03ms  p50     0.01ms  over8ms     0  runs     982  total      7.77ms  render:camera-projection-apply
+    max      0.13ms @frame    149  p99     0.02ms  p50    0.005ms  over8ms     0  runs     982  total         5ms  frame:entity-distance-cull
+    max      0.12ms @frame    182  p99     0.07ms  p50     0.02ms  over8ms     0  runs     982  total     22.58ms  frame:frame-clock
+    max      0.11ms @frame    773  p99    0.025ms  p50    0.005ms  over8ms     0  runs     982  total      3.23ms  frame:remote-player-cull
+    max       0.1ms @frame    951  p99     0.01ms  p50    0.005ms  over8ms     0  runs     982  total      5.24ms  frame:floating-origin-rebase
+    max     0.075ms @frame     64  p99    0.015ms  p50    0.005ms  over8ms     0  runs     982  total      2.98ms  frame:streaming-scheduler-drain
+    max     0.065ms @frame    180  p99     0.01ms  p50    0.005ms  over8ms     0  runs     982  total      3.58ms  frame:shadow-cost-probe-sync
+    max     0.065ms @frame    638  p99     0.04ms  p50    0.005ms  over8ms     0  runs     982  total      8.29ms  frame:vram-budget-sync
+    max      0.05ms @frame    795  p99    0.025ms  p50    0.005ms  over8ms     0  runs     982  total      6.36ms  render:host-near-far
+    max     0.045ms @frame    305  p99     0.01ms  p50    0.005ms  over8ms     0  runs     982  total      3.65ms  render:vegetation-render-distance
+    max         0ms @frame     -1  p99     nullms  p50     nullms  over8ms     0  runs       0  total         0ms  render:ssao-compute
+    max         0ms @frame     -1  p99     nullms  p50     nullms  over8ms     0  runs       0  total         0ms  render:ssao-composite
+[landscape-change-hitch-witness] worst 20 frames:
+    frame 676 wall 6181.44ms cpu 1207.56ms gpu {"buffers":80,"bufferBytes":137008,"textures":0,"pipelines":17,"shaderModules":26,"writeBuffers":493,"writeBytes":162333}
+          1110.18ms  x1  render:scene-color
+            34.61ms  x1  frame:weather-update
+            19.34ms  x1  render:foliage-lod-sync
+             1.52ms  x1  render:visibility-commit
+             1.31ms  x1  frame:modelpool-update
+             1.11ms  x1  render:terrain-depth-color
+             0.45ms  x1  frame:scene-graph-tick
+             0.08ms  x1  frame:camera-input-update
+    frame 679 wall 5631.53ms cpu 423.78ms gpu {"buffers":72,"bufferBytes":1999944,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":482,"writeBytes":4392285}
+           343.48ms  x1  render:scene-color
+            33.91ms  x1  frame:weather-update
+            22.26ms  x1  render:foliage-lod-sync
+             3.25ms  x1  render:visibility-commit
+              1.7ms  x1  frame:modelpool-update
+             1.32ms  x1  render:terrain-depth-color
+             0.55ms  x1  frame:scene-graph-tick
+             0.06ms  x1  frame:camera-input-update
+    frame 678 wall 5248.25ms cpu 281.95ms gpu {"buffers":13,"bufferBytes":4016,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":341,"writeBytes":4821297}
+           225.68ms  x1  render:scene-color
+            19.51ms  x1  frame:weather-update
+            16.71ms  x1  render:foliage-lod-sync
+             5.93ms  x1  render:visibility-commit
+             1.44ms  x1  frame:modelpool-update
+              0.8ms  x1  render:terrain-depth-color
+             0.47ms  x1  frame:scene-graph-tick
+              0.1ms  x1  frame:ui-render
+    frame 677 wall 1199.71ms cpu 1020.1ms gpu {"buffers":87,"bufferBytes":363288,"textures":0,"pipelines":17,"shaderModules":26,"writeBuffers":436,"writeBytes":161703}
+           959.63ms  x1  render:scene-color
+            16.36ms  x1  frame:modelpool-update
+            16.21ms  x1  render:foliage-lod-sync
+             7.04ms  x1  frame:weather-update
+             4.94ms  x1  frame:scene-graph-tick
+              1.3ms  x1  render:visibility-commit
+             1.06ms  x1  render:terrain-depth-color
+             0.06ms  x1  frame:camera-input-update
+    frame 675 wall 899.74ms cpu 43.54ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":227,"writeBytes":311348}
+             6.01ms  x1  render:scene-color
+             2.44ms  x1  frame:scene-graph-tick
+             1.71ms  x1  render:foliage-lod-sync
+              1.2ms  x1  frame:weather-update
+             0.88ms  x1  frame:modelpool-update
+             0.73ms  x1  render:terrain-depth-color
+             0.09ms  x1  frame:ui-render
+    frame 680 wall 416.57ms cpu 198.01ms gpu {"buffers":9,"bufferBytes":2672,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":384,"writeBytes":2540093}
+           157.79ms  x1  render:scene-color
+            14.95ms  x1  render:foliage-lod-sync
+             5.54ms  x1  frame:weather-update
+             2.77ms  x1  frame:scene-graph-tick
+             1.84ms  x1  render:terrain-depth-color
+             1.57ms  x1  frame:modelpool-update
+             1.53ms  x1  render:visibility-commit
+    frame 145 wall 283.29ms cpu 38.99ms gpu {"buffers":8,"bufferBytes":255928,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":251,"writeBytes":205380}
+            26.45ms  x1  render:scene-color
+             1.78ms  x1  frame:weather-update
+              1.5ms  x1  render:foliage-lod-sync
+             1.14ms  x1  frame:modelpool-update
+             1.06ms  x1  frame:scene-graph-tick
+             0.93ms  x1  render:terrain-depth-color
+    frame 681 wall 183.19ms cpu 68ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":211,"writeBytes":3046415}
+            15.86ms  x1  render:scene-color
+            14.48ms  x1  render:terrain-depth-color
+            12.63ms  x1  render:foliage-lod-sync
+             1.66ms  x1  frame:modelpool-update
+             1.46ms  x1  frame:scene-graph-tick
+              1.4ms  x1  render:visibility-commit
+             1.12ms  x1  frame:weather-update
+              0.1ms  x1  frame:ui-render
+    frame 776 wall 149.98ms cpu 91.73ms gpu {"buffers":2,"bufferBytes":608,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":285,"writeBytes":2442349}
+            65.88ms  x1  render:scene-color
+             5.91ms  x1  render:foliage-lod-sync
+             1.88ms  x1  frame:scene-graph-tick
+             1.68ms  x1  frame:modelpool-update
+             1.33ms  x1  render:terrain-depth-color
+             1.32ms  x1  frame:weather-update
+              0.1ms  x1  frame:ui-render
+    frame 777 wall 149.94ms cpu 50.98ms gpu {"buffers":1,"bufferBytes":240,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":292,"writeBytes":2442534}
+            25.66ms  x1  render:scene-color
+             7.29ms  x1  render:foliage-lod-sync
+             1.75ms  x1  frame:weather-update
+             1.07ms  x1  render:terrain-depth-color
+             1.05ms  x1  frame:modelpool-update
+             0.45ms  x1  frame:scene-graph-tick
+    frame 685 wall 116.61ms cpu 55.3ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":254,"writeBytes":2662378}
+            24.27ms  x1  render:foliage-lod-sync
+             14.8ms  x1  render:scene-color
+             2.29ms  x1  frame:scene-graph-tick
+             2.08ms  x1  frame:weather-update
+             2.01ms  x1  frame:modelpool-update
+             1.46ms  x1  render:visibility-commit
+             1.29ms  x1  render:terrain-depth-color
+             0.12ms  x1  frame:ui-render
+    frame 728 wall 100.53ms cpu 71.96ms gpu {"buffers":2,"bufferBytes":608,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":289,"writeBytes":303421}
+            40.52ms  x1  render:scene-color
+             7.96ms  x1  render:foliage-lod-sync
+             1.58ms  x1  render:visibility-commit
+             1.48ms  x1  frame:scene-graph-tick
+             1.28ms  x1  frame:weather-update
+             1.23ms  x1  frame:modelpool-update
+             0.99ms  x1  render:terrain-depth-color
+    frame 693 wall 99.88ms cpu 32.45ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":251,"writeBytes":2594878}
+            11.31ms  x1  render:scene-color
+             7.88ms  x1  render:foliage-lod-sync
+             1.44ms  x1  frame:weather-update
+             1.34ms  x1  frame:modelpool-update
+             1.33ms  x1  frame:scene-graph-tick
+             1.32ms  x1  render:terrain-depth-color
+             0.94ms  x1  render:visibility-commit
+             0.06ms  x1  frame:shadow-move-gate
+    frame 227 wall 83.39ms cpu 44.36ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":246,"writeBytes":302389}
+            14.07ms  x1  render:scene-color
+             9.22ms  x1  render:foliage-lod-sync
+             1.56ms  x1  render:terrain-depth-color
+             1.41ms  x1  frame:modelpool-update
+             1.33ms  x1  render:visibility-commit
+             1.11ms  x1  frame:weather-update
+             0.84ms  x1  frame:scene-graph-tick
+             0.14ms  x1  frame:shadow-move-gate
+    frame 146 wall 83.31ms cpu 68.6ms gpu {"buffers":8,"bufferBytes":458428,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":250,"writeBytes":205445}
+            19.75ms  x1  frame:modelpool-update
+             7.62ms  x1  render:scene-color
+             2.16ms  x1  frame:scene-graph-tick
+             1.31ms  x1  render:foliage-lod-sync
+             0.78ms  x1  frame:weather-update
+             0.71ms  x1  render:terrain-depth-color
+             0.14ms  x1  frame:ui-render
+              0.1ms  x1  frame:shadow-move-gate
+[landscape-change-hitch-witness] checks 8/8 passed
+[physics] peak bodies 68/10240, peak active 0, contact manifolds 0/10240
+RESULT: PASS arm=accelerated label=landscape-change-hitch-witness -- frames=982 wall p95=50.035ms p99=149.935ms max=6181.445ms; cpu p95=50.66ms p99=106.51ms max=1207.56ms; 61 frames >=50ms; worst single-frame node render:scene-color 1110.185ms; travelled 319.2m
+EXIT=0

@@ -1,0 +1,44 @@
+landscape-change-hitch-witness -- AFTER measured, judged against the prediction written before the run
+row: PERF-landscape-change-hitch-r270-74
+after-run: .gm/witness-out/landscape-hitch-after1.txt attempt 4 (17:41, 2703 frames, travelled 150.2m,
+   arm accelerated ANGLE/NVIDIA RTX 3060 Laptop D3D11, client-root=bundle sha=70e075547765,
+   1280x720, governor pinned off, dprOff pinned on, --require-async)
+before-run: .gm/witness-out/landscape-hitch-before3.txt (2097 frames, travelled 189.2m, same flags
+   without --require-async)
+
+PREDICTION vs MEASURED
+ 1. scene-color max single-frame <= 50 ms (from 1081 ms)        PARTLY MET / ONE FIGURE DISPUTED
+    - worst scene-color INSIDE a >=50ms frame: 1081.32 ms -> 72.98 ms  (14.8x)   MET
+    - sum of scene-color over the >=50ms frames: 2372.18 ms -> 200.76 ms (11.8x) MET
+    - node table "max 931.615ms @frame 2695": DISPUTED. The same run's worst-by-wall list has no
+      row with both a long wall and a long scene-color, so that max is either a real frame whose
+      wall the instrument mis-ordered or an artefact. Settled by the added diagnostic:
+      "that frame: wall Xms cpu Yms runs Z" plus a worst-by-cpu list.
+ 2. wall max <= 200 ms (from 3582 ms); wall p99 <= 25 ms; cpu max <= 120 ms    NOT MET
+    - wall max 3582.195 -> 933.025 ms (3.8x better, still > 200)
+    - wall p99 20.135 -> 33.82 ms (worse)
+    - cpu max 1122.95 -> 947.985 ms (same disputed-frame class as (1))
+ 3. frames >=50 ms wall <= 0.2% (from 0.43%)                                   NOT MET
+    - 9 of 2097 (0.43%) -> 14 of 2703 (0.52%)
+    - but the composition changed: before 7 of 9 were scene-color summing 2372.18 ms;
+      after 12 of 14 are scene-color summing 200.76 ms (worst 72.98 ms).
+ 4. createRenderPipeline ~= 0 while pipelineAsync > 0                            MET
+    - before: createRenderPipeline 52, createShaderModule 80 (all synchronous, on the draw path)
+    - after:  createRenderPipeline 0, createShaderModule 0 over the whole 45 s window;
+      asyncPipelines {installed:true, requested:86, resolved:72, rejected:0, pending:14}
+ 5. requested > 0 and installed === true                                         MET (86, true)
+ 6. p50/p95 unchanged                                                            MET
+    - wall p50 16.66 -> 16.665; wall p95 17.27 -> 17.01; cpu p50 10.16 -> 11.03
+
+WHAT SURVIVES THE FIX (open, not claimed fixed)
+ Two frames of ~920 ms wall (933.02 and 916.38) remain. Each carries ONE long task of ~910-939 ms
+ while animate() itself is only 102.1 / 91.4 ms and no render-graph node exceeds 72.98 / 28.5 ms.
+ So ~800 ms of main-thread task time in each is outside animate() and outside every graph node:
+ either host contention (20+ lanes share this box; longtask duration is wall time, so a preempted
+ task reads long) or a second stall the node accounting cannot see. The instrument now records
+ longtask attribution (containerName|scriptUrl) and a worst-by-cpu ordering to name it.
+
+THE COUNTED-UNIT EVIDENCE (contention-proof, unlike any ms figure)
+ 52 synchronous device.createRenderPipeline calls in the before window -> 0 in the after window,
+ with 86 createRenderPipelineAsync requests taking their place. The pipelines are still built; they
+ are no longer built inside a frame's draw path.

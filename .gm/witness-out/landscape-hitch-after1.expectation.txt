@@ -1,0 +1,38 @@
+landscape-change-hitch-witness -- expected value, written BEFORE the after-run was read
+row: PERF-landscape-change-hitch-r270-74
+instrument: scripts/landscape-change-hitch-witness.mjs (same flags as the before-run except
+  --require-async), 45 s walk, settle 6 s, 1280x720, accelerated arm behind scripts/gpulock.mjs
+
+BEFORE (measured, two independent reproductions on this instrument)
+  run3: wall p50 16.66 p95 17.27 p99 20.135 max 3582.195 ms; cpu p50 10.16 p95 21.245
+        p99 34.01 max 1122.95 ms; 9 of 2097 frames >=50 ms wall; render:scene-color
+        max 1081.315 ms single frame; createRenderPipeline 52, createShaderModule 80
+  run1: wall p50 33.28 p95 50.035 p99 149.935 max 6181.445 ms; cpu p50 24.475 p95 50.66
+        p99 106.51 max 1207.56 ms; 61 of 982 frames >=50 ms wall; render:scene-color
+        max 1110.185 ms single frame
+
+CAUSE (measured, not inferred)
+  WebGPURenderer._renderObjectDirect -> Pipelines.updateForRender -> getForRender ->
+  backend.createRenderPipeline -> device.createRenderPipeline (synchronous). 17-35 pipelines
+  plus their shader modules and uniform buffers are minted inside ONE render:scene-color frame
+  when a batch of newly streamed scenery is first drawn.
+
+EXPECTED AFTER (installAsyncRenderPipelines hands getForRender a promises sink, so creation
+  goes through device.createRenderPipelineAsync and Renderer._renderObjectDirect skips the draw
+  while Pipelines.isReady() is false)
+  1. render:scene-color max single-frame cost <= 50 ms (from 1081 ms).
+  2. wall max <= 200 ms (from 3582 ms); wall p99 <= 25 ms; cpu max <= 120 ms (from 1123 ms).
+  3. frames >=50 ms wall <= 0.2% (from 0.43% and 6.21%).
+  4. gpuTotal.createRenderPipeline ~= 0 while pipelineAsync > 0: the same pipelines are still
+     built, just off the main thread's critical path.
+  5. asyncRenderPipelines.requested > 0 and installed === true.
+  6. wall/cpu p50 and p95 UNCHANGED: this removes a tail, it is not a steady-state speedup.
+     A p50 improvement would mean the measurement window differed, not that the fix is better.
+
+FALSIFIERS (what would refute the fix, not confirm it)
+  - scene-color max still >200 ms => the synchronous cost is NOT createRenderPipeline; the
+    residual would have to be createShaderModule (which three always calls synchronously)
+    or the Bindings._createBindings uniform-buffer burst, and the fix would be incomplete.
+  - p50/p95 change by more than noise => the two runs are not comparable (different window,
+    bundle or host load), and no conclusion is admissible from them.
+  - requested === 0 => the wrapper never ran and the run says nothing about the fix.

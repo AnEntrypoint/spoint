@@ -1,0 +1,32 @@
+landscape-change-hitch-witness --revert-async -- expected value, written BEFORE the mutation run
+row: PERF-landscape-change-hitch-r270-74
+instrument: scripts/landscape-change-hitch-witness.mjs --measure=45000 --settle=6000 --worst=12
+  --revert-async, same arm as the after-run (1280x720, accelerated, scripts/gpulock.mjs,
+  governor pinned off, dprOff pinned on).
+
+WHAT THIS RUN IS
+  The mutation. --revert-async restores the ORIGINAL Pipelines.getForRender on the live
+  renderer, so three goes back to device.createRenderPipeline on the draw path. If the fix
+  is what removed the stall, the stall returns. If it does not, the after-run proved nothing.
+
+EXPECTED (the stall comes back)
+  1. render:scene-color max single-frame cost back above 200 ms (after-run is expected <= 50 ms).
+     A value in the 400-1200 ms band matches the before-runs (1081/1110 ms).
+  2. wall max back above 500 ms; at least one frame >= 50 ms wall (after-run is expected
+     <= 0.2% of frames, before-runs were 0.43% and 6.21%).
+  3. gpuTotal.createRenderPipeline > 0 and pipelineAsync == 0: the same pipelines are built
+     synchronously again.
+  4. asyncPipelines.installed === false after the revert (the wrapper is gone) while
+     requested stays > 0 from the frames before the revert was applied.
+  5. wall/cpu p50 and p95 again UNCHANGED relative to the after-run: this is a tail mutation,
+     not a steady-state one.
+
+FALSIFIERS (what would refute the causal claim)
+  - scene-color max stays <= 50 ms with --revert-async => the after-run's improvement was NOT
+    caused by the fix. Most likely reading: the two runs walked different content, so the
+    streaming batch never landed. Then no conclusion is admissible and both runs must be
+    re-taken on a forced-population path.
+  - createRenderPipeline stays ~0 with --revert-async => the revert did not reach the live
+    renderer (the pre-revert bundle lacks __spointOriginalGetForRender); the run is a no-op
+    and must be re-taken after `node scripts/bundle-client.mjs`.
+  - A p50/p95 shift => the windows are not comparable; no conclusion from either run.

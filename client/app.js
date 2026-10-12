@@ -10,7 +10,7 @@ import './core/Relocation.js'
 import { createElement, applyDiff } from 'webjsx'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
 import { editorKit } from './core/EditorKit.js'
-import { whenProgramsReady, takeDeferredDraws } from './core/ProgramReadiness.js'
+import { whenProgramsReady, takeDeferredDraws, installAsyncRenderPipelines } from './core/ProgramReadiness.js'
 import * as DamageEffects from '/src/effects/DamageEffects.js'
 const _designKit = { renderGameHud, renderLoadingScreen }
 import { LoadingManager } from './LoadingManager.js'
@@ -216,6 +216,11 @@ try {
         installStuckPipelineRecovery(renderer, scene)
       } catch (recoveryErr) {
         console.warn('[renderer] installStuckPipelineRecovery failed (non-fatal):', recoveryErr && (recoveryErr.message || recoveryErr))
+      }
+      // A newly visible render object would otherwise compile its pipeline synchronously inside
+      // render(), so scenery that streams in as a batch lands every compile in one frame.
+      if (!installAsyncRenderPipelines(renderer)) {
+        console.warn('[renderer] installAsyncRenderPipelines could not bind; first draws will compile synchronously')
       }
       try {
         const { FSR1WebGPU } = await import('./core/FSR1WebGPU.js')

@@ -1,0 +1,407 @@
+=== attempt 1 at 2026-10-12T17:51:12+02:00
+gpulock: gpulock: orch-main-r270-74 waited 600000 ms for the GPU lock held by player-shadow-r270-74 pid 27796 (holding since 2026-10-12T15:55:45.241Z), so no measurement was taken
+EXIT=1
+=== attempt 2 at 2026-10-12T18:01:13+02:00
+gpulock: orch-main-r270-74 took the GPU lock from a lock directory with no readable owner record
+[landscape-change-hitch-witness] --rebuild-bundle: running scripts/bundle-client.mjs before boot ...
+▲ [WARNING] The glob pattern import("./hud/Chat.js?hr=*") did not match any files [empty-glob]
+
+    client/app.js:1292:15:
+      1292 │         import('./hud/Chat.js?hr=' + (payload.timestamp || Date....
+           ╵                ~~~~~~~~~~~~~~~~~~~
+
+1 warning
+
+  dist\client\ez-tree.es-AFA3XRFR.js   3.8mb
+  dist\client\app.js                   1.1mb
+  dist\client\chunk-SIW4GACF.js       52.8kb
+  dist\client\XRSystem-GJHKI7EM.js    14.3kb
+  dist\client\chunk-ZTRHXE5B.js        9.5kb
+  ...and 30 more output files...
+
+Done in 345ms
+[bundle-client] wrote dist/client
+[bundle-client] stamped dist\client\app.bundlehash.json e7baf366b0037edc (220 bundled inputs, artifact 418011782a23e332)
+[bundle-apps-manifest] resolving 68 app(s) (all ./apps directories): agent-fsm-demo, agent-interactive-demo, agent-physics-demo, agent-simple-demo, agent-spawner-demo, box-buoyant, box-dynamic, box-static, button, capture-zone, character-animator, character-controller, checkpoint-marker, collectible, combat-bot, deathrun, destructible-box, destructible-debris, ecs-demo, editor-apps, editor-events, editor-hierarchy, editor-inspector, example-progression, final-boss, fire-duel, fluid-source, fluid3d-source, fsm-arena, goblin, gold-coin, hit-feedback, item-pickup, lockstep-rts, matrix-construct-room, mini-boss, moving-platform, npc, npc-navigator, pickup, placed-model, playtest-bot, prop-dynamic, prop-static, respawn-zone, rpg-tutorial, rts-unit, shrinking-zone, shrinking-zone-ring, softbody-cloth, spawn-point, tank, terrain, tower, tps-game, trigger-volume, tutorial, tutorial-boss, tutorial-herb, tutorial-marker, tutorial-npc, tutorial-rat, tutorial-rpg, tutorial-rpg-world, unmanaged-ball-test, vehicle, waypoint, weapon-spawn
+[bundle-apps-manifest] C:\dev\spoint\dist\client\apps-manifest.json unchanged (68 apps)
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 54ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (25 of 68 app(s), unchanged, 4ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (e7baf366b0037edc))
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs fdb89fe7542d3188, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791820759551.6348) -- falling through to raw ESM worker
+(node:19728) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 849e135ffd2d) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 24ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257 (near-field floor), 100.0% of the footprint is frozen at 0.26us a sample, 17.4ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 55ms(sample 44ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 80.7ms over 1 cluster batch(es) of 8 (pool prewarm 3.9ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 11.0ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[combat] 4 spawn point(s), 0 saved record(s)
+[placed-model] loaded 4 saved entities
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[server] http://localhost:3271 @ 64 TPS
+[identity] pid=19728 sha=c7db6ed0 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[static] precompressed 5188 asset(s)
+[world-persistence] saved snapshot: tick=19201 entities=10
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+gpulock: heartbeat could not refresh the lock (EPERM), so another acquirer may take over at the 120000 ms ttl
+[physics] peak bodies 67/10240, peak active 0, contact manifolds 0/10240
+RESULT: FAIL arm=accelerated label=landscape-change-hitch-witness -- Error: browser-lease: spoint-19728 waited 600000ms for the accelerated browser session of C:\dev\spoint held by probe-6332 pid 6332 fingerprint session since 2026-10-12T16:06:49.635Z, so no browser was launched     at acquire (file:///C:/dev/spoint/scripts/lib/browser-lease.mjs:152:13)     at async Object.launch (file:///C:/dev/spoint/scripts/lib/cdp-browser.mjs:421:17)     at async browserArm (file:///C:/dev/spoint/scripts/landscape-change-hitch-witness.mjs:507:15)
+EXIT=1
+=== attempt 3 at 2026-10-12T18:12:05+02:00
+gpulock: orch-main-r270-74 is waiting behind occab-r270b pid 7152, which has been waiting longer (the lock is held by player-shadow-r270-74 pid 27380)
+gpulock: gpulock: orch-main-r270-74 waited 600000 ms for the GPU lock held by leaftex-r270c pid 15332 (holding since 2026-10-12T16:20:07.367Z), so no measurement was taken
+EXIT=1
+=== attempt 4 at 2026-10-12T18:22:06+02:00
+gpulock: orch-main-r270-74 is waiting behind player-shadow-r270-74 pid 9824, which has been waiting longer (the lock is held by leaftex-r270c pid 15332)
+gpulock: orch-main-r270-74 holds the GPU lock
+[landscape-change-hitch-witness] --rebuild-bundle: running scripts/bundle-client.mjs before boot ...
+▲ [WARNING] The glob pattern import("./hud/Chat.js?hr=*") did not match any files [empty-glob]
+
+    client/app.js:1292:15:
+      1292 │         import('./hud/Chat.js?hr=' + (payload.timestamp || Date....
+           ╵                ~~~~~~~~~~~~~~~~~~~
+
+1 warning
+
+  dist\client\ez-tree.es-AFA3XRFR.js   3.8mb
+  dist\client\app.js                   1.1mb
+  dist\client\chunk-SIW4GACF.js       52.8kb
+  dist\client\XRSystem-GJHKI7EM.js    14.3kb
+  dist\client\chunk-ZTRHXE5B.js        9.5kb
+  ...and 30 more output files...
+
+Done in 641ms
+[bundle-client] wrote dist/client
+[bundle-client] stamped dist\client\app.bundlehash.json 87d13bb4e806abee (220 bundled inputs, artifact 5fbab39c08e57129)
+[bundle-apps-manifest] resolving 68 app(s) (all ./apps directories): agent-fsm-demo, agent-interactive-demo, agent-physics-demo, agent-simple-demo, agent-spawner-demo, box-buoyant, box-dynamic, box-static, button, capture-zone, character-animator, character-controller, checkpoint-marker, collectible, combat-bot, deathrun, destructible-box, destructible-debris, ecs-demo, editor-apps, editor-events, editor-hierarchy, editor-inspector, example-progression, final-boss, fire-duel, fluid-source, fluid3d-source, fsm-arena, goblin, gold-coin, hit-feedback, item-pickup, lockstep-rts, matrix-construct-room, mini-boss, moving-platform, npc, npc-navigator, pickup, placed-model, playtest-bot, prop-dynamic, prop-static, respawn-zone, rpg-tutorial, rts-unit, shrinking-zone, shrinking-zone-ring, softbody-cloth, spawn-point, tank, terrain, tower, tps-game, trigger-volume, tutorial, tutorial-boss, tutorial-herb, tutorial-marker, tutorial-npc, tutorial-rat, tutorial-rpg, tutorial-rpg-world, unmanaged-ball-test, vehicle, waypoint, weapon-spawn
+[bundle-apps-manifest] C:\dev\spoint\dist\client\apps-manifest.json unchanged (68 apps)
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 95ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (25 of 68 app(s), unchanged, 9ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (87d13bb4e806abee))
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs 884ba7c31a3d3809, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791822399154.6714) -- falling through to raw ESM worker
+(node:16432) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 849e135ffd2d) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 73ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257 (near-field floor), 100.0% of the footprint is frozen at 0.85us a sample, 56.1ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 188ms(sample 155ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 241.9ms over 1 cluster batch(es) of 8 (pool prewarm 8.9ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 38.7ms over 1 cluster batch(es) of 8 (pool prewarm 0.1ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[combat] 4 spawn point(s), 0 saved record(s)
+[placed-model] loaded 4 saved entities
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[server] http://localhost:3271 @ 64 TPS
+[identity] pid=16432 sha=c7db6ed0 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[TickHandler] tick 2542 overran budget: 229.52ms > 31.25ms (budget 15.63ms) players:0
+[TickHandler] tick 2854 overran budget: 141.28ms > 31.25ms (budget 15.63ms) players:0
+[static] precompressed 5205 asset(s)
+[TickHandler] tick 4224 overran budget: 130.61ms > 31.25ms (budget 15.63ms) players:0
+[landscape-change-hitch-witness] --revert-async: synchronous createRenderPipeline restored for this run
+[landscape-change-hitch-witness] async pipelines after a 2.5s drain with no new scenery: {"installed":false,"requested":56,"resolved":56,"rejected":0,"pending":0}
+[landscape-change-hitch-witness] arm {"gpu":"ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU (0x00002520) Direct3D11 vs_5_0 ps_5_0, D3D11)","clientRoot":"client-root=bundle sha=5fbab39c08e5 bytes=1188011 hash-verified=bundle","viewport":"1280x720","world":"tps-game","measureMs":45000,"nodeCount":31}
+[landscape-change-hitch-witness] travel {"travelledM":184.5,"trackSamples":87,"end":[-78.63299560546875,-25.55072593688965,52.3436279296875]}
+[landscape-change-hitch-witness] wall(rAF delta) {"n":2412,"p50":16.66,"p95":16.88,"p99":33.27,"max":1582.835,"avg":18.851}
+[landscape-change-hitch-witness] cpu(main-thread frame cost) {"n":2413,"p50":7.495,"p95":19.91,"p99":30.225,"max":637.03,"avg":9.881}
+[landscape-change-hitch-witness] frames over 50ms wall: 10 of 2413 (0.41%)
+[landscape-change-hitch-witness] hitch attribution (dominant node inside every >=50ms frame):
+    9x  sum 369.12ms  worst 133.78ms  render:scene-color
+    1x  sum 19.7ms  worst 19.7ms  render:foliage-lod-sync
+[landscape-change-hitch-witness] gpu work units over the window: {"createBuffer":0,"bufferBytes":0,"createTexture":0,"createRenderPipeline":0,"createShaderModule":0,"writeBuffer":416259,"writeBytes":567543157,"createBindGroup":15315}
+[landscape-change-hitch-witness] worst single frame per node (top 25 of 31):
+    max    632.74ms @frame   2161  p99    15.01ms  p50     4.09ms  over8ms    87  runs    2413  total  12893.64ms  render:scene-color
+        that frame: wall 16.69ms cpu 637.03ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max    28.485ms @frame   2224  p99    10.33ms  p50      0.4ms  over8ms    30  runs    2413  total   1467.65ms  render:foliage-lod-sync
+        that frame: wall 33.57ms cpu 85.44ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      13.5ms @frame   2364  p99     4.66ms  p50    1.285ms  over8ms     2  runs    2413  total   3720.62ms  render:visibility-commit
+        that frame: wall 1482.91ms cpu 85.75ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      8.99ms @frame      0  p99    1.265ms  p50    0.365ms  over8ms     1  runs    2413  total   1041.03ms  frame:scene-graph-tick
+        that frame: wall 0ms cpu 21.45ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      4.76ms @frame   2163  p99     0.75ms  p50    0.215ms  over8ms     0  runs    2413  total    601.41ms  frame:weather-update
+        that frame: wall 1582.84ms cpu 152.46ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      4.32ms @frame   1645  p99    1.195ms  p50      0.2ms  over8ms     0  runs    2413  total       696ms  render:terrain-depth-color
+        that frame: wall 33.34ms cpu 25.45ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      1.29ms @frame   2139  p99     0.31ms  p50    0.045ms  over8ms     0  runs    2413  total    151.13ms  frame:modelpool-update
+        that frame: wall 16.76ms cpu 12.36ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.69ms @frame   1069  p99    0.065ms  p50    0.025ms  over8ms     0  runs    2413  total     61.07ms  frame:camera-input-update
+        that frame: wall 16.75ms cpu 16.36ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.545ms @frame    242  p99     0.07ms  p50    0.025ms  over8ms     0  runs    2413  total     64.48ms  frame:shadow-move-gate
+        that frame: wall 16.7ms cpu 10.62ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.27ms @frame   1685  p99     0.06ms  p50     0.02ms  over8ms     0  runs    2413  total     58.56ms  frame:time-of-day
+        that frame: wall 16.93ms cpu 29.28ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.235ms @frame    967  p99     0.03ms  p50    0.005ms  over8ms     0  runs    2413  total      8.41ms  frame:vram-budget-sync
+        that frame: wall 16.69ms cpu 6.31ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.22ms @frame   1880  p99     0.06ms  p50    0.015ms  over8ms     0  runs    2413  total     47.68ms  frame:frame-clock
+        that frame: wall 16.64ms cpu 8.52ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.205ms @frame    476  p99     0.11ms  p50    0.005ms  over8ms     0  runs    2413  total     15.83ms  frame:ui-render
+        that frame: wall 16.67ms cpu 7.31ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.14ms @frame   2035  p99    0.035ms  p50     0.01ms  over8ms     0  runs    2413  total     31.51ms  frame:app-dispatch-frame
+        that frame: wall 17.22ms cpu 12.96ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.11ms @frame   1203  p99     0.01ms  p50    0.005ms  over8ms     0  runs    2413  total      7.77ms  frame:editor-frame-update
+        that frame: wall 16.68ms cpu 7.81ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.105ms @frame    458  p99    0.015ms  p50    0.005ms  over8ms     0  runs    2413  total       8.5ms  render:camera-projection-apply
+        that frame: wall 16.66ms cpu 7.92ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.075ms @frame    470  p99     0.02ms  p50    0.005ms  over8ms     0  runs    2413  total      6.17ms  frame:floating-origin-rebase
+        that frame: wall 16.66ms cpu 9.48ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.07ms @frame    920  p99     0.01ms  p50    0.005ms  over8ms     0  runs    2413  total      5.93ms  frame:shadow-cost-probe-sync
+        that frame: wall 16.64ms cpu 11.8ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.065ms @frame   1581  p99     0.01ms  p50    0.005ms  over8ms     0  runs    2413  total       7.7ms  render:host-near-far
+        that frame: wall 16.68ms cpu 18.61ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.06ms @frame    910  p99     0.02ms  p50    0.005ms  over8ms     0  runs    2413  total      4.72ms  frame:remote-player-cull
+        that frame: wall 16.66ms cpu 7.44ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max     0.035ms @frame   1443  p99    0.015ms  p50    0.005ms  over8ms     0  runs    2413  total      7.61ms  frame:entity-distance-cull
+        that frame: wall 16.67ms cpu 8.46ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.02ms @frame    131  p99     0.01ms  p50    0.005ms  over8ms     0  runs    2413  total      5.71ms  render:vegetation-render-distance
+        that frame: wall 16.63ms cpu 7.96ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max      0.01ms @frame    166  p99     0.01ms  p50    0.005ms  over8ms     0  runs    2413  total      3.29ms  frame:streaming-scheduler-drain
+        that frame: wall 16.64ms cpu 8.49ms runs 1 -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max         0ms @frame     -1  p99     nullms  p50     nullms  over8ms     0  runs       0  total         0ms  render:ssao-compute
+        that frame: wall nullms cpu nullms runs null -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+    max         0ms @frame     -1  p99     nullms  p50     nullms  over8ms     0  runs       0  total         0ms  render:ssao-composite
+        that frame: wall nullms cpu nullms runs null -- a node max whose own frame wall is not also long is an instrument artefact, not a stall
+[landscape-change-hitch-witness] worst 12 frames:
+    frame 2163 wall 1582.84ms cpu 152.46ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":336,"writeBytes":954890} longtask {"windowMs":1582.8,"tasks":1,"taskMs":70,"worstTaskMs":70,"src":["|@70ms"]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+           133.78ms  x1  render:scene-color
+             4.76ms  x1  frame:weather-update
+             2.63ms  x1  render:visibility-commit
+              2.1ms  x1  render:foliage-lod-sync
+             0.64ms  x1  render:terrain-depth-color
+             0.42ms  x1  frame:modelpool-update
+             0.35ms  x1  frame:scene-graph-tick
+             0.07ms  x1  frame:ui-render
+        create   21x      0.4ms      6000B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create   30x      0.1ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    5x        0ms    107776B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    1x        0ms    131072B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31323:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    1x        0ms      2328B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createIndexAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86254:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30982:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31283:9)
+        create    1x        0ms      1116B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+    frame 2364 wall 1482.91ms cpu 85.75ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":261,"writeBytes":277766} longtask {"windowMs":1482.9,"tasks":1,"taskMs":58,"worstTaskMs":58,"src":["|@58ms"]}
+        pop {"veg":5807,"grass":122116,"rocks":29,"dVeg":0,"dGrass":-5220,"dRocks":1}
+            41.46ms  x1  render:scene-color
+             13.5ms  x1  render:visibility-commit
+            12.96ms  x1  render:foliage-lod-sync
+             3.48ms  x1  frame:weather-update
+              0.7ms  x1  render:terrain-depth-color
+             0.33ms  x1  frame:scene-graph-tick
+             0.11ms  x1  frame:modelpool-update
+    frame 2162 wall 633.12ms cpu 74.99ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":227,"writeBytes":190374} longtask {"windowMs":633.1,"tasks":1,"taskMs":637,"worstTaskMs":637,"src":["|@637ms"]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+            62.78ms  x1  render:scene-color
+              2.4ms  x1  frame:scene-graph-tick
+             2.31ms  x1  render:visibility-commit
+             0.93ms  x1  frame:weather-update
+             0.55ms  x1  render:foliage-lod-sync
+             0.46ms  x1  render:terrain-depth-color
+        create  100x      1.6ms    142272B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create    9x      1.2ms         0B  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32341:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        create   15x      0.6ms         0B  pipeline :: GPUDevice.value [as createRenderPipeline] (<anonymous>:118:9) <- WebGPUPipelineUtils.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:82517:35) <- WebGPUBackend.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86050:22) <- Pipelines._getRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32532:17) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32356:21) <- Pipelines.value (<anonymous>:80:30)
+        create   13x      0.6ms         0B  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32327:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        create   30x      0.1ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    5x        0ms    107776B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+    frame 2386 wall 499.81ms cpu 37.33ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":200,"writeBytes":515030} longtask {"windowMs":499.8,"tasks":1,"taskMs":507,"worstTaskMs":507,"src":["|@507ms"]}
+        pop {"veg":5816,"grass":124629,"rocks":31,"dVeg":0,"dGrass":0,"dRocks":0}
+               13ms  x1  render:scene-color
+             2.21ms  x1  render:visibility-commit
+             1.82ms  x1  render:foliage-lod-sync
+             1.44ms  x1  frame:scene-graph-tick
+              0.9ms  x1  render:terrain-depth-color
+             0.88ms  x1  frame:weather-update
+             0.07ms  x1  frame:modelpool-update
+    frame 2363 wall 466.49ms cpu 65.01ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":237,"writeBytes":181354} longtask {"windowMs":466.5,"tasks":1,"taskMs":471,"worstTaskMs":471,"src":["|@471ms"]}
+        pop {"veg":5807,"grass":127336,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+            49.13ms  x1  render:scene-color
+              2.6ms  x1  render:visibility-commit
+             2.56ms  x1  frame:scene-graph-tick
+             1.31ms  x1  frame:weather-update
+             0.59ms  x1  render:foliage-lod-sync
+             0.56ms  x1  render:terrain-depth-color
+             0.23ms  x1  frame:modelpool-update
+             0.07ms  x1  frame:ui-render
+    frame 2164 wall 150ms cpu 51.57ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":267,"writeBytes":3361713} longtask {"windowMs":150,"tasks":1,"taskMs":145,"worstTaskMs":145,"src":["|@145ms"]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+            36.97ms  x1  render:scene-color
+             4.17ms  x1  render:visibility-commit
+             1.96ms  x1  frame:weather-update
+             1.86ms  x1  render:foliage-lod-sync
+             1.74ms  x1  frame:scene-graph-tick
+             0.66ms  x1  render:terrain-depth-color
+             0.07ms  x1  frame:modelpool-update
+        create   14x      0.3ms      4384B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create   30x      0.2ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    1x        0ms      1116B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+    frame 2387 wall 99.92ms cpu 13.7ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":201,"writeBytes":2959095} longtask {"windowMs":99.9,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5816,"grass":124629,"rocks":31,"dVeg":0,"dGrass":0,"dRocks":0}
+             4.75ms  x1  render:scene-color
+             2.29ms  x1  render:visibility-commit
+             0.71ms  x1  frame:weather-update
+             0.52ms  x1  render:terrain-depth-color
+             0.48ms  x1  render:foliage-lod-sync
+             0.26ms  x1  frame:scene-graph-tick
+             0.18ms  x1  frame:modelpool-update
+    frame 2365 wall 83.34ms cpu 38.16ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":208,"writeBytes":4566263} longtask {"windowMs":83.3,"tasks":1,"taskMs":73,"worstTaskMs":73,"src":["|@73ms"]}
+        pop {"veg":5807,"grass":123597,"rocks":30,"dVeg":0,"dGrass":1481,"dRocks":1}
+             19.7ms  x1  render:foliage-lod-sync
+             6.65ms  x1  render:scene-color
+             5.02ms  x1  render:visibility-commit
+             1.48ms  x1  frame:weather-update
+             0.97ms  x1  frame:scene-graph-tick
+             0.46ms  x1  render:terrain-depth-color
+             0.06ms  x1  frame:modelpool-update
+    frame 2225 wall 83.05ms cpu 42.33ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":204,"writeBytes":5663317} longtask {"windowMs":83.1,"tasks":1,"taskMs":82,"worstTaskMs":82,"src":["|@82ms"]}
+        pop {"veg":5817,"grass":130066,"rocks":28,"dVeg":0,"dGrass":295,"dRocks":0}
+            18.36ms  x1  render:scene-color
+            12.04ms  x1  render:foliage-lod-sync
+             6.42ms  x1  render:visibility-commit
+             0.92ms  x1  frame:scene-graph-tick
+             0.58ms  x1  frame:weather-update
+             0.45ms  x1  render:terrain-depth-color
+             0.06ms  x1  frame:modelpool-update
+        create    2x     15.2ms  33554432B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31323:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    2x      0.8ms   6291456B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create   30x      0.2ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    6x        0ms      1024B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create    1x        0ms      1464B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+    frame 2226 wall 66.64ms cpu 32.94ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":200,"writeBytes":4430220} longtask {"windowMs":66.6,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5819,"grass":127336,"rocks":28,"dVeg":2,"dGrass":-2730,"dRocks":0}
+             8.89ms  x1  render:scene-color
+             7.58ms  x1  render:foliage-lod-sync
+             4.22ms  x1  render:visibility-commit
+              0.7ms  x1  render:terrain-depth-color
+             0.38ms  x1  frame:weather-update
+             0.27ms  x1  frame:scene-graph-tick
+             0.26ms  x1  frame:modelpool-update
+             0.06ms  x1  frame:ui-render
+        create   30x      0.2ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    2x      0.1ms       608B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create    1x        0ms      1464B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+    frame 2192 wall 49.97ms cpu 17.3ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":193,"writeBytes":190665} longtask {"windowMs":50,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+             4.59ms  x1  render:scene-color
+             2.79ms  x1  render:visibility-commit
+              0.6ms  x1  render:foliage-lod-sync
+             0.51ms  x1  frame:weather-update
+             0.49ms  x1  render:terrain-depth-color
+             0.34ms  x1  frame:scene-graph-tick
+        create   30x      0.2ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    1x        0ms      1204B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    1x        0ms       240B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+    frame 2165 wall 49.95ms cpu 17.75ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":210,"writeBytes":2287324} longtask {"windowMs":49.9,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+             8.19ms  x1  render:scene-color
+             4.02ms  x1  render:visibility-commit
+             0.82ms  x1  render:foliage-lod-sync
+             0.76ms  x1  frame:scene-graph-tick
+             0.54ms  x1  render:terrain-depth-color
+             0.41ms  x1  frame:weather-update
+        create   30x      0.1ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    3x      0.1ms       976B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+[landscape-change-hitch-witness] worst 6 frames by main-thread cpu (the ordering the wall distribution hides):
+    frame 2161 cpu 637.03ms wall 16.69ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":416,"writeBytes":140551} longtask {"windowMs":16.7,"tasks":1,"taskMs":637,"worstTaskMs":637,"src":["|@637ms"]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+           632.74ms  x1  render:scene-color
+             2.54ms  x1  render:visibility-commit
+              0.4ms  x1  render:foliage-lod-sync
+             0.32ms  x1  frame:scene-graph-tick
+              0.2ms  x1  render:terrain-depth-color
+             0.15ms  x1  frame:weather-update
+             0.09ms  x1  frame:shadow-move-gate
+        create   89x      1.4ms    138864B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create    9x      1.2ms         0B  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32341:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        create   15x      0.6ms         0B  pipeline :: GPUDevice.value [as createRenderPipeline] (<anonymous>:118:9) <- WebGPUPipelineUtils.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:82517:35) <- WebGPUBackend.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86050:22) <- Pipelines._getRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32532:17) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32356:21) <- Pipelines.value (<anonymous>:80:30)
+        create   13x      0.6ms         0B  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32327:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        create   30x      0.1ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    5x        0ms    107776B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+    frame 2385 cpu 515.01ms wall 16.73ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":429,"writeBytes":133947} longtask {"windowMs":16.7,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5816,"grass":124629,"rocks":31,"dVeg":0,"dGrass":0,"dRocks":0}
+           500.49ms  x1  render:scene-color
+             3.77ms  x1  render:visibility-commit
+             0.81ms  x1  render:foliage-lod-sync
+              0.6ms  x1  render:terrain-depth-color
+             0.32ms  x1  frame:scene-graph-tick
+              0.2ms  x1  frame:weather-update
+             0.06ms  x1  frame:modelpool-update
+    frame 2362 cpu 471.56ms wall 16.66ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":406,"writeBytes":143673} longtask {"windowMs":16.7,"tasks":1,"taskMs":471,"worstTaskMs":471,"src":["|@471ms"]}
+        pop {"veg":5807,"grass":127336,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+           466.52ms  x1  render:scene-color
+             2.52ms  x1  render:visibility-commit
+             0.85ms  x1  render:foliage-lod-sync
+             0.35ms  x1  frame:scene-graph-tick
+             0.28ms  x1  render:terrain-depth-color
+             0.26ms  x1  frame:weather-update
+             0.07ms  x1  frame:modelpool-update
+    frame 2163 cpu 152.46ms wall 1582.84ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":336,"writeBytes":954890} longtask {"windowMs":1582.8,"tasks":1,"taskMs":70,"worstTaskMs":70,"src":["|@70ms"]}
+        pop {"veg":5817,"grass":133711,"rocks":28,"dVeg":0,"dGrass":0,"dRocks":0}
+           133.78ms  x1  render:scene-color
+             4.76ms  x1  frame:weather-update
+             2.63ms  x1  render:visibility-commit
+              2.1ms  x1  render:foliage-lod-sync
+             0.64ms  x1  render:terrain-depth-color
+             0.42ms  x1  frame:modelpool-update
+             0.35ms  x1  frame:scene-graph-tick
+             0.07ms  x1  frame:ui-render
+        create   21x      0.4ms      6000B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create   30x      0.1ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    5x        0ms    107776B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    1x        0ms    131072B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31323:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    1x        0ms      2328B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createIndexAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86254:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30982:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31283:9)
+        create    1x        0ms      1116B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+    frame 2364 cpu 85.75ms wall 1482.91ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":261,"writeBytes":277766} longtask {"windowMs":1482.9,"tasks":1,"taskMs":58,"worstTaskMs":58,"src":["|@58ms"]}
+        pop {"veg":5807,"grass":122116,"rocks":29,"dVeg":0,"dGrass":-5220,"dRocks":1}
+            41.46ms  x1  render:scene-color
+             13.5ms  x1  render:visibility-commit
+            12.96ms  x1  render:foliage-lod-sync
+             3.48ms  x1  frame:weather-update
+              0.7ms  x1  render:terrain-depth-color
+             0.33ms  x1  frame:scene-graph-tick
+             0.11ms  x1  frame:modelpool-update
+    frame 2224 cpu 85.44ms wall 33.57ms gpu {"buffers":0,"bufferBytes":0,"textures":0,"pipelines":0,"shaderModules":0,"writeBuffers":210,"writeBytes":191820} longtask {"windowMs":33.6,"tasks":0,"taskMs":0,"worstTaskMs":0,"src":[]}
+        pop {"veg":5817,"grass":129771,"rocks":28,"dVeg":0,"dGrass":4164,"dRocks":0}
+            47.75ms  x1  render:scene-color
+            28.48ms  x1  render:foliage-lod-sync
+             4.72ms  x1  render:visibility-commit
+             0.55ms  x1  frame:scene-graph-tick
+             0.49ms  x1  render:terrain-depth-color
+             0.26ms  x1  frame:weather-update
+        create    2x     15.2ms  33554432B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31323:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create    2x      0.8ms   6291456B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUAttributeUtils.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:81102:20) <- WebGPUBackend.createAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86265:23) <- Attributes.update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:30977:18) <- Geometries.updateAttribute (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31313:21) <- Geometries.updateAttributes (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:31271:10)
+        create   30x      0.2ms       480B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu.buildHzb (http://127.0.0.1:3271/app.js:1509:9939) <- Gu._syncPyramid (http://127.0.0.1:3271/app.js:1509:9164) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21066) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+        create    8x      0.1ms      1632B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- WebGPUBackend.createUniformBuffer (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86162:34) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32830:20) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9) <- Bindings.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32774:30) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62898:19)
+        create    1x        0ms      1456B  buffer :: GPUDevice.value [as createBuffer] (<anonymous>:118:9) <- Gu._takeStaging (http://127.0.0.1:3271/app.js:1509:17042) <- Gu._runEntityOcclusion (http://127.0.0.1:3271/app.js:1509:18621) <- Gu.runQueries (http://127.0.0.1:3271/app.js:1509:21087) <- Animation.Yz [as _animationLoop] (http://127.0.0.1:3271/app.js:2496:26835) <- update (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:29418:45)
+[landscape-change-hitch-witness] slowest single create call, by kind: buffer=7.6ms pipeline=0.1ms shaderModule=0.5ms texture=0.0ms
+[landscape-change-hitch-witness] async render pipelines {"installed":false,"requested":56,"resolved":56,"rejected":0,"pending":0}
+[landscape-change-hitch-witness] pipeline/shaderModule/texture call sites (whole window):
+       15x  pipeline :: GPUDevice.value [as createRenderPipeline] (<anonymous>:118:9) <- WebGPUPipelineUtils.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:82517:35) <- WebGPUBackend.createRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86050:22) <- Pipelines._getRenderPipeline (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32532:17) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32356:21) <- Pipelines.value (<anonymous>:80:30)
+       13x  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32327:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        9x  shaderModule :: GPUDevice.value [as createShaderModule] (<anonymous>:118:9) <- WebGPUBackend.createProgram (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:86021:24) <- Pipelines.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32341:13) <- Pipelines.value (<anonymous>:80:30) <- Pipelines.updateForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32465:8) <- WebGPURenderer._renderObjectDirect (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:62902:19)
+        1x  texture :: GPUDevice.value [as createTexture] (<anonymous>:118:9) <- WebGPUTextureUtils.createTexture (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:76652:41) <- WebGPUBackend.createTexture (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:85903:21) <- Textures.updateTexture (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:34314:15) <- Bindings._createBindings (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32835:21) <- Bindings.getForRender (http://127.0.0.1:3271/node_modules/three/build/three.webgpu.js:32714:9)
+[landscape-change-hitch-witness] who paid a compile on its first draw (0 distinct material id(s)):
+[landscape-change-hitch-witness] checks 10/10 passed
+[physics] peak bodies 67/10240, peak active 0, contact manifolds 0/10240
+RESULT: PASS arm=accelerated label=landscape-change-hitch-witness -- frames=2413 wall p95=16.88ms p99=33.27ms max=1582.835ms; cpu p95=19.91ms p99=30.225ms max=637.03ms; 10 frames >=50ms; worst single-frame node render:scene-color 632.74ms; travelled 184.5m
+EXIT=0
+DONE 2026-10-12T18:36:29+02:00
