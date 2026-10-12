@@ -15,6 +15,24 @@ export function clampI16(v) { return wireUnits('velocity', v, -32767, 32767) }
 export function clampI32Pos(v) { return wireUnits('position', v, -2147483647, 2147483647) }
 export function clampU16Scale(v) { return wireUnits('scale', v, 0, 65535) }
 
+const QUAT_WORD_MAX = 4294967295
+const QUAT_SUM_SQ_TOL = 2e-4
+
+function wireQuatWord(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new RangeError('[snapshot-bin] rotation is ' + String(v) + ', which is not a finite number the wire can carry')
+  if (!Number.isInteger(v) || v < 0 || v > QUAT_WORD_MAX) throw new RangeError('[snapshot-bin] rotation ' + v + ' is not an integer in [0, ' + QUAT_WORD_MAX + '], the only rotation words the wire can carry')
+  return v
+}
+
+function wireUnitQuat(rx, ry, rz, rw) {
+  if (typeof rx !== 'number' || !Number.isFinite(rx)) throw new RangeError('[snapshot-bin] rotation[0] is ' + String(rx) + ', which is not a finite number the wire can carry')
+  if (typeof ry !== 'number' || !Number.isFinite(ry)) throw new RangeError('[snapshot-bin] rotation[1] is ' + String(ry) + ', which is not a finite number the wire can carry')
+  if (typeof rz !== 'number' || !Number.isFinite(rz)) throw new RangeError('[snapshot-bin] rotation[2] is ' + String(rz) + ', which is not a finite number the wire can carry')
+  if (typeof rw !== 'number' || !Number.isFinite(rw)) throw new RangeError('[snapshot-bin] rotation[3] is ' + String(rw) + ', which is not a finite number the wire can carry')
+  const sumSq = rx * rx + ry * ry + rz * rz + rw * rw
+  if (sumSq < 1 - QUAT_SUM_SQ_TOL || sumSq > 1 + QUAT_SUM_SQ_TOL) throw new RangeError('[snapshot-bin] rotation [' + rx + ', ' + ry + ', ' + rz + ', ' + rw + '] has |q|^2 ' + sumSq + ', which is not a unit quaternion the wire can carry')
+}
+
 export const PLAYER_TIER_FULL = 0
 export const PLAYER_TIER_REDUCED = 1
 export const REDUCED_POSE_FIELDS = 5
@@ -48,7 +66,7 @@ export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, i
   const b = into || new Uint8Array(BIN_RECORD_BYTES)
   putI32(b, 0, clampI32Pos(px)); putI32(b, 4, clampI32Pos(py)); putI32(b, 8, clampI32Pos(pz))
   putI16(b, 12, clampI16(vx)); putI16(b, 14, clampI16(vy)); putI16(b, 16, clampI16(vz))
-  putI32(b, 18, qrot >>> 0)
+  putI32(b, 18, wireQuatWord(qrot))
   putI16(b, 22, clampU16Scale(sx)); putI16(b, 24, clampU16Scale(sy)); putI16(b, 26, clampU16Scale(sz))
   b[28] = flags & 0xFF
   return b
@@ -60,7 +78,7 @@ export function packPlayerBinRecord(px, py, pz, qrot, vx, vy, vz, into) {
   const b = into || new Uint8Array(PLAYER_BIN_RECORD_BYTES)
   putI32(b, 0, clampI32Pos(px)); putI32(b, 4, clampI32Pos(py)); putI32(b, 8, clampI32Pos(pz))
   putI16(b, 12, clampI16(vx)); putI16(b, 14, clampI16(vy)); putI16(b, 16, clampI16(vz))
-  putI32(b, 18, qrot >>> 0)
+  putI32(b, 18, wireQuatWord(qrot))
   return b
 }
 
@@ -83,6 +101,7 @@ export function unpackBinRecord(buf, out) {
 }
 
 export function packQuat(rx, ry, rz, rw) {
+  wireUnitQuat(rx, ry, rz, rw)
   const arx = Math.abs(rx), ary = Math.abs(ry), arz = Math.abs(rz), arw = Math.abs(rw)
   let maxIdx = 0, maxAbs = arx
   if (ary > maxAbs) { maxIdx = 1; maxAbs = ary }

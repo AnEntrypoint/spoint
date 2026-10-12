@@ -20,13 +20,14 @@ import {
   encodeControlFrame,
   parseControlFrame,
 } from '../src/netcode/controlFrame.js'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const flag = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith('--' + name + '='))
   return hit ? hit.slice(name.length + 3) : dflt
 }
-const SEED = Number(flag('seed', '20261011')) || 20261011
-const CASES = Math.max(1, Number(flag('cases', '400')) || 400)
+const SEED = flagNumber(flag, 'seed', 20261011, process.argv.slice(2)) || 20261011
+const CASES = Math.max(1, flagNumber(flag, 'cases', 400, process.argv.slice(2)) || 400)
 
 function mulberry32(a) {
   return function () {
@@ -54,6 +55,9 @@ const VEL_R = [0, 1, -1, 0.01, -0.01, 327.67, -327.67]
 const POS_R = [0, 1, -1, 0.01, 1e5, -1e5]
 const SCALE_R = [1, 0, 0.01, 655.35, 2.5]
 const QUAT_R = [0, 1, -1, 0.5, -0.5, 2]
+const QROT = [0, 1, 3757571583, 4294967295, 4294967296, -1, 1.5, 1e20, NaN, Infinity, '7']
+const QUAT_UNIT_SUM_SQ_TOL = 2e-4
+const QUAT_WORD_MAX = 4294967295
 const TICK_LIT = ['1', '0', '-1', '1.5', '9007199254740993', '1e-999', '1e999', '-1e999']
 const TICK_INT = [0, 1, -1, 2147483647]
 const COUNT = [0, 1, 2, 3]
@@ -173,6 +177,24 @@ const BOUNDARIES = [
     },
   },
   {
+    id: 'quat-refuses-nonunit',
+    atoms: { a: QUAT, b: QUAT, c: QUAT, d: QUAT },
+    prop: (k) => {
+      const carryable = Number.isFinite(k.a) && Number.isFinite(k.b) && Number.isFinite(k.c) && Number.isFinite(k.d)
+        && Math.abs(k.a * k.a + k.b * k.b + k.c * k.c + k.d * k.d - 1) <= QUAT_UNIT_SUM_SQ_TOL
+      return refuses(() => packQuat(k.a, k.b, k.c, k.d)) === !carryable
+    },
+  },
+  {
+    id: 'pack-refuses-unrepresentable-qrot',
+    atoms: { qrot: QROT },
+    prop: (c) => {
+      const carryable = Number.isInteger(c.qrot) && c.qrot >= 0 && c.qrot <= QUAT_WORD_MAX
+      return refuses(() => packBinRecord(0, 0, 0, c.qrot, 0, 0, 0, 1, 1, 1, 0)) === !carryable
+        && refuses(() => packPlayerBinRecord(0, 0, 0, c.qrot, 0, 0, 0)) === !carryable
+    },
+  },
+  {
     id: 'checksum-digest-stable',
     atoms: { tick: TICK_INT, n: COUNT, jitter: COUNT },
     prop: (c) => {
@@ -211,9 +233,7 @@ const BOUNDARIES = [
   },
 ]
 
-const KNOWN = [
-  { id: 'quat-roundtrip', shrunk: '{"a":"Infinity","b":-0.5,"c":-0.5,"d":-0.5}' },
-]
+const KNOWN = []
 
 const render = (c) => JSON.stringify(c, (_k, v) => {
   if (typeof v === 'number' && !Number.isFinite(v)) return Number.isNaN(v) ? 'NaN' : v > 0 ? 'Infinity' : '-Infinity'

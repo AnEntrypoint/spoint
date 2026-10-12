@@ -65,9 +65,9 @@ function quantizeQuaternionTrack(track, resampledTimes) {
       if (q0x*q1x + q0y*q1y + q0z*q1z + q0w*q1w < 0) { q1x = -q1x; q1y = -q1y; q1z = -q1z; q1w = -q1w }
       rx = q0x + (q1x - q0x) * alpha; ry = q0y + (q1y - q0y) * alpha
       rz = q0z + (q1z - q0z) * alpha; rw = q0w + (q1w - q0w) * alpha
-      const len = Math.sqrt(rx*rx + ry*ry + rz*rz + rw*rw) || 1
-      rx /= len; ry /= len; rz /= len; rw /= len
     }
+    const len = Math.sqrt(rx*rx + ry*ry + rz*rz + rw*rw) || 1
+    rx /= len; ry /= len; rz /= len; rw /= len
     packed[i] = packQuat(rx, ry, rz, rw)
   }
   return packed
