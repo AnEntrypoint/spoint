@@ -4,6 +4,7 @@ export function definePickup(spec = {}, appCtx) {
     throw new TypeError('[pickup] radius must be a non-negative finite number')
   }
   if (typeof spec.onCollect !== 'function') throw new TypeError('[pickup] onCollect(ctx, player, pickup) is required')
+  if (typeof spec.cooldown === 'number' && (!Number.isFinite(spec.cooldown) || spec.cooldown < 0)) throw new TypeError('[pickup] cooldown must be a non-negative finite number of milliseconds')
   const radius = spec.radius ?? 1.5
   const radius2 = radius * radius
   const cooldownMs = spec.cooldown ?? 0
