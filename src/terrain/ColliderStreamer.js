@@ -71,6 +71,9 @@ function ringMoved(centers, curCenters, moveThreshold) {
 const isFiniteNumber = (v) => Number.isFinite(v)
 const isFinitePositive = (v) => Number.isFinite(v) && v > 0
 const isFiniteCount = (v) => Number.isFinite(v) && v >= 1
+const isObject = (v) => v !== null && typeof v === 'object'
+const isFunction = (v) => typeof v === 'function'
+const isNonEmptyString = (v) => typeof v === 'string' && v.length > 0
 
 function admittedNumber(key, raw, fallback, accepted, requirement) {
   if (raw === undefined) return fallback
@@ -78,30 +81,57 @@ function admittedNumber(key, raw, fallback, accepted, requirement) {
   return raw
 }
 
+function describeSpecValue(raw) {
+  if (raw === undefined) return 'nothing'
+  if (raw === null) return 'null'
+  if (typeof raw === 'function') return 'a function'
+  return `${typeof raw} ${JSON.stringify(raw)}`
+}
+
+function admittedRequired(key, raw, accepted, requirement) {
+  if (!accepted(raw)) throw new Error(`collider streamer spec field ${key} must be ${requirement}, got ${describeSpecValue(raw)}`)
+  return raw
+}
+
 function parseStreamerSpec(spec) {
   const cap = admittedNumber('cap', spec.cap, 128, isFinitePositive, 'a finite number > 0')
   const radius = admittedNumber('radius', spec.radius, 64, isFinitePositive, 'a finite number > 0')
+  const intervalMs = admittedNumber('intervalMs', spec.intervalMs, 300, isFiniteNumber, 'a finite number')
+  const rebuildAt = admittedNumber('rebuildAt', spec.rebuildAt, 0.3, isFiniteNumber, 'a finite number')
+  const bodiesPerChunk = admittedNumber('bodiesPerChunk', spec.bodiesPerChunk, 16, isFinitePositive, 'a finite number > 0')
+  const byteBudget = admittedNumber('byteBudget', spec.byteBudget, cap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY, isFinitePositive, 'a finite number > 0')
+  const maxCenters = Math.floor(admittedNumber('maxCenters', spec.maxCenters, DEFAULT_MAX_CENTERS, isFiniteCount, 'a finite number >= 1'))
+  const physics = admittedRequired('physics', spec.physics, isObject, 'the physics object the ring adds its bodies to')
+  const frame = admittedRequired('frame', spec.frame, isObject, 'the planet frame the chunk lattice is built on')
+  const latticeSpec = admittedRequired('latticeSpec', spec.latticeSpec, isObject, 'a placement lattice spec')
+  const idField = admittedRequired('idField', spec.idField, isNonEmptyString, 'a non-empty placement id field name')
+  const placementsFor = admittedRequired('placementsFor', spec.placementsFor, isFunction, 'a function (chunkKey, frame, anchorField, worldSeed)')
+  const bodyArgs = admittedRequired('bodyArgs', spec.bodyArgs, isFunction, 'a function (placement)')
+  const setColliderIds = admittedRequired('setColliderIds', spec.setColliderIds, isFunction, 'a function (ids) that publishes the live collider ids')
+  const getCenters = typeof spec.getCenters === 'function' ? spec.getCenters : null
+  const getCenter = typeof spec.getCenter === 'function' ? spec.getCenter : null
+  if (getCenters === null && getCenter === null) throw new Error('collider streamer spec needs a centre supplier: getCenters or getCenter must be a function, got neither')
   return {
-    physics: spec.physics,
-    frame: spec.frame,
+    physics,
+    frame,
     anchorField: spec.anchorField || null,
     worldSeed: spec.worldSeed | 0,
-    latticeSpec: spec.latticeSpec,
-    idField: spec.idField,
-    placementsFor: spec.placementsFor,
-    bodyArgs: spec.bodyArgs,
-    setColliderIds: spec.setColliderIds,
+    latticeSpec,
+    idField,
+    placementsFor,
+    bodyArgs,
+    setColliderIds,
     excludePlacement: typeof spec.excludePlacement === 'function' ? spec.excludePlacement : null,
-    getCenters: typeof spec.getCenters === 'function' ? spec.getCenters : null,
-    getCenter: typeof spec.getCenter === 'function' ? spec.getCenter : null,
+    getCenters,
+    getCenter,
     logTag: spec.logTag || '[collider]',
     radius,
-    intervalMs: admittedNumber('intervalMs', spec.intervalMs, 300, isFiniteNumber, 'a finite number'),
-    rebuildAt: admittedNumber('rebuildAt', spec.rebuildAt, 0.3, isFiniteNumber, 'a finite number'),
+    intervalMs,
+    rebuildAt,
     cap,
-    bodiesPerChunk: admittedNumber('bodiesPerChunk', spec.bodiesPerChunk, 16, isFinitePositive, 'a finite number > 0'),
-    byteBudget: admittedNumber('byteBudget', spec.byteBudget, cap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY, isFinitePositive, 'a finite number > 0'),
-    maxCenters: Math.floor(admittedNumber('maxCenters', spec.maxCenters, DEFAULT_MAX_CENTERS, isFiniteCount, 'a finite number >= 1')),
+    bodiesPerChunk,
+    byteBudget,
+    maxCenters,
     maxCentersExplicit: spec.maxCenters !== undefined,
     keepRadius: radius * KEEP_RADIUS_HYSTERESIS_FACTOR,
     mergeRadius: radius * 0.75,
@@ -732,18 +762,25 @@ export function createColliderStreamer(spec = {}) {
     if (disposed) return
     _timer = setTimeout(_check, deferredRetry ? 16 : intervalMs)
   }
+  let centreFault = null
+  function recordCentreFault(e) {
+    centreFault = { error: e, resident: live.size, centers: curCenters.length }
+    console.error(`${logTag} FATAL collider centre supplier refused with ${live.size} collider(s) resident for ${curCenters.length} center(s), so the periodic ring poll is halted and no further poll is scheduled until the supplier is well-formed again:`, e)
+  }
   function _check() {
     if (disposed) return
+    let centers = null
     try {
       const raw = getCenters()
-      if (raw.length && !rebuilding) {
-        const centers = pickCenters(raw)
-        if (!curCenters.length || ringMoved(centers, curCenters, radius * rebuildAt)) {
-          _rebuildMulti(centers).then(d => _scheduleNext(!!d)).catch(() => { if (!disposed) console.error(`${logTag} periodic rebuild halted after the fault above; ${rebuildFault.resident} collider(s) still resident for ${rebuildFault.centers} center(s)`) })
-          return
-        }
-      }
-    } catch (_) {}
+      centers = raw.length ? pickCenters(raw) : null
+    } catch (e) {
+      if (centreFault === null) recordCentreFault(e)
+      return
+    }
+    if (centers !== null && !rebuilding && (!curCenters.length || ringMoved(centers, curCenters, radius * rebuildAt))) {
+      _rebuildMulti(centers).then(d => _scheduleNext(!!d)).catch(() => { if (!disposed) console.error(`${logTag} periodic rebuild halted after the fault above; ${rebuildFault.resident} collider(s) still resident for ${rebuildFault.centers} center(s)`) })
+      return
+    }
     _scheduleNext(false)
   }
 
@@ -751,6 +788,7 @@ export function createColliderStreamer(spec = {}) {
     if (disposed) return
     const t0 = _now()
     const raw = getCenters()
+    centreFault = null
     const centers = raw.length ? pickCenters(raw) : [[0, 0]]
     const quota = Math.max(1, Math.ceil((baseCap * centerScale(centers.length)) / centers.length))
     const acc = newAccumulator(centers.length, quota)
@@ -860,6 +898,7 @@ export function createColliderStreamer(spec = {}) {
     get settledSkips() { return settledSkips },
     get settledMisses() { return { ...misses } },
     get fault() { return rebuildFault },
+    get centreFault() { return centreFault },
     get starvedClusters() { return lastStarved },
     get ringBuildMsPerSecond() { const secs = (_now() - ringBuildStartedAt) / 1000; return ringBuildStartedAt && secs > 0 ? ringBuildMsTotal / secs : 0 },
     get chunkCacheSize() { return _chunkCache.size },
