@@ -25,6 +25,65 @@ function reportSampleFailure(e) {
   console.error('[minimap] terrain cell sample failed; unsampled cells draw as background:', e && e.message || e)
 }
 
+// A refresh re-solves the whole BUFFER_CELLS^2 grid. The grid origin used to be the pose, so a
+// refresh triggered by drift re-solved every cell at a slightly different (x,z) and the ground
+// sampler's memo could not recognise any of it as work it had already done. Snapping the origin to
+// a world-aligned multiple of the cell size makes a cell's (x,z) a pure function of its lattice
+// index, which is what lets the next refresh reuse the overlap instead of re-solving it.
+// Rounding (not flooring) keeps the snapped origin within half a cell of the pose; flooring would
+// push it a whole cell away on one side.
+export function minimapGridOrigin(centreM, spanM, cells) {
+  const cellMeters = spanM / cells
+  if (!(cellMeters > 0) || !Number.isFinite(centreM)) return { cellMeters, origin: NaN }
+  return { cellMeters, origin: Math.round((centreM - spanM / 2) / cellMeters) * cellMeters }
+}
+
+// Whole-cell shift of the next grid relative to the previous one, or null when the two do not sit
+// on the same lattice. Destination cell (r, c) reads source cell (r + dRow, c + dCol), so a
+// positive shift means the new grid lies further along the axis than the old one and its first
+// rows/columns are territory the previous refresh never covered. A fractional shift means the
+// lattices disagree and nothing may be reused.
+export function minimapCarryShift(prevLeft, prevTop, nextLeft, nextTop, cellMeters, cells) {
+  if (!(cellMeters > 0) || !Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(nextLeft) || !Number.isFinite(nextTop)) return null
+  const dCol = Math.round((nextLeft - prevLeft) / cellMeters)
+  const dRow = Math.round((nextTop - prevTop) / cellMeters)
+  if (!Number.isFinite(dCol) || !Number.isFinite(dRow)) return null
+  if (Math.abs(dCol) >= cells || Math.abs(dRow) >= cells) return null
+  if (Math.abs((nextLeft - prevLeft) - dCol * cellMeters) > cellMeters * 1e-6) return null
+  if (Math.abs((nextTop - prevTop) - dRow * cellMeters) > cellMeters * 1e-6) return null
+  return { dRow, dCol }
+}
+
+// Scroll-blit the overlapping window of the previous grid onto the next one and mark those cells
+// solved. Iteration runs against the shift on both axes so a destination never overwrites a source
+// it has still to read. This moves bytes, not heights: a carried cell keeps the value the previous
+// refresh solved for that exact (x,z).
+export function minimapCarryGrid(dRow, dCol, cells, heights, land, biome, filled) {
+  let carried = 0
+  if (filled) filled.fill(0)
+  const rowStep = dRow > 0 ? 1 : -1
+  const colStep = dCol > 0 ? 1 : -1
+  const rowFrom = dRow > 0 ? 0 : cells - 1
+  const colFrom = dCol > 0 ? 0 : cells - 1
+  for (let r = rowFrom, rEnd = dRow > 0 ? cells : -1; r !== rEnd; r += rowStep) {
+    const sr = r + dRow
+    if (sr < 0 || sr >= cells) continue
+    for (let c = colFrom, cEnd = dCol > 0 ? cells : -1; c !== cEnd; c += colStep) {
+      const sc = c + dCol
+      if (sc < 0 || sc >= cells) continue
+      const si = sr * cells + sc
+      const di = r * cells + c
+      heights[di] = heights[si]
+      land[di] = land[si]
+      const so = si * 3, dofs = di * 3
+      biome[dofs] = biome[so]; biome[dofs + 1] = biome[so + 1]; biome[dofs + 2] = biome[so + 2]
+      if (filled) filled[di] = 1
+      carried++
+    }
+  }
+  return carried
+}
+
 const CSS = `
 #minimap-hud {
   position: fixed; top: 10px; right: 10px; z-index: 9400;
@@ -73,12 +132,22 @@ function seedOf(sources, terrain) {
   return published.seed
 }
 
+// The grid geometry a minimap-refresh witness has to mirror; exported so the witness measures the
+// numbers the HUD actually uses instead of a copy that can drift.
+export const MINIMAP_GRID = Object.freeze({
+  cells: BUFFER_CELLS,
+  overView: BUFFER_OVER_VIEW,
+  defaultViewSpanM: DEFAULT_VIEW_SPAN_M,
+  driftOverView: REFRESH_DRIFT_OVER_VIEW,
+  cellsPerCheck: TERRAIN_CELLS_PER_CHECK,
+})
+
 export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   ensureStyle('minimap-hud-style', CSS)
   if (!minimapMeta || !minimapMeta.base || !Array.isArray(minimapMeta.center) || !Number.isFinite(minimapMeta.extent) || minimapMeta.extent <= 0) {
     return { update() {}, dispose() {}, setViewSpan() {} }
   }
-  const state = { baked: null, terrain: null, current: null, work: null, version: 0, viewSpan: DEFAULT_VIEW_SPAN_M, stalePlacements: false }
+  const state = { baked: null, terrain: null, current: null, work: null, sampled: null, version: 0, viewSpan: DEFAULT_VIEW_SPAN_M, stalePlacements: false }
   const seenInputs = { vegetation: undefined, rocks: undefined, vegStrokes: -1, rockStrokes: -1 }
 
   const root = document.createElement('div')
@@ -95,11 +164,12 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   const heights = new Float32Array(BUFFER_CELLS * BUFFER_CELLS)
   const land = new Uint8Array(BUFFER_CELLS * BUFFER_CELLS)
   const biome = new Uint8Array(BUFFER_CELLS * BUFFER_CELLS * 3)
+  const filled = new Uint8Array(BUFFER_CELLS * BUFFER_CELLS)
   const relief = { shade: new Float32Array(BUFFER_CELLS * BUFFER_CELLS), cells: BUFFER_CELLS, cellMeters: 1 }
   const cellRgb = [0, 0, 0, 0]
   const scanner = createPlacementScanner()
   const footprints = createModelFootprints()
-  const stats = { lastUpdateMs: 0, refreshes: 0, glyphChunks: 0 }
+  const stats = { lastUpdateMs: 0, refreshes: 0, glyphChunks: 0, cellsSampled: 0, cellsCarried: 0, refreshesWithCarry: 0 }
   const liveSources = { vegetation: null, rocks: null, entityMeshes: null }
   let pxPerMeter = canvas.width / state.viewSpan
 
@@ -122,36 +192,58 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   function paintGlyphChunk(packed) {
     const w = state.work
     const layer = w.progressive ? front : back
-    paintChunkGlyphs(layer.overlayCtx, packed, w.cx - w.span / 2, w.cz - w.span / 2, pxPerMeter, dpr, relief)
+    paintChunkGlyphs(layer.overlayCtx, packed, w.left, w.top, pxPerMeter, dpr, relief)
     stats.glyphChunks++
+  }
+
+  function carryPreviousGrid(w) {
+    // __minimapNoCarry is a witness hook: set it before boot and every refresh re-solves the whole
+    // grid, which is the pre-dedup behaviour the minimap-refresh witness measures against.
+    if (typeof window !== 'undefined' && window.__minimapNoCarry === true) { filled.fill(0); return 0 }
+    const prev = state.sampled
+    if (!prev || prev.frame !== w.frame || prev.epoch !== w.epoch || prev.cellMeters !== w.cellMeters) { filled.fill(0); return 0 }
+    const shift = minimapCarryShift(prev.left, prev.top, w.left, w.top, w.cellMeters, BUFFER_CELLS)
+    if (!shift) { filled.fill(0); return 0 }
+    return minimapCarryGrid(shift.dRow, shift.dCol, BUFFER_CELLS, heights, land, biome, filled)
   }
 
   function beginRefresh(pose, terrain, sources) {
     const span = bufferSpan()
+    const frame = terrain.frame
+    const cellMeters = span / BUFFER_CELLS
+    const snapX = minimapGridOrigin(pose.x, span, BUFFER_CELLS)
+    const snapZ = minimapGridOrigin(pose.z, span, BUFFER_CELLS)
     const w = {
       cx: pose.x, cz: pose.z, span, row: 0, col: 0, phase: 0, rowGuess: NaN,
-      frame: terrain.frame, anchorField: terrain.sampler && terrain.sampler.anchorField,
+      left: snapX.origin, top: snapZ.origin, cellMeters,
+      frame, epoch: frame ? frame.chartEpoch : 0,
+      anchorField: terrain.sampler && terrain.sampler.anchorField,
       progressive: !state.current || state.current.span !== span,
       seed: seedOf(sources, terrain),
     }
+    w.carried = carryPreviousGrid(w)
+    if (w.carried > 0) { stats.cellsCarried += w.carried; stats.refreshesWithCarry++ }
     w.placementArmed = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
     state.work = w
   }
 
   function swapLayers(w) {
     const t = front; front = back; back = t
-    front.cx = w.cx; front.cz = w.cz
-    state.current = { cx: w.cx, cz: w.cz, span: w.span }
+    front.cx = w.left + w.span / 2; front.cz = w.top + w.span / 2
+    state.current = { cx: front.cx, cz: front.cz, span: w.span }
   }
 
   function advanceTerrain(w, deadline) {
-    const cellMeters = w.span / BUFFER_CELLS
-    const left = w.cx - w.span / 2, top = w.cz - w.span / 2
+    const cellMeters = w.cellMeters
+    const left = w.left, top = w.top
     while (w.row < BUFFER_CELLS && performance.now() < deadline) {
       const z = top + (w.row + 0.5) * cellMeters
       const end = Math.min(BUFFER_CELLS, w.col + TERRAIN_CELLS_PER_CHECK)
       for (let i = w.col; i < end; i++) {
         const idx = w.row * BUFFER_CELLS + i
+        // A carried cell the previous refresh could not sample stays unsampled: it is re-asked here
+        // rather than inheriting a NaN it might not deserve a second time.
+        if (filled[idx] && Number.isFinite(heights[idx])) { w.rowGuess = heights[idx]; continue }
         try {
           heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb, w.rowGuess)
         } catch (e) {
@@ -160,6 +252,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
           cellRgb[0] = UNSAMPLED_RGB[0]; cellRgb[1] = UNSAMPLED_RGB[1]; cellRgb[2] = UNSAMPLED_RGB[2]; cellRgb[3] = 0
           cellRgb[4] = NaN
         }
+        stats.cellsSampled++
         w.rowGuess = Number.isFinite(heights[idx]) && Number.isFinite(cellRgb[4]) ? cellRgb[4] : NaN
         land[idx] = cellRgb[3]
         biome[idx * 3] = cellRgb[0]; biome[idx * 3 + 1] = cellRgb[1]; biome[idx * 3 + 2] = cellRgb[2]
@@ -183,7 +276,12 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   function advanceRefresh() {
     const w = state.work
     const deadline = performance.now() + SLICE_MS
-    if (w.phase === 0) { if (advanceTerrain(w, deadline)) w.phase = 1; return }
+    if (w.phase === 0) {
+      if (!advanceTerrain(w, deadline)) return
+      w.phase = 1
+      state.sampled = { left: w.left, top: w.top, cellMeters: w.cellMeters, epoch: w.epoch, frame: w.frame }
+      return
+    }
     if (w.phase === 1) { finishTerrain(w); w.phase = 2; return }
     if (!w.placementArmed) { state.work = null; return }
     const done = scanner.step(deadline, paintGlyphChunk)
@@ -226,7 +324,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
     if (!pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.z)) return
     const terrain = getTerrain && getTerrain()
     const frame = terrain && terrain.frame
-    if (terrain !== state.terrain) { state.terrain = terrain; state.current = null; state.work = null }
+    if (terrain !== state.terrain) { state.terrain = terrain; state.current = null; state.work = null; state.sampled = null }
     const sources = readWorldSources(liveSources)
     if (placementInputsChanged(sources, seenInputs)) { state.stalePlacements = true; state.work = null }
     const refreshDrift = state.viewSpan * REFRESH_DRIFT_OVER_VIEW

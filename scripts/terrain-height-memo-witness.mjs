@@ -32,6 +32,8 @@ const MIN_FRAMES = 600
 const MIN_MOVED_M = 5
 const MIN_CALLS_PER_FRAME = 0.5
 const MAX_MODULE_IDENTITY_FAILURES = 0
+const SITE_STRIDE = 8
+const MAX_SITES = 200
 
 const failures = []
 const measurements = []
@@ -109,32 +111,51 @@ async function resolveKnobSpec(spec) {
   return knobs
 }
 
+// The instrument is installed through registerGroundSource under the source name already in force.
+// Assigning frame.groundHeightLocal directly looks equivalent and is not: the setter names an
+// unnamed install 'substituted', and PlacementChart.surfaceAlongDir branches on
+// groundSource === 'cpu-solve' to take ONE elevationAtDir call instead of the 16-iteration ground
+// loop. A direct assignment therefore flips every placement solve onto the expensive path and the
+// witness measures traffic it manufactured itself (measured: 74% of the asks, and a sampler cost
+// 5-60x the real one). `transparent` is the guard that keeps it from coming back.
 function armCounters() {
   const t = window.__terrain
   if (!t || !t.frame) return { error: 'no window.__terrain.frame' }
   const f = t.frame
   const orig = f.groundHeightLocal
   if (typeof orig !== 'function') return { error: 'frame.groundHeightLocal is not a function' }
+  if (typeof f.registerGroundSource !== 'function') return { error: 'frame exposes no registerGroundSource' }
+  const srcAtArm = f.groundSource
   const st = { calls: 0, ms: 0, t0: 0, frames0: window.__frames || 0, idealHits: 0, sites: {}, siteSamples: 0 }
   const seenKeys = new Set()
+  st.seenKeys = seenKeys
   window.__memoStats = st
-  f.groundHeightLocal = function (...a) {
+  const installed = f.registerGroundSource(srcAtArm, function (...a) {
     st.calls++
     const at = performance.now()
-    try { return orig.apply(this, a) } finally {
-      st.ms += performance.now() - at
+    let h = NaN, err = null
+    try { h = orig.apply(this, a) } catch (e) { err = e }
+    st.ms += performance.now() - at
+    if (!err) {
       const k = a[0] + ':' + a[1]
       if (seenKeys.has(k)) st.idealHits++
       else seenKeys.add(k)
-      if (st.siteSamples < 400) {
+      // Sampled across the whole measured walk, not just its first moments: a cap on the sample
+      // count fills the bucket map during warmup and reports the warmup's caller mix as the
+      // steady-state one.
+      if ((st.calls % SITE_STRIDE) === 0) {
         st.siteSamples++
-        const site = String((new Error().stack || '').split('\n').slice(2, 5).join(' <- ')).replace(/https?:\/\/[^/]+\//g, '/')
+        const site = String((new Error().stack || '').split(String.fromCharCode(10)).slice(2, 5).join(' <- ')).replace(/https?:\/\/[^/]+\//g, '/')
+        if (!(site in st.sites) && Object.keys(st.sites).length >= MAX_SITES) site = '<folded>'
         st.sites[site] = (st.sites[site] || 0) + 1
       }
     }
-  }
+    if (err) throw err
+    return h
+  })
+  const transparent = f.groundSource === srcAtArm && typeof f.groundHeightLocal === 'function'
   st.t0 = performance.now()
-  return { ok: true, groundSourceAtArm: f.groundSource }
+  return { ok: true, groundSourceAtArm: srcAtArm, installed, transparent }
 }
 
 async function armModule() {
@@ -239,6 +260,8 @@ async function main() {
     const armed = await page.evaluate(armCounters)
     console.log('[terrain-memo] armed: ' + JSON.stringify(armed))
     if (!armed || !armed.ok) throw new Error('arm failed: ' + JSON.stringify(armed))
+    expect('instrumentTransparent', armed.transparent, (v) => v === true)
+    expect('groundSourceAtArm', armed.groundSourceAtArm, (v) => typeof v === 'string' && v.length > 0)
     const moduleArm = await page.evaluate(armModule)
     console.log('[terrain-memo] module: ' + JSON.stringify(moduleArm))
     if (!moduleArm || !moduleArm.ok) throw new Error('module arm failed: ' + JSON.stringify(moduleArm))
@@ -259,7 +282,21 @@ async function main() {
     await page.keyboard.down('KeyW').catch(() => {})
     await new Promise((r) => setTimeout(r, WARMUP_MS))
 
-    await page.evaluate(() => { window.__memoStats.frames0 = window.__frames || 0; window.__memoStats.calls = 0; window.__memoStats.ms = 0; window.__memoStats.t0 = performance.now(); return true })
+    // Everything the report divides by calls has to restart with it: leaving idealHits or the
+    // bucket map counting across the boundary reports the warmup's dedup headroom and caller mix
+    // against the measured walk's call count.
+    await page.evaluate(() => {
+      const st = window.__memoStats
+      st.frames0 = window.__frames || 0
+      st.calls = 0
+      st.ms = 0
+      st.idealHits = 0
+      st.siteSamples = 0
+      st.sites = {}
+      if (st.seenKeys) st.seenKeys.clear()
+      st.t0 = performance.now()
+      return true
+    })
     const modReset = await page.evaluate(async () => {
       const mod = await import('/src/terrain/PlanetFrame.js')
       mod.resetGroundMemoStats()
