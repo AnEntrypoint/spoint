@@ -4,6 +4,9 @@ const QSCALE = 511 * Math.SQRT2
 export const BIN_RECORD_BYTES = 29
 export const POS_I32_MAX = 2147483647 / WIRE_UNITS_PER_METER
 export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
+const POS_UNITS_MIN = Math.round(-POS_I32_MAX * WIRE_UNITS_PER_METER)
+const POS_UNITS_MAX = Math.round(POS_I32_MAX * WIRE_UNITS_PER_METER)
+const SCALE_UNITS_MAX = Math.round(SCALE_U16_MAX * WIRE_UNITS_PER_METER)
 
 function wireUnits(field, v, minUnits, maxUnits) {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new RangeError('[snapshot-bin] ' + field + ' is ' + String(v) + ', which is not a finite number the wire can carry')
@@ -12,8 +15,8 @@ function wireUnits(field, v, minUnits, maxUnits) {
   return units
 }
 export function clampI16(v) { return wireUnits('velocity', v, -32767, 32767) }
-export function clampI32Pos(v) { return wireUnits('position', v, -2147483647, 2147483647) }
-export function clampU16Scale(v) { return wireUnits('scale', v, 0, 65535) }
+export function clampI32Pos(v) { return wireUnits('position', v, POS_UNITS_MIN, POS_UNITS_MAX) }
+export function clampU16Scale(v) { return wireUnits('scale', v, 0, SCALE_UNITS_MAX) }
 
 const QUAT_WORD_MAX = 4294967295
 const QUAT_SUM_SQ_TOL = 2e-4

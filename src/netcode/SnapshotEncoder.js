@@ -1,6 +1,6 @@
 import { getComponentSchema, encodeCustomFields, decodeCustomFields } from '../protocol/ComponentSchema.js'
 import {
-  BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI32Pos, clampU16Scale,
+  BIN_RECORD_BYTES,
   packBinRecord, unpackBinRecord, packQuat, unpackQuat,
   PLAYER_BIN_RECORD_BYTES, packPlayerBinRecord, unpackPlayerBinRecord,
   PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, packReducedPlayerPose

@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs'
 import {
   BIN_RECORD_BYTES,
   PLAYER_BIN_RECORD_BYTES,
+  POS_I32_MAX,
+  SCALE_U16_MAX,
   clampI16,
   clampI32Pos,
   clampU16Scale,
@@ -20,13 +23,14 @@ import {
   encodeControlFrame,
   parseControlFrame,
 } from '../src/netcode/controlFrame.js'
+import { flagNumber } from './lib/witness-args.mjs'
 
 const flag = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith('--' + name + '='))
   return hit ? hit.slice(name.length + 3) : dflt
 }
-const SEED = Number(flag('seed', '20261011')) || 20261011
-const CASES = Math.max(1, Number(flag('cases', '400')) || 400)
+const SEED = flagNumber(flag, 'seed', 20261011, process.argv.slice(2))
+const CASES = Math.max(1, flagNumber(flag, 'cases', 400, process.argv.slice(2)))
 
 function mulberry32(a) {
   return function () {
@@ -59,6 +63,10 @@ const QUAT_UNIT_SUM_SQ_TOL = 2e-4
 const QUAT_WORD_MAX = 4294967295
 const TICK_LIT = ['1', '0', '-1', '1.5', '9007199254740993', '1e-999', '1e999', '-1e999']
 const TICK_INT = [0, 1, -1, 2147483647]
+const I32_UNITS_MAX = 2147483647
+const U16_UNITS_MAX = 65535
+const POS_BOUND = [POS_I32_MAX, -POS_I32_MAX, POS_I32_MAX + 0.01, -POS_I32_MAX - 0.01]
+const SCALE_BOUND = [SCALE_U16_MAX, SCALE_U16_MAX + 0.01, -0.01]
 const COUNT = [0, 1, 2, 3]
 const PREFIX_IDX = [0, 1, 2]
 const KIND_IDX = [0, 1]
@@ -228,6 +236,35 @@ const BOUNDARIES = [
       const data = CONSENSUS_CTRL_PREFIX + '{"type":"checksum","tick":' + c.tickLit + ',"pubkey":"p","checksum":"c"}'
       const parsed = parseControlFrame(CONSENSUS_CTRL_PREFIX, data)
       return parsed.status !== 'accepted' || Number.isFinite(parsed.frame.tick)
+    },
+  },
+  {
+    id: 'exported-bound-is-the-clamp-boundary',
+    atoms: { v: POS_BOUND, s: SCALE_BOUND },
+    prop: (c) => {
+      if (unitsOf(POS_I32_MAX) !== I32_UNITS_MAX) return false
+      if (unitsOf(SCALE_U16_MAX) !== U16_UNITS_MAX) return false
+      if (clampI32Pos(POS_I32_MAX) !== I32_UNITS_MAX) return false
+      if (clampI32Pos(-POS_I32_MAX) !== -I32_UNITS_MAX) return false
+      if (clampU16Scale(SCALE_U16_MAX) !== U16_UNITS_MAX) return false
+      if (!refuses(() => clampI32Pos(POS_I32_MAX + 0.01))) return false
+      if (!refuses(() => clampI32Pos(-POS_I32_MAX - 0.01))) return false
+      if (!refuses(() => clampU16Scale(SCALE_U16_MAX + 0.01))) return false
+      if (!refuses(() => clampU16Scale(-0.01))) return false
+      const posCarryable = representable(c.v, -I32_UNITS_MAX, I32_UNITS_MAX)
+      const scaleCarryable = representable(c.s, 0, U16_UNITS_MAX)
+      return refuses(() => clampI32Pos(c.v)) === !posCarryable && refuses(() => clampU16Scale(c.s)) === !scaleCarryable
+    },
+  },
+  {
+    id: 'clamp-bound-has-one-owner',
+    atoms: { which: [0] },
+    prop: () => {
+      const lines = readFileSync(new URL('../src/netcode/SnapshotBinFormat.js', import.meta.url), 'utf8').split('\n')
+      const pos = lines.find((l) => l.includes('function clampI32Pos'))
+      const scale = lines.find((l) => l.includes('function clampU16Scale'))
+      if (!pos || !scale) return false
+      return !/2147483647/.test(pos) && !/65535/.test(scale)
     },
   },
 ]
