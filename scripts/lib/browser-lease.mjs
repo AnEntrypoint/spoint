@@ -7,8 +7,10 @@ const HEARTBEAT_MS = 2000
 const DEFAULT_TTL_MS = 120000
 const DEFAULT_WAIT_MS = 600000
 const POLL_MS = 500
+const PROFILE_NAME = 'profile'
+const DEFAULT_SESSION = 'session'
 
-const held = new Set()
+const held = new Map()
 
 function nowMs() {
   return Date.now()
@@ -37,6 +39,24 @@ function killTree(pid) {
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
+function reapProfileOwners(profile) {
+  if (process.platform === 'win32') {
+    const marker = profile.replace(/'/g, "''")
+    const script =
+      `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
+      `Where-Object { $_.CommandLine -like '*${marker}*' -and $_.CommandLine -notlike '*--type=*' } | ` +
+      `ForEach-Object { $_.ProcessId }`
+    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
+    if (r.status !== 0) return
+    for (const line of String(r.stdout || '').split('\n')) {
+      const pid = Number(line.trim())
+      if (Number.isInteger(pid) && pid > 0) killTree(pid)
+    }
+    return
+  }
+  spawnSync('pkill', ['-f', `--user-data-dir=${profile}`], { stdio: 'ignore' })
+}
+
 export function sessionFingerprint({ args = [], headless = false } = {}) {
   return crypto.createHash('sha1')
     .update(JSON.stringify({ headless: headless === true, args: [...args].map(String).sort() }))
@@ -45,11 +65,15 @@ export function sessionFingerprint({ args = [], headless = false } = {}) {
 }
 
 export function sessionDir(root) {
-  return path.join(path.resolve(root), '.gm', 'browser-lease', 'session')
+  return path.join(path.resolve(root), '.gm', 'browser-lease', DEFAULT_SESSION)
 }
 
 function ownerFile(dir) {
   return path.join(dir, 'owner.json')
+}
+
+function profileDir(dir) {
+  return path.join(dir, PROFILE_NAME)
 }
 
 function readOwner(dir) {
@@ -67,38 +91,46 @@ function writeOwner(dir, record) {
   fs.renameSync(tmp, file)
 }
 
-function holderIsLive(record, ttlMs) {
+function holderIsLive(record, dir, ttlMs) {
   if (!record) return false
-  if (record.pid === process.pid && !held.has(record.dir)) return false
+  if (record.pid === process.pid) return held.has(dir)
   if (!pidAlive(record.pid)) return false
   const age = nowMs() - Number(record.heartbeatAt ?? 0)
   return Number.isFinite(age) && age < ttlMs
 }
 
 function claim(dir, owner, fingerprint, ttlMs) {
-  fs.mkdirSync(path.dirname(dir), { recursive: true })
+  fs.mkdirSync(dir, { recursive: true })
+  const lock = ownerFile(dir)
+  let fd
   try {
-    fs.mkdirSync(dir)
+    fd = fs.openSync(lock, 'wx')
   } catch (e) {
     if (e.code !== 'EEXIST') throw e
     const record = readOwner(dir)
-    if (holderIsLive(record, ttlMs)) return null
+    if (holderIsLive(record, dir, ttlMs)) return false
     killTree(Number(record?.pid ?? 0))
     killTree(Number(record?.browserPid ?? 0))
-    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+    reapProfileOwners(profileDir(dir))
+    try { fs.unlinkSync(lock) } catch {}
     try {
-      fs.mkdirSync(dir)
+      fd = fs.openSync(lock, 'wx')
     } catch {
-      return null
+      return false
     }
   }
-  held.add(dir)
-  writeOwner(dir, { owner, fingerprint, pid: process.pid, startedAt: nowMs(), heartbeatAt: nowMs(), ttlMs })
+  try {
+    fs.writeSync(fd, `${JSON.stringify({ owner, fingerprint, pid: process.pid, startedAt: nowMs(), heartbeatAt: nowMs(), ttlMs })}\n`)
+  } finally {
+    fs.closeSync(fd)
+  }
+  held.set(dir, { owner, ttlMs })
   return true
 }
 
-function startHeartbeat(dir, owner, ttlMs) {
+function startHeartbeat(dir) {
   const timer = setInterval(() => {
+    if (!held.has(dir)) return
     const record = readOwner(dir)
     if (!record || record.pid !== process.pid) return
     try {
@@ -109,7 +141,7 @@ function startHeartbeat(dir, owner, ttlMs) {
   return timer
 }
 
-export async function acquire({ root = process.cwd(), owner = `browser-${process.pid}`, fingerprint, waitMs = DEFAULT_WAIT_MS, ttlMs = DEFAULT_TTL_MS } = {}) {
+export async function acquire({ root = process.cwd(), owner = `browser-${process.pid}`, fingerprint = DEFAULT_SESSION, waitMs = DEFAULT_WAIT_MS, ttlMs = DEFAULT_TTL_MS } = {}) {
   const dir = sessionDir(root)
   const deadline = nowMs() + waitMs
   for (;;) {
@@ -117,26 +149,35 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     const record = readOwner(dir)
     if (nowMs() >= deadline) {
       throw new Error(
-        `browser-lease: ${owner} waited ${waitMs}ms for the accelerated browser session of ${path.resolve(root)} held by ` +
-        `${record?.owner ?? 'an unreadable holder'} pid ${record?.pid ?? '?'} fingerprint ${record?.fingerprint ?? '?'} since ${new Date(Number(record?.startedAt ?? nowMs())).toISOString()}, so no browser was launched`,
+        `browser-lease: ${owner} waited ${waitMs}ms for the accelerated browser session of ${path.resolve(root)} ` +
+        `held by ${record?.owner ?? 'an unreadable holder'} pid ${record?.pid ?? '?'} ` +
+        `fingerprint ${record?.fingerprint ?? '?'} ` +
+        `since ${new Date(Number(record?.startedAt ?? nowMs())).toISOString()}, so no browser was launched`,
       )
     }
     await sleep(POLL_MS)
   }
-  const timer = startHeartbeat(dir, owner, ttlMs)
+  const timer = startHeartbeat(dir)
   const release = () => {
     if (!held.delete(dir)) return
     clearInterval(timer)
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
-      try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      killTree(Number(record.browserPid ?? 0))
+      reapProfileOwners(profileDir(dir))
+      try { fs.unlinkSync(ownerFile(dir)) } catch {}
+      try { fs.rmSync(profileDir(dir), { recursive: true, force: true }) } catch {}
     }
   }
   process.once('exit', release)
   return {
     dir,
     owner,
-    record(record_) { writeOwner(dir, { ...readOwner(dir), ...record_, pid: process.pid, heartbeatAt: nowMs() }) },
+    profileDir: profileDir(dir),
+    record(extra) {
+      const current = readOwner(dir)
+      if (current && current.pid === process.pid) writeOwner(dir, { ...current, ...extra, heartbeatAt: nowMs() })
+    },
     release,
   }
 }
@@ -152,6 +193,6 @@ export function status({ root = process.cwd() } = {}) {
     pid: record.pid,
     browserPid: record.browserPid ?? null,
     heartbeatAgeMs: nowMs() - Number(record.heartbeatAt ?? 0),
-    live: holderIsLive({ ...record, dir }, Number(record.ttlMs ?? DEFAULT_TTL_MS)),
+    live: holderIsLive(record, dir, Number(record.ttlMs ?? DEFAULT_TTL_MS)),
   }
 }
