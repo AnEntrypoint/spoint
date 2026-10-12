@@ -113,6 +113,31 @@ const dSdv = (u, v) => dSdu(v, u)
 const spanU = (ox, oy, l) => { let s = 0; const n = 16, h = l / n, v = oy + l * 0.5; for (let i = 0; i < n; i++) s += dSdu(ox + (i + 0.5) * h, v) * h; return s }
 const spanV = (ox, oy, l) => { let s = 0; const n = 16, h = l / n, u = ox + l * 0.5; for (let i = 0; i < n; i++) s += dSdv(u, oy + (i + 0.5) * h) * h; return s }
 
+// The same span, measured by a route that never reads dSdu/dSdv: project the face-local (u,v) to a
+// real 3D direction through FACE_FRAME and sum chords on the sphere of radius R. The two agreeing
+// is what makes the spacing an absolute number in metres rather than a scale the metric chose.
+function faceDirAt(face, u, v) {
+  const F = FACE_FRAME[face]
+  const wu = R * Math.tan((u / R) * QUARTER_PI)
+  const wv = R * Math.tan((v / R) * QUARTER_PI)
+  const x = F.u[0] * wu + F.v[0] * wv + F.c[0] * R
+  const y = F.u[1] * wu + F.v[1] * wv + F.c[1] * R
+  const z = F.u[2] * wu + F.v[2] * wv + F.c[2] * R
+  const n = Math.hypot(x, y, z) || 1
+  return [x / n, y / n, z / n]
+}
+function spanChord(face, ox, oy, l, alongU) {
+  const n = 64, h = l / n
+  const uMid = ox + l * 0.5, vMid = oy + l * 0.5
+  let s = 0, prev = null
+  for (let i = 0; i <= n; i++) {
+    const p = alongU ? faceDirAt(face, ox + i * h, vMid) : faceDirAt(face, uMid, oy + i * h)
+    if (prev) s += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2])
+    prev = p
+  }
+  return s * R
+}
+
 function leavesFor(maxLevel, splitFactor) {
   const qt = new Quadtree(R)
   qt.computeSplitDist(splitFactor * LOD_STEP, VIEW_H, FOVY)
@@ -136,7 +161,12 @@ function leavesFor(maxLevel, splitFactor) {
 function spacingOf(leaf) {
   const su = spanU(leaf.ox, leaf.oy, leaf.l) / GRID
   const sv = spanV(leaf.ox, leaf.oy, leaf.l) / GRID
-  return { uM: +su.toFixed(4), vM: +sv.toFixed(4), meanM: +((su + sv) * 0.5).toFixed(4), maxM: +Math.max(su, sv).toFixed(4) }
+  const cu = spanChord(leaf.face, leaf.ox, leaf.oy, leaf.l, true) / GRID
+  const cv = spanChord(leaf.face, leaf.ox, leaf.oy, leaf.l, false) / GRID
+  return {
+    uM: +su.toFixed(4), vM: +sv.toFixed(4), meanM: +((su + sv) * 0.5).toFixed(4), maxM: +Math.max(su, sv).toFixed(4),
+    spanCrossCheckRelErr: +Math.max(Math.abs(su - cu) / su, Math.abs(sv - cv) / sv).toFixed(6),
+  }
 }
 
 const rows = []
@@ -151,6 +181,7 @@ for (const L of LEVELS) {
     leafAtCameraM: +r.nearest.l.toFixed(3),
     levelAtCamera: r.nearest.level,
     nearSpacingUm: sp.uM, nearSpacingVm: sp.vM, nearSpacingMeanM: sp.meanM, nearSpacingMaxM: sp.maxM,
+    spanCrossCheckRelErr: sp.spanCrossCheckRelErr,
     finestLeafM: +(2 * R / Math.pow(2, deepest)).toFixed(3),
     deepestLevel: deepest,
     leafCount: r.all.length,
@@ -262,9 +293,36 @@ mkdirSync(OUT_DIR, { recursive: true })
 writeFileSync(resolve(OUT_DIR, LABEL + '.json'), JSON.stringify(out, null, 1))
 console.log('[nearfield-lattice] wrote ' + resolve(OUT_DIR, LABEL + '.json'))
 console.log('[nearfield-lattice] RESULT ' + JSON.stringify(verdict))
-const okRows = rows.filter((r) => !r.error)
-const pinned = okRows.filter((r) => !(r.nearSpacingMaxM > collM))
-console.log(`[nearfield-lattice] first level at or finer than the ${collM}m collider lattice: L${pinned.length ? Math.min(...pinned.map((r) => r.maxLevel)) : 'none in range'}`)
-console.log('[nearfield-lattice] near-band spacing range across all tiers: ' +
-  (okRows.length ? `${Math.min(...okRows.map((r) => r.nearSpacingMeanM))} .. ${Math.max(...okRows.map((r) => r.nearSpacingMeanM))} m` : 'n/a'))
-process.exit(0)
+
+// ---- the decision ------------------------------------------------------------------------------
+// The table above is a measurement, not a verdict. What makes "the near band is 1.2775 m against a
+// 1.00 m collider" a fact rather than a printout is that two INDEPENDENT computations agree on it:
+// the closed-form cube-sphere metric the spacing is derived from, and a chord sum over real 3D face
+// positions that never reads that metric. Level structure is pinned the same way -- a quadtree leaf
+// halves per level, so the spacing ladder must halve with it. A gate on the table alone cannot
+// fail, so the run decides on those cross-checks and nothing else.
+const checks = []
+const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); if (!ok) console.log(`FAIL: ${name} ${detail}`) }
+
+check('levelsMeasured', rows.length === LEVELS.length && rows.every((r) => !r.error && Number.isFinite(r.nearSpacingMeanM) && r.nearSpacingMeanM > 0 && Number.isFinite(r.nearSpacingMaxM) && r.nearSpacingMaxM > 0 && r.leafCount > 0), `rows=${rows.length} of ${LEVELS.length}, errors=${rows.filter((r) => r.error).length}`)
+check('cameraLeafIsTheFinestLeaf', rows.every((r) => !r.error && r.levelAtCamera === r.deepestLevel && Math.abs(r.leafAtCameraM - r.finestLeafM) <= 0.01), JSON.stringify(rows.map((r) => [r.maxLevel, r.levelAtCamera, r.deepestLevel, r.leafAtCameraM, r.finestLeafM])))
+const descending = rows.filter((r) => !r.error).sort((a, b) => b.maxLevel - a.maxLevel)
+let halvingWorst = 0
+for (let i = 1; i < descending.length; i++) {
+  const hi = descending[i - 1], lo = descending[i]
+  const want = Math.pow(2, hi.maxLevel - lo.maxLevel)
+  halvingWorst = Math.max(halvingWorst, Math.abs((lo.nearSpacingMeanM / hi.nearSpacingMeanM) / want - 1))
+}
+check('spacingHalvesPerLevel', descending.length > 1 && halvingWorst <= 0.01, `worst |ratio / 2^dl - 1| = ${halvingWorst}`)
+let chordWorst = 0
+for (const r of rows) if (!r.error) chordWorst = Math.max(chordWorst, Number.isFinite(r.spanCrossCheckRelErr) ? r.spanCrossCheckRelErr : 1)
+check('spanCrossCheckedAgainstSphereChord', rows.every((r) => r.error || Number.isFinite(r.spanCrossCheckRelErr)) && chordWorst <= 2e-3, `worst relative gap between the metric integral and the sphere chord sum = ${chordWorst}`)
+check('colliderSpacingFromDecodedBake', collider.source === 'mapspinner/heightfield-codec.js:decodeHeightfield' && Number.isFinite(collM) && collM > 0, `source=${collider.source} collM=${collM}`)
+check('verdictTableComplete', verdict.length === rows.length && verdict.every((v) => !v.error && Number.isFinite(v.renderedVsCollider) && Number.isFinite(v.renderedVsGrass)) && Number.isFinite(grassM) && grassM > 0, `verdict=${verdict.length} rows=${rows.length} grassM=${grassM}`)
+
+const failed = checks.filter((c) => !c.ok)
+console.log(`[nearfield-lattice] decision halvingWorst=${halvingWorst} chordWorst=${chordWorst} collM=${collM} grassM=${grassM} levels=${rows.length}`)
+console.log(`[nearfield-lattice] checks ${checks.length - failed.length} passed, ${failed.length} failed`)
+if (failed.length) console.log(`RESULT: FAIL (${failed.length} of ${checks.length} check(s))`)
+else console.log('RESULT: PASS')
+process.exitCode = failed.length ? 1 : 0
