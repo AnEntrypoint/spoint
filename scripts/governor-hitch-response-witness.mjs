@@ -4,9 +4,20 @@ import {
   RESOLUTION_KEYS, MAX_TIER, HITCH_ABOVE_MS, HITCH_STEP_INTERVAL_MS, HITCH_RESPONSE_BOUND_FRAMES,
 } from '../client/core/QualityGovernor.js'
 import { RenderControls } from '../client/core/RenderControls.js'
+import { numericFlag, parseArgs } from './lib/witness-args.mjs'
 
 const LABEL = 'governor-hitch-response-witness'
 const LF = String.fromCharCode(10)
+
+const args = parseArgs(process.argv.slice(2))
+const BASELINE_MS = numericFlag(args, 'baselineMs', 8)
+const SETTLE_FRAMES = numericFlag(args, 'settleFrames', 210)
+const SETTLE_AFTER_FRAMES = numericFlag(args, 'settleAfterFrames', 600)
+const SPIKE_MS = numericFlag(args, 'spikeMs', 40)
+const HITCH_MS = numericFlag(args, 'hitchMs', 100)
+const SUSTAIN_FRAMES = numericFlag(args, 'sustainFrames', 400)
+const BURST_CAP = numericFlag(args, 'burstCap', 80)
+const TRAIN_WINDOWS = numericFlag(args, 'trainWindows', 60)
 
 function finish(verdict, detail) {
   console.log(`RESULT: ${verdict} label=${LABEL} -- ${String(detail).split(LF).join(' ')}`)
@@ -31,10 +42,6 @@ function expect(label, got, op, want) {
 const jsonLine = (o) => JSON.stringify(o)
 
 const TIER_KEYS = new Set(['maxLevel', 'splitFactor', 'vegLeafOff', 'ssao', 'bloom', 'ssr'])
-const BASELINE_MS = 8
-const SETTLE_FRAMES = 210
-const SPIKE_MS = 40
-const HITCH_MS = 100
 const resolutionWrites = []
 
 function harness(opts = {}) {
@@ -116,7 +123,7 @@ function responseArm() {
     const from = h.writes.length
     const ms0 = h.now()
     const f0 = h.frame()
-    h.feed(spikeMs, 400)
+    h.feed(spikeMs, SUSTAIN_FRAMES)
     const first = h.pending(from)[0]
     sustained[spikeMs] = first ? { frames: first.frame - f0, ms: +(first.ms - ms0).toFixed(1) } : null
   }
@@ -127,7 +134,7 @@ function responseArm() {
     const from = h.writes.length
     const f0 = h.frame()
     h.feed(hitchMs, 1)
-    h.feed(BASELINE_MS, 600)
+    h.feed(BASELINE_MS, SETTLE_AFTER_FRAMES)
     const first = h.pending(from)[0]
     return { steps: h.pending(from).length, frames: first ? first.frame - f0 : null }
   }
@@ -144,9 +151,9 @@ function responseArm() {
     return h.pending(from).length > 0
   }
   let minBurstFrames = null
-  for (let k = 1; k <= 80 && minBurstFrames === null; k++) if (burstTrips(k)) minBurstFrames = k
+  for (let k = 1; k <= BURST_CAP && minBurstFrames === null; k++) if (burstTrips(k)) minBurstFrames = k
 
-  function train(hitchMs, windows = 60) {
+  function train(hitchMs, windows = TRAIN_WINDOWS) {
     const h = harness()
     h.feed(BASELINE_MS, SETTLE_FRAMES)
     const from = h.writes.length
