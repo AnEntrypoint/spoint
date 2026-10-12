@@ -87,7 +87,17 @@ process.env.SPOINT_NO_WATCH = '1'
 const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.js')).href)
 const server = await boot()
 const port = (server && server.port) || Number(PORT)
-console.log('[player-shadow] server on http://localhost:' + port + ' world=' + process.env.WORLD)
+// Which world this run actually measured. A lane spent five hours on "the player is 51 m from the
+// declared spawn" because the world it measured was not the world it named: tps-game spawns at
+// [-25, 8.39, -45] and sillos-isolated at [0, 15.3, 0], and every shadow number differs with it.
+const { locateWorld } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'WorldLocator.js')).href)
+const located = await locateWorld({ project: ROOT, sdkRoot: resolve(ROOT, 'src', '..'), name: process.env.WORLD || null })
+const worldDefModule = located.path ? ((await import(pathToFileURL(located.path).href + `?t=${Date.now()}`)).default || {}) : {}
+console.log('[player-shadow] server on http://localhost:' + port + ' world=' + process.env.WORLD
+  + ' locatedPath=' + (located.path || 'none')
+  + ' spawnPoint=' + JSON.stringify(worldDefModule.spawnPoint ?? null)
+  + ' spawnPoints=' + JSON.stringify(worldDefModule.spawnPoints ?? null)
+  + ' scene=' + JSON.stringify(worldDefModule.scene ?? null))
 
 const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
 console.log('[player-shadow] gpu=' + GPU + ' adapterArgs=' + JSON.stringify(LAUNCH_ARGS.filter(a => a.includes('luid'))))
@@ -279,6 +289,13 @@ const INSTRUMENT = () => {
   // ground when the ground streams in later, and "which object is the ground" is the whole question
   // once every caster toggle measures zero on it.
   const feetUnder = []
+  // The terrain is a plain Mesh on an InstancedBufferGeometry: one base patch at the origin, the real
+  // placement lives in a per-instance attribute the vertex stage reads. geometry.boundingBox times
+  // matrixWorld is therefore a ~1 m box at [0,0,0] and can never contain the player, which is how
+  // "nothing receives where the shadow lands" was reported for a world whose terrain IS a receiver.
+  // Such a drawable has no CPU-derivable extent, so it is collected apart and never judged by AABB.
+  const unboundedReceivers = []
+  const isInstanceDriven = (o) => !!(o.geometry && o.geometry.isInstancedBufferGeometry && !o.isInstancedMesh)
   try {
     const r0 = roots[0]
     if (r0 && d.scene && d.camera) {
@@ -297,6 +314,11 @@ const INSTRUMENT = () => {
         d2.aabb = round6(box)
         d2.instanced = !!(o.isInstancedMesh || o.isBatchedMesh)
         if (o.visible === true) inv.push(d2)
+        if (isInstanceDriven(o)) {
+          d2.instanceDriven = true
+          d2.instanceCount = o.geometry.instanceCount === undefined ? null : o.geometry.instanceCount
+          if (o.visible === true && o.receiveShadow) unboundedReceivers.push(d2)
+        }
         if (p.x < minX || p.x > maxX || p.z < minZ || p.z > maxZ) return
         d2.topRelFeetM = +(maxY - p.y).toFixed(2)
         rows.push(d2)
@@ -331,6 +353,7 @@ const INSTRUMENT = () => {
     groundUnder,
     feetUnder,
     sceneInventory,
+    unboundedReceivers: unboundedReceivers.map((u) => ({ ctr: u.ctr, name: u.name, mat: u.mat, renderOrder: u.renderOrder, instanceCount: u.instanceCount, aabb: u.aabb })),
     players,
     receiveShadowCount: receivers.length,
     receiveShadowSample: receivers.slice(0, 4),
@@ -583,6 +606,30 @@ const APPLY = (mode) => {
   }
   if (_hidePlayer) {
     if (d.playerMeshes && d.playerMeshes.forEach) d.playerMeshes.forEach((root) => { root.visible = false; out.touched++ })
+  } else if (mode === 'terr:on' || mode === 'terr:off') {
+    // The ground cannot be placed under the feet by a bounding box (see unboundedReceivers), so ask
+    // the pixels instead: flip ONLY the instance-driven receivers and see whether the frame moves.
+    // A large signal here proves the surface he stands on IS shaded by the shadow map, which is the
+    // one thing the AABB gate cannot say. Remembered once, so off->on restores exactly what off took.
+    // Remembered by shape, not by the current flag: the terrain streams in, so at the first arm its
+    // receiveShadow may not be set yet and a receiver-only filter would remember nothing (measured:
+    // a run whose backdrop had not built reported names=[] and so could not decide the question).
+    // Water is the other instance-driven mesh in this scene and stays excluded.
+    const w = window
+    if (!w.__psTerrain) {
+      w.__psTerrain = []
+      try {
+        d.scene.traverse((o) => {
+          if (!(o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.isBatchedMesh)) return
+          if (!(o.geometry && o.geometry.isInstancedBufferGeometry && !o.isInstancedMesh)) return
+          if (/water/i.test(o.name || '')) return
+          w.__psTerrain.push(o)
+        })
+      } catch (_) {}
+    }
+    for (const o of w.__psTerrain) o.receiveShadow = mode === 'terr:on'
+    out.terrainReceivers = w.__psTerrain.length
+    out.terrainNames = w.__psTerrain.map((o) => o.name || '(unnamed)')
   } else if (mode === 'no-receive') {
     const cleared = []
     try { d.scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.isBatchedMesh) && o.receiveShadow) { o.receiveShadow = false; out.receivers++; cleared.push(o) } }) } catch (_) {}
@@ -1085,17 +1132,20 @@ function medianFrame(frames) {
   return { w: frames[0].w, h: frames[0].h, rgb: out }
 }
 
-function medianDiff(framesA, framesB, threshold) {
+function medianDiff(framesA, framesB, threshold, rect = null) {
   const a = medianFrame(framesA), b = medianFrame(framesB)
-  const w = a.w, h = a.h, n = w * h
+  const w = a.w, h = a.h
+  const x0 = rect ? rect.x0 : 0, x1 = rect ? rect.x1 : w
+  const y0 = rect ? rect.y0 : 0, y1 = rect ? rect.y1 : h
+  const n = (x1 - x0) * (y1 - y0)
   let count = 0, minX = 1e9, minY = 1e9, maxX = -1, maxY = -1
   let cx = 0, cy = 0, sumDelta = 0
-  for (let i = 0; i < n; i++) {
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = y * w + x
     let dmax = 0
     for (let c = 0; c < 3; c++) { const dv = Math.abs(a.rgb[i * 3 + c] - b.rgb[i * 3 + c]); if (dv > dmax) dmax = dv }
     if (dmax < threshold) continue
     count++; sumDelta += dmax
-    const x = i % w, y = (i / w) | 0
     cx += x; cy += y
     if (x < minX) minX = x
     if (y < minY) minY = y
@@ -1107,6 +1157,7 @@ function medianDiff(framesA, framesB, threshold) {
     threshold, estimator: 'median',
     realPixels: count,
     realFraction: +(count / n).toFixed(5),
+    rect: rect || null,
     meanDelta: count ? +(sumDelta / count).toFixed(2) : null,
     centroid: count ? [Math.round(cx / count), Math.round(cy / count)] : null,
     box,
@@ -1308,6 +1359,10 @@ try {
   // on his feet: AIRBOX asks whether any caster reaches this ground; this asks whether a caster whose
   // shadow provably covers the feet darkens the feet. A null here with a live AIRBOX is the ground
   // sampling the shadow map somewhere other than where the ground is.
+  // TERRAIN FIRST, ahead of even the umbrella: whether the ground at his feet receives shadows is the
+  // gate every other arm is read against, and it is the one question the CPU bounding boxes cannot
+  // answer. It restores receiveShadow on its third arm, so nothing after it sees a changed receiver.
+  for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`TT${k}`, 'terr:on']); seq.push([`TU${k}`, 'terr:off']); seq.push([`TV${k}`, 'terr:on']) }
   for (let k = 1; k <= FRAMES_PER_ARM; k++) { seq.push([`UA${k}`, 'umb:on']); seq.push([`UB${k}`, 'umb:off']); seq.push([`UC${k}`, 'umb:on']) }
   seq.push(['UZ', 'umb:hide'])
   // INTERLEAVED, not blocked (A,A,A,B,B,B,C,C,C): measured on live24, the local player walks ~0.5 m/s
@@ -1481,6 +1536,19 @@ try {
   const medWorld = medianDiff(WX, WY, DIFF_THRESHOLD)
   const medWorldAgain = medianDiff(WZ, WY, DIFF_THRESHOLD)
   const medCube = medianDiff(CU, CV, DIFF_THRESHOLD)
+  // The receiver question, decided by pixels because the AABB gate cannot see the terrain: flip the
+  // instance-driven receivers only and read the whole frame and a rect at the player's feet.
+  const feetRect = (shots.TT1 && shots.TT1.scr)
+    ? { x0: Math.max(0, shots.TT1.scr[0] - 130), x1: Math.min(1280, shots.TT1.scr[0] + 130), y0: Math.max(0, shots.TT1.scr[1] - 20), y1: Math.min(720, shots.TT1.scr[1] + 160) }
+    : null
+  const terrArm = {
+    signal: medianDiff(arm('TT'), arm('TU'), DIFF_THRESHOLD),
+    control: medianDiff(arm('TT'), arm('TV'), DIFF_THRESHOLD),
+    feetSignal: feetRect ? medianDiff(arm('TT'), arm('TU'), DIFF_THRESHOLD, feetRect) : null,
+    feetControl: feetRect ? medianDiff(arm('TT'), arm('TV'), DIFF_THRESHOLD, feetRect) : null,
+    names: (shots.TT1 || {}).terrainNames || null,
+    rect: feetRect,
+  }
   const drawsA = drawsDelta(shots.A1.live, shots.A2.live)
   const drawsB = drawsDelta(shots.B1.live, shots.B2.live)
   const drawsC = drawsDelta(shots.C1.live, shots.C2.live)
@@ -1525,6 +1593,7 @@ try {
     ovrArm,
     slabArm,
     boxArm,
+    terrArm,
     zoomLadder,
     stypeLadder,
     biasLadder,
@@ -1573,6 +1642,8 @@ try {
   console.log('[player-shadow] MEDIAN world   WX(off) vs WY(on)    : ' + JSON.stringify(medWorld))
   console.log('[player-shadow] MEDIAN world   WZ(off) vs WY(on)    : ' + JSON.stringify(medWorldAgain))
   console.log('[player-shadow] MEDIAN cube    CU(on)  vs CV(off)   : ' + JSON.stringify(medCube))
+  console.log('[player-shadow] TERRAIN receive on/off, names=' + JSON.stringify(terrArm.names) + ': signal=' + JSON.stringify(terrArm.signal) + ' control=' + JSON.stringify(terrArm.control))
+  console.log('[player-shadow] TERRAIN feet rect=' + JSON.stringify(terrArm.rect) + ': signal=' + JSON.stringify(terrArm.feetSignal) + ' control=' + JSON.stringify(terrArm.feetControl))
       console.log('[player-shadow] shadow tuning: ' + JSON.stringify((shots.A1.live.lights || []).map((l) => ({ name: l.name, bias: l.bias, normalBias: l.normalBias, radius: l.radius, intensity: l.intensity, near: l.near, far: l.far, camWorld: l.camWorld, lightWorld: l.lightWorld, players: l.players }))))
   console.log('[player-shadow] shadow-pass submissions per arm (delta over ~' + FRAME_MS + 'ms):')
   console.log('[player-shadow]   cast-on  A  ' + JSON.stringify(drawsA))
@@ -1612,11 +1683,31 @@ try {
   const feetReceivers = (snap.feetUnder || []).filter((f) => f.receiveShadow === true)
   const nearestReceiverM = (snap.groundUnder || []).filter((g) => g.receiveShadow === true)
     .reduce((m, g) => Math.min(m, Math.abs(g.topRelFeetM)), Infinity)
-  const standsOnReceiver = feetReceivers.length > 0
+  // Measured: the terrain is a plain Mesh on an InstancedBufferGeometry, so geometry.boundingBox *
+  // matrixWorld is one base patch at the origin and can never contain the player -- which is how a
+  // world whose terrain IS a receiver reported "the player stands on no shadow receiver". An
+  // instance-driven receiver has no CPU-derivable extent, so the AABB gate must not answer for it.
+  const unbounded = snap.unboundedReceivers || []
+  const feetPx = terrArm.feetSignal ? terrArm.feetSignal.realPixels : 0
+  const feetCtlPx = terrArm.feetControl ? terrArm.feetControl.realPixels : 0
+  // A drifted frame inflates BOTH counts (measured: 46800 signal against 45160 control in a run whose
+  // A-vs-C control had already drifted), so the count alone cannot decide it. The depth of the change
+  // can: terrain shadows move the feet rect by 166.82 mean while drift moves it by 53.59.
+  const feetMean = terrArm.feetSignal ? terrArm.feetSignal.meanDelta : 0
+  const feetCtlMean = terrArm.feetControl ? terrArm.feetControl.meanDelta : 0
+  const receiverByPixels = feetPx > 200 && feetMean > feetCtlMean * 1.5
+  const standsOnReceiver = feetReceivers.length > 0 || receiverByPixels
   console.log('[player-shadow] standsOnReceiver=' + standsOnReceiver
     + ' feetReceivers=' + JSON.stringify(feetReceivers.map((f) => ({ ctr: f.ctr, mat: f.mat, topRelFeetM: f.topRelFeetM })))
     + ' nearestReceiverRelFeetM=' + (nearestReceiverM === Infinity ? null : nearestReceiverM))
-  if (!standsOnReceiver) console.log('[player-shadow] INCONCLUSIVE: the player stands on no shadow receiver, so a zero signal says nothing about his castShadow')
+  if (unbounded.length) console.log('[player-shadow] unboundedReceivers=' + JSON.stringify(unbounded)
+    + ' -- instance-driven, so no CPU bounding box places them; the AABB gate is blind to them')
+  console.log('[player-shadow] receiverByPixels=' + receiverByPixels + ' terrainReceiveFeetPx=' + feetPx + ' controlPx=' + feetCtlPx
+    + ' terrainReceiveFeetMean=' + feetMean + ' controlMean=' + feetCtlMean
+    + ' names=' + JSON.stringify(terrArm.names))
+  if (!standsOnReceiver && unbounded.length) console.log('[player-shadow] INCONCLUSIVE: no AABB-placed receiver at the feet, and ' + unbounded.length
+    + ' instance-driven receiver(s) the AABB cannot place; the terrain arm did not clear them either')
+  else if (!standsOnReceiver) console.log('[player-shadow] INCONCLUSIVE: the player stands on no shadow receiver, so a zero signal says nothing about his castShadow')
   const sumTag = (d, prefix) => Object.keys(d || {}).filter((k) => k.startsWith(prefix)).reduce((s, k) => s + d[k], 0)
   const inShadowMapCastOn = sumTag(drawsA, 'player:') + sumTag(drawsC, 'player:')
   const inShadowMapCastOff = sumTag(drawsB, 'player:')
