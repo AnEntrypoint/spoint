@@ -3,6 +3,7 @@ import { join, extname, sep, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync, brotliCompressSync, gzip, brotliCompress, constants as zlibConstants } from 'node:zlib'
 import { promisify } from 'node:util'
+import { createHash } from 'node:crypto'
 import { fnv1aBytes } from '../shared/fnv1a.js'
 
 const BROTLI_OPTS = { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }
@@ -99,10 +100,35 @@ const STATIC_CACHE_CODE_VERSION = fnv1aBytes(Buffer.concat([
 const ENCODING_EXT = { br: 'br', gzip: 'gz' }
 const STALE_TMP_MS = 60 * 1000
 
+function entryBaseName(fp, encoding) {
+  return basename(fp).replace(/[^\w.-]/g, '_') + '.' + ENCODING_EXT[encoding]
+}
+
 function cacheEntryPaths(fp, encoding) {
-  const key = fnv1aBytes(Buffer.from(resolve(fp))).toString(16) + '-' + basename(fp).replace(/[^\w.-]/g, '_') + '.' + ENCODING_EXT[encoding]
+  const key = fnv1aBytes(Buffer.from(resolve(fp))).toString(16) + '-' + entryBaseName(fp, encoding)
   const body = join(STATIC_CACHE_DIR, key)
   return { body, meta: body + '.meta' }
+}
+
+function isSafeBodyName(name) {
+  return typeof name === 'string' && name.length > 0 && !name.includes('/') && !name.includes('\\') && !name.includes('..')
+}
+
+function contentKeyOf(content) {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+function sharedBodyName(baseName, content) {
+  return `${contentKeyOf(content)}-${content.length}-${baseName}`
+}
+
+function entryBodyPath(metaPath, meta) {
+  return isSafeBodyName(meta?.body) ? join(STATIC_CACHE_DIR, meta.body) : metaPath.slice(0, -'.meta'.length)
+}
+
+function dropSharedBody(meta) {
+  if (!isSafeBodyName(meta?.body)) return
+  try { rmSync(join(STATIC_CACHE_DIR, meta.body), { force: true }) } catch { }
 }
 
 export const CACHE_REFUSAL = {
@@ -127,8 +153,7 @@ function cacheRefusal(reason, detail) {
 }
 
 export function readCacheEntry(fp, encoding, stamp) {
-  const { body, meta } = cacheEntryPaths(fp, encoding)
-  if (!existsSync(body)) return cacheRefusal(CACHE_REFUSAL.ENTRY_ABSENT, { missing: 'body' })
+  const { meta } = cacheEntryPaths(fp, encoding)
   if (!existsSync(meta)) return cacheRefusal(CACHE_REFUSAL.ENTRY_ABSENT, { missing: 'meta' })
   let m
   try {
@@ -141,13 +166,19 @@ export function readCacheEntry(fp, encoding, stamp) {
   if (m.stamp !== stamp) return cacheRefusal(CACHE_REFUSAL.STAMP_MISMATCH, { field: 'stamp' })
   let content
   try {
-    content = readFileSync(body)
+    content = readFileSync(entryBodyPath(meta, m))
   } catch (e) {
     return cacheRefusal(CACHE_REFUSAL.BODY_UNREADABLE, { message: e?.message || String(e) })
   }
-  if (content.length !== m.bytes) return cacheRefusal(CACHE_REFUSAL.LENGTH_MISMATCH, { expected: m.bytes, got: content.length })
-  const hash = fnv1aBytes(content).toString(16)
-  if (hash !== m.hash) return cacheRefusal(CACHE_REFUSAL.HASH_MISMATCH, { expected: m.hash, got: hash })
+  if (content.length !== m.bytes) {
+    dropSharedBody(m)
+    return cacheRefusal(CACHE_REFUSAL.LENGTH_MISMATCH, { expected: m.bytes, got: content.length })
+  }
+  const key = contentKeyOf(content)
+  if (key !== m.hash) {
+    dropSharedBody(m)
+    return cacheRefusal(CACHE_REFUSAL.HASH_MISMATCH, { expected: m.hash, got: key })
+  }
   return { ok: true, content }
 }
 
@@ -163,11 +194,13 @@ function writeAtomic(path, data) {
 }
 
 function writeCacheEntry(fp, encoding, stamp, content) {
-  const { body, meta } = cacheEntryPaths(fp, encoding)
+  const { meta } = cacheEntryPaths(fp, encoding)
+  const bodyName = sharedBodyName(entryBaseName(fp, encoding), content)
+  const sharedBody = join(STATIC_CACHE_DIR, bodyName)
   try {
     mkdirSync(STATIC_CACHE_DIR, { recursive: true })
-    writeAtomic(body, content)
-    writeAtomic(meta, JSON.stringify({ src: resolve(fp), stamp, codeVersion: STATIC_CACHE_CODE_VERSION, bytes: content.length, hash: fnv1aBytes(content).toString(16) }))
+    if (!existsSync(sharedBody) || statSync(sharedBody).size !== content.length) writeAtomic(sharedBody, content)
+    writeAtomic(meta, JSON.stringify({ src: resolve(fp), stamp, codeVersion: STATIC_CACHE_CODE_VERSION, bytes: content.length, hash: contentKeyOf(content), body: bodyName }))
   } catch (e) {
     console.warn(`[static-cache] write skipped for ${fp}: ${e?.message || e}`)
   }
@@ -177,6 +210,8 @@ export function pruneStaticCache() {
   let removed = 0
   let names
   try { names = readdirSync(STATIC_CACHE_DIR) } catch { return 0 }
+  const referenced = new Set()
+  const dropped = []
   for (const name of names) {
     if (name.includes('.tmp-')) {
       const tmp = join(STATIC_CACHE_DIR, name)
@@ -186,16 +221,33 @@ export function pruneStaticCache() {
     if (!name.endsWith('.meta')) continue
     const meta = join(STATIC_CACHE_DIR, name)
     let keep = false
+    let bodyName = name.slice(0, -'.meta'.length)
     try {
       const m = JSON.parse(readFileSync(meta, 'utf8'))
+      if (isSafeBodyName(m.body)) bodyName = m.body
       keep = m.codeVersion === STATIC_CACHE_CODE_VERSION && typeof m.src === 'string' && existsSync(m.src.replace(/#transformed$/, ''))
     } catch { }
-    if (keep) continue
-    rmSync(meta, { force: true })
-    rmSync(meta.slice(0, -'.meta'.length), { force: true })
+    if (keep) { referenced.add(bodyName); continue }
+    dropped.push({ meta, bodyName })
     removed++
   }
+  for (const { meta, bodyName } of dropped) {
+    rmSync(meta, { force: true })
+    if (!referenced.has(bodyName)) rmSync(join(STATIC_CACHE_DIR, bodyName), { force: true })
+  }
+  sweepUnreferencedBodies(referenced)
   return removed
+}
+
+function sweepUnreferencedBodies(referenced) {
+  let names
+  try { names = readdirSync(STATIC_CACHE_DIR) } catch { return }
+  for (const name of names) {
+    if (name.endsWith('.meta') || name.includes('.tmp-')) continue
+    if (referenced.has(name)) continue
+    const orphan = join(STATIC_CACHE_DIR, name)
+    try { if (Date.now() - statSync(orphan).mtimeMs > STALE_TMP_MS) rmSync(orphan, { force: true }) } catch { }
+  }
 }
 
 export async function getCached(fp, ext, encoding) {

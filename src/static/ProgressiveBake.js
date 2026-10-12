@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync, readdirSync, rmSync } from 'node:fs'
 import { join, dirname, basename, resolve as resolvePath, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 import { PROGRESSIVE_BAKE_CODE_VERSION as BAKE_CODE_VERSION } from './BakeCodeVersion.js'
@@ -37,6 +37,35 @@ function _cacheRoot(srcPath) {
 
 function _outDir(srcPath, hash) {
   return join(_cacheRoot(srcPath), `${basename(srcPath, '.glb')}-${hash}-${BAKE_CODE_VERSION}`)
+}
+
+const SUPERSEDED_GRACE_MS = 60 * 1000
+const _pruned = new Set()
+
+function pruneSupersededBakes(srcPath, keepName) {
+  const root = _cacheRoot(srcPath)
+  const prefix = basename(srcPath, '.glb') + '-'
+  let names
+  try { names = readdirSync(root) } catch { return }
+  for (const name of names) {
+    if (name === keepName || !name.startsWith(prefix)) continue
+    const dir = join(root, name)
+    let st
+    try { st = statSync(dir) } catch { continue }
+    if (!st.isDirectory()) continue
+    if (Date.now() - st.mtimeMs < SUPERSEDED_GRACE_MS) continue
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      console.log(`[progressive] pruned superseded bake ${name}`)
+    } catch { }
+  }
+}
+
+function pruneSupersededBakesOnce(srcPath, keepName) {
+  const key = resolvePath(srcPath)
+  if (_pruned.has(key)) return
+  _pruned.add(key)
+  pruneSupersededBakes(srcPath, keepName)
 }
 
 function _sanitizeForBake(srcPath, outDir) {
@@ -122,6 +151,7 @@ export function getProgressive(srcPath) {
   const rootOut = join(outDir, ROOT_NAME)
   if (existsSync(rootOut)) {
     _ready.set(srcPath, { hash, outDir })
+    pruneSupersededBakesOnce(srcPath, basename(outDir))
     return outDir
   }
   if (!_inFlight.has(srcPath)) {
@@ -133,6 +163,7 @@ export function getProgressive(srcPath) {
         console.log(`[progressive] baking ${basename(srcPath)}`)
         await bake(srcPath, outDir)
         _ready.set(srcPath, { hash, outDir })
+        pruneSupersededBakesOnce(srcPath, basename(outDir))
         console.log(`[progressive] done ${basename(srcPath)} in ${Date.now() - t0}ms`)
         return outDir
       } catch (e) {
