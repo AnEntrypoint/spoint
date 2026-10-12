@@ -9,7 +9,7 @@
 export const NO_INPUT_DEPTH = -1
 
 export function inputDepthFromWire(depth) {
-  if (depth === null || depth === undefined) return NO_INPUT_DEPTH
+  if (!Number.isFinite(depth)) return NO_INPUT_DEPTH
   const n = depth | 0
   if (n < 0) return NO_INPUT_DEPTH
   return n > 255 ? 255 : n
