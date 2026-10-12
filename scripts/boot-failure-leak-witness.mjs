@@ -137,7 +137,12 @@ const loaded = await loadWorldModule(resolve(SDK_ROOT, 'apps/world/tps-game.js')
 const baseWorldDef = { ...loaded, entities: loaded.entities.filter(e => e.id !== 'env-sillos') }
 const tickRate = baseWorldDef.tickRate || 64
 
+// "Two distinct attempts" is an attempt ordinal plus ports this witness chose, never a clock read:
+// Date.now() has millisecond granularity, so two arms that run back to back on a fast CI box record
+// the SAME millisecond and a strict `secondStartedAt > firstStoppedAt` refuses for no reason.
+let armSeq = 0
 async function bootArm({ bakedHeightfield, start }) {
+  const attempt = ++armSeq
   const port = await drawUnusedPort()
   const startedAt = Date.now()
   const server = await createSpointServer({
@@ -161,7 +166,7 @@ async function bootArm({ bakedHeightfield, start }) {
   await sleep(200)
   const stoppedAt = Date.now()
   return {
-    port, startedAt, stoppedAt, bootDurationMs, listening, listenerLeaked,
+    attempt, port, startedAt, stoppedAt, bootDurationMs, listening, listenerLeaked,
     postBootLogLines: postBootWindow.lines, postBootWindowMs: postBootWindow.windowMs,
     bootError: bootError ? String(bootError.message || bootError) : null,
     stopError: stopError ? String(stopError.message || stopError) : null,
@@ -218,9 +223,10 @@ expect('failedBootLiveOwnedNoMoreThanControl', [firstFailedBoot.handlesLive.owne
 expect('corruptHeightfieldWasTheFileOnDisk', corruptHeightfieldOnDisk, disk => disk.bytes === CORRUPT_HF_BYTES && disk.magic === CORRUPT_HF_MAGIC_HEX && disk.namedByError === true && disk.absentHeightfieldExists === false)
 expect('corruptHeightfieldIsProximateCause', { corruptArmError: firstFailedBoot.bootError, absentArmError: controlBoot.bootError }, arms => arms.corruptArmError !== null && arms.absentArmError === null && arms.corruptArmError.includes(CORRUPT_HEIGHTFIELD) && !arms.corruptArmError.includes(ABSENT_HEIGHTFIELD))
 expect('failedBootsAreDistinctAttempts', {
+  firstAttempt: firstFailedBoot.attempt, secondAttempt: secondFailedBoot.attempt,
   firstPort: firstFailedBoot.port, secondPort: secondFailedBoot.port,
   firstStoppedAt: firstFailedBoot.stoppedAt, secondStartedAt: secondFailedBoot.startedAt,
-}, arms => arms.firstPort > 1024 && arms.secondPort > 1024 && arms.firstPort !== arms.secondPort && arms.secondStartedAt > arms.firstStoppedAt)
+}, arms => arms.firstAttempt >= 1 && arms.secondAttempt === arms.firstAttempt + 1 && arms.firstPort > 1024 && arms.secondPort > 1024 && arms.firstPort !== arms.secondPort && arms.secondStartedAt >= arms.firstStoppedAt)
 expect('repeatedFailedBootReproducesSameError', [firstFailedBoot.bootError, secondFailedBoot.bootError], ([first, second]) => first !== null && first === second)
 
 const arms = [firstFailedBoot, secondFailedBoot, controlBoot]
@@ -238,7 +244,7 @@ const inducedFailures = [firstFailedBoot, secondFailedBoot].filter(arm => arm.bo
 const controlSuccesses = controlBoot.bootError === null ? 1 : 0
 const listenerLeaked = firstFailedBoot.listenerLeaked === true || secondFailedBoot.listenerLeaked === true
 const ownedGrowth = firstFailedBoot.handles.owned - handlesBefore.owned
-console.log(`MEASURED boot-failure-leak: ${inducedFailures} induced failed boot(s) + ${controlSuccesses} control boot, handle census ${peakLiveCensus.total} handle(s) of which ${peakLiveCensus.owned} owned, post-boot log line(s) ${firstFailedBoot.postBootLogLines}/${secondFailedBoot.postBootLogLines}, control log window ${controlLogWindow.lines} line(s) of ${controlLogWindow.emitted} emitted, listener leak ${listenerLeaked}, watchers ${firstFailedBoot.handles.watchers}, servers ${controlBoot.handlesLive.servers}, owned growth ${ownedGrowth}, arm port(s) ${firstFailedBoot.port}/${secondFailedBoot.port}, arm gap ${secondFailedBoot.startedAt - firstFailedBoot.stoppedAt}ms`)
+console.log(`MEASURED boot-failure-leak: ${inducedFailures} induced failed boot(s) + ${controlSuccesses} control boot, handle census ${peakLiveCensus.total} handle(s) of which ${peakLiveCensus.owned} owned, post-boot log line(s) ${firstFailedBoot.postBootLogLines}/${secondFailedBoot.postBootLogLines}, control log window ${controlLogWindow.lines} line(s) of ${controlLogWindow.emitted} emitted, listener leak ${listenerLeaked}, watchers ${firstFailedBoot.handles.watchers}, servers ${controlBoot.handlesLive.servers}, owned growth ${ownedGrowth}, arm port(s) ${firstFailedBoot.port}/${secondFailedBoot.port}, arm attempt(s) ${firstFailedBoot.attempt}/${secondFailedBoot.attempt}, arm gap ${secondFailedBoot.startedAt - firstFailedBoot.stoppedAt}ms`)
 
 const verdict = failures.length ? `RESULT: FAIL ${failures.join(',')}` : 'RESULT: PASS'
 const exitCode = failures.length ? 1 : 0
