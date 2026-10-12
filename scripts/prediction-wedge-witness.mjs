@@ -24,9 +24,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const TICKS = numericFlag(args, 'ticks', 450)
 const PEN_TOL_M = numericFlag(args, 'penTol', 0.05)
-const APPROACH_PEN_TOL_M = numericFlag(args, 'approachPenTol', 0.2)
+// The predicted position is a collider-less extrapolation of the last acked server
+// position: for a kinematic wall the client is handed no wall plane at all, so it
+// cannot know the wall exists before the server reaches it. Penetration during the
+// approach is therefore priced by the prediction LEAD (maxFreeDivergenceM), not by
+// an absolute distance picked ahead of time -- the prediction cannot be less far
+// inside the wall than it is ahead of the server. Even the static arm, which does
+// get a wall plane, only gets one once the SERVER has touched that plane.
+// Measured on this box over 13 plain runs x 4 arms (~20 node processes over 16
+// cores, so the lead itself is load-driven): exhaustive penetration 0.0825..
+// 0.39667 m, sanctioned clear-lane lead 0.41452..1.22937 m, penetration/lead
+// 0.163..0.802. The old 0.2 m (approach) / 0.25 m (transient) bound sat BELOW the
+// lead this same witness sanctions, so it was unreachable whenever the lead exceeded
+// it: at HEAD two plain runs here measured 0.13506 m and 0.36883 m and the second
+// one failed. `penLeadFrac` 1.0 is the physical ceiling: further inside the wall
+// than the clear-lane lead means the prediction free-ran into geometry the server
+// stopped at. Both bounds are non-vacuous -- `--probe=wallpush --probeOvershootM=1`
+// pushes every predicted step that the server is in contact range of 1 m further
+// along its commanded direction and reads 2.4 m, i.e. 3.9..5.8 x the lead.
+const APPROACH_PEN_TOL_M = numericFlag(args, 'approachPenTol', 0.6)
+const TRANSIENT_PEN_TOL_M = numericFlag(args, 'transientPenTol', 0.6)
+const PEN_LEAD_FRAC = numericFlag(args, 'penLeadFrac', 1)
+// The moving bucket is 15..157 samples wide depending on the arm and on how long the
+// server takes to reach the wall, so a flat count of 2 prices the widest arm ~10x
+// more strictly than the narrowest. Price it against the bucket instead.
 const APPROACH_OVER_TOL_MAX = numericFlag(args, 'approachOverTolMax', 2)
-const TRANSIENT_PEN_TOL_M = numericFlag(args, 'transientPenTol', 0.25)
+const APPROACH_OVER_TOL_FRAC = numericFlag(args, 'approachOverTolFrac', 0.1)
+const PROBE = String(args.probe || 'none').toLowerCase()
+const PROBE_OVERSHOOT_M = numericFlag(args, 'probeOvershootM', 0.5)
 const DIVERGENCE_SLACK_TICKS = numericFlag(args, 'divergenceSlackTicks', 1)
 const MIN_LEAD_FRAC = numericFlag(args, 'minLeadFrac', 0.2)
 const MIN_HELD_TICKS = numericFlag(args, 'minHeldTicks', 60)
@@ -66,12 +91,18 @@ const round = (v, n = 4) => Number(v.toFixed(n))
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN)
 
 const FLOOR = { c: [0, -1, 0], h: [200, 1, 200] }
-const PEN_M = 12
+// Penetration is measured to the NEAREST surface, so a wall only half a metre thick
+// caps the measurement at 0.5 m however far the prediction actually goes: past the
+// wall's mid-plane the FAR face becomes the nearest one and the number turns back
+// down. The walls are thick and their inner faces sit at PEN_M, so the contact
+// geometry is what it always was and the number can still be read past 0.5 m.
+const PEN_M = 12 - 0.5
+const WALL_HALF_THICK_M = 3
 const WALLS = [
-  { id: 'wall-n', c: [0, 2, -PEN_M], h: [20, 3, 0.5] },
-  { id: 'wall-s', c: [0, 2, PEN_M], h: [20, 3, 0.5] },
-  { id: 'wall-e', c: [PEN_M, 2, 0], h: [0.5, 3, 20] },
-  { id: 'wall-w', c: [-PEN_M, 2, 0], h: [0.5, 3, 20] },
+  { id: 'wall-n', c: [0, 2, -(PEN_M + WALL_HALF_THICK_M)], h: [20, 3, WALL_HALF_THICK_M] },
+  { id: 'wall-s', c: [0, 2, PEN_M + WALL_HALF_THICK_M], h: [20, 3, WALL_HALF_THICK_M] },
+  { id: 'wall-e', c: [PEN_M + WALL_HALF_THICK_M, 2, 0], h: [WALL_HALF_THICK_M, 3, 20] },
+  { id: 'wall-w', c: [-(PEN_M + WALL_HALF_THICK_M), 2, 0], h: [WALL_HALF_THICK_M, 3, 20] },
 ]
 
 function boxSdf(p, c, h) {
@@ -160,12 +191,41 @@ async function runArm(cfg) {
       stepPath.n++
       return r
     }
+    // Every predicted step is a candidate for penetration, not just the one that
+    // happens to be live when the server ticks: `_rebaseAndReplay` re-derives the
+    // whole unacked tail through `_step` without ever going through `addInput`.
+    const stepPenTotal = { max: 0, n: 0, overTol: 0 }
+    const perTickStepPen = new Map()
+    let stepTick = 0
+    const rawStep = pred._step.bind(pred)
+    pred._step = function (...a) {
+      if (PROBE === 'nowedge') pred.horizontallyWedged = false
+      const r = rawStep(...a)
+      const p = pred.localState.position
+      // `wallpush` fires only while the SERVER is within contact range, so it moves
+      // penetration without moving the clear-lane divergence the bound is priced
+      // against -- that is what separates it from `overshoot`.
+      if (PROBE === 'overshoot' || (PROBE === 'wallpush' && nearestSdf(player.state.position) <= CONTACT_SDF_M)) {
+        const v = pred.localState.velocity
+        const h = Math.hypot(v[0], v[2])
+        if (h > 1e-9) { p[0] += (v[0] / h) * PROBE_OVERSHOOT_M; p[2] += (v[2] / h) * PROBE_OVERSHOOT_M }
+      }
+      const pen = Math.max(0, -nearestSdf(p))
+      stepPenTotal.n++
+      if (pen > stepPenTotal.max) stepPenTotal.max = pen
+      if (pen > PEN_TOL_M) stepPenTotal.overTol++
+      const rec = perTickStepPen.get(stepTick)
+      if (!rec) perTickStepPen.set(stepTick, { max: pen, n: 1, over: pen > PEN_TOL_M ? 1 : 0 })
+      else { if (pen > rec.max) rec.max = pen; rec.n++; if (pen > PEN_TOL_M) rec.over++ }
+      return r
+    }
     const acksAtStart = pred.stats.acks
     const correctionsAtStart = pred.stats.corrections
     const inputSeqAtStart = pred._inputSeq ?? 0
 
     tickSystem.onTick(() => {
       tickCount++
+      stepTick = tickCount
       const sp = player.state.position
       const serverPos = [sp[0], sp[1], sp[2]]
       const predPos = pred.localState ? [pred.localState.position[0], pred.localState.position[1], pred.localState.position[2]] : null
@@ -217,6 +277,7 @@ async function runArm(cfg) {
     while (tickCount - startTick < TICKS && Date.now() - t0 < ARM_TIMEOUT_MS) await sleep(2)
     stopInput()
     pred.addInput = rawAddInput
+    pred._step = rawStep
     const ticks = tickCount - startTick
 
     const post = samples.slice(WARMUP_TICKS)
@@ -239,6 +300,12 @@ async function runArm(cfg) {
     const moving = atWallIdx.filter(i => !restAt[i]).map(i => stepPens[i])
     const maxPen = arr => (arr.length ? Math.max(...arr.map(s => s.pen)) : NaN)
     const overTol = arr => arr.filter(s => s.pen > PEN_TOL_M).length
+    // Exhaustive: the worst penetration reached by ANY predicted step inside a tick
+    // that the classification above put in this bucket. A per-server-tick sample is
+    // only a lower bound on a maximum, because `_rebaseAndReplay` re-derives every
+    // unacked input through `_step` between two server ticks.
+    const maxStepPen = arr => (arr.length ? Math.max(...arr.map(s => Math.max(perTickStepPen.get(s.tick)?.max ?? 0, s.pen ?? 0))) : NaN)
+    const stepTicksOverTol = arr => arr.filter(s => (perTickStepPen.get(s.tick)?.over ?? 0) > 0).length
     const heldDiv = post.filter(s => s.serverSdf <= CONTACT_SDF_M).map(s => s.divergence ?? 0)
     const freeDiv = post.filter(s => s.serverSdf > CONTACT_SDF_M).map(s => s.divergence ?? 0)
 
@@ -265,6 +332,15 @@ async function runArm(cfg) {
       heldSamplesOverTol: overTol(stopped),
       transientMaxPenetrationM: round(maxPen(transient), 5),
       transientSamplesOverTol: overTol(transient),
+      predictedStepsExhaustive: stepPenTotal.n,
+      maxStepPenetrationM: round(stepPenTotal.max, 5),
+      approachMaxStepPenetrationM: round(maxStepPen(moving), 5),
+      approachSamplerShortfallM: round(maxStepPen(moving) - maxPen(moving), 5),
+      approachStepTicksOverTol: stepTicksOverTol(moving),
+      transientMaxStepPenetrationM: round(maxStepPen(transient), 5),
+      transientStepTicksOverTol: stepTicksOverTol(transient),
+      heldMaxStepPenetrationM: round(maxStepPen(stopped), 5),
+      heldStepTicksOverTol: stepTicksOverTol(stopped),
       approachMaxPenetrationM: round(maxPen(moving), 5),
       approachSamplesOverTol: overTol(moving),
       stoppedSamplesWithNoWallPlane: stopped.filter(s => s.walls === 0).length,
@@ -460,6 +536,7 @@ const ARMS = [
 ]
 
 const results = []
+if (PROBE !== 'none') console.log(`[wedge] MUTATION PROBE probe=${PROBE} probeOvershootM=${PROBE_OVERSHOOT_M} -- this run is NON-VACUITY EVIDENCE, not a gate result`)
 for (const cfg of ARMS) {
   let out = null
   try {
@@ -485,6 +562,8 @@ const unitResults = [
 ]
 for (const u of unitResults) console.log('[wedge-unit] ' + JSON.stringify(u))
 
+console.log('[wedge] penetration: "*MaxStepPenetrationM" is the EXHAUSTIVE maximum over every predicted step (both addInput and the _rebaseAndReplay replay); "*MaxPenetrationM" is one sample per server tick and is only a LOWER BOUND on that same maximum')
+console.log(`[wedge] penetration is priced against the prediction lead (cap ${PEN_LEAD_FRAC} x maxFreeDivergenceM, absolute ${APPROACH_PEN_TOL_M}/${TRANSIENT_PEN_TOL_M} m): a prediction with no block latch runs the whole lead into the wall`)
 for (const o of results) {
   const p = o.arm + ': '
   expect(o.groundedAtStart, p + 'the player was standing on the floor before the arm started')
@@ -493,9 +572,12 @@ for (const o of results) {
   expect(Number.isFinite(o.maxFreeDivergenceTicks) && o.maxFreeDivergenceTicks <= o.maxLeadTicks + DIVERGENCE_SLACK_TICKS, p + `clear-lane divergence stayed inside the input lead: ${o.maxFreeDivergenceTicks} step(s) of ${o.clearStepMeanM} m (max ${o.maxFreeDivergenceM} m) at lead ${o.maxLeadTicks} tick(s) + slack ${DIVERGENCE_SLACK_TICKS}`)
   expect(o.acksDuringArm > 0, p + `the arm really reconciled against server snapshots: ${o.acksDuringArm} acks`)
   expect(o.heldSamplesOverTol === 0, p + `the predicted position never settled inside the wall: ${o.heldSamplesOverTol} of ${o.stoppedAtWall} settled samples over ${PEN_TOL_M} m (max ${o.heldMaxPenetrationM} m)`)
-  expect(o.approachSamplesOverTol <= APPROACH_OVER_TOL_MAX, p + `the predicted position did not keep entering the wall while the server was still approaching it: ${o.approachSamplesOverTol} of ${o.movingAtWall} moving samples over ${PEN_TOL_M} m (max ${o.approachMaxPenetrationM} m)`)
-  expect(Number.isFinite(o.approachMaxPenetrationM) && o.approachMaxPenetrationM <= APPROACH_PEN_TOL_M, p + `the impact spike stayed inside its documented bound: max ${o.approachMaxPenetrationM} m (tol ${APPROACH_PEN_TOL_M} m)`)
-  expect(Number.isFinite(o.transientMaxPenetrationM) && o.transientMaxPenetrationM <= TRANSIENT_PEN_TOL_M, p + `the one-ack-lag penetration stayed inside its documented bound: max ${o.transientMaxPenetrationM} m over ${o.transientAtWall} transient samples (tol ${TRANSIENT_PEN_TOL_M} m)`)
+  const overTolBudget = APPROACH_OVER_TOL_MAX + APPROACH_OVER_TOL_FRAC * o.movingAtWall
+  expect(o.approachSamplesOverTol <= overTolBudget, p + `the predicted position did not live inside the wall while the server was still approaching it: ${o.approachSamplesOverTol} of ${o.movingAtWall} moving per-server-tick samples over ${PEN_TOL_M} m (budget ${round(overTolBudget, 2)} = ${APPROACH_OVER_TOL_MAX} + ${APPROACH_OVER_TOL_FRAC} x bucket; a sample is a lower bound on the max, the exhaustive count is ${o.approachStepTicksOverTol} tick(s))`)
+  expect(Number.isFinite(o.approachMaxStepPenetrationM) && o.approachMaxStepPenetrationM <= APPROACH_PEN_TOL_M, p + `the exhaustive per-step impact penetration stayed inside its documented bound: max ${o.approachMaxStepPenetrationM} m over ${o.predictedStepsExhaustive} predicted step(s) (tol ${APPROACH_PEN_TOL_M} m; the per-server-tick sample only saw ${o.approachMaxPenetrationM} m, ${o.approachSamplerShortfallM} m short of the real peak)`)
+  expect(Number.isFinite(o.approachMaxStepPenetrationM) && o.approachMaxStepPenetrationM <= PEN_LEAD_FRAC * o.maxFreeDivergenceM, p + `the impact penetration stayed a fraction of the prediction lead: max ${o.approachMaxStepPenetrationM} m of the ${o.maxFreeDivergenceM} m clear-lane lead (${round(o.approachMaxStepPenetrationM / Math.max(1e-9, o.maxFreeDivergenceM), 3)}, cap ${PEN_LEAD_FRAC}) -- a prediction with no block latch runs the whole lead into the wall`)
+  expect(Number.isFinite(o.transientMaxStepPenetrationM) && o.transientMaxStepPenetrationM <= TRANSIENT_PEN_TOL_M, p + `the exhaustive per-step one-ack-lag penetration stayed inside its documented bound: max ${o.transientMaxStepPenetrationM} m over ${o.transientAtWall} transient samples (tol ${TRANSIENT_PEN_TOL_M} m; the per-server-tick sample only saw ${o.transientMaxPenetrationM} m)`)
+  expect(Number.isFinite(o.transientMaxStepPenetrationM) && o.transientMaxStepPenetrationM <= PEN_LEAD_FRAC * o.maxFreeDivergenceM, p + `the one-ack-lag penetration stayed a fraction of the prediction lead: max ${o.transientMaxStepPenetrationM} m of the ${o.maxFreeDivergenceM} m clear-lane lead (${round(o.transientMaxStepPenetrationM / Math.max(1e-9, o.maxFreeDivergenceM), 3)}, cap ${PEN_LEAD_FRAC})`)
   expect(o.clearLaneWedgeTicks === 0, p + `the block never latched away from the walls: ${o.clearLaneWedgeTicks} of ${o.clearLaneTicks} clear-lane samples wedged`)
   if (o.wallBody === 'kinematic') {
     expect(o.wallPlaneTicks === 0, p + `a non-static wall sends the client no wall plane: ${o.wallPlaneTicks} ticks with a cached plane`)
@@ -508,6 +590,7 @@ for (const o of results) {
   } else {
     expect(o.stoppedAtWall >= MIN_HELD_TICKS, p + `the player was held against the wall for at least ${MIN_HELD_TICKS} samples: ${o.stoppedAtWall}`)
     expect(Number.isFinite(o.heldMaxPenetrationM) && o.heldMaxPenetrationM <= PEN_TOL_M, p + `the predicted position never stayed inside the wall the player is held against: max ${o.heldMaxPenetrationM} m over ${o.stoppedAtWall} settled samples at the wall (tol ${PEN_TOL_M} m)`)
+    expect(Number.isFinite(o.heldMaxStepPenetrationM) && o.heldMaxStepPenetrationM <= PEN_TOL_M, p + `no predicted step settled inside the wall the player is held against: exhaustive max ${o.heldMaxStepPenetrationM} m over ${o.stoppedAtWall} settled samples (tol ${PEN_TOL_M} m)`)
   }
 }
 
