@@ -1585,6 +1585,19 @@ try {
   // imposed during the run, not a shadow. A control that moved invalidates every other number.
   const runValid = control.realPixels <= 400
   console.log('[player-shadow] runValid=' + runValid + ' controlPixels=' + control.realPixels + ' (A and C are the same state; >400 px means the frame drifted and nothing below is a measurement)')
+  // A shadow can only land on a RECEIVER. feetUnder is every drawable whose AABB top is within 0.5 m
+  // of the feet, so no receiver in it means the player stands on nothing that can be shaded, and a
+  // zero signal then measures the world, not his castShadow flag. live25 and live27 both left him
+  // 9.51 m below the nearest receiver (on a weather quad, receiveShadow=false, renderOrder 5 =
+  // WEATHER_DRAWS_OVER_FOLIAGE_BAND) and read 0 px for the player AND for every synthetic caster.
+  const feetReceivers = (snap.feetUnder || []).filter((f) => f.receiveShadow === true)
+  const nearestReceiverM = (snap.groundUnder || []).filter((g) => g.receiveShadow === true)
+    .reduce((m, g) => Math.min(m, Math.abs(g.topRelFeetM)), Infinity)
+  const standsOnReceiver = feetReceivers.length > 0
+  console.log('[player-shadow] standsOnReceiver=' + standsOnReceiver
+    + ' feetReceivers=' + JSON.stringify(feetReceivers.map((f) => ({ ctr: f.ctr, mat: f.mat, topRelFeetM: f.topRelFeetM })))
+    + ' nearestReceiverRelFeetM=' + (nearestReceiverM === Infinity ? null : nearestReceiverM))
+  if (!standsOnReceiver) console.log('[player-shadow] INCONCLUSIVE: the player stands on no shadow receiver, so a zero signal says nothing about his castShadow')
   const sumTag = (d, prefix) => Object.keys(d || {}).filter((k) => k.startsWith(prefix)).reduce((s, k) => s + d[k], 0)
   const inShadowMapCastOn = sumTag(drawsA, 'player:') + sumTag(drawsC, 'player:')
   const inShadowMapCastOff = sumTag(drawsB, 'player:')
