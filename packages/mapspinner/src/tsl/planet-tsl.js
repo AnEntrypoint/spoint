@@ -288,6 +288,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   return {
     frame, dispose, R, mesh, material, water, lighting, sky, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
+    drawnQuads: () => ({ offsets: patch.offsets.array, faces: patch.faces.array, count: patch.geo.instanceCount, gridSize: GRID_SIZE, radius: R }),
     clearCache() { quadCache.res = null },
     SCULPT_RES,
     setSculptOverride(center, extent, frameBasis, heights) { currentSculpt.set(center, extent, frameBasis, heights) },

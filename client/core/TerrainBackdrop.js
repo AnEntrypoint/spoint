@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { createPlanetFrame, elevationAtLocal, guardedGroundHeight, isNoGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
 import { terrainHashVersionOf, terrainCarvesOf, LEGACY_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
+import { createTerrainMeshSurface } from '/src/terrain/TerrainMeshSurface.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 
@@ -62,7 +63,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   }
   const radius = cfg.radius || 6360000
   const _lightPlanet = typeof location !== 'undefined' && location.search.includes('lightplanet')
-  let planet, sampler, frame
+  let planet, sampler, frame, meshSurface
   async function _initPlanet() {
     if (_lightPlanet) return { frame: () => {}, clearCache: () => {} }
     let lastErr
@@ -89,6 +90,15 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     performance.mark('terrain:planet-init')
     performance.mark('boot:backdrop:planet-initialised')
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
+    if (typeof planet.drawnQuads === 'function') {
+      try {
+        meshSurface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: planet.drawnQuads })
+        frame.renderMeshHeightAtLocal = meshSurface.heightAtLocal
+      } catch (e) {
+        meshSurface = null
+        console.warn('[terrain] rendered-mesh surface unavailable -> placement keeps the fractal ground:', e?.message || e)
+      }
+    }
     if (cfg.gpuPatchCollider !== false && isLegacyHash) {
       try {
         const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js')
@@ -241,6 +251,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       } catch (_) {}
       const shadowInfo = RenderControls.get('hostShadowOff') ? undefined : _buildShadowInfo(sun)
       const _res = planet.frame(_eye, _tgt, fovy, 0, _sunE, elapsedSec, frame.up, surfElev / radius, shadowInfo, isTslTerrain ? _tslView : undefined)
+      if (meshSurface) { meshSurface.setFocus(p.x, p.z); meshSurface.sync() }
       if (_res && _res.cached === false && _res.quadCount === 0) {
         _dbgTerrain('zero-quad fail-safe triggered -> clearing occlusion verdicts + planet cache')
         try { _terrainOcclusion.clearVerdicts() } catch (e) { _dbgTerrain('clearVerdicts failed in zero-quad fail-safe:', e?.message || e) }
