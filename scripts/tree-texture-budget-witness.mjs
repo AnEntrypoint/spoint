@@ -6,7 +6,7 @@
 //      silently becoming the default. The bare-flag trap is the sharpest case: a
 //      value that parses to NaN must refuse, because Number() on it yields NaN and
 //      a `Number.isFinite(x) ? x : DEFAULT` guard would quietly hand back 1024.
-//   2. 1024 -> 512 -> 256 is a real halving, not a no-op: each step is one
+//   2. 1024 -> 512 -> 256 -> 128 is a real halving, not a no-op: each step is one
 //      halving, and the mip chain of four leaf textures drops by a counted
 //      number of bytes at each step.
 import { pathToFileURL } from 'node:url'
@@ -41,7 +41,7 @@ function expectRefusal(claim, reasonCode, fn) {
 
 // --- the source fact the whole budget is priced against -------------------------
 expect('ez-tree ships leaf maps at 1024 px an edge', TREE_TEXTURE_SOURCE_PX, 1024)
-expect('the leaf default is a quartering of the source, not the source', LEAF_TEXTURE_MAX_PX_DEFAULT, TREE_TEXTURE_SOURCE_PX >> 2)
+expect('the leaf default is an eighth of the source, not the source', LEAF_TEXTURE_MAX_PX_DEFAULT, TREE_TEXTURE_SOURCE_PX >> 3)
 
 // --- counted units: decoded RGBA plus the mip chain -----------------------------
 expect('one 1024x1024 RGBA mip chain is 5592404 B', mipChainBytes(1024, 1024), 5592404)
@@ -50,9 +50,13 @@ expect('four leaf maps at 1024 are 22369616 B of mip chain', 4 * mipChainBytes(1
 expect('four leaf maps at 512 are 5592400 B of mip chain', 4 * mipChainBytes(512, 512), 5592400)
 expect('one 256x256 RGBA mip chain is 349524 B', mipChainBytes(256, 256), 349524)
 expect('four leaf maps at 256 are 1398096 B of mip chain', 4 * mipChainBytes(256, 256), 1398096)
+expect('one 128x128 RGBA mip chain is 87380 B', mipChainBytes(128, 128), 87380)
+expect('four leaf maps at 128 are 349520 B of mip chain', 4 * mipChainBytes(128, 128), 349520)
 expect('halving the four leaf maps from 1024 to 512 frees 16777216 B of mip chain', 4 * (mipChainBytes(1024, 1024) - mipChainBytes(512, 512)), 16777216)
 expect('halving the four leaf maps again from 512 to 256 frees 4194304 B of mip chain', 4 * (mipChainBytes(512, 512) - mipChainBytes(256, 256)), 4194304)
 expect('halving the four leaf maps from 1024 to 256 frees 20971520 B of mip chain', 4 * (mipChainBytes(1024, 1024) - mipChainBytes(256, 256)), 20971520)
+expect('halving the four leaf maps again from 256 to 128 frees 1048576 B of mip chain', 4 * (mipChainBytes(256, 256) - mipChainBytes(128, 128)), 1048576)
+expect('halving the four leaf maps from 1024 to 128 frees 22020096 B of mip chain', 4 * (mipChainBytes(1024, 1024) - mipChainBytes(128, 128)), 22020096)
 expect('sixteen bark maps at 1024 are 89478464 B of mip chain', 16 * mipChainBytes(1024, 1024), 89478464)
 expect('sixteen bark maps at 64 are 349504 B of mip chain', 16 * mipChainBytes(64, 64), 349504)
 expect('a decoded 1024x1024 RGBA level is 4194304 B', decodedRgbaBytes(1024, 1024), 4194304)
@@ -63,7 +67,9 @@ expect('1024 with a 64 budget is exactly four halvings', halvingsFor(1024, 64), 
 expect('1024 with a 1024 budget is zero halvings (budget already met)', halvingsFor(1024, 1024), 0)
 expect('512 with a 512 budget is zero halvings (idempotent, not re-halved)', halvingsFor(512, 512), 0)
 expect('1024 with a 256 budget is exactly two halvings', halvingsFor(1024, 256), 2)
+expect('1024 with a 128 budget is exactly three halvings', halvingsFor(1024, 128), 3)
 expect('256 with a 64 budget is two halvings', halvingsFor(256, 64), 2)
+expect('128 with a 64 budget is one halving', halvingsFor(128, 64), 1)
 
 // --- the boundary: absent falls through, supplied-and-invalid refuses -----------
 const d = resolveTreeTextureBudget({})
