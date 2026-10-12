@@ -34,6 +34,12 @@ const BLADE_STRIDE = 900
 const CHUNK_RADII_M = [0, 40, 80, 112]
 const TRAVEL_CANDIDATES = [[760, -520], [640, 320], [-520, 700], [900, 900], [-800, -300], [300, -900]]
 const RAY_UP_M = 6000
+// The exit path drains for DRAIN_BOUND_MS once the verdict is out, and the guard may only fire well
+// after that drain has had its chance: a quiet window shorter than the drain reports a hang that is
+// not one (measured: an 8000 ms window over a 10 s stdio drain red-flagged a witness that exited).
+// The two are named together so the order of magnitude between them is the one fact to preserve.
+const DRAIN_BOUND_MS = 1500
+const QUIET_AFTER_VERDICT_MS = 15000
 
 const checks = []
 const expect = (name, ok, observed) => {
@@ -50,7 +56,7 @@ const { placementsForGrassChunk, GRASS } = await import(href('src/terrain/GrassP
 const { chunkKeyAtLocal, latticeFor } = await import(href('src/terrain/PlacementChart.js'))
 const { createCachedAnchorField } = await import(href('src/terrain/ClimateCache.js'))
 const { armVerdictExitGuard } = await import(href('scripts/lib/verdict-exit-guard.mjs'))
-armVerdictExitGuard({ label: 'terrain-three-source-height' })
+armVerdictExitGuard({ label: 'terrain-three-source-height', quietMs: QUIET_AFTER_VERDICT_MS })
 
 const loaded = await loadWorldModule(resolve(ROOT, 'apps', 'world', `${WORLD}.js`))
 const tcfg = loaded.terrain
@@ -257,12 +263,14 @@ console.log(ok ? 'RESULT: PASS' : 'RESULT: FAIL')
 // HeightfieldStreamer.js:328 plus one ColliderStreamer.js:763 per trunk and rock streamer), so a
 // witness that prints its verdict and falls off the end of main never reaches process exit. Stop
 // them, then leave through the bounded drain so no future handle can reintroduce the stall.
-for (const s of [streamer, streamer && streamer._trunkStreamer, streamer && streamer._rockStreamer]) {
-  try { if (s && typeof s.stop === 'function') s.stop() } catch (e) { console.log(`streamer stop threw: ${e && e.message}`) }
-}
+// stopTerrainStreaming owns the whole stop list -- heightfield streamer, trunk collider streamer,
+// rock collider streamer, then the physics terrain source and body id -- so a copy of that list
+// here cannot go stale the next time a streamer is added. Measured with the list removed instead:
+// the guard's own report names `3x Timeout still holding the event loop`, one per streamer.
+try { terrainPhysics.stopTerrainStreaming(physics, streamer) } catch (e) { console.log(`stopTerrainStreaming threw: ${e && e.message}`) }
 // process._getActiveHandles() does not count timers on Node 24 (measured: a pending setTimeout is
 // absent from it but present in process.getActiveResourcesInfo()), so the drain can only ever wait
 // on stdio. 1500 ms is the flush window, not a measurement: every handle this witness owns is
 // already stopped above.
 const { exitAfterQuiesce } = await import(href('scripts/lib/quiesce.mjs'))
-await exitAfterQuiesce(ok ? 0 : 1, 1500)
+await exitAfterQuiesce(ok ? 0 : 1, DRAIN_BOUND_MS)
