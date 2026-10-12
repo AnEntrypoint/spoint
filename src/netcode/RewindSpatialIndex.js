@@ -77,10 +77,25 @@ export class RewindSpatialIndex {
 
 export const DEFAULT_REWIND_CELL_SIZE = 16
 
+export const DUPLICATE_PLAYER_ID = 'duplicate_player_id'
+
+export class RewindDuplicatePlayerIdError extends Error {
+  constructor(duplicateId, firstIndex, againIndex) {
+    super(`${DUPLICATE_PLAYER_ID}: player id ${String(duplicateId)} is registered at index ${firstIndex} and again at index ${againIndex}; one live index resolves one position per id`)
+    this.name = 'RewindDuplicatePlayerIdError'
+    this.code = DUPLICATE_PLAYER_ID
+    this.duplicateId = duplicateId
+    this.firstIndex = firstIndex
+    this.againIndex = againIndex
+  }
+}
+
 export function buildLiveIndex(players, cellSize = DEFAULT_REWIND_CELL_SIZE) {
   const index = new RewindSpatialIndex(cellSize)
   for (let i = 0; i < players.length; i++) {
     const p = players[i]
+    const firstIndex = index.arrayIndexOf(p.id)
+    if (firstIndex !== -1) throw new RewindDuplicatePlayerIdError(p.id, firstIndex, i)
     index.playersById.set(p.id, p)
     index._arrayIndex.set(p.id, i)
     if (!p.state || !p.state.position) continue
