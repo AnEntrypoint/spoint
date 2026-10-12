@@ -115,8 +115,26 @@ async function main() {
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'spoint-git-api-publish',
   }
+  // The closure gate runs tsc for a minute or two between the two GETs and the first POST, and
+  // GitHub closes the pooled keep-alive socket in that gap: undici answers UND_ERR_SOCKET "other
+  // side closed" on the very first POST /git/blobs and the publish dies after all the expensive
+  // work has already been done. Every request therefore takes its own connection, and a socket
+  // error is retried a bounded number of times before it is reported.
+  const SOCKET_ERROR = /UND_ERR_SOCKET|fetch failed|socket hang up|ECONNRESET/i
+  const GH_RETRY_MS = [400, 800, 1600]
   async function gh(path, init = {}) {
-    const r = await fetch('https://api.github.com' + path, { ...init, headers: { ...H, ...(init.headers || {}) } })
+    const url = 'https://api.github.com' + path
+    const headers = { ...H, connection: 'close', ...(init.headers || {}) }
+    let r
+    for (let attempt = 0; ; attempt++) {
+      try { r = await fetch(url, { ...init, headers }); break }
+      catch (e) {
+        const why = `${(e && e.message) || e} ${(e && e.cause && e.cause.code) || ''}`
+        if (attempt >= GH_RETRY_MS.length || !SOCKET_ERROR.test(why)) throw e
+        console.error(`[git-api-publish] ${init.method || 'GET'} ${path} lost its socket (${(e && e.message) || e}); retrying`)
+        await sleep(GH_RETRY_MS[attempt])
+      }
+    }
     const text = await r.text()
     if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + path + ' :: ' + text.slice(0, 500))
     return JSON.parse(text)
@@ -126,7 +144,7 @@ async function main() {
     if (typeof blob.content === 'string' && blob.content.length > 0) {
       return Buffer.from(blob.content, blob.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8')
     }
-    const r = await fetch('https://api.github.com/repos/' + repo + '/git/blobs/' + sha, { headers: { ...H, Accept: 'application/vnd.github.raw' } })
+    const r = await fetch('https://api.github.com/repos/' + repo + '/git/blobs/' + sha, { headers: { ...H, connection: 'close', Accept: 'application/vnd.github.raw' } })
     if (!r.ok) throw new Error('HTTP ' + r.status + ' /repos/' + repo + '/git/blobs/' + sha)
     return await r.text()
   }
