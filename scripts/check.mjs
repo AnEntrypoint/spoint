@@ -54,6 +54,7 @@ const NO_GPU_WITNESSES = [
   // still needs a real frame, and that arm is a browser arm this CI does not run.
   { file: 'grass-bend-geometry-witness.mjs', must: /\[PASS\] the bend is quadratic in the card height coordinate[\s\S]*\[PASS\] the change is sub-centimetre at the wind that ships[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
+  { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
 ]
