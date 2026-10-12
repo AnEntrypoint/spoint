@@ -196,12 +196,13 @@ export function createTerrainStreamer(opts = {}) {
       const x = cornerX + radicalInverse(k, 2) * extent, z = cornerZ + radicalInverse(k, 3) * extent
       if (isFrozenAt(x, z)) { frozen++; if (frozenPts.length < COST_PROBE_PER_GROUP * 2) frozenPts.push(x, z) }
     }
-    if (!frozenPts.length) return { ff: frozen / COST_PROBE_POINTS, perSampleMs: 0 }
+    const group = frozenPts.length / 2
+    if (!group) return { ff: frozen / COST_PROBE_POINTS, perSampleMs: 0 }
     let best = Infinity
     for (let r = 0; r < COST_PROBE_ROUNDS; r++) {
       const t0 = _now()
       for (let i = 0; i < frozenPts.length; i += 2) fn(frozenPts[i], frozenPts[i + 1])
-      const per = (_now() - t0) / COST_PROBE_PER_GROUP
+      const per = (_now() - t0) / group
       if (per < best) best = per
     }
     return { ff: frozen / COST_PROBE_POINTS, perSampleMs: best === Infinity ? 0 : best }
