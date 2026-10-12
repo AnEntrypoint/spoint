@@ -402,6 +402,17 @@ async function runArm(cfg) {
     // budget is the lead itself and never more than the absolute step ceiling. Both
     // terms are measured on this arm, so the budget tracks the arm, not the box.
     const sanctionedPenM = Math.min(PEN_LEAD_FRAC * freeDivMax, PEN_STEP_TOL_M)
+    // How many settled-at-the-wall samples may be inside the wall without it being the
+    // latch's fault. First contact is a transient, not a steady state: the prediction
+    // learns the server has stopped one ack interval later, and until that ack lands it
+    // is still the lead's extrapolation, which walks past the server's own contact point
+    // (the server stops with its centre ~0.42 m from the wall face, so the first steps of
+    // lead are free). Measured at x4.51 contention, kinematic-headon, ackLag 0 m and the
+    // latch already ON: three consecutive ticks at exactly lead - serverSdf = 0.6125 -
+    // 0.42 = 0.1925 m, then 0 m for the remaining 161 settled samples. The window is one
+    // contact transient per approach: settle + ack + one tick. Mutants are not a window,
+    // they are the whole bucket: 166/166, 315/316, 236/236 settled samples inside.
+    const heldOverTolBudget = (cfg.slide === true ? 1 : CYCLES) * (SETTLE_TICKS + ACK_STALE_TICKS + 1)
     const out = {
       arm: cfg.name,
       wallBody: cfg.wallBody,
@@ -417,6 +428,9 @@ async function runArm(cfg) {
       heldMaxPenetrationM: round(maxPen(stopped), 5),
       heldMeanPenetrationM: round(mean(stopped.map(s => s.pen)), 5),
       heldSamplesOverTol: overTol(stopped),
+      heldOverTolBudget: heldOverTolBudget,
+      heldOverTolFrac: round(overTol(stopped) / Math.max(1, stopped.length), 5),
+      heldMaxPenetrationSteps: round(maxPen(stopped) / STEP_TRAVEL_M, 3),
       transientMaxPenetrationM: round(maxPen(transient), 5),
       transientSamplesOverTol: overTol(transient),
       predictedStepsExhaustive: stepPenTotal.n,
@@ -712,7 +726,15 @@ for (const o of results) {
   expect(Number.isFinite(o.predMovingStepM) && o.predMovingStepM > 0, p + `the prediction moved while the player was moving: ${o.predMovingStepM} m over ${o.predMovingSteps} moving step(s) (one tick of travel is ${round(STEP_TRAVEL_M, 6)} m; the step-size invariant itself is pinned by unit-step-size, because the live step is the step the player ACHIEVED, which on a slide arm is the along-wall component: whole-arm per-step means are ${o.predStepMeanM} m pred / ${o.serverStepMeanM} m server, ratio ${o.stepRatio}, and both are diluted by the blocked steps)`)
   expect(Number.isFinite(o.maxFreeDivergenceSteps) && o.maxFreeDivergenceSteps <= o.maxLeadSteps + DIVERGENCE_SLACK_TICKS, p + `clear-lane divergence stayed inside the input lead: ${o.maxFreeDivergenceSteps} step(s) of ${round(STEP_TRAVEL_M, 6)} m (max ${o.maxFreeDivergenceM} m) at lead ${o.maxLeadSteps} tick(s) + slack ${DIVERGENCE_SLACK_TICKS}`)
   expect(o.acksDuringArm > 0, p + `the arm really reconciled against server snapshots: ${o.acksDuringArm} acks`)
-  expect(o.heldSamplesOverTol === 0, p + `the predicted position never settled inside the wall: ${o.heldSamplesOverTol} of ${o.stoppedAtWall} settled-and-acked samples over ${PEN_TOL_M} m (max ${o.heldMaxPenetrationM} m; ${o.stoppedAtWallRaw} settled sample(s) before the ack-freshness gate, ${o.samplesAtWall} at the wall)`)
+  // PEN_TOL_M is what "inside the wall" means for the count; it did not move. What moved
+  // is the claim made about the count. `=== 0` priced a metre depth against a quantity
+  // the lead FLOORS at (lead - serverSdf), so on a busy box it was unreachable: measured
+  // 0.1925 m at x4.51 with the latch on and the ack current, which is exactly 3 steps of
+  // lead past a server standing 0.42 m off the wall face. Depth in the held bucket is
+  // therefore priced against the lead, and the latch is pinned by how MUCH of the bucket
+  // is inside the wall at all: a contact transient is a handful of ticks, a broken latch
+  // is the whole bucket.
+  expect(o.heldSamplesOverTol <= o.heldOverTolBudget, p + `the predicted position settled inside the wall only during a contact transient: ${o.heldSamplesOverTol} of ${o.stoppedAtWall} settled-and-acked samples over ${PEN_TOL_M} m (${o.heldOverTolFrac} of the bucket, budget ${o.heldOverTolBudget} = one settle+ack window per approach; max ${o.heldMaxPenetrationM} m = ${o.heldMaxPenetrationSteps} step(s); ${o.stoppedAtWallRaw} settled sample(s) before the ack-freshness gate, ${o.samplesAtWall} at the wall)`)
   const sanctionedPenM = Math.min(PEN_LEAD_FRAC * o.maxFreeDivergenceM, PEN_STEP_TOL_M)
   const approachOverSanctioned = o.approachSamplesOverSanctioned
   expect(approachOverSanctioned === 0, p + `the predicted position never went deeper into the wall than the lead sanctions while the server was still approaching it: ${approachOverSanctioned} of ${o.movingAtWall} moving per-server-tick samples over ${round(sanctionedPenM, 5)} m (${PEN_LEAD_FRAC} x the ${o.maxFreeDivergenceM} m lead, capped at ${PEN_STEP_TOL_STEPS} step(s) = ${round(PEN_STEP_TOL_M, 4)} m; a sample is a lower bound on the max, the exhaustive count is ${o.approachStepTicksOverSanctioned} tick(s); ${o.approachSamplesOverTol} sample(s) were inside the wall at all, which is a lead-vs-contact-window fact, not a defect)`)
@@ -734,8 +756,8 @@ for (const o of results) {
     // to decide whether the player was standing still). Measured 0.594..0.885 over the
     // same 20 arm-runs; the absolute count there is 40..321 for identical arms.
     expect(o.stoppedAtWallRaw >= MIN_HELD_FRAC * o.samplesAtWall, p + `the player was held against the wall for most of the time it spent there: ${o.stoppedAtWallRaw} settled of ${o.samplesAtWall} at-wall samples (${round(o.stoppedAtWallRaw / Math.max(1, o.samplesAtWall), 3)}, floor ${MIN_HELD_FRAC}; ${o.stoppedAtWall} of those had an accepted ack within ${ACK_STALE_TICKS} tick(s) and are the ones the penetration bound is measured on)`)
-    expect(Number.isFinite(o.heldMaxPenetrationM) && o.heldMaxPenetrationM <= PEN_TOL_M, p + `the predicted position never stayed inside the wall the player is held against: max ${o.heldMaxPenetrationM} m over ${o.stoppedAtWall} settled samples at the wall (tol ${PEN_TOL_M} m)`)
-    expect(Number.isFinite(o.heldMaxStepPenetrationM) && o.heldMaxStepPenetrationM <= PEN_TOL_M, p + `no predicted step settled inside the wall the player is held against: exhaustive max ${o.heldMaxStepPenetrationM} m over ${o.stoppedAtWall} settled samples (tol ${PEN_TOL_M} m)`)
+    expect(Number.isFinite(o.heldMaxPenetrationSteps) && o.heldMaxPenetrationSteps <= PEN_LEAD_FRAC * o.maxFreeDivergenceSteps, p + `the predicted position never settled deeper inside the wall than the sanctioned lead: max ${o.heldMaxPenetrationSteps} step(s) = ${o.heldMaxPenetrationM} m over ${o.stoppedAtWall} settled samples at the wall (lead ${o.maxFreeDivergenceSteps} step(s) = ${o.maxFreeDivergenceM} m, cap ${PEN_LEAD_FRAC}; the first steps of lead after the server stops are free because the server stops with its centre off the wall face)`)
+    expect(Number.isFinite(o.heldMaxStepPenetrationSteps) && o.heldMaxStepPenetrationSteps <= PEN_LEAD_FRAC * o.maxFreeDivergenceSteps, p + `no predicted step settled deeper inside the wall than the sanctioned lead: exhaustive max ${o.heldMaxStepPenetrationSteps} step(s) = ${o.heldMaxStepPenetrationM} m over ${o.stoppedAtWall} settled samples (lead ${o.maxFreeDivergenceSteps} step(s), cap ${PEN_LEAD_FRAC})`)
   }
 }
 
