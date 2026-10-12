@@ -49,6 +49,37 @@ export class NoGroundHeightError extends SurfaceSolveError {
   }
 }
 
+export class SolveToleranceError extends RangeError {
+  constructor(toleranceM) {
+    super(`solveSurfaceY toleranceM is the convergence target in metres and must be a finite number greater than 0; got ${String(toleranceM)}`)
+    this.name = 'SolveToleranceError'
+    this.toleranceM = toleranceM
+  }
+}
+
+export class SurfaceSolveArgumentError extends RangeError {
+  constructor(fnName, arg, value, predicate) {
+    super(`${fnName} requires ${arg} to ${predicate}; the call is refused before any height is sampled, got ${describeArgumentValue(value)}`)
+    this.name = 'SurfaceSolveArgumentError'
+    this.fnName = fnName
+    this.arg = arg
+    this.value = value
+    this.predicate = predicate
+  }
+}
+
+function describeArgumentValue(v) {
+  return typeof v === 'number' ? String(v) : `${typeof v} ${String(v)}`
+}
+
+function argumentIsFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+function requireArgument(fnName, arg, value, predicate, holds) {
+  if (!holds) throw new SurfaceSolveArgumentError(fnName, arg, value, predicate)
+}
+
 function groundFailureCause(e) {
   if (e instanceof ChartRangeError) return 'beyond the chart radius'
   if (e instanceof NoGroundHeightError) return 'the height sampler returned no finite height'
@@ -58,6 +89,10 @@ function groundFailureCause(e) {
 export const NO_GROUND_HEIGHT = null
 
 export function isNoGroundHeight(v) { return v === NO_GROUND_HEIGHT }
+
+export function isSurfaceRootWithin(residualM, toleranceM) {
+  return Number.isFinite(residualM) && Number.isFinite(toleranceM) && toleranceM > 0 && Math.abs(residualM) <= toleranceM
+}
 
 export function guardedGroundHeight(where, heightFn) {
   return (x, z, ...rest) => {
@@ -148,6 +183,9 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     return renderDirAt(x, renderY, z)
   }
   function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M, yGuess) {
+    requireArgument('solveSurfaceY', 'x', x, 'be a finite number', argumentIsFiniteNumber(x))
+    requireArgument('solveSurfaceY', 'z', z, 'be a finite number', argumentIsFiniteNumber(z))
+    if (!Number.isFinite(toleranceM) || toleranceM <= 0) throw new SolveToleranceError(toleranceM)
     const r2 = x * x + z * z
     if (Number.isFinite(radius) && r2 >= radius * radius) throw new ChartRangeError(x, z, radius)
     let y = Number.isFinite(yGuess) ? yGuess : renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
@@ -162,7 +200,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
       const yF = renderYOnSphere(r2, h)
       const g = yF - y
       lastG = g
-      if (Math.abs(g) <= toleranceM) return yF
+      if (isSurfaceRootWithin(g, toleranceM)) return y
       if (g > 0) { if (y > belowSurface) { belowSurface = y; gBelow = g } }
       else if (y < aboveSurface) { aboveSurface = y; gAbove = g }
       if (belowSurface > -Infinity && aboveSurface < Infinity && aboveSurface - belowSurface <= toleranceM) {
@@ -193,6 +231,8 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   const memoFailure = new Array(GROUND_MEMO_SLOTS).fill(null)
   const sampleHeightAtDir = (d) => sampler.heightAt(d)
   function groundHeightLocal(x, z, yGuess) {
+    requireArgument('groundHeightLocal', 'x', x, 'be a finite number', argumentIsFiniteNumber(x))
+    requireArgument('groundHeightLocal', 'z', z, 'be a finite number', argumentIsFiniteNumber(z))
     const cellX = Math.floor(x * GROUND_MEMO_CELLS_PER_M)
     const cellZ = Math.floor(z * GROUND_MEMO_CELLS_PER_M)
     const slot = (Math.imul(cellX, GROUND_MEMO_HASH_X) ^ Math.imul(cellZ, GROUND_MEMO_HASH_Z)) & (GROUND_MEMO_SLOTS - 1)
