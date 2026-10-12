@@ -1,6 +1,7 @@
 import { unpackGroundNormal } from '../shared/groundNormalWire.js'
 import { unpackWallPlanes } from '../shared/wallPlaneWire.js'
 import { reexpressPlayerRecord, reexpressEntityRecord } from './reexpressRecords.js'
+import { unpackReducedPlayerPose, makeReducedPlayerPose, isReducedPlayerPose, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, REDUCED_HEIGHT_ABSENT } from '../netcode/SnapshotBinFormat.js'
 
 function copyWallPlanes(src, dst) {
   dst.length = src.length
@@ -10,9 +11,6 @@ function copyWallPlanes(src, dst) {
 const TAU = 2 * Math.PI
 const QSCALE = 511 * Math.SQRT2
 const Q1 = 100
-const PLAYER_TIER_FULL = 0
-const PLAYER_TIER_REDUCED = 1
-const REDUCED_PLAYER_RECORD_LENGTH = 5
 
 function unpackQuat(packed, out) {
   const maxIdx = (packed >>> 30) & 0x3
@@ -44,21 +42,22 @@ function unpackBinRecord(buf) {
 }
 
 function makePlayerSlot() {
-  return { id: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: -1, groundNormal: [0, 1, 0], tier: 0 }
+  return { id: 0, position: [0, REDUCED_HEIGHT_ABSENT, 0], heightAbsent: true, rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: -1, groundNormal: [0, 1, 0], tier: 0 }
 }
 
+const _reducedPose = makeReducedPlayerPose()
+
 function fillPlayerArrReduced(s, p) {
-  s.id = p[0]
-  s.position[0] = p[1] / Q1
-  if (s.position[1] === undefined) s.position[1] = 0
-  s.position[2] = p[2] / Q1
-  s.lookYaw = (p[3] || 0) / 256 * TAU
+  const pose = unpackReducedPlayerPose(p, _reducedPose)
+  s.id = pose.id
+  s.position[0] = pose.x
+  s.position[2] = pose.z
+  s.lookYaw = pose.yawN / 256 * TAU
   s.tier = PLAYER_TIER_REDUCED
 }
 
 function fillAnyPlayerArr(s, p) {
-  const isReducedTierRecord = p.length === REDUCED_PLAYER_RECORD_LENGTH && p[4] === PLAYER_TIER_REDUCED
-  if (isReducedTierRecord) fillPlayerArrReduced(s, p)
+  if (isReducedPlayerPose(p)) fillPlayerArrReduced(s, p)
   else { fillPlayerArr(s, p); s.tier = PLAYER_TIER_FULL }
 }
 
@@ -78,6 +77,7 @@ function fillPlayerArr(s, p) {
   s.id = p[0]
   const bin = unpackPlayerBin(p[1])
   s.position[0] = bin.px; s.position[1] = bin.py; s.position[2] = bin.pz
+  s.heightAbsent = false
   unpackQuat(bin.qrot, s.rotation)
   s.velocity[0] = bin.vx; s.velocity[1] = bin.vy; s.velocity[2] = bin.vz
   s.onGround = p[2] === 1; s.health = p[3]; s.crouch = p[4] || 0
@@ -99,6 +99,7 @@ function fillPlayerObj(s, p) {
   const pos = p.position; const rot = p.rotation; const vel = p.velocity
   if (pos) { s.position[0] = pos[0]; s.position[1] = pos[1]; s.position[2] = pos[2] }
   else { s.position[0] = 0; s.position[1] = 0; s.position[2] = 0 }
+  s.heightAbsent = false
   if (rot) { s.rotation[0] = rot[0]; s.rotation[1] = rot[1]; s.rotation[2] = rot[2]; s.rotation[3] = rot[3] }
   else { s.rotation[0] = 0; s.rotation[1] = 0; s.rotation[2] = 0; s.rotation[3] = 1 }
   if (vel) { s.velocity[0] = vel[0]; s.velocity[1] = vel[1]; s.velocity[2] = vel[2] }
@@ -169,6 +170,7 @@ function copyPlayerStateInto(dst, s) {
   if (!dst.rotation) dst.rotation = [0, 0, 0, 1]
   if (!dst.velocity) dst.velocity = [0, 0, 0]
   dst.position[0] = s.position[0]; dst.position[1] = s.position[1]; dst.position[2] = s.position[2]
+  dst.heightAbsent = s.heightAbsent === true
   dst.rotation[0] = s.rotation[0]; dst.rotation[1] = s.rotation[1]; dst.rotation[2] = s.rotation[2]; dst.rotation[3] = s.rotation[3]
   dst.velocity[0] = s.velocity[0]; dst.velocity[1] = s.velocity[1]; dst.velocity[2] = s.velocity[2]
   dst.onGround = s.onGround; dst.health = s.health; dst.inputSequence = s.inputSequence; dst.crouch = s.crouch

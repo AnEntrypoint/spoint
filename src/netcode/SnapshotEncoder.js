@@ -2,7 +2,8 @@ import { getComponentSchema, encodeCustomFields, decodeCustomFields } from '../p
 import {
   BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI32Pos, clampU16Scale,
   packBinRecord, unpackBinRecord, packQuat, unpackQuat,
-  PLAYER_BIN_RECORD_BYTES, packPlayerBinRecord, unpackPlayerBinRecord
+  PLAYER_BIN_RECORD_BYTES, packPlayerBinRecord, unpackPlayerBinRecord,
+  PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, packReducedPlayerPose
 } from './SnapshotBinFormat.js'
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
@@ -10,7 +11,7 @@ import { packWallPlanes, unpackWallPlanes } from '../shared/wallPlaneWire.js'
 import { inputDepthFromWire, hasInputDepth } from '../shared/inputDepthWire.js'
 import { SNAPSHOT_ENTITY_ENC_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
-export { unpackBinRecord, packQuat, unpackQuat }
+export { unpackBinRecord, packQuat, unpackQuat, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED }
 
 const TAU = 2 * Math.PI, HALF_PI = Math.PI / 2
 const VEL_ZERO = [0,0,0]
@@ -57,13 +58,10 @@ export const PLAYER_LOD_FULL_COUNT = 30
 export const PLAYER_LOD_REDUCED2 = 120 * 120
 export const PLAYER_LOD_REDUCED_HZ = 5
 
-export const PLAYER_TIER_FULL = 0
-export const PLAYER_TIER_REDUCED = 1
-
 function encodeReducedPlayer(p) {
   const [px, , pz] = p.position
   const yawN = Math.round(((p.lookYaw || 0) % TAU + TAU) % TAU / TAU * 256) & 0xFF
-  return [p.id, clampI32Pos(px), clampI32Pos(pz), yawN, PLAYER_TIER_REDUCED]
+  return packReducedPlayerPose(p.id, px, pz, yawN)
 }
 
 function dist2(ax, ay, az, bx, by, bz) { const dx = ax-bx, dy = ay-by, dz = az-bz; return dx*dx+dy*dy+dz*dz }
@@ -194,40 +192,6 @@ export class TombstoneLog {
     }
     return out
   }
-}
-
-const ACKED_BASELINE_HISTORY = 64
-
-export class AckedBaseline {
-  constructor() {
-    this._history = new Map()
-    this._order = []
-    this._ackedTick = 0
-    this._ackedMap = new Map()
-  }
-
-  recordSent(tick, entityMap) {
-    if (this._history.has(tick)) return
-    this._history.set(tick, entityMap)
-    this._order.push(tick)
-    while (this._order.length > ACKED_BASELINE_HISTORY) {
-      const evicted = this._order.shift()
-      this._history.delete(evicted)
-    }
-  }
-
-  applyAck(ackTick) {
-    if (!ackTick || ackTick <= this._ackedTick) return false
-    const map = this._history.get(ackTick)
-    if (!map) return false
-    this._ackedMap = map
-    this._ackedTick = ackTick
-    while (this._order.length && this._order[0] <= ackTick) this._history.delete(this._order.shift())
-    return true
-  }
-
-  baseline() { return this._ackedMap }
-  ackedTick() { return this._ackedTick }
 }
 
 const _binA = {}, _binB = {}

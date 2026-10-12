@@ -85,13 +85,15 @@ export function createSceneGraph(scene, floatingOrigin) {
       const lc = p.id === lid ? getLocalState() : null
       const fo = node.feetOffset
       const src = lc ? (lc.position || p.position) : p.position
-      let px = src[0], py = src[1] - fo, pz = src[2]
+      const heightAbsent = lc ? false : p.heightAbsent === true
+      let px = src[0], py = heightAbsent ? 0 : src[1] - fo, pz = src[2]
       if (floatingOrigin) {
         _toRenderTmp.x = px; _toRenderTmp.y = py; _toRenderTmp.z = pz
         const r = floatingOrigin.toRender(_toRenderTmp); px = r.x; py = r.y; pz = r.z
       }
       const t = node.target
-      t.x = px; t.y = py; t.z = pz
+      t.x = px; t.z = pz
+      if (!heightAbsent) t.y = py
       t.vx = (lc || p).velocity?.[0] || 0; t.vy = (lc || p).velocity?.[1] || 0; t.vz = (lc || p).velocity?.[2] || 0
     }
   }

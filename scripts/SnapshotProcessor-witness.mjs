@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { makeReducedPlayerPose, unpackReducedPlayerPose } from '../src/netcode/SnapshotBinFormat.js';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WITNESS = 'scripts/SnapshotProcessor-witness.mjs';
@@ -165,8 +166,17 @@ const scenario = (SnapshotProcessor, SnapshotEncoder, encodeSelfBlock) => {
       near(entity(12).position, [4, 0, 6]),
       exact([entity(12).model, entity(12).bodyType, entity(12).custom], ['pillar', 'static', null]),
     ));
-  claim('reduced-tier record for player 3 joins at tier 1 with its position', () =>
-    all(exact(player(3).tier, 1), near(player(3).position, [15, 0, -2])));
+  claim('reduced-tier record for player 3 joins at tier 1 with its horizontal pose and no height', () =>
+    all(
+      exact(player(3).tier, 1),
+      near([player(3).position[0], player(3).position[2]], [15, -2]),
+      exact(player(3).heightAbsent, true),
+      exact(Number.isNaN(player(3).position[1]), true),
+    ));
+  claim('the reduced pose type names its fields and carries no height', () => {
+    const pose = unpackReducedPlayerPose(P3_REDUCED, makeReducedPlayerPose());
+    return all(exact(Object.keys(pose).join(','), 'id,x,z,yawN,tier'), near([pose.x, pose.z], [15, -2]), exact('y' in pose, false));
+  });
   claim('joins and adds fire in arrival order across the frames so far', () => exact([events.joined, events.added], [[1, 2, 4, 3], [10, 11, 12]]));
 
   for (let call = 5; call <= 44; call++) {
@@ -198,6 +208,11 @@ const scenario = (SnapshotProcessor, SnapshotEncoder, encodeSelfBlock) => {
   claim('removePlayer drops only the named player', () => all(absent(player(1)), exact(proc.getAllPlayerStates().size, 1)));
   proc.clear();
   claim('clear empties the player and entity maps', () => exact([proc.getAllPlayerStates().size, proc.getAllEntities().size], [0, 0]));
+  const P5_FULL = { id: 5, position: [7, 5, 9], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: true, health: 100, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0 };
+  proc.processSnapshot(frame(SnapshotEncoder, 200, [P1_MOVED], [E12], [P5_FULL]), 200, 1);
+  proc.processSnapshot(frame(SnapshotEncoder, 201, [P1_MOVED], [E12], [[5, 700, 900, 0, 1]]), 201, 1);
+  claim('a reduced record keeps the height a full-tier record supplied', () =>
+    all(near(player(5).position, [7, 5, 9]), exact(player(5).heightAbsent, false), exact(player(5).tier, 1)));
   claim('no full-snapshot request was raised', () => exact(events.full, 0));
 };
 
