@@ -197,3 +197,57 @@ on `gpulock`; within one run the two arms ran at 49.1 and 49.3 fps (run ab3) and
   `ShadowPipeline.js` widens that band by the live shadow reach
   `SHADOW_REDRAW_CASTER_HEIGHT_M / tan(sun elevation)`, derived from the light offset rather than a
   flat constant, so at a horizon sun the reach is unbounded and the skip turns itself off.
+
+## 15. Cascade selection belongs on the sun (counted, AMD iGPU, WebGPU)
+
+Rows below are counted work units and pixel deltas, never timings.
+`[STAT:count] [INSTR:.gm/scratch/shadow-player-49.mjs] [ADAPTER:AMD iGPU] [RES:1280x720] [LANDED:2704e7b3]`
+
+Adapter pinned with `--use-adapter-luid=0,63299` and asserted against `window.__rendererInfo`
+(`amd rdna-2`); knobs `qualityGovernorOff=true`, `dprOff=true` (both read back true). Preset High,
+`cascadeCount` 2, extents `[60, 192]`, `mapSize` 1024, world `tps-game`, map sillos. CONTENDED box:
+12+ sibling lanes queue on `gpulock` and the run that produced these rows lost the lock mid-flight
+(`gpulock: ... no longer holds the GPU lock`), so every rate here is marked contended.
+
+- Measured in the live page (`window.__shadowPipeline.lights`): intensities `[1.5667, 0]`. Cascade 1
+  is a `DirectionalLight(0xffffff, 0)` -- it owns a shadow map and a shadow camera and no light --
+  and three's node lighting folds a shadow into its own light at
+  `node_modules/three/src/nodes/lighting/AnalyticLightNode.js` `setupShadow`
+  (`shadowColorNode = this.colorNode.mul(shadowNode)`), reading `light.shadow.shadowNode` when it is
+  set, so a selection weighted inside cascade i is multiplied by zero light and darkens nothing.
+- The invalidation does NOT starve the sun's map. Over 741 walking frames, cascade 0 was left dirty by
+  `forceUpdate` on 741/741 and re-rendered on 741/741; the local player's meshes were drawn into it 429
+  times and into cascade 1's map 16 times, and the player was in the mover list on 24/741 frames.
+  Cascade 1 was dirty on 24/741 (3.2%) -- the band rule already skips it. Earlier runs of the same arm
+  agree: 1250 frames `[1250, 232]` with player shadow renders `[849, 224]`; 859 frames `[859, 182]`,
+  `[583, 173]`; 957 frames, player in movers 60.
+- Shipped cost of the inert cascades is small while the sun is high: cascade 1 took 430 shadow draws
+  over those 741 frames (0.58/frame) against cascade 0's 13055 (17.6/frame). The 24.2 draws/frame and
+  1.05 Mtexels/frame figure quoted in AGENTS.md is the DIRTY-ALL ceiling (legacy arm: ~21 draws/frame
+  for each cascade, 49/49 frames), and `_casterShadowReachM` is unbounded at a horizon sun, so that
+  ceiling is what a dawn or dusk frame pays continuously.
+- The player's shadow is VISIBLE, not merely rendered: toggling the local player's `castShadow`
+  changes a localized set of blocks above the same-rule floor and restoring it returns the region to
+  the floor. A whole-frame statistic cannot see it -- the settled scene animates (bots, time of day,
+  veg wind) at a block mean of tens of codes -- so the comparison is per-block, in a crop, and against
+  the same-rule floor measured with the same spacing.
+- FAR FIELD: UNMEASURED. Three arms in one page load, each toggling two parked casters (23 m and
+  76.5 m from the eye, ~8 m radius) with every cascade dirtied, 8 shots 0.7 s apart, symmetric so both
+  cross pairs (on1b/off1a, on2b/off2a) must clear all four same-rule floors: `null` (cascade 0 forced
+  at every distance) attributes 8 blocks at the NEAR caster's shadow, strongest cross-minus-floor 13.8
+  (32 px blocks); `ff` (shipped edges 60/192) attributes 0; `c1` (cascade 1 forced at every distance)
+  attributes 0. The near control clears its own floor by only about 10%, so this instrument sits at
+  its noise floor and neither "the far shadow appears" nor "it does not" is decidable from these runs.
+  Whole-frame mean luminance is stable in all three arms (112.6 / 113.6 / 114.6, on-minus-off within
+  +-0.15 of 255), so forcing cascade 1 does not darken the frame wholesale.
+- Cost of the fix: none that is countable. It changes no invalidation, no pass and no draw: the shadow
+  passes and draws per cascade are the same before and after (cascade 0 ~17.6 and cascade 1 ~0.6
+  shadow draws/frame walking). The fold is branchless, so a fragment now samples all n cascade maps
+  instead of one (n-1 extra depth fetches per lit fragment): a real cost, UNMEASURED here because no
+  GPU-pass instrument on this box is valid (s0).
+- Open question this section records and does not answer: why `shadow(cascade1)` does not reproduce,
+  at 23 m, the shadow `shadow(cascade0)` produces there. Cascade 1's map is rendered (18 draws per
+  pass), its light direction and target are set per cascade (`ShadowPipeline.js _updateCascade`), and
+  its box (+-192 m) contains the caster, so the next instrument should read the map, not the frame:
+  a probe that samples the depth texture, or a static world with no bots so the floor falls to a few
+  codes and a 10% margin becomes decisive.
