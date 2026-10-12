@@ -1404,6 +1404,8 @@ export class ModelPool extends Emitter {
     this._useOcclusionQuery = opts.useOcclusionQuery === true;
     this._occlusionTier = null;
     this._occlusionMinCandidates = opts.occlusionMinCandidates ?? 64;
+    this._occlusionCandidateCount = 0;
+    this._occlusionSkippedBelowMin = 0;
     this._mergeStaticMaterials = opts.mergeStaticMaterials !== false;
     this._textureArrayAtlas = opts.textureArrayAtlas === true;
     this._impostorPx = opts.impostorPx ?? 14;
@@ -1805,7 +1807,11 @@ export class ModelPool extends Emitter {
     const tier = this._getOcclusionTier();
     if (!tier) return;
     const candidates = this._occlusionCandidates;
-    if (!candidates || candidates.length < this._occlusionMinCandidates) return;
+    const n = candidates ? candidates.length : 0;
+    this._occlusionCandidateCount = n;
+    // The gate is a cost heuristic, but a silent return made "the cull never ran"
+    // and "the cull ran and found nothing" the same observation, so count it.
+    if (!candidates || n < this._occlusionMinCandidates) { this._occlusionSkippedBelowMin++; return; }
     tier.runQueries(this.camera, candidates);
   }
 
@@ -1813,14 +1819,18 @@ export class ModelPool extends Emitter {
     if (!this._useOcclusionQuery) return null;
     if (this.renderer && this.renderer.isWebGPURenderer && !this._occlusionTier && !this._webgpuTierLoading) {
       this._webgpuTierLoading = true;
-      import('./webgpu-hiz-tier.js').then(({ WebGpuHizTier }) => {
+      import('./webgpu-hiz-tier.js').then(async ({ WebGpuHizTier }) => {
         this._webgpuTierLoading = false;
         if (!this._useOcclusionQuery || this._occlusionTier) return;
         const gpuTier = new WebGpuHizTier(this.renderer, { minCandidates: this._occlusionMinCandidates });
-        if (gpuTier.supported()) {
-          this._occlusionTier = gpuTier;
-        } else {
-        }
+        if (!gpuTier.supported()) return;
+        // A WebGPU validation error settles on a microtask, so a tier installed
+        // without awaiting this would dispatch one frame on an invalid pipeline and
+        // report every entity visible. On refusal this throws, and the catch below
+        // leaves `_occlusionTier` null rather than installing a dead tier.
+        await gpuTier.ensurePipelinesValidated();
+        if (!this._useOcclusionQuery || this._occlusionTier) return;
+        this._occlusionTier = gpuTier;
       }).catch((err) => {
         this._webgpuTierLoading = false;
         if (typeof console !== 'undefined') console.warn('[model-pool] webgpu-hiz-tier.js dynamic import failed:', err);
@@ -2332,6 +2342,10 @@ export class ModelPool extends Emitter {
       if (this._lodUnloadManager) stats.unloadManager = this._lodUnloadManager.getStats();
       if (this._occlusionTier) stats.occlusion = this._occlusionTier.stats;
     }
+    // Reported every call: a cull that never ran is a number a caller can see,
+    // not a branch nobody can reach from outside.
+    stats.occlusionCandidates = this._occlusionCandidateCount || 0;
+    stats.occlusionSkippedBelowMin = this._occlusionSkippedBelowMin || 0;
     return stats;
   }
 

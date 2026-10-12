@@ -68,6 +68,22 @@ const HARNESS = [
   '  return new ClusterLodMesh(geo, new THREE.MeshBasicMaterial(), clusterSet, { lod0Count: LOD0_COUNT });',
   '}',
   '',
+  'function makeFrameMesh(clusterSet) {',
+  '  const idx = new THREE.BufferAttribute(new Uint32Array(LOD0_COUNT + COARSE_COUNT), 1);',
+  '  const geo = new THREE.BufferGeometry();',
+  '  const pos = new Float32Array(3 * 64);',
+  '  const cl = clusterSet.clusters;',
+  '  for (let i = 0; i < 64; i++) {',
+  '    const c = cl[i % cl.length];',
+  '    pos[i * 3] = (c.aabb[0] + c.aabb[3]) * 0.5;',
+  '    pos[i * 3 + 1] = (c.aabb[1] + c.aabb[4]) * 0.5;',
+  '    pos[i * 3 + 2] = (c.aabb[2] + c.aabb[5]) * 0.5;',
+  '  }',
+  '  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));',
+  '  geo.setIndex(idx);',
+  '  return new ClusterLodMesh(geo, new THREE.MeshBasicMaterial(), clusterSet, { lod0Count: LOD0_COUNT });',
+  '}',
+  '',
   'function makeCamera(cx, away) {',
   '  const cam = new THREE.PerspectiveCamera(60, W / H, 0.1, 100);',
   '  cam.coordinateSystem = THREE.WebGPUCoordinateSystem;',
@@ -224,7 +240,9 @@ const HARNESS = [
   '    };',
   '  }',
   '',
-  '  // S1: no pyramid at all (production state: buildHzb has no caller).',
+  '  // S1: no pyramid at all, so the cluster cull has no occluder depth this frame.',
+  '  // That buildHzb has a production caller is no longer a comment: P11 asserts it',
+  '  // against a real rendered frame.',
   '  // S2: pyramid present but cleared to far, so nothing is occluded.',
   '  // Both must reproduce the CPU set exactly, over a camera sweep that crosses',
   '  // frustum edges and LOD hysteresis thresholds in both directions.',
@@ -345,6 +363,141 @@ const HARNESS = [
   '  await device.destroy();',
   '  return out;',
   '};',
+  // Depth24Plus cannot be copied to a buffer, so the only way to see the canvas depth
+  // is to read it as texture_depth_2d and reduce it in a shader.
+  'const DEPTH_MINMAX_WGSL = [',
+  '  "@group(0) @binding(0) var srcDepth : texture_depth_2d;",',
+  '  "@group(0) @binding(1) var<storage, read_write> mm : array<atomic<u32>>;",',
+  '  "@compute @workgroup_size(8, 8, 1)",',
+  '  "fn main(@builtin(global_invocation_id) gid : vec3<u32>) {",',
+  '  "  let dims = textureDimensions(srcDepth);",',
+  '  "  if (gid.x >= dims.x || gid.y >= dims.y) { return; }",',
+  '  "  let b = bitcast<u32>(textureLoad(srcDepth, vec2<i32>(gid.xy), 0));",',
+  '  "  atomicMin(&mm[0], b);",',
+  '  "  atomicMax(&mm[1], b);",',
+  '  "}",',
+  '].join("\\n");',
+  '',
+  'async function readDepthMinMax(device, view, w, h) {',
+  '  const mod = device.createShaderModule({ code: DEPTH_MINMAX_WGSL });',
+  '  const pipe = device.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "main" } });',
+  '  const buf = device.createBuffer({ size: 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });',
+  '  device.queue.writeBuffer(buf, 0, new Uint32Array([0xffffffff, 0]));',
+  '  const bg = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: view }, { binding: 1, resource: { buffer: buf } }] });',
+  '  const enc = device.createCommandEncoder();',
+  '  const pass = enc.beginComputePass();',
+  '  pass.setPipeline(pipe); pass.setBindGroup(0, bg);',
+  '  pass.dispatchWorkgroups(Math.ceil(w / 8), Math.ceil(h / 8), 1);',
+  '  pass.end();',
+  '  const dst = device.createBuffer({ size: 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });',
+  '  enc.copyBufferToBuffer(buf, 0, dst, 0, 8);',
+  '  device.queue.submit([enc.finish()]);',
+  '  await dst.mapAsync(GPUMapMode.READ);',
+  '  const u = new Uint32Array(dst.getMappedRange(0, 8).slice(0));',
+  '  dst.unmap(); dst.destroy(); buf.destroy();',
+  '  const f = new Float32Array(u.buffer);',
+  '  return { min: f[0], max: f[1], rawMin: u[0], rawMax: u[1] };',
+  '}',
+  '',
+  'window.__hizFrameParity = async function (antialias) {',
+  '  const out = { errors: [], checks: {}, frames: 0 };',
+  '  const raf = () => new Promise((r) => requestAnimationFrame(r));',
+  '  const canvas = document.createElement("canvas");',
+  '  canvas.width = W; canvas.height = H;',
+  '  document.body.appendChild(canvas);',
+  // The shipped app renders MSAA, whose depth attachment is a `texture_depth_2d`
+  // that cannot be bound: antialias:true is the configuration the app is in.
+  '  const renderer = new THREE.WebGPURenderer({ canvas, antialias: antialias === true });',
+  '  await renderer.init();',
+  '  renderer.setSize(W, H, false);',
+  '  const device = renderer.backend.device;',
+  '  device.onuncapturederror = (e) => {',
+  '    const m = e.error && e.error.message ? e.error.message : String(e.error);',
+  '    if (out.errors.length < 8) out.errors.push(m.split("\\n")[0]);',
+  '  };',
+  '',
+  '  const clusterSet = buildClusterSet();',
+  '  const mesh = makeFrameMesh(clusterSet);',
+  '  const occluder = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0xff0000 }));',
+  '  occluder.position.set(0, 0, -3);',
+  '  const scene = new THREE.Scene();',
+  '  scene.add(occluder);',
+  '  scene.add(mesh);',
+  '  const cam = makeCamera(0, false);',
+  '  const ent = { root: mesh };',
+  '',
+  '  const tier = new WebGpuHizTier(renderer, {});',
+  '  out.checks.supported = tier.supported();',
+  '  await tier.ensurePipelinesValidated();',
+  '',
+  '  async function waitReadback(prev, frames) {',
+  '    for (let i = 0; i < frames; i++) {',
+  '      await raf();',
+  '      if (tier.stats.entityReadbacks > prev) return true;',
+  '    }',
+  '    return false;',
+  '  }',
+  '',
+  '  await renderer.renderAsync(scene, cam);',
+  '  let prev = tier.stats.entityReadbacks;',
+  '  tier.runQueries(cam, [ent]);',
+  '  out.checks.readbackLanded = await waitReadback(prev, 40);',
+  '  out.checks.pyramidsBuilt = tier.stats.pyramidsBuilt;',
+  '  out.checks.hzbLevels = tier._hzbLevels;',
+  '  out.checks.entityTested = tier.stats.entityTested;',
+  '  out.checks.entityOccluded = tier.stats.entityOccluded;',
+  '  out.checks.occludedWithOccluder = tier.isOccluded(ent);',
+  '  out.checks.depthSamples = tier._depthSamples;',
+  // A multisampled depth texture cannot be read back by this probe's reduction
+  // (it binds texture_depth_2d); the MSAA frame proves itself on verdicts instead.
+  '  if (tier._depthSamples === 1) {',
+  '    try { out.checks.depthWithOccluder = await readDepthMinMax(device, tier._sceneDepthView(), W, H); }',
+  '    catch (e) { out.checks.depthError = String((e && e.message) || e); }',
+  '  } else { out.checks.depthReadSkippedMultisampled = true; }',
+  '',
+  '  const compactAttr = tier.attachIndirect(mesh);',
+  '  out.checks.compactMeshIsCompact = mesh._compact === true;',
+  '  out.checks.compactRefused = compactAttr === null && !mesh.geometry.indirect;',
+  '  out.checks.indirectAttachRefused = tier.stats.indirectAttachRefused;',
+  '',
+  // Pop-out: the pyramid is one frame stale, so removing the occluder must stop
+  // hiding the entity within a bounded number of frames, not never.
+  '  scene.remove(occluder);',
+  '  let popoutFrames = -1;',
+  '  for (let f = 1; f <= 20 && popoutFrames < 0; f++) {',
+  '    await renderer.renderAsync(scene, cam);',
+  '    prev = tier.stats.entityReadbacks;',
+  '    tier.runQueries(cam, [ent]);',
+  '    out.frames++;',
+  '    for (let k = 0; k < 10 && tier.stats.entityReadbacks === prev; k++) await raf();',
+  '    if (f === 1 && tier._depthSamples === 1) { try { out.checks.depthAfterRemoval = await readDepthMinMax(device, tier._sceneDepthView(), W, H); } catch (e) { out.checks.depthError2 = String((e && e.message) || e); } }',
+  '    if (f === 1) out.checks.occludedFrame1 = tier.isOccluded(ent);',
+  '    if (!tier.isOccluded(ent)) popoutFrames = f;',
+  '  }',
+  '  out.checks.popoutFrames = popoutFrames;',
+  '  out.checks.occludedWithoutOccluder = tier.isOccluded(ent);',
+  '',
+  // Indirect attachment is only legal on a mesh whose index buffer still holds the
+  // whole LOD0+coarse layout; on that mesh the cull's output has to be consumed,
+  // i.e. written into the indirect buffer the attached attribute points at.
+  '  const ncMesh = makeFrameMesh(clusterSet);',
+  '  ncMesh._compact = false;',
+  '  const ncAttr = tier.attachIndirect(ncMesh);',
+  '  out.checks.nonCompactAttached = !!ncAttr && ncMesh.geometry.indirect === ncAttr;',
+  '  out.checks.nonCompactOffsetCount = Array.isArray(ncMesh.geometry.indirectOffset) ? ncMesh.geometry.indirectOffset.length : -1;',
+  '  out.checks.nonCompactExpectedOffsets = clusterSet.clusters.length + 1;',
+  '  tier.cullAndBuildIndirect(ncMesh, cam);',
+  '  const ncRec = tier._meshBuffers.get(ncMesh);',
+  '  const ncCnt = await readU32(device, ncRec.countBuf, 4);',
+  '  out.checks.nonCompactDraws = ncCnt[0];',
+  '  out.checks.indirectAttached = tier.stats.indirectAttached;',
+  '  out.checks.tierStats = JSON.parse(JSON.stringify(tier.stats));',
+  '',
+  '  tier.dispose();',
+  '  renderer.dispose();',
+  '  canvas.remove();',
+  '  return out;',
+  '};',
   'window.__hizReady = true;',
 ].join('\n');
 
@@ -426,6 +579,20 @@ async function main() {
     }
     out = await page.evaluate(() => window.__hizParity());
     out.pageErrors = pageErrors;
+    try {
+      out.frame = await page.evaluate(() => window.__hizFrameParity());
+    } catch (e) {
+      const st = String((e && e.stack) || '').split('\n').slice(0, 8).join(' | ');
+      out.frame = { fatal: String((e && e.message) || e), stack: st, checks: {}, errors: [] };
+    }
+    // Same drive, MSAA on: the shipped app renders 4x multisampled, whose depth
+    // attachment cannot bind as texture_depth_2d.
+    try {
+      out.frameMsaa = await page.evaluate(() => window.__hizFrameParity(true));
+    } catch (e) {
+      const st = String((e && e.stack) || '').split('\n').slice(0, 8).join(' | ');
+      out.frameMsaa = { fatal: String((e && e.message) || e), stack: st, checks: {}, errors: [] };
+    }
   } finally {
     await browser.close();
     server.close();
@@ -465,6 +632,51 @@ async function main() {
     `mustCull=${s4.mustCull} missedOcclusion=${s4.missedOcclusion} ambiguous=${s4.ambiguous} occludedBeyondCpu=${s4.occludedBeyondCpu}`);
   const unknown = (s0.unknownOffset || 0) + (s1.unknownOffset || 0) + (s2.unknownOffset || 0) + (s3.unknownOffset || 0) + (s4.unknownOffset || 0);
   check('P10-indirect-offsets-decoded', unknown === 0, `undecodable indirect args=${unknown}`);
+
+  // P11..P17 drive the tier the way production drives it: render a frame, then call
+  // runQueries(camera, candidates). Nothing below calls buildHzb or the cull directly.
+  const f = out.frame || {};
+  const fc = f.checks || {};
+  check('P11-pyramid-has-a-production-caller',
+    f.fatal ? false : (fc.supported === true && fc.pyramidsBuilt > 0 && fc.hzbLevels > 1),
+    `fatal=${f.fatal || 'none'} stack=${f.stack || 'none'} supported=${fc.supported} pyramidsBuilt=${fc.pyramidsBuilt} hzbLevels=${fc.hzbLevels} skippedNoPyramid=${(fc.tierStats || {}).skippedNoPyramid}`);
+  check('P12-entity-cull-engages',
+    fc.entityTested === 1 && fc.entityOccluded === 1 && fc.occludedWithOccluder === true,
+    `entityTested=${fc.entityTested} entityOccluded=${fc.entityOccluded} isOccluded=${fc.occludedWithOccluder}`);
+  check('P13-entity-verdict-readback-lands',
+    fc.readbackLanded === true && (fc.tierStats || {}).entityReadbacks > 0
+      && fc.depthWithOccluder && fc.depthWithOccluder.max > 0,
+    `readbackLanded=${fc.readbackLanded} entityReadbacks=${(fc.tierStats || {}).entityReadbacks} depthWithOccluder=${JSON.stringify(fc.depthWithOccluder)} (an all-zero depth is an occluder that hides everything)`);
+  check('P14-pop-out-bounded',
+    fc.popoutFrames >= 1 && fc.popoutFrames <= 2 && fc.occludedWithoutOccluder === false
+      && !fc.depthError && !fc.depthError2 && fc.depthAfterRemoval && fc.depthAfterRemoval.min === 1,
+    `popoutFrames=${fc.popoutFrames} (pyramid is one frame stale, so 2 is the ceiling) occludedWithoutOccluder=${fc.occludedWithoutOccluder} depthAfterRemoval=${JSON.stringify(fc.depthAfterRemoval)} depthError=${fc.depthError || fc.depthError2 || 'none'}`);
+  check('P15-compact-indirect-refused',
+    fc.compactMeshIsCompact === true && fc.compactRefused === true && fc.indirectAttachRefused >= 1,
+    `compact=${fc.compactMeshIsCompact} refused=${fc.compactRefused} stats.indirectAttachRefused=${fc.indirectAttachRefused}`);
+  check('P16-noncompact-indirect-consumed',
+    fc.nonCompactAttached === true && fc.nonCompactOffsetCount === fc.nonCompactExpectedOffsets
+      && fc.indirectAttached === 1 && fc.nonCompactDraws === fc.nonCompactExpectedOffsets - 1,
+    `attached=${fc.nonCompactAttached} offsets=${fc.nonCompactOffsetCount}/${fc.nonCompactExpectedOffsets} stats.indirectAttached=${fc.indirectAttached} drawsWrittenByCull=${fc.nonCompactDraws}`);
+  check('P17-frame-no-device-errors', (f.errors || []).length === 0,
+    `${(f.errors || []).length} uncaptured device errors ${JSON.stringify((f.errors || []).slice(0, 3))}`);
+
+  // P18..P21 are the MSAA run. A multisampled depth bound as texture_depth_2d is a
+  // per-frame validation error, so zero errors is the assertion; an all-zero pyramid
+  // would report occluded forever and fail the pop-out bound instead.
+  const m = out.frameMsaa || {};
+  const mc = m.checks || {};
+  check('P18-msaa-frame-builds-pyramid',
+    !m.fatal && mc.supported === true && mc.pyramidsBuilt > 0 && mc.depthSamples > 1,
+    `fatal=${m.fatal || 'none'} stack=${m.stack || 'none'} supported=${mc.supported} pyramidsBuilt=${mc.pyramidsBuilt} depthSamples=${mc.depthSamples} (must exceed 1 or this run proved nothing)`);
+  check('P19-msaa-frame-no-device-errors', (m.errors || []).length === 0,
+    `${(m.errors || []).length} uncaptured device errors ${JSON.stringify((m.errors || []).slice(0, 3))}`);
+  check('P20-msaa-verdict-is-real',
+    mc.occludedWithOccluder === true && mc.entityTested === 1 && mc.entityOccluded === 1,
+    `entityTested=${mc.entityTested} entityOccluded=${mc.entityOccluded} isOccluded=${mc.occludedWithOccluder}`);
+  check('P21-msaa-pop-out-bounded',
+    mc.popoutFrames >= 1 && mc.popoutFrames <= 2 && mc.occludedWithoutOccluder === false,
+    `popoutFrames=${mc.popoutFrames} occludedWithoutOccluder=${mc.occludedWithoutOccluder} (an all-zero multisampled pyramid would never un-hide)`);
 
   const failed = checks.filter((c) => !c.ok).length;
   const tag = `label=${LABEL} session=${SESSION} vendor=${VENDOR} src=${SRC_DIR}`;

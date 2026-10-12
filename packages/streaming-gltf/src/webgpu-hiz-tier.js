@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 import { IndirectStorageBufferAttribute } from 'three/webgpu';
 import {
-  HZB_SEED_WGSL, HZB_REDUCE_WGSL, CULL_LOD_WGSL,
-  CLUSTER_STRIDE_BYTES, INDIRECT_STRIDE_BYTES, MAX_LOD_SLOTS, flattenClusters
+  HZB_SEED_WGSL, HZB_SEED_MSAA_WGSL, HZB_REDUCE_WGSL, CULL_LOD_WGSL, ENTITY_HZB_WGSL,
+  CLUSTER_STRIDE_BYTES, INDIRECT_STRIDE_BYTES, MAX_LOD_SLOTS,
+  ENTITY_BOX_STRIDE_BYTES, ENTITY_PARAMS_BYTES, flattenClusters
 } from './webgpu-hiz-shaders.js';
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _size = new THREE.Vector2();
+const _entBox = new THREE.Box3();
 const HZB_WORKGROUP_DIM = 8;
 const CULL_WORKGROUP_SIZE = 64;
+const ENTITY_WORKGROUP_SIZE = 64;
 const FRAME_PARAMS_FLOATS = 52;
+const ENTITY_PARAMS_FLOATS = ENTITY_PARAMS_BYTES / 4;
 const MAX_THRESHOLD_SLOTS = 2;
 const PIPELINE_ERROR_SCOPE = 'validation';
+const ENTITY_STAGING_POOL = 3;
 
 export class WebGPUPipelineError extends Error {
   constructor(label, message) {
@@ -73,7 +78,23 @@ export class WebGpuHizTier {
     this._hzbW = 0;
     this._hzbH = 0;
     this._meshBuffers = new Map();
-    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0 };
+    this._entityPipeline = null;
+    this._entityPipelineInit = null;
+    this._msaaSeedPipeline = null;
+    this._msaaSeedInit = null;
+    this._depthSamples = 1;
+    this._entityBoxBuf = null;
+    this._entityParamBuf = null;
+    this._entityVerdictBuf = null;
+    this._depthTex = null;
+    this._depthView = null;
+    this._entityStaging = [];
+    this._boxCache = new WeakMap();
+    this._verdictSnapshot = null;
+    this._boxScratch = new Float32Array(64);
+    this._boxScratchFilled = 0;
+    this._attachRefused = new WeakSet();
+    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0, entityTested: 0, entityOccluded: 0, entityReadbacks: 0, pyramidsBuilt: 0, indirectAttached: 0, indirectAttachRefused: 0, readbackStarved: 0 };
   }
 
   supported() {
@@ -92,6 +113,8 @@ export class WebGpuHizTier {
     // Build at the first probe rather than at the first dispatch, so a shader that
     // does not compile is known before anything is asked to draw.
     this._ensurePipelines();
+    this._ensureEntityPipeline();
+    this._ensureMsaaSeedPipeline();
     return true;
   }
 
@@ -107,9 +130,63 @@ export class WebGpuHizTier {
   async ensurePipelinesValidated() {
     if (!this._device) throw new WebGPUPipelineError('device', 'no WebGPU device; supported() was never true');
     this._ensurePipelines();
-    await this._pipelineInit;
+    this._ensureEntityPipeline();
+    this._ensureMsaaSeedPipeline();
+    await Promise.all([this._pipelineInit, this._entityPipelineInit, this._msaaSeedInit]);
     this._refuseInvalidPipelines();
     return this.stats.pipelinesValidated;
+  }
+
+  // The entity verdict pipeline is validated apart from the four cluster pipelines:
+  // `pipelinesValidated` is the count scripts/webgpu-pipeline-validation-refusal-witness.mjs
+  // pins at 4, and a refusal here has to kill the tier just as loudly.
+  _ensureEntityPipeline() {
+    if (!this._device || this._entityPipelineInit) return;
+    const built = createPipelineScoped(this._device, 'compute', {
+      label: 'entity-hzb-pipeline',
+      layout: 'auto',
+      compute: { module: compileShaderModule(this._device, 'entity-hzb', ENTITY_HZB_WGSL), entryPoint: 'main' },
+    });
+    this._entityPipeline = built.pipeline;
+    this._entityPipelineInit = built.verdict.then((error) => {
+      if (error || built.thrown || !built.pipeline) {
+        const detail = built.thrown
+          ? (built.thrown.message || String(built.thrown))
+          : ((error && (error.message || String(error))) || 'no pipeline object returned');
+        this._pipelineError = new WebGPUPipelineError(built.label, detail);
+        this.stats.supported = false;
+        this.stats.pipelineRefusals++;
+        if (typeof console !== 'undefined' && typeof console.error === 'function') {
+          console.error(`[webgpu-pipeline] "${built.label}" failed validation -- the HiZ cull refuses to dispatch: ${detail}`);
+        }
+      }
+    });
+  }
+
+  // The MSAA seed is the same refusal story again: `texture_depth_multisampled_2d`
+  // is a different binding type, so it needs its own pipeline, and the app that
+  // renders 4x MSAA is exactly the app this cull has to work in.
+  _ensureMsaaSeedPipeline() {
+    if (!this._device || this._msaaSeedInit) return;
+    const built = createPipelineScoped(this._device, 'compute', {
+      label: 'hzb-seed-msaa-pipeline',
+      layout: 'auto',
+      compute: { module: compileShaderModule(this._device, 'hzb-seed-msaa', HZB_SEED_MSAA_WGSL), entryPoint: 'main' },
+    });
+    this._msaaSeedPipeline = built.pipeline;
+    this._msaaSeedInit = built.verdict.then((error) => {
+      if (error || built.thrown || !built.pipeline) {
+        const detail = built.thrown
+          ? (built.thrown.message || String(built.thrown))
+          : ((error && (error.message || String(error))) || 'no pipeline object returned');
+        this._pipelineError = new WebGPUPipelineError(built.label, detail);
+        this.stats.supported = false;
+        this.stats.pipelineRefusals++;
+        if (typeof console !== 'undefined' && typeof console.error === 'function') {
+          console.error(`[webgpu-pipeline] "${built.label}" failed validation -- the HiZ cull refuses to dispatch: ${detail}`);
+        }
+      }
+    });
   }
 
   _settlePipelines(results) {
@@ -203,9 +280,88 @@ export class WebGpuHizTier {
     return this._hzbLevels;
   }
 
-  buildHzb(depthTextureView, width, height) {
+  // HZB_SEED_WGSL binds `texture_depth_2d`, so a colour attachment is not
+  // substitutable and `ctx.res.sceneDepth` (a RenderGraph dependency TAG) carries no
+  // texture. The scene renders into the frame buffer target whenever tone mapping or
+  // the output colour-space conversion needs one -- which is the default -- so the
+  // canvas depth attachment is empty while the picture is correct. The depth to read
+  // is the depth of the target `render()` actually drew the scene into.
+  _sceneTarget() {
+    const r = this.renderer;
+    if (typeof r.getRenderTarget === 'function') {
+      const rt = r.getRenderTarget();
+      if (rt) return rt;
+    }
+    if (r.needsFrameBufferTarget === true && typeof r._getFrameBufferTarget === 'function') {
+      const fbt = r._getFrameBufferTarget();
+      if (fbt) return fbt;
+    }
+    if (typeof r.getOutputRenderTarget === 'function') {
+      const ort = r.getOutputRenderTarget();
+      if (ort) return ort;
+    }
+    // No intermediate: the scene went straight to the canvas, whose own depth
+    // attachment is the depth to read.
+    return typeof r.getCanvasTarget === 'function' ? r.getCanvasTarget() : null;
+  }
+
+  _sceneDepthView() {
+    const r = this.renderer;
+    if (!r || !r.isWebGPURenderer) return null;
+    const backend = r.backend;
+    if (!backend || backend.isWebGPUBackend !== true) return null;
+    // Reversed depth inverts near/far, so `minZ > farthest` would cull the nearest
+    // object and keep the farthest one.
+    if (r.reversedDepthBuffer === true) return null;
+    const rt = this._sceneTarget();
+    if (!rt || rt.depthBuffer === false) return null;
+    // three keeps a render target's depth texture in its own texture bookkeeping, not
+    // on the RenderTarget: `RenderTarget.depthTexture` stays null for the internal
+    // frame buffer target even though it has a depth buffer.
+    const book = r._textures;
+    const data = book && typeof book.get === 'function' ? book.get(rt) : null;
+    const dt = (data && data.depthTexture) || rt.depthTexture || null;
+    if (!dt || typeof backend.get !== 'function') return null;
+    const tex = backend.get(dt).texture;
+    // No texture yet means no frame has been rendered into this target, so there is
+    // no depth to read. An unwritten depth texture is a legal `texture_depth_2d`
+    // that reads all zeros, and an all-zero pyramid reports every entity occluded.
+    if (!tex || typeof tex.createView !== 'function') return null;
+    // The count has to come off the texture: the renderer's `currentSamples` and the
+    // target actually holding the scene depth disagree (the frame buffer target keeps
+    // its own sample count), and binding a multisampled texture as `texture_depth_2d`
+    // is a per-frame validation error, not a one-off.
+    this._depthSamples = tex.sampleCount > 1 ? tex.sampleCount : 1;
+    if (this._depthTex !== tex) {
+      this._depthTex = tex;
+      this._depthView = tex.createView();
+    }
+    return this._depthView;
+  }
+
+  // The pyramid is the occluder source for every verdict this tier returns, so the
+  // tier builds it itself at the top of the frame it is asked to cull. Leaving that
+  // to a caller is what made `buildHzb` dead code.
+  _syncPyramid() {
+    const view = this._sceneDepthView();
+    if (!view) { this.stats.skippedNoPyramid++; return false; }
+    const sz = this.renderer.getDrawingBufferSize(_size);
+    const w = Math.max(1, Math.round(sz && sz.x ? sz.x : 0));
+    const h = Math.max(1, Math.round(sz && sz.y ? sz.y : 0));
+    if (!w || !h) { this.stats.skippedNoPyramid++; return false; }
+    const ok = this.buildHzb(view, w, h, this._depthSamples);
+    if (ok) this.stats.pyramidsBuilt++;
+    else this.stats.skippedNoPyramid++;
+    return ok;
+  }
+
+  buildHzb(depthTextureView, width, height, sampleCount = 1) {
     if (!this.supported()) return false;
     this._ensurePipelines();
+    this._ensureMsaaSeedPipeline();
+    const msaa = sampleCount > 1;
+    const seedPipeline = msaa ? this._msaaSeedPipeline : this._seedPipeline;
+    if (!seedPipeline) { this.stats.skippedNoPyramid++; return false; }
     const levels = this._ensureHzbTextures(width, height);
     if (!levels) return false;
     const device = this._device;
@@ -214,14 +370,14 @@ export class WebGpuHizTier {
     {
       const mip0 = this._hzbMips[0];
       const bg = device.createBindGroup({
-        layout: this._seedPipeline.getBindGroupLayout(0),
+        layout: seedPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: depthTextureView },
           { binding: 1, resource: mip0.view },
         ],
       });
       const pass = encoder.beginComputePass({ label: 'hzb-seed' });
-      pass.setPipeline(this._seedPipeline);
+      pass.setPipeline(seedPipeline);
       pass.setBindGroup(0, bg);
       pass.dispatchWorkgroups(Math.ceil(mip0.w / HZB_WORKGROUP_DIM), Math.ceil(mip0.h / HZB_WORKGROUP_DIM), 1);
       pass.end();
@@ -462,24 +618,200 @@ export class WebGpuHizTier {
     return found.length ? found : null;
   }
 
+  // Indirect draws are only consumable on a mesh whose index buffer still holds the
+  // full LOD0+coarse layout the cull offsets into. A compact ClusterLodMesh rewrites
+  // `geometry.index` down to `_drawCapacity` entries every frame, so a coarse-LOD
+  // `firstIndex` of `lod0Count + offset` reads past the end of it; attaching there
+  // would draw garbage, so the mesh is refused instead and the frame keeps the CPU
+  // cull's groups.
+  attachIndirect(mesh) {
+    if (!mesh || !mesh.clusterSet || !mesh.geometry) return null;
+    const existing = this._meshBuffers.get(mesh);
+    if (existing && existing.indirectAttached) return existing.indirectAttr;
+    if (this._attachRefused.has(mesh)) return null;
+    if (mesh._compact === true) {
+      this._attachRefused.add(mesh);
+      this.stats.indirectAttachRefused++;
+      return null;
+    }
+    const rec = this.registerClusterMesh(mesh);
+    if (!rec || !rec.n) return null;
+    const attr = this.buildIndirectAttribute(mesh);
+    if (!attr) return null;
+    // three issues one `drawIndexedIndirect` per entry here, per render item, so the
+    // offsets are byte-spaced by INDIRECT_STRIDE_BYTES and cover n+1 slots: the cull
+    // can emit one draw more than there are clusters when nothing survives and it
+    // falls back to the whole LOD0.
+    const offsets = new Array(rec.n + 1);
+    for (let i = 0; i <= rec.n; i++) offsets[i] = i * INDIRECT_STRIDE_BYTES;
+    mesh.geometry.setIndirect(attr, offsets);
+    rec.indirectAttached = true;
+    rec.indirectOffsets = offsets;
+    this.stats.indirectAttached++;
+    return attr;
+  }
+
+  _entityWorldBox(entity) {
+    const root = entity && (entity.root || entity.object3d);
+    if (!root || typeof root.updateWorldMatrix !== 'function') return null;
+    let rec = this._boxCache.get(root);
+    if (!rec) {
+      rec = { mn: new Float32Array(3), mx: new Float32Array(3), m: new Float32Array(16), valid: false };
+      this._boxCache.set(root, rec);
+    }
+    const me = root.matrixWorld.elements;
+    let changed = !rec.valid;
+    if (!changed) {
+      for (let i = 0; i < 16; i++) if (rec.m[i] !== me[i]) { changed = true; break; }
+    }
+    if (!changed) return rec;
+    _entBox.setFromObject(root);
+    if (_entBox.isEmpty()) { rec.valid = false; return null; }
+    rec.mn[0] = _entBox.min.x; rec.mn[1] = _entBox.min.y; rec.mn[2] = _entBox.min.z;
+    rec.mx[0] = _entBox.max.x; rec.mx[1] = _entBox.max.y; rec.mx[2] = _entBox.max.z;
+    rec.m.set(me);
+    rec.valid = true;
+    return rec;
+  }
+
+  _takeStaging(bytes) {
+    for (let i = 0; i < this._entityStaging.length; i++) {
+      const s = this._entityStaging[i];
+      if (s.busy) continue;
+      if (s.buf.size < bytes) {
+        s.buf.destroy();
+        s.buf = this._device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+      }
+      return s;
+    }
+    if (this._entityStaging.length >= ENTITY_STAGING_POOL) return null;
+    const s = { busy: false, buf: this._device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }) };
+    this._entityStaging.push(s);
+    return s;
+  }
+
+  _runEntityOcclusion(camera, candidates) {
+    this.stats.entityTested = 0;
+    if (!this._hzbLevels || !this._entityPipeline) return;
+    const device = this._device;
+    const slots = new Map();
+    let count = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const e = candidates[i];
+      if (!e) continue;
+      const rec = this._entityWorldBox(e);
+      if (!rec) continue;
+      const floats = count * 8;
+      if (this._boxScratch.length < floats + 8) {
+        const grown = new Float32Array(Math.max(64, this._boxScratch.length * 2, floats + 8));
+        grown.set(this._boxScratch.subarray(0, this._boxScratchFilled || 0));
+        this._boxScratch = grown;
+      }
+      const o = count * 8;
+      this._boxScratch[o] = rec.mn[0];
+      this._boxScratch[o + 1] = rec.mn[1];
+      this._boxScratch[o + 2] = rec.mn[2];
+      this._boxScratch[o + 3] = 0;
+      this._boxScratch[o + 4] = rec.mx[0];
+      this._boxScratch[o + 5] = rec.mx[1];
+      this._boxScratch[o + 6] = rec.mx[2];
+      this._boxScratch[o + 7] = 0;
+      slots.set(e, count);
+      count++;
+    }
+    this._boxScratchFilled = count * 8;
+    if (!count) return;
+
+    const boxBytes = count * ENTITY_BOX_STRIDE_BYTES;
+    const verdictBytes = count * 4;
+    if (!this._entityBoxBuf || this._entityBoxBuf.size < boxBytes) {
+      if (this._entityBoxBuf) this._entityBoxBuf.destroy();
+      this._entityBoxBuf = device.createBuffer({ size: boxBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    }
+    if (!this._entityVerdictBuf || this._entityVerdictBuf.size < verdictBytes) {
+      if (this._entityVerdictBuf) this._entityVerdictBuf.destroy();
+      this._entityVerdictBuf = device.createBuffer({ size: verdictBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+    }
+    if (!this._entityParamBuf) {
+      this._entityParamBuf = device.createBuffer({ size: ENTITY_PARAMS_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    }
+
+    const staging = this._takeStaging(verdictBytes);
+    // Every staging buffer in flight means this frame gets no verdicts, and a frame
+    // with no verdicts is indistinguishable from a frame that tested nothing.
+    if (!staging) { this.stats.readbackStarved++; return; }
+
+    _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const fp = new Float32Array(ENTITY_PARAMS_FLOATS);
+    fp.set(_m.elements, 0);
+    const fpU32 = new Uint32Array(fp.buffer);
+    fpU32[16] = count;
+    fpU32[17] = this._hzbLevels;
+    fp[18] = this._hzbW || 1;
+    fp[19] = this._hzbH || 1;
+    device.queue.writeBuffer(this._entityParamBuf, 0, fp.buffer, 0, ENTITY_PARAMS_BYTES);
+    device.queue.writeBuffer(this._entityBoxBuf, 0, this._boxScratch.buffer, this._boxScratch.byteOffset, boxBytes);
+
+    const bg = device.createBindGroup({
+      layout: this._entityPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this._entityBoxBuf } },
+        { binding: 1, resource: { buffer: this._entityParamBuf } },
+        { binding: 2, resource: { buffer: this._entityVerdictBuf } },
+        { binding: 3, resource: this._hzbView },
+      ],
+    });
+    const encoder = device.createCommandEncoder({ label: 'entity-hzb' });
+    const pass = encoder.beginComputePass({ label: 'entity-hzb-pass' });
+    pass.setPipeline(this._entityPipeline);
+    pass.setBindGroup(0, bg);
+    pass.dispatchWorkgroups(Math.ceil(count / ENTITY_WORKGROUP_SIZE), 1, 1);
+    pass.end();
+    encoder.copyBufferToBuffer(this._entityVerdictBuf, 0, staging.buf, 0, verdictBytes);
+    device.queue.submit([encoder.finish()]);
+    this.stats.entityTested = count;
+
+    staging.busy = true;
+    const n = count;
+    staging.buf.mapAsync(GPUMapMode.READ).then(() => {
+      const arr = new Uint32Array(staging.buf.getMappedRange(0, verdictBytes)).slice();
+      staging.buf.unmap();
+      staging.busy = false;
+      let occ = 0;
+      for (let i = 0; i < arr.length; i++) if (arr[i] === 1) occ++;
+      this._verdictSnapshot = { arr, slots };
+      this.stats.entityOccluded = occ;
+      this.stats.entityReadbacks++;
+    }).catch(() => { staging.busy = false; });
+  }
+
   runQueries(camera, candidates) {
     if (!this.supported()) { this.stats.queried = 0; this.stats.occluded = 0; return; }
     this.stats.queried = 0;
-    // No pyramid means no occluder depth: the pass would reproduce the CPU cull and
-    // nothing else, for indirect draws nobody consumes. Skip it instead of paying it.
-    if (!this._hzbLevels) { this.stats.skippedNoPyramid++; return; }
+    if (!this._syncPyramid()) return;
+    this._runEntityOcclusion(camera, candidates);
     for (let i = 0; i < candidates.length; i++) {
       const meshes = this._clusterMeshesOf(candidates[i]);
       if (!meshes) continue;
       for (let k = 0; k < meshes.length; k++) {
         const mesh = meshes[k];
-        if (mesh && mesh.clusterSet) this.cullAndBuildIndirect(mesh, camera);
+        if (!mesh || !mesh.clusterSet) continue;
+        if (!this.attachIndirect(mesh)) continue;
+        this.cullAndBuildIndirect(mesh, camera);
       }
     }
   }
 
-  isOccluded(_entity) {
-    return false;
+  // Fail-open: an entity with no resolved verdict yet stays visible, and a verdict is
+  // always the previous frame's, so a disappearing occluder costs one frame of
+  // lateness rather than a permanently hidden entity.
+  isOccluded(entity) {
+    if (!entity) return false;
+    const snap = this._verdictSnapshot;
+    if (!snap) return false;
+    const slot = snap.slots.get(entity);
+    if (slot === undefined || slot >= snap.arr.length) return false;
+    return snap.arr[slot] === 1;
   }
 
   release(mesh) {
@@ -489,6 +821,17 @@ export class WebGpuHizTier {
   dispose() {
     if (this._hzbTex) { this._hzbTex.destroy(); this._hzbTex = null; }
     this._hzbView = null;
+    this._depthTex = null;
+    this._depthView = null;
+    this._depthSamples = 1;
+    this._msaaSeedPipeline = null;
+    if (this._entityBoxBuf) { this._entityBoxBuf.destroy(); this._entityBoxBuf = null; }
+    if (this._entityParamBuf) { this._entityParamBuf.destroy(); this._entityParamBuf = null; }
+    if (this._entityVerdictBuf) { this._entityVerdictBuf.destroy(); this._entityVerdictBuf = null; }
+    for (const s of this._entityStaging) s.buf.destroy();
+    this._entityStaging.length = 0;
+    this._boxCache = new WeakMap();
+    this._verdictSnapshot = null;
     this._hzbMips.length = 0;
     for (const mesh of Array.from(this._meshBuffers.keys())) this.unregisterClusterMesh(mesh);
     this._pipelinesReady = false;
@@ -498,6 +841,7 @@ export class WebGpuHizTier {
 
 export const WGSL_SOURCES = {
   hzbSeed: HZB_SEED_WGSL,
+  hzbSeedMsaa: HZB_SEED_MSAA_WGSL,
   hzbReduce: HZB_REDUCE_WGSL,
   cullLod: CULL_LOD_WGSL,
 };

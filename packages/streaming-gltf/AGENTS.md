@@ -100,6 +100,46 @@ mip chain with per-level storage views (`textureLoad` at an arbitrary level need
 `mipLevelCount > 1` on the view), reduces with `max`, and reads every texel the
 footprint touches, so occlusion errs towards drawing.
 
+The entity-level tier (`runQueries(camera, candidates)` / `isOccluded(entity)`) drives
+itself end to end, and four facts about how it does are load-bearing:
+
+- **The pyramid is built by `runQueries`, not by a caller.** `buildHzb` had no
+  production caller, so `runOcclusionQueries` reached a `!this._hzbLevels` guard every
+  frame and the cull was inert with no error. `runQueries` now seeds and reduces at the
+  top of the frame it culls, and P11 of the parity witness asserts the counter moved.
+- **The depth to read is the frame buffer target's, not the canvas's.** three renders
+  the scene into an internal frame buffer target whenever tone mapping or the output
+  colour-space conversion needs one (`needsFrameBufferTarget`, true by default), so the
+  canvas depth attachment stays empty while the picture is correct. `_sceneTarget()`
+  resolves the target `render()` actually drew into and reads its depth through
+  `renderer._textures.get(target).depthTexture` — `RenderTarget.depthTexture` itself is
+  null there. An unwritten depth texture is a legal `texture_depth_2d` that reads all
+  zeros, and an all-zero pyramid reports every entity occluded, so this was a silent
+  false cull and not a visible error.
+- **The app renders 4x MSAA.** A multisampled depth texture cannot bind as
+  `texture_depth_2d`, which is a per-frame validation error
+  (`Sample count (4) ... doesn't match expectation`), so the seed has a
+  `texture_depth_multisampled_2d` variant (`HZB_SEED_MSAA_WGSL`) reducing with max over
+  samples — max is the conservative direction, since the pyramid holds the FARTHEST
+  depth a texel reaches. The count comes off the `GPUTexture`, never off
+  `renderer.currentSamples`: the two disagree, and the frame buffer target keeps its own
+  sample count.
+- **Indirect attachment is refused on a compact mesh.** Every shipped cluster primitive
+  is `_compact` (`cap === lod0Count`), so its element buffer is LOD0 only and a coarse
+  `firstIndex` from the cull reads out of range; `attachIndirect` returns null and
+  counts `indirectAttachRefused`. A refusal with no counter would have been the same
+  silence as the missing `buildHzb` caller.
+
+`isOccluded(entity)` reads the last landed verdict snapshot and fails open, so an entity
+with no verdict is visible. `runOcclusionQueries` returns early below
+`occlusionMinCandidates` (32 from `client/ModelPoolAdapter.js`), which is a cost
+heuristic and not an off switch — but it is counted, as
+`stats.occlusionCandidates` / `stats.occlusionSkippedBelowMin`, because a silent return
+made "never ran" and "ran and found nothing" the same observation. Worlds with only a
+couple of pooled entities (`tps-game` has 1-2) therefore never reach the cull at all.
+Measured pop-out after an occluder disappears is 1 frame, the one-frame-stale pyramid
+being the floor (`scripts/webgpu-hiz-cull-parity-witness.mjs`, P14 and P21).
+
 ## Bake the corpus
 
 `npm run bake:corpus` (`tools/bake-cluster-corpus.mjs`) walks `../assets`

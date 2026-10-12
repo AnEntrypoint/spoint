@@ -235,9 +235,115 @@ fn fallbackMain() {
   indirectArgs[slot].firstInstance = frame.firstInstance;
 }`;
 
+// Same reduction, from a multisampled depth attachment: `texture_depth_2d` cannot
+// bind a texture with sampleCount > 1, and the shipped app renders MSAA, so the seed
+// has a multisampled variant. Max over samples is the conservative choice: the
+// pyramid must hold the FARTHEST depth a texel reaches, or the cull hides something
+// a viewer can see. `textureNumSamples` keeps this to one pipeline for every count.
+export const HZB_SEED_MSAA_WGSL = `
+@group(0) @binding(0) var srcDepth : texture_depth_multisampled_2d;
+@group(0) @binding(1) var dstTex : texture_storage_2d<r32float, write>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let dstSize = textureDimensions(dstTex);
+  if (gid.x >= dstSize.x || gid.y >= dstSize.y) { return; }
+  let n = textureNumSamples(srcDepth);
+  var m = 0.0;
+  for (var s = 0u; s < n; s = s + 1u) {
+    m = max(m, textureLoad(srcDepth, vec2<i32>(gid.xy), s));
+  }
+  textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(m, m, m, 1.0));
+}`;
+
 export const CLUSTER_STRIDE_BYTES = 80;
 export const INDIRECT_STRIDE_BYTES = 20;
 export const MAX_LOD_SLOTS = 3;
+export const ENTITY_BOX_STRIDE_BYTES = 32;
+export const ENTITY_PARAMS_BYTES = 80;
+
+// One invocation per candidate entity: the entity's world AABB against the same
+// pyramid the cluster cull reads. A verdict of 1 means every corner of the box is
+// behind the farthest occluder depth the box's texel footprint reaches, so hiding
+// the entity cannot remove anything a viewer could see. A box that straddles the
+// near plane reports 0, because clip-space z is meaningless behind the eye.
+export const ENTITY_HZB_WGSL = `
+struct EntityBox {
+  mn    : vec3<f32>, pad0 : f32,
+  mx    : vec3<f32>, pad1 : f32,
+};
+
+struct EntityParams {
+  viewProjection : mat4x4<f32>,
+  count     : u32,
+  hzbLevels : u32,
+  hzbW      : f32,
+  hzbH      : f32,
+};
+
+@group(0) @binding(0) var<storage, read> boxes : array<EntityBox>;
+@group(0) @binding(1) var<uniform> params : EntityParams;
+@group(0) @binding(2) var<storage, read_write> verdicts : array<u32>;
+@group(0) @binding(3) var hzbTex : texture_2d<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= params.count) { return; }
+  let b = boxes[i];
+
+  var minZ = 1.0;
+  var minX = 1e30;
+  var maxX = -1e30;
+  var minY = 1e30;
+  var maxY = -1e30;
+  var anyInFront = false;
+  var allInFront = true;
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    let lx = select(b.mn.x, b.mx.x, (k & 1u) != 0u);
+    let ly = select(b.mn.y, b.mx.y, (k & 2u) != 0u);
+    let lz = select(b.mn.z, b.mx.z, (k & 4u) != 0u);
+    let clip = params.viewProjection * vec4<f32>(lx, ly, lz, 1.0);
+    if (clip.w <= 0.0001) { allInFront = false; continue; }
+    anyInFront = true;
+    let ndc = clip.xyz / clip.w;
+    let sx = ndc.x * 0.5 + 0.5;
+    let sy = ndc.y * 0.5 + 0.5;
+    minX = min(minX, sx);
+    maxX = max(maxX, sx);
+    minY = min(minY, sy);
+    maxY = max(maxY, sy);
+    minZ = min(minZ, ndc.z);
+  }
+  if (!allInFront || !anyInFront || params.hzbLevels == 0u) {
+    verdicts[i] = 0u;
+    return;
+  }
+
+  minX = clamp(minX, 0.0, 1.0);
+  maxX = clamp(maxX, 0.0, 1.0);
+  minY = clamp(minY, 0.0, 1.0);
+  maxY = clamp(maxY, 0.0, 1.0);
+  let spanPx = max((maxX - minX) * params.hzbW, (maxY - minY) * params.hzbH);
+  let level = clamp(i32(ceil(log2(max(spanPx, 1.0)))), 0, i32(params.hzbLevels) - 1);
+  let lw = max(ceil(params.hzbW / exp2(f32(level))), 1.0);
+  let lh = max(ceil(params.hzbH / exp2(f32(level))), 1.0);
+  let x0 = clamp(i32(floor(minX * lw)) - 1, 0, i32(lw) - 1);
+  let x1 = clamp(i32(floor(maxX * lw)) + 1, 0, i32(lw) - 1);
+  // ndc y is up, texture rows are down: row = (1 - sy) * lh. Both edges grow by one
+  // texel: the pyramid is the previous frame's depth, so the footprint has to cover
+  // where the box was as well as where it is, or a moving camera culls a box that
+  // has just come into view.
+  let y0 = clamp(i32(floor((1.0 - maxY) * lh)) - 1, 0, i32(lh) - 1);
+  let y1 = clamp(i32(floor((1.0 - minY) * lh)) + 1, 0, i32(lh) - 1);
+  var farthest = 0.0;
+  for (var yy : i32 = y0; yy <= y1; yy = yy + 1) {
+    for (var xx : i32 = x0; xx <= x1; xx = xx + 1) {
+      farthest = max(farthest, textureLoad(hzbTex, vec2<i32>(xx, yy), level).r);
+    }
+  }
+  verdicts[i] = select(0u, 1u, minZ > farthest + 1e-5);
+}`;
 
 export function flattenClusters(clusterSet, lod0Count) {
   const clusters = clusterSet.clusters;
