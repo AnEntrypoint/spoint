@@ -136,6 +136,23 @@ async function main() {
     const changed = [...publishing].filter(rel => memberSet.has(rel) && atTip.get(rel) !== local[rel])
     const digest = await index.digest()
 
+    const unpublishedDrift = () => {
+      const dirty = []
+      for (const rel of members) {
+        if (publishing.has(rel)) continue
+        let sha
+        try {
+          sha = execFileSync('git', ['hash-object', '--path=' + rel, rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+        } catch {
+          continue
+        }
+        if (sha !== atTip.get(rel)) dirty.push(rel)
+      }
+      if (dirty.length === 0) return 'unpublished closure member(s) whose worktree copy differs from tip: (none)'
+      const shown = dirty.slice(0, 10).join(', ')
+      return 'unpublished closure member(s) whose worktree copy differs from tip: ' + shown + (dirty.length > 10 ? ' (+' + (dirty.length - 10) + ' more)' : '')
+    }
+
     if (publishing.has(GENERATED_REL)) {
       const recorded = recordedDigest(byPath.get(GENERATED_REL).text)
       if (recorded === null) {
@@ -151,6 +168,7 @@ async function main() {
           'but the tree this publish would write digests the ' + SOURCE_REL + ' import closure to ' + digest.slice(0, 12) + '.',
           'the committed artifact would not match the committed source, so the CI drift step would fail.',
           'closure member(s) carried by this publish: ' + (changed.length ? changed.join(', ') : '(none)') + '.',
+          unpublishedDrift() + '.',
           'fix: npm run gen-typings over exactly the closure content you are publishing, then publish ' + GENERATED_REL + ' in the same commit as every changed closure member'
         ])
       }
@@ -163,6 +181,7 @@ async function main() {
         'REFUSING PUBLISH: ' + changed.join(', ') + ' is part of the ' + SOURCE_REL + ' import closure,',
         'but ' + GENERATED_REL + ' is not part of this commit.',
         'the committed artifact would still describe the previous closure, so the CI drift step would fail.',
+        unpublishedDrift() + '.',
         'fix: npm run gen-typings && publish ' + GENERATED_REL + ' together with ' + changed.join(' ')
       ])
     }
