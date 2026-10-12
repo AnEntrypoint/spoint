@@ -14,6 +14,8 @@ import { dbg } from './debug-log.js'
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind, makeGrassMaterial, setGrassSun } from './GrassMaterial.js'
 import { makeClumpGeo } from './GrassClump.js'
 import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
+import { positionWorld, vec4, mix, float, uniform } from 'three/tsl'
+import { contactOcclusionFactorAt } from '/node_modules/mapspinner/src/tsl/contact-occlusion-tsl.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
 import { runWarmPasses } from './ProgramReadiness.js'
 
@@ -63,10 +65,14 @@ export async function createGrass(opts = {}) {
   const geoMid = makeClumpGeo(1, 1)
 
   let mat, im, imMid, grassNodes = null
+  let uGrassContactOcc = null
   if (isWebGPU) {
     const built = makeGrassMaterialTSL(wind)
     mat = built.material
     grassNodes = built.nodes
+    uGrassContactOcc = uniform(1)
+    const grassColor = mat.colorNode
+    mat.colorNode = vec4(grassColor.rgb.mul(mix(float(1.0), contactOcclusionFactorAt(positionWorld.xz), uGrassContactOcc)), grassColor.a)
     im = createStreamingInstancer(scene, geoNear, mat, INIT_CAP, GRASS_ATTRIBUTE_SCHEMA)
     imMid = createStreamingInstancer(scene, geoMid, mat, Math.min(INIT_CAP, 2048), GRASS_ATTRIBUTE_SCHEMA)
   } else {
@@ -335,6 +341,7 @@ export async function createGrass(opts = {}) {
     profile.totalInstances = totalInstances
     profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     if (typeof window !== 'undefined') window.__grassProfile = profile
+    if (uGrassContactOcc) uGrassContactOcc.value = (typeof window !== 'undefined' && window.__grassContactOccOff === true) ? 0 : 1
     if (grassNodes) syncGrassMaterialTSL(grassNodes, wind)
   }
 
