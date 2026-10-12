@@ -46,6 +46,7 @@ const LOD_HYSTERESIS = 0.12
 const SHADOW_DISTANCE = 35
 const ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const NO_MESH_TIER = -1
+const BAND_UNSET = -2
 const REAL_INSTANCERS = 90
 const REAL_PER_INSTANCER = 47
 const REAL_EXTENT = 1280
@@ -69,13 +70,22 @@ function makeLevels() {
   return { levels, shadowGeo, bounds: shared }
 }
 
-const thresholdsSq = LOD_DISTANCES.map((d) => { const t = d - d * LOD_HYSTERESIS; return t * t })
+const enterThresholdsSq = LOD_DISTANCES.map((d) => { const t = d + d * LOD_HYSTERESIS; return t * t })
+const leaveThresholdsSq = LOD_DISTANCES.map((d) => { const t = d - d * LOD_HYSTERESIS; return t * t })
 const MESH_FAR_SQ = MESH_FAR * MESH_FAR
+const MESH_IN_SQ = ((MESH_FAR / (1 + LOD_HYSTERESIS)) * (1 - LOD_HYSTERESIS)) ** 2
 
-function tierFor(dsq) {
-  if (dsq >= MESH_FAR_SQ) return NO_MESH_TIER
-  for (let i = thresholdsSq.length - 1; i > 0; i--) if (dsq >= thresholdsSq[i]) return i
+function rawTierFor(dsq) {
+  for (let i = enterThresholdsSq.length - 1; i > 0; i--) if (dsq >= enterThresholdsSq[i]) return i
   return 0
+}
+
+function tierFor(dsq, prev) {
+  if (dsq >= MESH_FAR_SQ) return NO_MESH_TIER
+  const raw = rawTierFor(dsq)
+  if (prev === BAND_UNSET) return raw
+  if (prev === NO_MESH_TIER) return dsq >= MESH_IN_SQ ? NO_MESH_TIER : raw
+  return prev > raw && dsq >= leaveThresholdsSq[prev] ? prev : raw
 }
 
 function newInstancer(n) {
@@ -129,7 +139,9 @@ function makeRefStates(shape) {
     let maxId = 0
     for (const id of pos.keys()) if (id > maxId) maxId = id
     const cap = Math.max(maxId + 1, 64)
-    return { pos, tier: new Int8Array(cap), culled: new Uint8Array(cap), eye: [0, 0, 0], stale: true }
+    const prev = new Int8Array(cap)
+    prev.fill(BAND_UNSET)
+    return { pos, prev, tier: new Int8Array(cap), culled: new Uint8Array(cap), eye: [0, 0, 0], stale: true }
   })
 }
 
@@ -143,6 +155,10 @@ function refEnsure(st, id) {
   const culled = new Uint8Array(cap)
   culled.set(st.culled)
   st.culled = culled
+  const prev = new Int8Array(cap)
+  prev.fill(BAND_UNSET)
+  prev.set(st.prev)
+  st.prev = prev
 }
 
 function advanceReference(st, eye, frustum, shape) {
@@ -153,7 +169,8 @@ function advanceReference(st, eye, frustum, shape) {
   const planes = frustum.planes
   for (const [id, p] of st.pos) {
     const dx = p[0] - e[0], dy = p[1] - e[1], dz = p[2] - e[2]
-    const tier = tierFor(dx * dx + dy * dy + dz * dz)
+    const dsq = dx * dx + dy * dy + dz * dz
+    const tier = tierFor(dsq, st.prev[id])
     let culled = false
     if (tier !== NO_MESH_TIER) {
       const cx = p[0] + shape.center[0], cy = p[1] + shape.center[1], cz = p[2] + shape.center[2]
@@ -162,6 +179,7 @@ function advanceReference(st, eye, frustum, shape) {
         if (pl.normal.x * cx + pl.normal.y * cy + pl.normal.z * cz + pl.constant < -shape.radius) { culled = true; break }
       }
     }
+    if (!culled) st.prev[id] = tier
     st.tier[id] = tier
     st.culled[id] = culled
   }
@@ -301,7 +319,7 @@ function recyclePhase(arm, cam, frustum, projScreen, frame) {
   const shape = arm.shape
   const inst0 = shape.instancers[0]
   const ids = [...shape.posById[0].keys()].slice(0, Math.max(1, Math.floor(shape.posById[0].size * 0.1)))
-  for (const id of ids) { inst0.removeInstances(id); shape.posById[0].delete(id) }
+  for (const id of ids) { inst0.removeInstances(id); shape.posById[0].delete(id); arm.refs[0].prev[id] = BAND_UNSET }
   arm.refs[0].stale = true
   inst0.addInstances(ids.length, (p) => {
     const x = 0.2 * shape.extent + (p.id % 40) * SPACING

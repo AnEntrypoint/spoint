@@ -31,6 +31,7 @@ const LOD_HYSTERESIS = 0.12
 const SHADOW_DISTANCE = 35
 const ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const NO_MESH_TIER = -1
+const BAND_UNSET = -2
 const LOD_REEVAL_MOVE_SQ = 0.5 * 0.5
 
 const failures = []
@@ -119,13 +120,22 @@ function addAll(kind) {
   place(kind.leaf, kind.leafIdOf)
 }
 
-const THRESHOLDS_SQ = LOD_DISTANCES.map((d) => { const t = d - d * LOD_HYSTERESIS; return t * t })
+const ENTER_THRESHOLDS_SQ = LOD_DISTANCES.map((d) => { const t = d + d * LOD_HYSTERESIS; return t * t })
+const LEAVE_THRESHOLDS_SQ = LOD_DISTANCES.map((d) => { const t = d - d * LOD_HYSTERESIS; return t * t })
 const MESH_FAR_SQ = MESH_FAR * MESH_FAR
+const MESH_IN_SQ = ((MESH_FAR / (1 + LOD_HYSTERESIS)) * (1 - LOD_HYSTERESIS)) ** 2
 
-function referenceTier(dsq) {
-  if (dsq >= MESH_FAR_SQ) return NO_MESH_TIER
-  for (let i = THRESHOLDS_SQ.length - 1; i > 0; i--) if (dsq >= THRESHOLDS_SQ[i]) return i
+function rawTierFor(dsq) {
+  for (let i = ENTER_THRESHOLDS_SQ.length - 1; i > 0; i--) if (dsq >= ENTER_THRESHOLDS_SQ[i]) return i
   return 0
+}
+
+function referenceTier(dsq, prev) {
+  if (dsq >= MESH_FAR_SQ) return NO_MESH_TIER
+  const raw = rawTierFor(dsq)
+  if (prev === BAND_UNSET) return raw
+  if (prev === NO_MESH_TIER) return dsq >= MESH_IN_SQ ? NO_MESH_TIER : raw
+  return prev > raw && dsq >= LEAVE_THRESHOLDS_SQ[prev] ? prev : raw
 }
 
 function makeReference(kind) {
@@ -134,6 +144,7 @@ function makeReference(kind) {
     eye: [0, 0, 0],
     stale: true,
     tier: new Int8Array(TREES).fill(NO_MESH_TIER),
+    prev: new Int8Array(TREES).fill(BAND_UNSET),
     culled: new Uint8Array(TREES),
     visible: new Uint8Array(TREES).fill(1),
   }
@@ -149,7 +160,7 @@ function advanceReference(ref, eye, frustum) {
     const px = ref.kind.posOf[t * 3], py = ref.kind.posOf[t * 3 + 1], pz = ref.kind.posOf[t * 3 + 2]
     if (moved) {
       const ddx = px - eye.x, ddy = py - eye.y, ddz = pz - eye.z
-      ref.tier[t] = referenceTier(ddx * ddx + ddy * ddy + ddz * ddz)
+      ref.tier[t] = referenceTier(ddx * ddx + ddy * ddy + ddz * ddz, ref.prev[t])
     }
     let culled = false
     if (planes && ref.tier[t] !== NO_MESH_TIER) {
@@ -159,6 +170,7 @@ function advanceReference(ref, eye, frustum) {
         if (pl.normal.x * cx + pl.normal.y * cy + pl.normal.z * cz + pl.constant < -BOUNDS_RADIUS) { culled = true; break }
       }
     }
+    if (moved && !culled) ref.prev[t] = ref.tier[t]
     ref.culled[t] = culled ? 1 : 0
   }
   return moved
@@ -307,7 +319,7 @@ function churnArm(arm, count, permanent) {
       e.position.set(k.posOf[t * 3], k.posOf[t * 3 + 1], k.posOf[t * 3 + 2])
       k.leafIdOf[t] = e.id
     })
-    for (const ref of arm.refs) if (ref.kind === k) { ref.stale = true; for (let t = 0; t < n; t++) { ref.tier[t] = 0; ref.culled[t] = 0 } }
+    for (const ref of arm.refs) if (ref.kind === k) { ref.stale = true; for (let t = 0; t < n; t++) { ref.tier[t] = 0; ref.culled[t] = 0; ref.prev[t] = BAND_UNSET } }
   }
 }
 
