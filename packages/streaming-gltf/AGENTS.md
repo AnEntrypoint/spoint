@@ -140,6 +140,16 @@ couple of pooled entities (`tps-game` has 1-2) therefore never reach the cull at
 Measured pop-out after an occluder disappears is 1 frame, the one-frame-stale pyramid
 being the floor (`scripts/webgpu-hiz-cull-parity-witness.mjs`, P14 and P21).
 
+Measured in `tps-game` with the gate lowered to 1 so the cull actually ran
+(`scripts/draw-instrument-witness.mjs --backend=webgpu --gpu=accelerated`, 20 frames,
+both arms inside one GPU lock hold): `wgpuDrawsPerFrame` 74, against 74 for the
+cull-inert arm minutes later; 1 candidate tested, 0 occluded, 35 pyramids built,
+24 verdict readbacks, 0 `skippedNoPyramid`, indirect refused on both of the world's
+cluster meshes and attached on none, and no uncaptured device error - the per-frame
+sample-count storm that preceded the multisampled seed is gone. A 181-draw reading
+taken between two other lanes' commits was foreign, not the cull: on a work tree this
+contended only a paired A/B inside one lock hold separates the two.
+
 ## Bake the corpus
 
 `npm run bake:corpus` (`tools/bake-cluster-corpus.mjs`) walks `../assets`
