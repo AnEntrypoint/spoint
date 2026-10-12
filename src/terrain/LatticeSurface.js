@@ -51,17 +51,32 @@ function _dequantizeSectorized(artifact) {
 // The sample field: a regular grid of chart-local ground heights with bilinear lookup. Every reader
 // that wants "how high is the ground at (x,z)" inside the coverage gets this, so no reader can
 // disagree with another about the same point.
-export function createBakedHeightField(artifact) {
+//
+// epochOf answers the live world frame's chartEpoch. A lattice is chart-local, so the anchor it was
+// baked under is part of what it IS: after a re-anchor the same (x,z) names different ground, and a
+// field that keeps answering there is a stale field that still reports true. The refusal belongs to
+// the field and not to each reader -- a copy of the epoch test in every reader is a staleness guess
+// that any new reader simply omits -- so covers() answers false and heightAtLocal() answers NaN from
+// the moment the anchor moves, and every reader falls back to whatever it did before with no change
+// on its side. Where epochOf is absent the field is unbounded and answers exactly as it always did.
+export function createBakedHeightField(artifact, opts = {}) {
   if (artifact.sectors) artifact = { ...artifact, heights: _dequantizeSectorized(artifact) }
   const { N, extent, center, heights } = artifact
   const step = extent / (N - 1), half = extent / 2
   const cx = (center && center[0]) || 0, cz = (center && center[1]) || 0
   const at = (ix, iz) => { ix = ix < 0 ? 0 : ix > N - 1 ? N - 1 : ix; iz = iz < 0 ? 0 : iz > N - 1 ? N - 1 : iz; const v = heights[iz * N + ix]; return (typeof v === 'number') ? v : 0 }
+  const chartEpoch = bakedEpochOf(artifact)
+  const epochOf = typeof opts.epochOf === 'function' ? opts.epochOf : null
+  const isCurrent = () => (epochOf === null ? true : epochOf() === chartEpoch)
   return {
     N, extent, center: [cx, cz], codeVersion: artifact.codeVersion,
     stepM: step,
-    covers(x, z) { return Math.abs(x - cx) <= half && Math.abs(z - cz) <= half },
+    chartEpoch,
+    isCurrent,
+    get liveEpoch() { return epochOf === null ? chartEpoch : epochOf() },
+    covers(x, z) { return isCurrent() && Math.abs(x - cx) <= half && Math.abs(z - cz) <= half },
     heightAtLocal(x, z) {
+      if (!isCurrent()) return NaN
       const fx = (x - cx + half) / step, fz = (z - cz + half) / step
       const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz
       const h00 = at(ix, iz), h10 = at(ix + 1, iz), h01 = at(ix, iz + 1), h11 = at(ix + 1, iz + 1)
@@ -125,7 +140,12 @@ export async function loadLatticeSurface({ url, tcfg, frame }) {
       console.warn(`[terrain] shared lattice: ${url}: ${mismatch} -> not this ground`)
       return null
     }
-    return { ...createBakedHeightField(artifact), kind: 'bake', chartEpoch: bakedEpochOf(artifact) }
+    // The field is bound to the live frame's anchor here, so the refusal is the anchor's and not a
+    // reader's: covers() stops answering true the moment the chart is re-anchored under the field.
+    const epochOf = (frame && typeof frame === 'object')
+      ? () => (Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
+      : null
+    return Object.assign(createBakedHeightField(artifact, { epochOf }), { kind: 'bake' })
   } catch (e) {
     console.warn(`[terrain] shared lattice: ${url} could not be read, so consumers keep solving the terrain:`, (e && e.message) || e)
     return null

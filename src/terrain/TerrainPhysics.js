@@ -60,7 +60,11 @@ export async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: ${mismatch} -> exact CPU height`)
     return null
   }
-  const field = createBakedHeightField(artifact)
+  // Bound to the live frame's chart epoch, so a re-anchor under this field makes its covers()
+  // answer false instead of pointing every reader at the ground of the chart it was baked under.
+  const field = createBakedHeightField(artifact, {
+    epochOf: () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0),
+  })
   field.codeVersionVerified = bakeCode !== null
   return field
 }
@@ -290,6 +294,11 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
       : (gpuPatch ? null : 'the GPU patch bake produced no height function')
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame)
+  // Placement reads the collider's own buffer through the frame, so trees, rocks and grass sit on
+  // the surface the collider simulates instead of paying the CPU sampler to solve it again
+  // (src/terrain/PlacementChart.js surfaceAlongDir). Absent a bake there is no lattice and placement
+  // keeps solving exactly as it did.
+  if (baked) frame.sharedLattice = baked
   const bakedAnchorDir = baked ? frame.anchorDir : null
   const bakedFrameIsCurrent = () => frame.up[0] === bakedAnchorDir[0] && frame.up[1] === bakedAnchorDir[1] && frame.up[2] === bakedAnchorDir[2]
   const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0

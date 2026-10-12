@@ -115,6 +115,10 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     try {
       const { loadLatticeSurface } = await import('/src/terrain/LatticeSurface.js')
       sharedLattice = await loadLatticeSurface({ url: cfg.bakedHeightfield, tcfg: cfg, frame })
+      // Placement reads the collider's own buffer through the frame, so grass, vegetation and rocks
+      // sit on the same samples the server collides against and the near band draws
+      // (src/terrain/PlacementChart.js surfaceAlongDir), instead of re-solving the sampler per cell.
+      if (sharedLattice) frame.sharedLattice = sharedLattice
       if (sharedLattice) console.log(`[terrain] shared lattice: ${sharedLattice.N} nodes over ${sharedLattice.extent}m (${sharedLattice.stepM.toFixed(4)}m) -> the mesh mirror reads the collider's own samples instead of re-solving them`)
     } catch (e) {
       sharedLattice = null
