@@ -17,7 +17,7 @@
 // (whose noGpuVerdict() takes the first FAIL line) instead of invisible.
 //
 // Use:
-//   import { armVerdictExitGuard } from './lib/verdict-exit-guard.mjs'
+//   import { armVerdictExitGuard } from 'scripts/lib/verdict-exit-guard.mjs'
 //   armVerdictExitGuard({ label: 'my-witness' })   // anywhere before the verdict is printed
 // or, with no edit at all: node scripts/run-witness.mjs scripts/my-witness.mjs
 import { stopWitnessServers } from './witness-server.mjs'
