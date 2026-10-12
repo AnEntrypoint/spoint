@@ -1,0 +1,44 @@
+water-pass-static-count witness (tsl-water-pass) at 2026-10-12T04:48:42.485Z
+
+PASS water-grid: WATER_GRID=4
+PASS water-max-level: WATER_MAX_LEVEL=11
+PASS fd-taps: FD_TAPS=5
+PASS grid-mesh-size: TERRAIN_DEFAULTS.gridMeshSize=9
+PASS water-render-order: WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS=-1
+PASS terrain-render-order: TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS=10
+PASS water-verts-per-instance: water grid 4 -> 49 vertices/instance
+PASS terrain-verts-per-instance: terrain grid 9 -> 144 vertices/instance
+PASS water-vs-height-evaluations: createWaterTSL positionNode evaluates composeHeight 1 time(s) per water vertex
+PASS water-vertex-share-of-terrain: water VS height work per quad 49 vs terrain 720 = 6.8%
+PASS land-discard-branch-isolated: top-level If nodes 2; discard-only branch regions: ["if1:then"]
+PASS single-surface-branch: top-level else regions: ["if2:else"]
+PASS land-discard-reached: land branch if1:then Discard at order index 40
+PASS discard-precedes-sea-evaluations: Discard index 40 < first sea evaluation index 65
+PASS land-branch-cost: if1:then (terrain above sea) emits 1 op(s), 0 sea evaluation(s)
+PASS ocean-branch-cost: if2:else emits 9967 ops: seaOctave 112, seaNoise 113, seaHeight 13, seaHeightLF 3
+PASS ocean-branch-gated-by-discard: ocean branch 9967 ops vs land branch 1 op(s)
+PASS water-material-transparent: material.transparent=true
+PASS water-material-depth-write: material.depthWrite=true
+PASS water-material-double-sided: material.side=DoubleSide(2)
+PASS water-shader-name: material.name=mapspinner-water-tsl
+PASS terrain-material-opaque: terrain TSL material assigns no .transparent -> opaque render list
+PASS terrain-material-no-opacity: terrain TSL material declares no opacityNode
+PASS water-instances-positive: setQuads over 200 terrain quads -> 200 water instances
+PASS water-instances-bounded: water instances 200 <= terrain quads 200
+PASS water-instances-dedup: 50 identical quads collapse to 1 water instance
+PASS instance-count-matches-return: geo.instanceCount=1 == setQuads return 1
+PASS water-level-coarsened: level 14 quads coarsen to max emitted level 11 (cap 11), 1 instances
+PASS water-visible-by-default: mesh.visible=true with no window override
+PASS water-surface-toggle: window.__waterSurface===false hides the water mesh
+
+measured counts
+  water vertices/instance        49
+  terrain vertices/instance      144
+  composeHeight per water vertex 1
+  composeHeight per terrain quad 720
+  water VS share of terrain      6.8%
+  land branch ops / sea evals    1 / 0
+  underwater branch ops          2145
+  ocean branch ops               9967
+  ocean seaOctave / seaNoise     112 / 113
+  ocean seaHeight / seaHeightLF  13 / 3
