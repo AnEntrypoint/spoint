@@ -5,14 +5,16 @@ const REPO = 'AnEntrypoint/spoint'
 const ROOT = process.cwd()
 
 function parseArgv(argv) {
-  const out = { message: null, messageFile: null, paths: [] }
+  const out = { message: null, messageFile: null, paths: [], binary: [] }
+  let bucket = 'paths'
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--message') out.message = argv[++i]
     else if (a === '--message-file') out.messageFile = argv[++i]
+    else if (a === '--binary') bucket = 'binary'
     else if (a === '--') continue
     else if (a === '--repo') out.repo = argv[++i]
-    else out.paths.push(a)
+    else out[bucket].push(a)
   }
   return out
 }
@@ -29,7 +31,7 @@ async function main() {
     console.error('git-api-publish: --message or --message-file is required')
     process.exit(1)
   }
-  if (args.paths.length === 0) {
+  if (args.paths.length === 0 && args.binary.length === 0) {
     console.error('git-api-publish: at least one path is required')
     process.exit(1)
   }
@@ -59,6 +61,14 @@ async function main() {
     tree.push({ path: rel, mode: '100644', type: 'blob', sha: blob.sha })
     local[rel] = execFileSync('git', ['hash-object', '--path=' + rel, rel], { cwd: ROOT, encoding: 'utf8' }).trim()
   }
+  for (const rel of args.binary) {
+    const blob = await gh('/repos/' + repo + '/git/blobs', {
+      method: 'POST',
+      body: JSON.stringify({ content: readFileSync(ROOT + '/' + rel).toString('base64'), encoding: 'base64' }),
+    })
+    tree.push({ path: rel, mode: '100644', type: 'blob', sha: blob.sha })
+    local[rel] = execFileSync('git', ['hash-object', '--path=' + rel, rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+  }
 
   const newTree = await gh('/repos/' + repo + '/git/trees', {
     method: 'POST',
@@ -75,7 +85,7 @@ async function main() {
 
   const verify = {}
   let ok = true
-  for (const rel of args.paths) {
+  for (const rel of [...args.paths, ...args.binary]) {
     const remote = (await gh('/repos/' + repo + '/contents/' + rel + '?ref=main')).sha
     verify[rel] = { remote, local: local[rel], match: remote === local[rel] }
     if (remote !== local[rel]) ok = false
