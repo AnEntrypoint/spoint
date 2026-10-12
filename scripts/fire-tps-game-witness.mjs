@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -91,6 +92,7 @@ async function runOnce({ enabled, weather, label }) {
     conn.send = (id, type, payload, ...rest) => { transcript.push({ dir: 'one', to: id, type, payload }); return origSend(id, type, payload, ...rest) }
   }
   await server.loadWorld(worldDef)
+  registerWitnessServer(server, 'scripts/fire-tps-game-witness.mjs')
   await server.start()
   const url = `ws://127.0.0.1:${port}/ws`
   const clients = [0, 1].map(() => new PhysicsNetworkClient({ url, predictionEnabled: false, smoothInterpolation: false, webTransport: { enabled: false } }))

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { numericFlag } from './lib/witness-args.mjs'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -88,6 +89,7 @@ async function main() {
     storageDir: resolve(SDK_ROOT, 'data', 'airborne-ground-solve-throttle-witness'),
   })
   await server.loadWorld(worldDef)
+  registerWitnessServer(server, 'scripts/airborne-ground-solve-throttle-witness.mjs')
   await server.start()
   const physics = server.physics
   const pi = server.physicsIntegration

@@ -1,6 +1,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -65,6 +66,7 @@ const server = await createServer({
   storageDir: resolve(SDK_ROOT, 'data', 'spawn-clearance-witness'),
 })
 await server.loadWorld(worldDef)
+registerWitnessServer(server, 'scripts/spawn-clearance-witness.mjs')
 await server.start()
 await sleep(1200)
 

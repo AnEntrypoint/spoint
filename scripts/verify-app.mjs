@@ -6,6 +6,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -60,6 +61,7 @@ async function main() {
   console.error = (...a) => { serverErrors.push(a.map(String).join(' ')); origConsoleError(...a) }
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
+  registerWitnessServer(server, 'scripts/verify-app.mjs')
   console.log('[verify-app] server up')
 
   const base = `http://localhost:${PORT}`

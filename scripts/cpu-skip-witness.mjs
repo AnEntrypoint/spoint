@@ -2,6 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -124,6 +125,7 @@ const server = await createServer({
   storageDir: resolve(SDK_ROOT, 'data', 'cpu-skip-witness'),
 })
 await server.loadWorld(worldDef)
+registerWitnessServer(server, 'scripts/cpu-skip-witness.mjs')
 await server.start()
 const runtime = server.runtime
 const url = `ws://127.0.0.1:${port}/ws`

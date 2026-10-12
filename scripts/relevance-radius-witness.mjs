@@ -5,6 +5,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { createServer as createNetServer } from 'node:net'
 import { numericFlag, numericListFlag, parseArgs, strArg } from './lib/witness-args.mjs'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -73,6 +74,7 @@ async function runAoiRingArm() {
     storageDir: resolve(SDK_ROOT, 'data', 'aoi-ring-witness'),
   })
   await server.loadWorld(worldDef)
+  registerWitnessServer(server, 'scripts/relevance-radius-witness.mjs')
   await server.start()
   const runtime = server.runtime
   const stage = runtime._stageLoader?.getActiveStage?.() || null

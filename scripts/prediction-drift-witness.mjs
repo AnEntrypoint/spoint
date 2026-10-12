@@ -4,6 +4,7 @@ import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 import { argvNumber } from './lib/witness-args.mjs'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const GPU_MODE = gpuModeFlag('gpu', 'accelerated')
@@ -79,6 +80,7 @@ async function main() {
   console.log(`[prediction-drift] booting server on ${PORT} world=${WORLD}`)
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
+  registerWitnessServer(server, 'scripts/prediction-drift-witness.mjs')
   if (SERVER_TICK > 0) {
     const advertised = server.tickSystem?.tickRate ?? null
     server.tickSystem?.setTickRate?.(SERVER_TICK)

@@ -1,6 +1,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
+import { registerWitnessServer } from './lib/witness-server.mjs'
 
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
@@ -67,6 +68,7 @@ async function main() {
     storageDir: resolve(SDK_ROOT, 'data', 'player-manager-send-failure-witness')
   })
   await server.loadWorld(worldDef)
+  registerWitnessServer(server, 'scripts/player-manager-send-failure-witness.mjs')
   await server.start()
 
   const pm = server.playerManager
