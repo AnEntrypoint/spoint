@@ -291,7 +291,7 @@ async function main() {
       if (run.cpu) console.log(`[${LABEL}] rep ${i} cpu ${jsonLine(run.cpu)}`)
       runs.push(run)
       console.log(`[${LABEL}] rep ${i}: ${jsonLine(summarizeRep(run))}`)
-      console.log(`[${LABEL}] rep ${i} marks=${JSON.stringify(Object.keys(probe.marks))} snaps=${JSON.stringify(Object.keys(probe.probe?.snaps || {}))} veg=${!!probe.veg} rocks=${!!probe.rocks} grass=${!!probe.grass}`)
+      console.log(`[${LABEL}] rep ${i} marks=${JSON.stringify(probe.marks)} snaps=${JSON.stringify(Object.keys(probe.probe?.snaps || {}))} veg=${!!probe.veg} rocks=${!!probe.rocks} grass=${!!probe.grass}`)
       for (const c of consoleErrors.slice(0, 12)) console.log(`[${LABEL}] rep ${i} console ${c}`)
       await page.close().catch(() => {})
     }
@@ -342,6 +342,24 @@ async function main() {
     playableMs: summaries.map(s => s.playableMs),
   }
   console.log(`[${LABEL}] measurements ${jsonLine(out)}`)
+
+  const stageDeltas = runs.map((run) => {
+    const tl = Object.entries(run.marks)
+      .filter(([, t]) => Number.isFinite(t))
+      .map(([name, t]) => ({ name, t }))
+      .sort((a, b) => a.t - b.t)
+    if (Number.isFinite(run.revealedAt)) tl.push({ name: 'revealedAt', t: run.revealedAt })
+    const d = {}
+    for (let i = 1; i < tl.length; i++) d[`${tl[i - 1].name} -> ${tl[i].name}`] = round(tl[i].t - tl[i - 1].t)
+    return d
+  })
+  const stageKeys = [...new Set(stageDeltas.flatMap(d => Object.keys(d)))]
+  const stageMediansMs = {}
+  for (const k of stageKeys) {
+    const xs = stageDeltas.map(d => d[k]).filter(Number.isFinite)
+    stageMediansMs[k] = { medianMs: round(median(xs)), n: xs.length }
+  }
+  console.log(`[${LABEL}] stage medians ${jsonLine(Object.entries(stageMediansMs).sort((a, b) => (b[1].medianMs ?? -1) - (a[1].medianMs ?? -1)))}`)
 
   runs.forEach((run, i) => {
     const snaps = run.probe?.snaps || {}
