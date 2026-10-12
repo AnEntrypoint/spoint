@@ -76,24 +76,9 @@ function muSFromLayer(layerIndex, layers) {
   return clamp(Math.tanh(k * t) / Math.tanh(k), -1, 1);
 }
 function layerFromMuS(muS, layers) {
-  const k = SCAT_MUS_WARP_K;
-  const t = Math.atanh(clamp(muS, -0.999999, 0.999999) * Math.tanh(k)) / k;
+  const t = Math.atanh(clamp(muS, -0.999999, 0.999999) * Math.tanh(SCAT_MUS_WARP_K)) / SCAT_MUS_WARP_K;
   const w = clamp((t + 1) * 0.5, 0, 1);
   return clamp(Math.floor(w * layers), 0, layers - 1);
-}
-
-function opticalDepth(p0, dir, d, steps) {
-  const dt = d / steps;
-  let odR = 0, odM = 0;
-  for (let i = 0; i < steps; i++) {
-    const t = dt * (i + 0.5);
-    const px = p0[0] + dir[0] * t, py = p0[1] + dir[1] * t, pz = p0[2] + dir[2] * t;
-    const r = Math.hypot(px, py, pz);
-    const [dR, dM] = densities(r);
-    odR += dR * dt;
-    odM += dM * dt;
-  }
-  return [odR, odM];
 }
 
 export function inscatterAt(r, mu, muS, transLUT, steps = MARCH_STEPS) {

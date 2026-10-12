@@ -11,14 +11,14 @@ export const inputBlockerHook = (flags, head) => "(()=>{" + flags +
   "for(const t of ['pointerdown','pointerup','mousedown','mouseup','click','keydown','keyup','wheel','contextmenu'])window.addEventListener(t,b,{capture:true,passive:false});" +
   "try{Element.prototype.requestPointerLock=function(){W.blockedInput++;log('requestPointerLock',null);return Promise.resolve()}}catch(e){}})();"
 
-const signature = label => "JSON.stringify({frame:'" + label + "',t:new Date().toISOString(),cam:window.__app.cam.save(),ammo:" + ammoRead +
+export const signature = label => "JSON.stringify({frame:'" + label + "',t:new Date().toISOString(),cam:window.__app.cam.save(),ammo:" + ammoRead +
   ",veg:window.__veg.totalInstances,blocked:window.__witness.blockedInput,albedoOverride:window.__albedoOverride,reliefShade:window.__reliefShade===undefined?'default':window.__reliefShade,hazeMul:window.__hazeMul})"
 
-const inputCountExpression = label => "JSON.stringify({probe:'" + label + "',href:location.href,head:window.__parityHead||null,blocked:window.__witness?window.__witness.blockedInput:'no-witness'," +
+export const inputCountExpression = label => "JSON.stringify({probe:'" + label + "',href:location.href,head:window.__parityHead||null,blocked:window.__witness?window.__witness.blockedInput:'no-witness'," +
   "cv:(function(){var c=document.querySelector('canvas');return c?[c.width,c.height]:null})()," +
   "inputLog:window.__witness?window.__witness.inputLog:[],pageErrors:window.__witness?window.__witness.pageErrors:null})"
 
-const postNavExpression = () => inputCountExpression('postNavigate')
+export const postNavExpression = () => inputCountExpression('postNavigate')
 
 export const settleExpression = minVeg => "(async()=>{const t0=performance.now();" +
   "while(performance.now()-t0<60000){if(window.__app&&window.__app.terrain&&window.__veg&&window.__timeOfDayApi&&window.__app.cam&&window.__rendererInfo)break;await new Promise(r=>setTimeout(r,300))}" +
@@ -31,18 +31,18 @@ export const settleExpression = minVeg => "(async()=>{const t0=performance.now()
   "return JSON.stringify({settle:settled,veg:window.__veg.totalInstances,elapsedMs:Math.round(performance.now()-t0),href:location.href,cls:window.__rendererInfo.class,backend:window.__rendererInfo.backend,gpu:window.__rendererInfo.glRenderer," +
   "hv:window.__app.terrain.frame.hashVersion,canvas:[c.width,c.height,c.clientWidth,c.clientHeight],dpr:devicePixelRatio,geomorphLod:String(window.__geomorphLod),witness:window.__witness,inputLog:window.__witness.inputLog})})()"
 
-const stepExpression = (assign, waitMs, label) => "(async()=>{" + assign + ";await new Promise(r=>setTimeout(r," + waitMs + "));" +
+export const stepExpression = (assign, waitMs, label) => "(async()=>{" + assign + ";await new Promise(r=>setTimeout(r," + waitMs + "));" +
   "let prev=-1;const t0=performance.now();while(performance.now()-t0<20000){const v=window.__veg.totalInstances;if(v===prev)break;prev=v;await new Promise(r=>setTimeout(r,5000))}" +
   "return " + signature(label) + "})()"
 
 const evaluate = expr => ['cdp Runtime.evaluate', JSON.stringify({ expression: expr, awaitPromise: true, returnByValue: true, timeout: 60000 })]
 const shot = clip => ['cdp Page.captureScreenshot', JSON.stringify({ format: 'png', clip })]
-const SKY_CLIP = { x: 311, y: 39, width: 518, height: 155, scale: 0.25 }
-const FULL = { x: 0, y: 0, width: 1036, height: 647, scale: 0.5 }
+export const SKY_CLIP = { x: 311, y: 39, width: 518, height: 155, scale: 0.25 }
+export const FULL = { x: 0, y: 0, width: 1036, height: 647, scale: 0.5 }
 
 const frame = (label, clip) => [...evaluate(signature(label)), ...shot(clip)]
 
-const DEVICE_METRICS = '{"width":1036,"height":647,"deviceScaleFactor":1.25,"mobile":false}'
+export const DEVICE_METRICS = '{"width":1036,"height":647,"deviceScaleFactor":1.25,"mobile":false}'
 const guardLines = () => ['cdp Input.setIgnoreInputEvents', '{"ignore":true}', 'cdp Emulation.setDeviceMetricsOverride', DEVICE_METRICS]
 
 export function bootBody({ session, url, minVeg, flags = '', head = null }) {

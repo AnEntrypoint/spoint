@@ -41,6 +41,7 @@ for (const [name, body] of Object.entries(bodies)) {
   fs.writeFileSync(path.join(args.out, name + '.cdp.txt'), body)
 }
 const order = [
+  'EXECUTE WITH scripts/atmosphere-lut-sky-parity-witness.mjs: the standalone cdp verb this body set was written for is retired in current runner builds (it answers retired_verb and names crawl), and crawl does not accept the `cdp <Domain.method>` / `events <Name>` DSL below. That witness imports these bodies expressions and drives them over scripts/lib/cdp-browser.mjs, then calls analyze.mjs. The .cdp.txt files here remain the readable record of each step.',
   'session new gpu=' + verbGpu + ' keep_alive',
   'tsl-boot  (repeat tsl-settle while the result says settle:false)',
   'tsl-capture',

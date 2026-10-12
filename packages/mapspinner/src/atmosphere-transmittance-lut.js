@@ -112,7 +112,7 @@ export function verifyLUT({ data, width, height }) {
   let prevT = 0;
   for (let i = 0; i <= N; i++) {
     const r = ATM_BOTTOM + (ATM_TOP - ATM_BOTTOM) * (i / N);
-    const [tr] = transmittanceAt(r, 1.0, 200);
+    const tr = transmittanceAt(r, 1.0, 200)[0];
     if (i > 0 && tr < prevT - 1e-4) monotoneViolations++;
     prevT = tr;
   }
