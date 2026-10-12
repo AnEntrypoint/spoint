@@ -102,6 +102,8 @@ export const BAKE_INPUTS_HEIGHTFIELD_BAKE = [
   '../../packages/mapspinner/src/terrain-defaults.js',
   '../../packages/mapspinner/src/tsl/height-spec.js',
   '../../packages/mapspinner/src/tsl/ops-jsgen.js',
+  '../../scripts/lib/verdict-exit-guard.mjs',
+  '../../scripts/lib/witness-server.mjs',
   ...presetInputs(),
 ]
 
