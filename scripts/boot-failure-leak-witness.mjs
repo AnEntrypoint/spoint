@@ -21,6 +21,7 @@ const OWNED_HANDLE_LIMIT = 2
 const DRAIN_TIMEOUT_MS = 5000
 const CONNECT_PROBE_TIMEOUT_MS = 1000
 const EXIT_WATCHDOG_MS = 2000
+const PORT_DRAW_ATTEMPTS = 32
 
 await mkdir(WORK_DIR, { recursive: true })
 await writeFile(resolve(WORK_DIR, CORRUPT_HEIGHTFIELD), Buffer.alloc(CORRUPT_HF_BYTES, 0xa5))
@@ -88,6 +89,18 @@ const freePort = () => new Promise((res, rej) => {
   })
 })
 
+// "Two distinct attempts" is an assertion about THIS witness, not about the OS: an ephemeral draw
+// from port 0 hands the same number back twice often enough on Linux CI that the arms used to be
+// compared on a value nobody chose. Draw until the allocator gives a port no earlier arm used.
+const drawnPorts = new Set()
+const drawUnusedPort = async () => {
+  for (let attempt = 0; attempt < PORT_DRAW_ATTEMPTS; attempt++) {
+    const port = await freePort()
+    if (!drawnPorts.has(port)) { drawnPorts.add(port); return port }
+  }
+  throw new Error(`boot-failure-leak: no unused port in ${PORT_DRAW_ATTEMPTS} draw(s)`)
+}
+
 const connectsToPort = port => new Promise(res => {
   const socket = netConnect({ host: '127.0.0.1', port })
   let timer = null
@@ -125,7 +138,7 @@ const baseWorldDef = { ...loaded, entities: loaded.entities.filter(e => e.id !==
 const tickRate = baseWorldDef.tickRate || 64
 
 async function bootArm({ bakedHeightfield, start }) {
-  const port = await freePort()
+  const port = await drawUnusedPort()
   const startedAt = Date.now()
   const server = await createSpointServer({
     port, tickRate,
