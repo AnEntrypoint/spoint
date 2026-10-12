@@ -24,6 +24,10 @@ const COST_PROBE_ROUNDS = 3
 const FROZEN_FRACTION_MIN = 0.999
 const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
 const WASM_RESERVE_MIN_PER_WORLD_BYTES = 8 * 1024 * 1024
+// Solved fields kept after the body that solved them is retired, so ground the player has already
+// walked over stays solved. One is a floor-lattice field's sample array: N*N*4 B, 264 KB at N=257,
+// so the whole retain set is a few megabytes next to the 32 MB field wasm budget.
+const PATCH_RETAIN_MAX = 16
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false, seed = null }) {
   const samples = new Float32Array(N * N)
@@ -164,6 +168,12 @@ export function createTerrainStreamer(opts = {}) {
   const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
   let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0, lastError = null
   let lattice = null, refusalCount = 0, lastRefusal = null
+  // Ground this streamer has already solved, kept after the field that solved it is retired. This is
+  // what makes the near-field floor affordable while the player travels: a node one field has already
+  // solved is, for as long as the chart epoch and the lattice hold, the same height, so a field built
+  // over it must not pay to solve it again. It is reuse of a solved value, never a coarser lattice --
+  // every node no seed donates is still solved at the floor.
+  const patches = []
 
   function refuse(name, message) {
     refusalCount++
@@ -184,11 +194,15 @@ export function createTerrainStreamer(opts = {}) {
     for (const f of fields) placeBody(f.bodyId, f.center[0] - half, f.center[1] - half)
   }
   function setLattice(next) {
+    // A patch's corner is in the lattice it was solved in, so a change of lattice orphans every one
+    // of them: donating across it would shift a whole field by the difference between the bases.
+    patches.length = 0
     lattice = next
     if (lattice) placeAllFields()
   }
   function dropLattice() {
     if (!lattice) return
+    patches.length = 0
     for (const f of fields) f.center = lattice.toChart(f.center[0], f.center[1])
     lattice = null
   }
@@ -264,15 +278,29 @@ export function createTerrainStreamer(opts = {}) {
     return lattice ? uncovered.map(p => lattice.toChart(p[0], p[1])) : uncovered
   }
 
-  function seedFromResident(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
-    if (gridN !== N || !fields.length) return null
+  // A node this streamer has already solved at THIS lattice is donated, not re-solved, wherever the
+  // new footprint overlaps an old one. The ruling made every field take the near-field floor, so
+  // gridN is now floorN and the old guard (`gridN !== N`, N being the CONFIGURED lattice) answered
+  // null for every field from that commit on: each 66049-node field was solved from scratch,
+  // including the ~half of it the previous field along the travel path had already solved. Matching
+  // a source on its own N and spacing is the same claim, stated where it holds.
+  // The lattice a patch was solved in is part of its identity: a patch's corner is in that lattice's
+  // coordinates, so donating it across a lattice change would silently shift a whole field.
+  function seedFromSolved(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
+    if (!fields.length && !patches.length) return null
     const samples = new Float32Array(gridN * gridN).fill(NaN)
     const filled = new Uint8Array(gridN * gridN)
     let any = false
-    for (const f of fields) {
+    for (let s = 0; s < fields.length + patches.length; s++) {
+      const f = s < fields.length
+        ? { cornerX: fields[s].center[0] - half, cornerZ: fields[s].center[1] - half, N: fields[s].N, samples: fields[s].samples, epoch: fields[s].epoch, lattice: fields[s].lattice }
+        : patches[s - fields.length]
       if (!f.samples || f.N !== gridN || f.epoch !== epoch || f.lattice !== activeLattice) continue
-      const fx = f.center[0] - half, fz = f.center[1] - half
-      const dx = Math.round((cornerX - fx) / gridSpacing), dz = Math.round((cornerZ - fz) / gridSpacing)
+      const dxF = (cornerX - f.cornerX) / gridSpacing, dzF = (cornerZ - f.cornerZ) / gridSpacing
+      const dx = Math.round(dxF), dz = Math.round(dzF)
+      // A source that is not ON this lattice cannot donate: rounding a fraction of a cell would
+      // shift the whole donated block and call the shift a reuse.
+      if (Math.abs(dxF - dx) > 1e-6 || Math.abs(dzF - dz) > 1e-6) continue
       if (dx >= gridN || dx <= -gridN || dz >= gridN || dz <= -gridN) continue
       const i0 = Math.max(0, -dx), i1 = Math.min(gridN, gridN - dx)
       const j0 = Math.max(0, -dz), j1 = Math.min(gridN, gridN - dz)
@@ -290,6 +318,15 @@ export function createTerrainStreamer(opts = {}) {
     return any ? { samples, filled } : null
   }
 
+  function rememberPatch(cornerX, cornerZ, built) {
+    for (let i = patches.length - 1; i >= 0; i--) {
+      const p = patches[i]
+      if (p.N === built.N && p.epoch === built.epoch && p.lattice === built.lattice && Math.abs(p.cornerX - cornerX) <= 1e-9 && Math.abs(p.cornerZ - cornerZ) <= 1e-9) patches.splice(i, 1)
+    }
+    patches.push({ cornerX, cornerZ, N: built.N, samples: built.samples, epoch: built.epoch, lattice: built.lattice })
+    while (patches.length > PATCH_RETAIN_MAX) patches.shift()
+  }
+
   async function buildField(cx, cz, gridN = 0, reuse = false) {
     const t0 = _now()
     const epochAtStart = getEpoch(), latticeAtStart = lattice
@@ -305,14 +342,16 @@ export function createTerrainStreamer(opts = {}) {
     }
     const gridSpacing = extent / (useN - 1)
     const stale = () => lattice !== latticeAtStart || (!latticeAtStart && getEpoch() !== epochAtStart)
-    const seed = reuse ? seedFromResident(cornerX, cornerZ, useN, gridSpacing, epochAtStart, latticeAtStart) : null
+    const seed = reuse ? seedFromSolved(cornerX, cornerZ, useN, gridSpacing, epochAtStart, latticeAtStart) : null
     const g = await sampleTerrainGridChunked({ heightFn: srcFn, N: useN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || stale(), seed })
     if (disposed) return null
     if (!g || stale()) { staleEpochDiscards++; return null }
     const bodyId = physics.addHeightField(g.samples, useN, [gridSpacing, 1, gridSpacing], [cornerX, 0, cornerZ])
     if (bodyId == null) { refuse(HEIGHTFIELD_REFUSALS.jolt, `physics.addHeightField returned no body id for the field at (${cornerX},${cornerZ})`); console.error('[terrain] streamer: Jolt rejected field'); return null }
     if (lattice) placeBody(bodyId, cornerX, cornerZ)
-    return { bodyId, center: [cornerX + half, cornerZ + half], N: useN, samples: g.samples, epoch: epochAtStart, lattice: latticeAtStart, reused: g.reused, solved: g.solved, wallMs: _now() - t0, sampleMs: g.sampleMs }
+    const built = { bodyId, center: [cornerX + half, cornerZ + half], N: useN, samples: g.samples, epoch: epochAtStart, lattice: latticeAtStart, reused: g.reused, solved: g.solved, wallMs: _now() - t0, sampleMs: g.sampleMs }
+    rememberPatch(cornerX, cornerZ, built)
+    return built
   }
 
   function publishPrimary(players) {
@@ -367,7 +406,7 @@ export function createTerrainStreamer(opts = {}) {
       if (!built || disposed) break
       fields.push(fieldRecord(built))
       rebuildCount++
-      console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${built.N} (configured N=${N}) reused=${built.reused}/${built.N * built.N} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
+      console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${built.N} (configured N=${N}) reused=${built.reused}/${built.N * built.N} solved=${built.solved} patches=${patches.length} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
       need = nextUncoveredCluster(validCenters(), fields, coverRadius, half)
     }
     if (disposed) return
@@ -376,7 +415,9 @@ export function createTerrainStreamer(opts = {}) {
     publishPrimary(now)
   }
 
+  // A resculpt means the ground itself was edited, so nothing this streamer solved still holds.
   async function rebuildAll() {
+    patches.length = 0
     dropLattice()
     for (let i = 0; i < fields.length; i++) {
       const built = await buildField(fields[i].center[0], fields[i].center[1])
@@ -431,6 +472,7 @@ export function createTerrainStreamer(opts = {}) {
       added.push({ bodyId, center: [...f.center], N: f.N, samples: f.samples, epoch: getEpoch(), lattice: null })
     }
     const replaced = fields.splice(0, fields.length, ...added)
+    patches.length = 0
     lattice = null
     for (const old of replaced) physics.removeBody(old.bodyId)
     physics.setTerrainBodyId(added[prepared.primaryIndex].bodyId)
@@ -514,6 +556,7 @@ export function createTerrainStreamer(opts = {}) {
   function stop() {
     disposed = true
     if (_timer) clearTimeout(_timer)
+    patches.length = 0
     for (const f of fields) { try { physics.removeBody(f.bodyId) } catch (_) {} }
     fields.length = 0
     try { physics.setTerrainBodyId(null) } catch (_) {}
