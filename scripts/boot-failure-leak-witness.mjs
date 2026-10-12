@@ -238,7 +238,7 @@ const inducedFailures = [firstFailedBoot, secondFailedBoot].filter(arm => arm.bo
 const controlSuccesses = controlBoot.bootError === null ? 1 : 0
 const listenerLeaked = firstFailedBoot.listenerLeaked === true || secondFailedBoot.listenerLeaked === true
 const ownedGrowth = firstFailedBoot.handles.owned - handlesBefore.owned
-console.log(`MEASURED boot-failure-leak: ${inducedFailures} induced failed boot(s) + ${controlSuccesses} control boot, handle census ${peakLiveCensus.total} handle(s) of which ${peakLiveCensus.owned} owned, post-boot log line(s) ${firstFailedBoot.postBootLogLines}/${secondFailedBoot.postBootLogLines}, control log window ${controlLogWindow.lines} line(s) of ${controlLogWindow.emitted} emitted, listener leak ${listenerLeaked}, watchers ${firstFailedBoot.handles.watchers}, servers ${controlBoot.handlesLive.servers}, owned growth ${ownedGrowth}`)
+console.log(`MEASURED boot-failure-leak: ${inducedFailures} induced failed boot(s) + ${controlSuccesses} control boot, handle census ${peakLiveCensus.total} handle(s) of which ${peakLiveCensus.owned} owned, post-boot log line(s) ${firstFailedBoot.postBootLogLines}/${secondFailedBoot.postBootLogLines}, control log window ${controlLogWindow.lines} line(s) of ${controlLogWindow.emitted} emitted, listener leak ${listenerLeaked}, watchers ${firstFailedBoot.handles.watchers}, servers ${controlBoot.handlesLive.servers}, owned growth ${ownedGrowth}, arm port(s) ${firstFailedBoot.port}/${secondFailedBoot.port}, arm gap ${secondFailedBoot.startedAt - firstFailedBoot.stoppedAt}ms`)
 
 const verdict = failures.length ? `RESULT: FAIL ${failures.join(',')}` : 'RESULT: PASS'
 const exitCode = failures.length ? 1 : 0
