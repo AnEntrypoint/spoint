@@ -33,6 +33,18 @@ function expect(claim, got, want) {
   if (!ok) console.log(`     want ${JSON.stringify(want)}\n     got  ${JSON.stringify(got)}`);
 }
 
+const threwName = (fn) => { try { fn(); return 'no throw' } catch (err) { return err?.name ?? 'unknown' } };
+
+const ringTicks = (lc, id) => {
+  const ring = lc.playerHistory.get(id);
+  if (!ring) return [];
+  const ticks = [];
+  for (let i = 0; i < ring.len; i++) ticks.push(ring.buf[(ring.head + i) % ring.buf.length].tick);
+  return ticks;
+};
+
+const ascending = (ticks) => ticks.every((t, i) => i === 0 || ticks[i - 1] < t);
+
 function arm(name, fn) {
   try {
     fn();
@@ -61,6 +73,13 @@ async function main() {
     ({ LagCompensator } = await import(pathToFileURL(MODULE).href));
   } catch (err) {
     console.log(`RESULT: FAIL -- module failed to load: ${err?.message ?? err}`);
+    return 1;
+  }
+  let hitscan;
+  try {
+    hitscan = await import(pathToFileURL(resolve(REPO, 'src/netcode/Hitscan.js')).href);
+  } catch (err) {
+    console.log(`RESULT: FAIL -- Hitscan module failed to load: ${err?.message ?? err}`);
     return 1;
   }
 
@@ -121,6 +140,38 @@ async function main() {
     expect('after 300 records the oldest retained sample is tick 45', capped.rewindAtTick('p', 1).position[0], 45);
   });
 
+  arm('recordPlayerPosition tick order', () => {
+    const lc = new LagCompensator(1000, 60);
+    for (const [t, x] of [[0, 0], [1, 10], [2, 20], [5, 50], [4, 999], [6, 60]]) record(lc, 'p', t, [x, 0, 0]);
+    expect('the ring stays ascending by tick across an out-of-order record', ringTicks(lc, 'p'), [0, 1, 2, 4, 5, 6]);
+    expect('a tick recorded out of order rewinds to its own sample', lc.rewindAtTick('p', 4).position, [999, 0, 0]);
+    expect('the sample above an out-of-order tick is untouched', lc.rewindAtTick('p', 5).position, [50, 0, 0]);
+    expect('the newest tick still rewinds to the newest sample', lc.rewindAtTick('p', 6).position, [60, 0, 0]);
+    let skipped = 0;
+    for (const [t, x] of [[0, 0], [1, 10], [2, 20], [4, 999], [5, 50], [6, 60]]) if (lc.rewindAtTick('p', t).position[0] !== x) skipped++;
+    expect('every recorded tick rewinds to its own sample', skipped, 0);
+
+    const rb = new LagCompensator(1000, 60);
+    for (let t = 1; t <= 10; t++) record(rb, 'p', t, [t, 0, 0]);
+    for (let t = 5; t <= 10; t++) record(rb, 'p', t, [t * 100, 0, 0]);
+    expect('a re-simulation re-records its ticks in place instead of appending', rb.getStats().totalSamples, 10);
+    expect('a re-simulated tick holds the corrected position', rb.rewindAtTick('p', 7).position, [700, 0, 0]);
+    expect('the ring is still ascending after a re-simulation', ascending(ringTicks(rb, 'p')), true);
+
+    const wrap = new LagCompensator(1e9, 60);
+    for (let t = 1; t <= 300; t++) record(wrap, 'p', t, [t, 0, 0]);
+    record(wrap, 'p', 40, [-1, 0, 0]);
+    expect('a tick below the oldest retained sample enters a wrapped ring in order', ringTicks(wrap, 'p')[0], 40);
+    expect('the wrapped ring is still ascending', ascending(ringTicks(wrap, 'p')), true);
+    expect('the wrapped ring still holds 256 samples', wrap.getStats().totalSamples, 256);
+
+    expect('a non-finite tick is a caller error, not a silent value', threwName(() => record(lc, 'p', NaN, [0, 0, 0])), 'RangeError');
+    expect('a string tick is a caller error, not a silent value', threwName(() => record(lc, 'p', '7', [0, 0, 0])), 'RangeError');
+    const fresh = new LagCompensator(1000, 60);
+    expect('a non-finite tick is refused before the player is tracked', threwName(() => record(fresh, 'p', NaN, [0, 0, 0])), 'RangeError');
+    expect('a refused record never tracks a new player', fresh.getStats().trackedPlayers, 0);
+  });
+
   arm('rewindAtTick', () => {
     const lc = new LagCompensator(1000, 60);
     record(lc, 'p', 10, [10, 20, -10], [1, 0, 0], [0, 0, 0, 1]);
@@ -158,6 +209,28 @@ async function main() {
     expect('maxRewindMs reports the deepest rewind (20 ticks at 60 Hz)', stats.getStats().maxRewindMs, 20 * 1000 / 60);
   });
 
+  arm('rewindAtTick tick domain', () => {
+    const lc = new LagCompensator(1000, 60);
+    record(lc, 'p', 10, [10, 20, -10]);
+    record(lc, 'p', 20, [20, 40, -20]);
+    record(lc, 'p', 30, [30, 60, -30]);
+    expect('a NaN tick is refused with null', lc.rewindAtTick('p', NaN), null);
+    expect('an undefined tick is refused with null', lc.rewindAtTick('p', undefined), null);
+    expect('an infinite tick is refused with null', lc.rewindAtTick('p', Infinity), null);
+    expect('a numeric-string tick is refused with null', lc.rewindAtTick('p', '15'), null);
+    expect('the four refused ticks are counted in rejected', lc.getStats().rejected, 4);
+    expect('no refused tick is counted as a rewind', lc.getStats().rewinds, 0);
+    const buf = { tick: -1, timestamp: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0] };
+    expect('a refused tick returns null instead of filling out', lc.rewindAtTick('p', NaN, buf), null);
+    expect('the caller out sample is left untouched by a refused tick', buf.tick, -1);
+    expect('a tick below the oldest sample still clamps to the oldest state', lc.rewindAtTick('p', -100).position, [10, 20, -10]);
+    expect('a clamped tick echoes the requested tick', lc.rewindAtTick('p', -100).tick, -100);
+    expect('an untracked player with a finite tick is still null', lc.rewindAtTick('nobody', 15), null);
+    expect('an untracked player with a finite tick is not counted as rejected', lc.getStats().rejected, 5);
+    expect('getPlayerStateAtTime with a NaN millisAgo is refused with null', lc.getPlayerStateAtTime('p', NaN), null);
+    expect('the refused millisAgo is counted in rejected', lc.getStats().rejected, 6);
+  });
+
   arm('resolveViewTick', () => {
     const lc = new LagCompensator(1000, 60);
     expect('a NaN view tick is rejected', lc.resolveViewTick(NaN, 100), null);
@@ -169,25 +242,31 @@ async function main() {
     expect('a view tick exactly at the oldest allowed tick is kept', lc.resolveViewTick(40, 100), 40);
     expect('a view tick inside the window is kept', lc.resolveViewTick(70, 100), 70);
     expect('a view tick equal to the current tick is kept', lc.resolveViewTick(100, 100), 100);
-    expect('currentTick defaults to latestTick (0): tick 1 is accepted and capped to 0', lc.resolveViewTick(1), 0);
-    expect('currentTick defaults to latestTick (0): tick 2 is rejected as future', lc.resolveViewTick(2), null);
-    expect('rejected counts NaN, string, Infinity, future 102 and future 2', lc.getStats().rejected, 5);
-    expect('clamped counts the single stale view tick', lc.getStats().clamped, 1);
+    expect('resolving a view tick before any tick pass has opened is a caller error, not a silent value', threwName(() => lc.resolveViewTick(1)), 'RangeError');
+    lc.beginTick(100);
+    expect('currentTick defaults to the open tick pass (100): tick 1 is clamped to the oldest allowed tick (40)', lc.resolveViewTick(1), 40);
+    expect('currentTick defaults to the open tick pass (100): tick 102 is rejected as future', lc.resolveViewTick(102), null);
+    expect('rejected counts NaN, string, Infinity, future 102 explicit and future 102 by default', lc.getStats().rejected, 5);
+    expect('clamped counts the stale view ticks 30 and 1', lc.getStats().clamped, 2);
   });
 
   arm('resolveViewTick arrival order', () => {
     const build = (order) => {
       const lc = new LagCompensator(1000, 60);
+      lc.beginTick(6);
       for (const [id, tick, x] of order) record(lc, id, tick, [x, 0, 0]);
+      lc.beginTick(6);
       return lc;
     };
-    const threw = (fn) => { try { fn(); return 'no throw' } catch (err) { return err?.constructor?.name ?? 'unknown' } };
+    const threw = threwName;
 
     const a56 = build([['a', 5, 50], ['a', 6, 60]]);
     const a65 = build([['a', 6, 60], ['a', 5, 50]]);
     expect('{A@5,A@6} resolves one viewTick in both arrival orders', a65.resolveViewTick(6), a56.resolveViewTick(6));
     expect('that one viewTick is the newest tick of the set', a56.resolveViewTick(6), 6);
     expect('a fire one tick behind the newest resolves to that tick in both orders', a65.resolveViewTick(5), a56.resolveViewTick(5));
+    expect('{A@5,A@6} rewinds to one sample in both arrival orders', a65.rewindAtTick('a', 6).position[0], a56.rewindAtTick('a', 6).position[0]);
+    expect('that one sample is the tick-6 record (x 60), not the tick-5 one', a56.rewindAtTick('a', 6).position[0], 60);
 
     const ab = build([['a', 5, 50], ['b', 6, 60]]);
     const ba = build([['b', 6, 60], ['a', 5, 50]]);
@@ -198,6 +277,57 @@ async function main() {
     expect('an infinite currentTick is a caller error, not a silent value', threw(() => lc.resolveViewTick(6, Infinity)), 'RangeError');
     expect('a string currentTick is a caller error, not a silent value', threw(() => lc.resolveViewTick(6, '12')), 'RangeError');
     expect('an explicit finite currentTick still resolves inside the window', lc.resolveViewTick(70, 100), 70);
+  });
+
+  arm('a fire resolves against the tick pass, not the arrival order', () => {
+    const runPass = (order, shotTick) => {
+      const lc = new LagCompensator(1000, 60);
+      lc.beginTick(5);
+      record(lc, 'a', 5, [50, 0, 0]);
+      lc.beginTick(6);
+      let out = null;
+      for (const step of order) {
+        if (step[0] === 'r') record(lc, step[1], step[2], [step[3], 0, 0]);
+        else {
+          const { viewTick } = hitscan.resolveFireRequest(lc, 'me', [0, 0, 0], { viewTick: shotTick });
+          const { tp } = hitscan.resolveTargetPoint({ id: 'a', state: { position: [999, 0, 0] } }, lc, viewTick);
+          out = { viewTick, tpX: tp[0] };
+        }
+      }
+      return out;
+    };
+    const SHOT = ['s'];
+    const A6 = ['r', 'a', 6, 60];
+    const B6 = ['r', 'b', 6, 60];
+
+    const p1 = runPass([SHOT, A6], 7);
+    const p2 = runPass([A6, SHOT], 7);
+    expect('P {A@5, shot@7, A@6} and {A@5, A@6, shot@7} resolve the same viewTick', p1.viewTick, p2.viewTick);
+    expect('P: and the same rewound target point', p1.tpX, p2.tpX);
+    expect('P: that viewTick is the tick-pass tick 6', p1.viewTick, 6);
+    expect('P: that target point is the committed tick-5 sample (x 50)', p1.tpX, 50);
+
+    const q1 = runPass([SHOT, B6], 7);
+    const q2 = runPass([B6, SHOT], 7);
+    expect('Q {A@5, shot@7, B@6} and {A@5, B@6, shot@7} resolve the same viewTick', q1.viewTick, q2.viewTick);
+    expect('Q: and the same rewound target point', q1.tpX, q2.tpX);
+    expect('Q: another player tick-6 record cannot move the target point', q1.tpX, 50);
+
+    const c1 = runPass([SHOT, A6], 6);
+    const c2 = runPass([A6, SHOT], 6);
+    expect('C {A@5, shot@6, A@6} and {A@5, A@6, shot@6} resolve the same viewTick', c1.viewTick, c2.viewTick);
+    expect('C: and the same rewound target point', c1.tpX, c2.tpX);
+    expect('C: that viewTick is the tick-pass tick 6', c1.viewTick, 6);
+    expect('C: that target point is the committed tick-5 sample (x 50)', c1.tpX, 50);
+
+    const carried = new LagCompensator(1000, 60);
+    carried.beginTick(5);
+    record(carried, 'a', 5, [50, 0, 0]);
+    carried.beginTick(6);
+    record(carried, 'a', 6, [60, 0, 0]);
+    expect('the tick-6 record stays invisible to the pass still recording it', carried.rewindAtTick('a', 7).position[0], 50);
+    carried.beginTick(7);
+    expect('the next pass commits it, so a view tick 7 rewinds to the tick-6 sample', carried.rewindAtTick('a', 7).position[0], 60);
   });
 
   arm('acceptRewind', () => {
@@ -291,6 +421,16 @@ async function main() {
     expect('clearing a player drops its samples (two remain)', lc.getStats().totalSamples, 2);
     expect('a cleared player rewinds to null', lc.rewindAtTick('a', 2), null);
     expect('the surviving player is untouched', lc.rewindAtTick('b', 2).position, [2, 0, 0]);
+
+    const stale = new LagCompensator(1000, 60);
+    for (let t = 1; t <= 6; t++) { stale.beginTick(t); record(stale, 'a', t, [t * 10, 0, 0]); }
+    stale.beginTick(7);
+    stale.clearPlayerHistory('a');
+    record(stale, 'a', 3, [3, 0, 0]);
+    stale.beginTick(8);
+    expect('latestTick keeps its pre-clear value (this fix does not touch latestTick)', stale.latestTick, 6);
+    expect('the reference a fire resolves against is the open pass tick, not the stale latestTick', stale.resolveViewTick(7), 7);
+    expect('the newest retained sample is the tick-3 record, whatever latestTick says', stale.rewindAtTick('a', 1e9).position[0], 3);
   });
 
   if (failed.length === 0 && measurements > 0) {
