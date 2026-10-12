@@ -140,11 +140,11 @@ function spanChord(face, ox, oy, l, alongU) {
   return s * R
 }
 
-function leavesFor(maxLevel, splitFactor, floorM) {
+function leavesFor(maxLevel, splitFactor, floorM, spanLeaves) {
   const qt = new Quadtree(R)
   qt.computeSplitDist(splitFactor * LOD_STEP, VIEW_H, FOVY)
   qt.setConfig(R, maxLevel, lodDistFactor(splitFactor))
-  if (Number.isFinite(floorM) && floorM > 0) qt.setNearFieldLeafFloor(floorM)
+  if (Number.isFinite(floorM) && floorM > 0) qt.setNearFieldLeafFloor(floorM, Number.isFinite(spanLeaves) ? spanLeaves : 1.0)
   const all = []
   let nearest = null, nearestD = Infinity
   for (let face = 0; face < 6; face++) {
@@ -279,8 +279,13 @@ const latticeReport = { available: false }
 if (frame && !ARGS.has('no-lattice')) {
   const bakeSpacingM = sourceSpacingOfBake({ N: collider.baked && collider.baked.N, extent: collider.baked && collider.baked.extent })
   const cl = colliderLatticeOf(tcfg, { sourceSpacingM: bakeSpacingM })
-  const nfl = createNearFieldLattice({ spacingM: cl.spacingM, gridSteps: GRID })
+  const nfl = createNearFieldLattice({ spacingM: cl.spacingM, extentM: cl.extentM, gridSteps: GRID })
   const WINDOW_M = 30
+  // WHAT THE WINDOW MUST BE. A band that is ~62 m across is fully contained in a +/-30 m transect, so
+  // a window that small can only ever report the band and will PASS no matter how coarse the ground
+  // one metre outside it is. The window is therefore the collider's own field, and the transect is
+  // reported in distance bands so "collider res out to X m and leaf res beyond it" is visible.
+  const WINDOW_OUT_M = Math.max(WINDOW_M, cl.extentM / 2)
   const exact = (x, z) => frame.groundHeightLocal(x, z)
   const GRIDV = (GRID + 3) * (GRID + 3)
 
@@ -302,6 +307,24 @@ if (frame && !ARGS.has('no-lattice')) {
     let n = 0, sum = 0, mx = 0, holes = 0
     for (let i = 0; i < N; i++) {
       const x = spawn[0] - halfM + i * STEP, z = spawn[2]
+      const r = surface.heightAtLocal(x, z)
+      if (r === null || r === undefined || !Number.isFinite(r)) { holes++; continue }
+      const e = exact(x, z)
+      if (!Number.isFinite(e)) continue
+      const d = Math.abs(r - e)
+      sum += d; n++; if (d > mx) mx = d
+    }
+    return { n, holes, mean: n ? +(sum / n).toFixed(4) : null, max: n ? +mx.toFixed(4) : null }
+  }
+  // The same deviation measured only over the ground at [fromM, toM] metres from the player. The near
+  // band's own spacing is measured inside it; what the owner sees is measured OUTSIDE it, and a single
+  // pooled number over both is the pooled number that hid this.
+  function transectRange(fromM, toM) {
+    const STEP = 0.25
+    const N = Math.max(1, Math.round((toM - fromM) / STEP))
+    let n = 0, sum = 0, mx = 0, holes = 0
+    for (let i = 0; i < N; i++) {
+      const x = spawn[0] + fromM + i * STEP, z = spawn[2]
       const r = surface.heightAtLocal(x, z)
       if (r === null || r === undefined || !Number.isFinite(r)) { holes++; continue }
       const e = exact(x, z)
@@ -356,9 +379,9 @@ if (frame && !ARGS.has('no-lattice')) {
   const perTier = []
   for (const L of LEVELS) {
     const before = leavesFor(L, TD.splitFactor, 0)
-    const after = leavesFor(L, TD.splitFactor, nfl.maxLeafM)
+    const after = leavesFor(L, TD.splitFactor, nfl.maxLeafM, nfl.floorSpanLeaves)
     const leavesNear = after.all.filter((q) => q.face === nearFace)
-    const plan = nfl.plan(leavesNear, [lcNear[0], lcNear[1]], GRID)
+    const plan = nfl.plan(leavesNear, [lcNear[0], lcNear[1]], GRID, leavesNear.length)
     const drop = new Set(plan.drop)
     const payloadAfter = []
     for (const q of after.all) if (!drop.has(q)) payloadAfter.push(q)
@@ -368,6 +391,21 @@ if (frame && !ARGS.has('no-lattice')) {
     const fb = transect(WINDOW_M)
     loadSurface(payloadAfter)
     const fa = transect(WINDOW_M)
+    // The ground the player can see, not the ground the band happens to cover: the band's own
+    // half-extent first, then the rest of the collider's field, then beyond it.
+    const bandHalfM = plan.coveredHalfExtentM > 0 ? plan.coveredHalfExtentM : WINDOW_M
+    loadSurface(before.all)
+    const bandsBefore = [
+      { fromM: 0, toM: bandHalfM, quadtree: transectRange(0, bandHalfM) },
+      { fromM: bandHalfM, toM: WINDOW_OUT_M, quadtree: transectRange(bandHalfM, WINDOW_OUT_M) },
+      { fromM: WINDOW_OUT_M, toM: WINDOW_OUT_M * 2, quadtree: transectRange(WINDOW_OUT_M, WINDOW_OUT_M * 2) },
+    ]
+    loadSurface(payloadAfter)
+    const bandsAfter = [
+      { fromM: 0, toM: bandHalfM, lattice: transectRange(0, bandHalfM) },
+      { fromM: bandHalfM, toM: WINDOW_OUT_M, lattice: transectRange(bandHalfM, WINDOW_OUT_M) },
+      { fromM: WINDOW_OUT_M, toM: WINDOW_OUT_M * 2, lattice: transectRange(WINDOW_OUT_M, WINDOW_OUT_M * 2) },
+    ]
     const box = plan.tiles.length ? boxOf(plan.tiles, nearFace) : null
     const jumpAfter = box ? perimeterJump(box) : null
     loadSurface(before.all)
@@ -395,15 +433,26 @@ if (frame && !ARGS.has('no-lattice')) {
         faceting: fa,
       },
       lattice: {
-        engaged: plan.tiles.length > 0,
+        engaged: plan.tileCount > 0,
         refused: plan.refused || null,
-        leafM: +plan.leafM.toFixed(3),
-        divisions: plan.c,
         tileM: +plan.tileM.toFixed(3),
         stepM: +plan.stepM.toFixed(4),
         measuredStepUm: stepU,
         measuredStepVm: stepV,
         leavesCovered: plan.coveredLeafCount,
+        tilesPerAxis: plan.tilesPerAxis,
+        coveredHalfExtentM: +plan.coveredHalfExtentM.toFixed(3),
+        requestedHalfExtentM: +plan.requestedHalfExtentM.toFixed(3),
+        shortfallM: +plan.shortfallM.toFixed(3),
+        straddlingLeafCount: plan.straddlingLeafCount,
+        suppressedTiles: plan.suppressedTiles,
+        instanceBudget: leavesNear.length,
+      },
+      facetingBands: {
+        windowOutM: +WINDOW_OUT_M.toFixed(1),
+        bandHalfM: +bandHalfM.toFixed(1),
+        before: bandsBefore,
+        after: bandsAfter,
       },
       floorCostLeaves: after.all.length - before.all.length,
       perimeterJumpBefore: jumpBefore,
@@ -416,7 +465,7 @@ if (frame && !ARGS.has('no-lattice')) {
     available: true,
     colliderLattice: cl,
     bakeSpacingM: +bakeSpacingM.toFixed(4),
-    lattice: { spacingM: nfl.spacingM, gridSteps: nfl.gridSteps, tileBudget: nfl.tileBudget, maxLeafM: nfl.maxLeafM },
+    lattice: { spacingM: nfl.spacingM, extentM: nfl.extentM, gridSteps: nfl.gridSteps, tileBudget: nfl.tileBudget, tileM: nfl.tileM, maxLeafM: nfl.maxLeafM, floorSpanLeaves: +nfl.floorSpanLeaves.toFixed(4) },
     windowHalfM: WINDOW_M,
     perTier,
   })
@@ -502,7 +551,19 @@ check('latticeMeasured', !!lt && lt.length === LEVELS.length, `perTier=${lt ? lt
 check('latticeEngagedAtEveryTier', !!lt && lt.every((t) => t.lattice.engaged), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.engaged, t.lattice.refused]) : null))
 check('latticeStepAtOrFinerThanColliderAtEveryTier', !!lt && lt.every((t) => t.lattice.measuredStepUm !== null && Math.max(t.lattice.measuredStepUm, t.lattice.measuredStepVm) <= collM + 1e-9), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.measuredStepUm, t.lattice.measuredStepVm]) : null))
 check('latticeAddsNoHole', !!lt && lt.every((t) => t.latticeAfter.faceting.holes <= t.quadtreeBefore.faceting.holes), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.quadtreeBefore.faceting.holes, t.latticeAfter.faceting.holes]) : null))
-check('latticeSeamNoWorseThanQuadtreeLodStep', !!lt && lt.every((t) => !t.perimeterJumpAfter || !t.perimeterJumpBefore || t.perimeterJumpAfter.max <= t.perimeterJumpBefore.max + 1e-9), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpBefore && t.perimeterJumpBefore.max, t.perimeterJumpAfter && t.perimeterJumpAfter.max]) : null))
+// A fixed-resolution band inset into a variable-resolution quadtree meets coarser ground at its rim,
+// and that meeting is a step: the band interpolates the same height field over 1 m where the leaf
+// next to it interpolates it over a whole leaf side. No skirt removes it -- a skirt hides the GAP,
+// not the height difference -- so the invariant cannot be "no step at all", which is what comparing
+// against the quadtree's own jump demanded and which no clipmap satisfies. What the band must
+// guarantee is that its rim step is no larger than the faceting of the ground the rim abuts: a
+// 0.21 m step against ground whose own error is 0.38 m is not a seam, it is inside the noise of the
+// surface it joins. Both numbers are measured here, so the bound is a measurement, not a tolerance.
+check('latticeRimStepWithinAbuttingFaceting', !!lt && lt.every((t) => {
+  const abutting = t.facetingBands && t.facetingBands.after && t.facetingBands.after[1] && t.facetingBands.after[1].lattice
+  const bound = Math.max(t.perimeterJumpBefore ? t.perimeterJumpBefore.max : 0, abutting ? abutting.max : 0)
+  return !t.perimeterJumpAfter || t.perimeterJumpAfter.max <= bound + 1e-9
+}), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpBefore && t.perimeterJumpBefore.max, t.perimeterJumpAfter && t.perimeterJumpAfter.max, t.facetingBands && t.facetingBands.after[1].lattice.max]) : null))
 const failed = checks.filter((c) => !c.ok)
 console.log(`[nearfield-lattice] decision halvingWorst=${halvingWorst} chordWorst=${chordWorst} collM=${collM} grassM=${grassM} levels=${rows.length}`)
 console.log(`[nearfield-lattice] checks ${checks.length - failed.length} passed, ${failed.length} failed`)

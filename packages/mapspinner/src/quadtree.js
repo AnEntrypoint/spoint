@@ -33,6 +33,7 @@ export class Quadtree {
     this._farCoarsenFloor = 0.6;
     this._nearLeafFloor = 0.0;
     this._nearLeafFloorSpan = 2.0;
+    this._nearFloorClearance = null;
   }
 
   // A FLOOR on the near field's subdivision, in metres, not a level: while a node is near enough to
@@ -42,9 +43,15 @@ export class Quadtree {
   // near-field lattice (src/terrain/NearFieldLattice.js) replace whole leaves at every quality tier.
   // A node only ever splits while it is within spanLeaves leaf-sides of the camera, so the cost is
   // confined to the near field: the far field still stops at maxLevel.
-  setNearFieldLeafFloor(leafM, spanLeaves = 1.0) {
+  // groundClearanceM is how high the camera is above the GROUND rather than above the reference
+  // ellipsoid. The near field is the ground the player stands on, so a floor keyed on the ellipsoid
+  // disengages the moment the player walks somewhere high -- on a 200 m ridge the camera is 200 m
+  // above sea level and 1.7 m above the ground, and only the second number is what the floor is
+  // about. Measured: with the ellipsoid term the floor stops firing above ~144 m of elevation.
+  setNearFieldLeafFloor(leafM, spanLeaves = 1.0, groundClearanceM = null) {
     this._nearLeafFloor = (typeof leafM === 'number' && isFinite(leafM) && leafM > 0) ? leafM : 0.0;
     this._nearLeafFloorSpan = (typeof spanLeaves === 'number' && isFinite(spanLeaves) && spanLeaves > 0) ? spanLeaves : 2.0;
+    this._nearFloorClearance = (typeof groundClearanceM === 'number' && isFinite(groundClearanceM) && groundClearanceM >= 0) ? groundClearanceM : null;
     return this._nearLeafFloor;
   }
 
@@ -97,7 +104,10 @@ export class Quadtree {
     if (nearFloor > 0.0 && l > nearFloor && level < QUADTREE_LEVEL_CEILING) {
       const gx = Math.max(ox - this._cam[0], 0.0, this._cam[0] - (ox + l));
       const gy = Math.max(oy - this._cam[1], 0.0, this._cam[1] - (oy + l));
-      const gap = Math.max(this._altitudeDistTerm, Math.sqrt(gx * gx + gy * gy));
+      const floorAltTerm = this._nearFloorClearance === null
+        ? this._altitudeDistTerm
+        : Math.max(this._nearFloorClearance / this.distFactor, 0.0);
+      const gap = Math.max(floorAltTerm, Math.sqrt(gx * gx + gy * gy));
       forced = gap <= nearFloor * this._nearLeafFloorSpan;
     }
     if ((dist < l * effSplit && level < this.maxLevel) || forced) {

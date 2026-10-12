@@ -152,7 +152,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   // because the spacing is the collider's, which only the host knows.
   const near = (opts.nearLattice && typeof opts.nearLattice.plan === 'function') ? opts.nearLattice : null
   let lastNear = null
-  if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
+  if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM, near.floorSpanLeaves)
+  const nearSpanLeaves = near ? near.floorSpanLeaves : 0
 
   function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev, lod) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
@@ -160,7 +161,12 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
     applyLodConfig(qt, R, viewportH, lod)
-    if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
+    if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) {
+      // surfElev is the ground elevation at the camera as a fraction of R, so this is the camera's
+      // height above the ground it stands on -- the only altitude the near field is about.
+      const groundClearanceM = Math.max(camDist - R - surfElev * R, 0)
+      qt.setNearFieldLeafFloor(near.maxLeafM, nearSpanLeaves, groundClearanceM)
+    }
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
@@ -176,14 +182,18 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       const al = aim ? worldToFaceLocal(face, aim, R) : null
       u.morphAim.array[face].set(al ? al[0] : 0, al ? al[1] : 0, al ? 1 : 0)
       const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
-      // The lattice replaces WHOLE leaves: every tile is a whole fraction of one, so a leaf is
-      // either fully covered and dropped, or untouched. That is what keeps the near band free of
-      // both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the lattice
-      // also draws), at every quality tier.
+      // The band is PLAYER-CENTRED, so a leaf is either WHOLLY inside it and dropped, or it straddles
+      // the rim, is kept, and every tile inside it is suppressed. That is what keeps the near band
+      // free of both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the
+      // band also draws), at every quality tier.
       let drop = null, tiles = null
       if (face === nearFace && near && lc && Number.isFinite(lc[0]) && Number.isFinite(lc[1])) {
-        const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE)
-        lastNear = { tiles: p.tiles.length, dropped: p.coveredLeafCount, stepM: p.stepM, leafM: p.leafM, c: p.c, refused: p.refused || null }
+        // The band's cost is bounded by the payload it joins: it never spends more instances than the
+        // leaves this face already draws, so the near band can at most double the terrain's instances
+        // and at worst the collider's field is covered only part way -- reported, never silent.
+        const nearBudget = leaves.length
+        const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE, nearBudget)
+        lastNear = { tiles: p.tileCount, dropped: p.coveredLeafCount, stepM: p.stepM, tileM: p.tileM, tilesPerAxis: p.tilesPerAxis, budget: nearBudget, coveredHalfExtentM: p.coveredHalfExtentM, requestedHalfExtentM: p.requestedHalfExtentM, straddling: p.straddlingLeafCount, suppressed: p.suppressedTiles, refused: p.refused || null }
         if (p.tiles.length) { drop = new Set(p.drop); tiles = p.tiles }
       }
       for (let i = 0; i < leaves.length; i++) {

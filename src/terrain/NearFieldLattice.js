@@ -3,20 +3,29 @@
 // so the ground the player walks on and the ground the player sees are two draws of one density
 // instead of two independent samplings of one height field.
 //
-// It is a PLAN over the quadtree's own leaf grid, not a new coordinate system. A tile is a whole
-// fraction of a quadtree leaf, so the lattice replaces WHOLE leaves: no leaf is ever half covered,
-// which is what keeps the change free of both a hole (a dropped leaf the lattice does not fill) and
-// a doubled surface (a kept leaf the lattice also draws). The renderer's shared patch geometry draws
-// a tile exactly as it draws a leaf -- same instances, same vertex stage, same skirt -- so this
-// introduces no second mesh, no second material and no second shader path.
+// The band is PLAYER-CENTRED and its extent is the collider's own field, not a subdivision of
+// whichever quadtree leaf the player happens to be standing in. That is what makes the band the same
+// ground at every quality tier: a band derived by subdividing the host leaf can only cover
+// floor(budget / divisions^2) leaves, so at the tier where the host leaf is one whole budget of
+// tiles it covers exactly ONE leaf -- a ~62 m island of collider-resolution ground in a field of
+// leaves whose spacing is whatever maxLevel happens to allow. Deciding the band's extent from the
+// collider instead of from the leaf is the whole difference, and it is why extentM is required here
+// rather than defaulted.
+//
+// It is a PLAN over the renderer's own shared patch geometry, not a new coordinate system and not a
+// second mesh: a tile is drawn exactly as a quadtree leaf is drawn -- same instances, same vertex
+// stage, same skirt -- so this introduces no second material and no second shader path.
 //
 // Nothing here knows about WebGPU, quads or shaders, so scripts can measure it with no GPU at all.
 
 export const NEAR_FIELD_DEFAULT_GRID_STEPS = 9
 
-// The near band may spend at most this many tiles of the shared grid. It is a budget on the one
-// band the renderer is not allowed to govern, not a quality dial: the lattice never coarsens to fit
-// it, it covers fewer leaves.
+// How many tiles one dropped leaf may cost. The quadtree's near-field floor is one leaf of
+// tileM * floor(sqrt(tileBudget)): the largest leaf the band can still cover, so a leaf bigger than
+// it is never dropped and the band steps around it instead. This is a bound on the cost of REPLACING
+// one leaf, never a bound on how much ground the band covers -- coverage is the collider's extent,
+// and a band that cannot afford the collider's whole extent reports the shortfall instead of
+// silently covering less.
 export const NEAR_FIELD_DEFAULT_TILE_BUDGET = 64
 
 function positiveFinite(v) {
@@ -26,70 +35,94 @@ function positiveFinite(v) {
 export function createNearFieldLattice(opts = {}) {
   const spacingM = positiveFinite(opts.spacingM)
   if (spacingM === null) throw new RangeError(`near-field lattice: spacingM must be a positive finite number of metres, got ${String(opts.spacingM)}: the lattice is the collider's own spacing, so a lattice that does not name one is not the collider's lattice`)
+  const extentM = positiveFinite(opts.extentM)
+  if (extentM === null) throw new RangeError(`near-field lattice: extentM must be a positive finite number of metres, got ${String(opts.extentM)}: the band is the collider's own field, so a lattice that does not name one is not the collider's lattice, and defaulting it is what lets the band silently cover one leaf instead of the ground around the player`)
   const gridSteps = Number.isInteger(opts.gridSteps) && opts.gridSteps >= 2 ? opts.gridSteps : NEAR_FIELD_DEFAULT_GRID_STEPS
   const tileBudget = Number.isInteger(opts.tileBudget) && opts.tileBudget >= 1 ? opts.tileBudget : NEAR_FIELD_DEFAULT_TILE_BUDGET
+  const faceHalfSpanM = positiveFinite(opts.faceHalfSpanM)
 
-  // A leaf is split into c x c tiles, each of gridSteps intervals, so a tile's step is
-  // leafM / (c * gridSteps). c is the smallest count whose step is at or finer than the collider's,
-  // which is the whole claim: the near band can never be coarser than the surface it replaces. A
-  // leaf the budget cannot tile at that c is not covered at all, and the quadtree keeps it, because
-  // drawing a coarser lattice over ground would be the decimation this exists to remove.
-  function divisionsFor(leafM, gs = gridSteps) {
-    if (!Number.isFinite(leafM) || leafM <= 0) return null
-    const c = Math.max(1, Math.ceil(leafM / (gs * spacingM)))
-    return { c, tileM: leafM / c, stepM: leafM / (c * gs) }
-  }
-
-  // The quadtree must offer a leaf the budget can tile at collider res, or there is no lattice. That
-  // is a floor on the quadtree's near-field subdivision, derived here in metres and read by Quadtree,
-  // so the two cannot disagree about how fine the near band's leaves are.
-  const maxLeafM = gridSteps * spacingM * Math.floor(Math.sqrt(tileBudget))
+  // A tile is gridSteps intervals of the collider's spacing, so a tile's step IS the collider's
+  // step -- the whole claim: the near band can never be coarser than the surface it replaces.
+  const tileM = gridSteps * spacingM
+  // The quadtree must offer a leaf the band can cover, or there is no band. That is a floor on the
+  // quadtree's near-field subdivision, derived here in metres and read by Quadtree, so the two
+  // cannot disagree about how fine the near band's leaves are.
+  const maxLeafM = tileM * Math.floor(Math.sqrt(tileBudget))
+  const requestedHalfExtentM = extentM / 2
+  // The floor has to hold across the whole band, not just the leaf under the player, or a leaf
+  // straddling the band is kept and every tile inside it is suppressed. spanLeaves is in leaf sides.
+  const floorSpanLeaves = requestedHalfExtentM / maxLeafM
 
   return Object.freeze({
     spacingM,
+    extentM,
     gridSteps,
     tileBudget,
+    tileM,
     maxLeafM,
-    divisionsFor,
-    // leaves: the quadtree's leaves, each { ox, oy, l }. The camera's leaf sets the tile size; the
-    // lattice takes the nearest leaves of exactly that size, up to the budget, and returns both the
-    // tiles to draw and the leaves to drop.
-    plan(leaves, camera, gridStepsOverride) {
+    requestedHalfExtentM,
+    floorSpanLeaves,
+    // leaves: the quadtree's leaves, each { ox, oy, l }. camera is the player in the same face-local
+    // metres. instanceBudget caps the band's tile count at the number of instances the terrain
+    // payload it joins already spends, so the band can never cost more than the ground it replaces
+    // is worth at this tier; when that is less than the collider's extent the shortfall is reported.
+    plan(leaves, camera, gridStepsOverride, instanceBudget) {
       const gs = Number.isInteger(gridStepsOverride) && gridStepsOverride >= 2 ? gridStepsOverride : gridSteps
-      const empty = (extra) => ({ tiles: [], drop: [], c: 0, tileM: 0, stepM: 0, leafM: 0, coveredLeafCount: 0, vertexCount: 0, ...extra })
+      const empty = (extra) => ({
+        tiles: [], drop: [], tileM, stepM: spacingM, tileCount: 0, coveredLeafCount: 0, vertexCount: 0,
+        requestedHalfExtentM, coveredHalfExtentM: 0, shortfallM: requestedHalfExtentM,
+        straddlingLeafCount: 0, suppressedTiles: 0, tilesPerAxis: 0, ...extra,
+      })
       if (!Array.isArray(leaves) || !leaves.length) return empty({})
-      let host = null, hostD = Infinity
+      const camX = camera ? camera[0] : NaN, camY = camera ? camera[1] : NaN
+      if (!Number.isFinite(camX) || !Number.isFinite(camY)) return empty({})
+
+      const budget = Number.isInteger(instanceBudget) && instanceBudget >= 1 ? instanceBudget : leaves.length
+      const wanted = Math.ceil((2 * requestedHalfExtentM) / tileM)
+      const perAxis = Math.max(1, Math.min(Math.floor(Math.sqrt(budget)), wanted))
+      const half = (perAxis * tileM) / 2
+      // The band is snapped to the collider's own grid so its vertices do not swim with the camera:
+      // moving by less than a tile moves nothing, moving by a tile moves the band by a whole tile.
+      let x0 = Math.floor((camX - half) / tileM) * tileM
+      let y0 = Math.floor((camY - half) / tileM) * tileM
+      if (faceHalfSpanM !== null) {
+        x0 = Math.min(Math.max(x0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileM)
+        y0 = Math.min(Math.max(y0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileM)
+      }
+      const x1 = x0 + perAxis * tileM, y1 = y0 + perAxis * tileM
+      const EPS = 1e-6
+
+      // A leaf is dropped only when the band covers it WHOLE; a leaf straddling the rim is kept, and
+      // every tile inside a kept leaf is suppressed. That is what keeps the band free of both a hole
+      // (a dropped leaf nothing fills) and a doubled surface (a kept leaf the band also draws).
+      const drop = [], straddle = []
       for (const q of leaves) {
-        const cx = q.ox + q.l * 0.5, cy = q.oy + q.l * 0.5
-        const d = Math.max(Math.abs(camera[0] - cx) - q.l * 0.5, Math.abs(camera[1] - cy) - q.l * 0.5, 0)
-        if (d < hostD) { hostD = d; host = q }
+        const qx1 = q.ox + q.l, qy1 = q.oy + q.l
+        const overlaps = qx1 > x0 + EPS && qy1 > y0 + EPS && q.ox < x1 - EPS && q.oy < y1 - EPS
+        if (!overlaps) continue
+        if (q.ox >= x0 - EPS && q.oy >= y0 - EPS && qx1 <= x1 + EPS && qy1 <= y1 + EPS) drop.push(q)
+        else straddle.push(q)
       }
-      if (!host) return empty({})
-      const div = divisionsFor(host.l, gs)
-      if (!div || div.c * div.c > tileBudget) {
-        return empty({ c: div ? div.c : 0, tileM: div ? div.tileM : 0, stepM: div ? div.stepM : 0, leafM: host.l, refused: `a ${host.l.toFixed(1)}m leaf needs ${div ? div.c * div.c : '?'} tiles to reach ${spacingM}m, over the ${tileBudget} tile budget` })
-      }
-      const same = []
-      for (const q of leaves) {
-        if (Math.abs(q.l - host.l) > 1e-6) continue
-        const cx = q.ox + q.l * 0.5, cy = q.oy + q.l * 0.5
-        const d = Math.max(Math.abs(camera[0] - cx) - q.l * 0.5, Math.abs(camera[1] - cy) - q.l * 0.5, 0)
-        same.push({ q, d })
-      }
-      same.sort((a, b) => a.d - b.d)
-      const n = Math.max(0, Math.min(same.length, Math.floor(tileBudget / (div.c * div.c))))
-      const drop = []
+
       const tiles = []
-      for (let i = 0; i < n; i++) {
-        const q = same[i].q
-        drop.push(q)
-        for (let j = 0; j < div.c; j++) for (let k = 0; k < div.c; k++) tiles.push({ ox: q.ox + k * div.tileM, oy: q.oy + j * div.tileM, l: div.tileM, level: 0 })
+      let suppressed = 0
+      for (let j = 0; j < perAxis; j++) {
+        for (let i = 0; i < perAxis; i++) {
+          const ox = x0 + i * tileM, oy = y0 + j * tileM
+          let covered = false
+          for (const q of straddle) {
+            if (ox >= q.ox - EPS && oy >= q.oy - EPS && ox + tileM <= q.ox + q.l + EPS && oy + tileM <= q.oy + q.l + EPS) { covered = true; break }
+          }
+          if (covered) { suppressed++; continue }
+          tiles.push({ ox, oy, l: tileM, level: 0 })
+        }
       }
       return {
-        tiles, drop, c: div.c, tileM: div.tileM, stepM: div.stepM, leafM: host.l,
-        coveredLeafCount: n,
+        tiles, drop, tileM, stepM: spacingM, tileCount: tiles.length, coveredLeafCount: drop.length,
         vertexCount: tiles.length * (gs + 3) * (gs + 3),
-        sameSizeLeafCount: same.length,
+        requestedHalfExtentM, coveredHalfExtentM: half, shortfallM: requestedHalfExtentM - half,
+        straddlingLeafCount: straddle.length, suppressedTiles: suppressed, tilesPerAxis: perAxis,
+        refused: null,
       }
     },
   })

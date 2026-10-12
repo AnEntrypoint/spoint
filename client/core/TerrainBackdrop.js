@@ -42,13 +42,16 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   // THE NEAR FIELD'S DENSITY IS THE COLLIDER'S, not a level count. Both are resolved here from one
   // derivation and handed to the planet as a lattice plan, so the ground the player walks on and the
   // ground the player sees are built at one spacing by construction and cannot drift apart.
+  const radius = cfg.radius || 6360000
   let nearLattice = null
   try {
     const { colliderLatticeSpacingOf } = await import('/src/shared/colliderLattice.js')
     const { createNearFieldLattice } = await import('/src/terrain/NearFieldLattice.js')
     const cl = await colliderLatticeSpacingOf(cfg)
-    nearLattice = createNearFieldLattice({ spacingM: cl.spacingM })
-    console.log(`[terrain] near-field lattice at the collider's ${cl.spacingM.toFixed(2)}m (${cl.kind}: configured ${cl.resolutionM}m over ${cl.extentM}m -> N=${cl.N}), leaves finer than ${nearLattice.maxLeafM.toFixed(0)}m`)
+    // The band's spacing AND its extent are the collider's, so the ground the player walks on and the
+    // ground the player sees are one lattice and not two: neither number is chosen here.
+    nearLattice = createNearFieldLattice({ spacingM: cl.spacingM, extentM: cl.extentM, faceHalfSpanM: radius })
+    console.log(`[terrain] near-field lattice at the collider's ${cl.spacingM.toFixed(2)}m over its ${cl.extentM.toFixed(0)}m field (${cl.kind}: configured ${cl.resolutionM}m over ${cl.extentM}m -> N=${cl.N}), leaves finer than ${nearLattice.maxLeafM.toFixed(0)}m`)
   } catch (e) {
     nearLattice = null
     console.warn('[terrain] near-field lattice unavailable -> the near band keeps the quadtree level:', e?.message || e)
@@ -75,7 +78,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     console.warn('[terrain] mapspinner import failed -> running without planet backdrop:', e?.message || e)
     return _createFallbackBackdrop()
   }
-  const radius = cfg.radius || 6360000
   const _lightPlanet = typeof location !== 'undefined' && location.search.includes('lightplanet')
   let planet, sampler, frame, meshSurface
   async function _initPlanet() {
