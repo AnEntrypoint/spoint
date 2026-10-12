@@ -4,7 +4,8 @@
 // "Grass darkens around vegetation the way the landscape does" is a visual claim, so this
 // witness captures a PNG pair per arm and measures the luminance delta over GRASS pixels
 // only, at two screen bands (near-tier grass low in the frame, mid-tier grass above it) and
-// at three stamp densities (trees+rocks, rocks only, and nothing stamped as the control).
+// at four stamp densities: trees+rocks, trees only under ?norocks, rocks only, and nothing
+// stamped as the control.
 //
 // Three things make the pair attributable to the term and nothing else:
 //
@@ -92,13 +93,22 @@ const BANDS = [
   { name: 'mid', y0: 0.42, y1: 0.62 },
 ]
 
-// Trees+rocks stamped, then rocks only (the field still carries rock stamps, so this arm
-// separates "the field drives grass" from "trees are on screen"), then nothing stamped.
+// Trees+rocks stamped, then trees only under ?norocks: rocks were the only scenery module
+// that ever drove the field, so this arm is what a rock toggle must not switch off. Then
+// rocks only (the field still carries rock stamps, so this arm separates "the field drives
+// grass" from "trees are on screen"), then nothing stamped.
 const DENSITIES = [
-  { name: 'stamped', query: '', gate: 'must-darken' },
-  { name: 'rocksonly', query: '&veg=none', gate: 'report' },
-  { name: 'nostamps', query: '&veg=none&norocks', gate: 'control' },
+  { name: 'stamped', query: '', gate: 'must-darken', expectRocks: true },
+  { name: 'treesonly', query: '&norocks', gate: 'must-darken', expectRocks: false },
+  { name: 'rocksonly', query: '&veg=none', gate: 'report', expectRocks: true },
+  { name: 'nostamps', query: '&veg=none&norocks', gate: 'control', expectRocks: false },
 ]
+const ONLY = flag('densities', null)
+const ARMS = ONLY ? String(ONLY).split(',').map((n) => {
+  const d = DENSITIES.find((x) => x.name === n)
+  if (!d) throw new Error('--densities=' + ONLY + ': no arm named ' + n + ' in ' + DENSITIES.map((x) => x.name).join(','))
+  return d
+}) : DENSITIES
 
 const port = String(20000 + Math.floor(Math.random() * 20000))
 process.env.WORLD = process.env.WORLD || 'tps-game'
@@ -174,6 +184,21 @@ const readTrees = (page) => page.evaluate(() => {
   }
   return out
 }).catch((e) => ({ trees: [], error: e.message }))
+
+// ?norocks has to keep meaning "no rocks render". window.__rocks exists only once createRocks
+// has run and window.__rocksProfile only once its update has, so both being absent is a counted
+// zero rock instances, not an unread one.
+const readRocks = (page) => page.evaluate(() => {
+  const api = window.__rocks || (window.__app && window.__app.rocks) || null
+  let totalInstances = 0
+  if (api) { try { totalInstances = typeof api.totalInstances === 'number' ? api.totalInstances : 0 } catch (_) { totalInstances = -1 } }
+  return { modulePresent: !!window.__rocks, appHandle: !!(window.__app && window.__app.rocks), totalInstances, updateRan: !!window.__rocksProfile }
+}).catch((e) => ({ error: e.message }))
+
+// The contact-occlusion field's own drive counter: ticks that had a usable focus, recentres of
+// the 512 m window, and uploads of the field to the GPU. Zero uploads is the inert field,
+// whatever the pixels happen to say.
+const readContactDrive = (page) => page.evaluate(() => (window.__contactOcclusionDrive ? JSON.parse(JSON.stringify(window.__contactOcclusionDrive)) : null)).catch(() => null)
 
 // Re-arms the time-of-day pin (which suppresses the server's own sync for 8 s), pins the
 // governor tier and freezes the grass sway. Called immediately before every capture.
@@ -374,7 +399,7 @@ const rows = []
 let standAt = null
 try {
   browser = await chromium.launch({ args: LAUNCH_ARGS })
-  for (const density of DENSITIES) {
+  for (const density of ARMS) {
     const page = await browser.newPage({ viewport: { width: VIEWPORT_W, height: VIEWPORT_H } })
     const errors = []
     page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
@@ -436,6 +461,9 @@ try {
     grass = await readGrass(page)
     const pos = await readPos(page)
     const trees = await readTrees(page)
+    const rocks = await readRocks(page)
+    const contactDrive = await readContactDrive(page)
+    console.log(`[grass-contact-occ] ${density.name}: rocks ${JSON.stringify(rocks)} contactDrive ${JSON.stringify(contactDrive)}`)
     const nearest = trees.trees.reduce((best, [x, z]) => {
       const d = pos ? Math.hypot(x - pos.x, z - pos.z) : Infinity
       return Math.min(best, d)
@@ -450,6 +478,23 @@ try {
     if (density.name === 'stamped' && (nearestTreeM === null || nearestTreeM > MAX_STAND_TREE_M)) {
       failed = 1
       reasons.push(`${density.name}: nearest trunk is ${nearestTreeM} m away, over ${MAX_STAND_TREE_M} m, so the near band carries no contact stamp`)
+    }
+    const wantRocks = density.expectRocks === true
+    if (rocks.error) { failed = 1; reasons.push(`${density.name}: rocks state unreadable (${rocks.error})`) }
+    else if (!!rocks.modulePresent !== wantRocks) {
+      failed = 1
+      reasons.push(`${density.name}: the rocks module is ${rocks.modulePresent ? 'present' : 'absent'} but this arm expects rocks ${wantRocks ? 'on' : 'off'}, so the toggle no longer means what it says`)
+    } else if (wantRocks && !(rocks.totalInstances > 0)) {
+      failed = 1
+      reasons.push(`${density.name}: rocks are on but ${rocks.totalInstances} instances are placed, so this arm is not standing in rock scenery`)
+    } else if (!wantRocks && (rocks.totalInstances !== 0 || rocks.updateRan)) {
+      failed = 1
+      reasons.push(`${density.name}: rocks are off but ${rocks.totalInstances} instances are placed and rocks.update ${rocks.updateRan ? 'ran' : 'did not run'}, so rocks are rendering`)
+    }
+    if (!contactDrive) { failed = 1; reasons.push(`${density.name}: window.__contactOcclusionDrive is absent, so the contact field was never driven`) }
+    else if (!(contactDrive.ticks > 0 && contactDrive.recentres > 0 && contactDrive.uploads > 0)) {
+      failed = 1
+      reasons.push(`${density.name}: the contact field drive counted ticks=${contactDrive.ticks} recentres=${contactDrive.recentres} uploads=${contactDrive.uploads}, so the field never reached the GPU`)
     }
 
     // Four frames: OFF, ON, ON, OFF. Taking the ON-OFF difference in both time orders
@@ -547,7 +592,7 @@ try {
     }
 
     rows.push({
-      density: density.name, gate: density.gate, url, gpu, rendererInfo, grass, pos,
+      density: density.name, gate: density.gate, url, gpu, rendererInfo, grass, rocks, contactDrive, pos,
       nearestTreeM, trunks: trees.trees.length, yaw,
       stand: stand ? { tree: stand.tree, stand: stand.stand, moved: stand.moved } : null,
       pinned: frames.a.pin,

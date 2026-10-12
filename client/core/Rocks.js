@@ -10,10 +10,7 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { makeRocksMaterialTSL } from './RocksTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
-import { contactOcclusionField, contactFieldLoadChunk, contactFieldUnloadChunk, contactFieldRecentre, rockContactStamps } from '/src/terrain/ContactOcclusionField.js'
-
-let _syncContactOcclusion = null
-import('/node_modules/mapspinner/src/tsl/contact-occlusion-tsl.js').then((m) => { _syncContactOcclusion = m.syncContactOcclusion })
+import { contactOcclusionField, contactFieldLoadChunk, contactFieldUnloadChunk, rockContactStamps } from '/src/terrain/ContactOcclusionField.js'
 
 const _dbgRocks = dbg('rocks')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -240,9 +237,7 @@ export async function createRocks(opts = {}) {
     else if (camera) { camera.getWorldPosition(_camPos); px = _camPos.x; pz = _camPos.z }
     if (Number.isFinite(px) && Number.isFinite(pz)) {
       const _beforeLoaded = loaded.size
-      contactFieldRecentre(contactOcclusionField, px, pz)
       streamRing(px, pz)
-      if (_syncContactOcclusion) _syncContactOcclusion(contactOcclusionField)
       if (loaded.size !== _beforeLoaded) _cullDirty = true
     }
     profile.totalInstances = totalInstances; profile.visibleInstances = bm.instanceCount || totalInstances

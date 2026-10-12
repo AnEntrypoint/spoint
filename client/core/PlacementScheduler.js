@@ -1,4 +1,8 @@
 import { renderDeferringUnreadyPrograms, runWarmPasses } from './ProgramReadiness.js'
+import { contactOcclusionField, contactFieldRecentre } from '/src/terrain/ContactOcclusionField.js'
+
+let _syncContactOcclusion = null
+import('/node_modules/mapspinner/src/tsl/contact-occlusion-tsl.js').then((m) => { _syncContactOcclusion = m.syncContactOcclusion })
 
 const PLACEMENT_INTERVAL_MS = 250
 const MIN_TICK_GAP_MS = 40
@@ -23,6 +27,9 @@ export function warmSceneryShaders(renderer, scene, camera) {
   if (!renderer || !scene || !camera) return runWarmPasses(null, 0)
   return runWarmPasses(() => renderDeferringUnreadyPrograms(renderer, scene, camera), 2)
 }
+
+const contactOcclusionDrive = { ticks: 0, recentres: 0, uploads: 0 }
+if (typeof window !== 'undefined') window.__contactOcclusionDrive = contactOcclusionDrive
 
 export function createPlacementScheduler(getHandles) {
   let _lastTickAtMs = -Infinity
@@ -53,6 +60,13 @@ export function createPlacementScheduler(getHandles) {
       )
     }
 
+    // Terrain and grass both read the contact-occlusion field, so the scheduler owns its
+    // recentre and upload: a toggle that disables one scenery module must not strand it.
+    if (Number.isFinite(focus.x) && Number.isFinite(focus.z)) {
+      contactOcclusionDrive.ticks++
+      if (contactFieldRecentre(contactOcclusionField, focus.x, focus.z)) contactOcclusionDrive.recentres++
+    }
+
     if (vegetation && typeof vegetation.update === 'function') {
       try { vegetation.update(dt, camera, focus, true) } catch (_) {}
     }
@@ -62,6 +76,7 @@ export function createPlacementScheduler(getHandles) {
     if (grass && typeof grass.update === 'function') {
       try { grass.update(dt, camera, focus) } catch (_) {}
     }
+    if (_syncContactOcclusion && _syncContactOcclusion(contactOcclusionField)) contactOcclusionDrive.uploads++
     return true
   }
 
