@@ -73,7 +73,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       id: ++runCount,
       worker,
       state: 'starting',
-      stopWaiters: [],
+      stopSettlement: null,
       acceptedSeq: 0,
       acceptedRun: null,
       staleGenerationRejected: 0,
@@ -222,43 +222,45 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
     record.state = 'stopped'
     record.stoppedMessage = msg
     try { record.worker.terminate() } catch (_) {}
-    const waiters = record.stopWaiters.splice(0, record.stopWaiters.length)
-    for (const waiter of waiters) waiter(msg)
+    const settlement = record.stopSettlement
+    if (settlement === null) return
+    clearTimeout(settlement.timer)
+    settlement.settle({ ok: true, reason: 'stopped', ms: nowMs() - settlement.requestedAtMs, message: msg || null })
+  }
+
+  function createStopSettlement(record) {
+    let settle = null
+    const promise = new Promise((resolve) => { settle = resolve })
+    const requestedAtMs = record.stopRequestedAtMs
+    const timer = setTimeout(() => {
+      settle({ ok: false, reason: 'stop-timeout', ms: nowMs() - requestedAtMs, message: null })
+    }, WORKER_STOP_CONFIRM_TIMEOUT_MS)
+    return { promise, settle, timer, requestedAtMs }
+  }
+
+  function requestStop(record) {
+    if (record.stopRequestedAtMs !== null) return
+    record.stopRequestedAtMs = nowMs()
+    record.state = 'stopping'
+    record.stopSettlement = createStopSettlement(record)
+    try { record.worker.postMessage({ type: 'stop' }) } catch (_) {}
+    setTimeout(() => finishStop(record, { type: 'stop-terminated' }), TERMINATE_AFTER_STOP_REQUEST_MS)
   }
 
   function stop() {
     const record = current
     if (record === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
     if (record.state === 'stopped') return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: record.stoppedMessage })
-    if (record.stopRequestedAtMs === null) {
-      record.stopRequestedAtMs = nowMs()
-      record.state = 'stopping'
-      try { record.worker.postMessage({ type: 'stop' }) } catch (_) {}
-      setTimeout(() => finishStop(record, { type: 'stop-terminated' }), TERMINATE_AFTER_STOP_REQUEST_MS)
-    }
-    return awaitStopped(undefined, record)
+    requestStop(record)
+    return awaitStopped(record)
   }
 
-  function awaitStopped(timeoutMs, record) {
+  function awaitStopped(record) {
     const target = record === undefined ? current : record
     if (target === null) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
-    if (target.state === 'stopped') {
-      return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: target.stoppedMessage })
-    }
-    const budget = Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : WORKER_STOP_CONFIRM_TIMEOUT_MS
-    const requestedAtMs = target.stopRequestedAtMs === null ? nowMs() : target.stopRequestedAtMs
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        const at = target.stopWaiters.indexOf(waiter)
-        if (at >= 0) target.stopWaiters.splice(at, 1)
-        resolve({ ok: false, reason: 'stop-timeout', ms: nowMs() - requestedAtMs, message: null })
-      }, budget)
-      const waiter = (msg) => {
-        clearTimeout(timer)
-        resolve({ ok: true, reason: 'stopped', ms: nowMs() - requestedAtMs, message: msg || null })
-      }
-      target.stopWaiters.push(waiter)
-    })
+    if (target.state === 'stopped') return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: target.stoppedMessage })
+    if (target.stopSettlement !== null) return target.stopSettlement.promise
+    return Promise.resolve({ ok: false, reason: 'not-stopping', ms: 0, message: null })
   }
 
   function getStats() {
