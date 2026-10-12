@@ -944,8 +944,27 @@ const FREEZE = (opts) => {
   try {
     if (window.__app && window.__app.cam && typeof window.__app.cam.restore === 'function') {
       const [yaw, pitch, zoomIndex] = String(opts.cam).split(',').map(Number)
-      window.__app.cam.restore({ yaw, pitch, zoomIndex })
+      const c = window.__app.cam
+      c.restore({ yaw, pitch, zoomIndex })
+      // A restore that throws into a catch, or that no-ops because the object is the three.js camera
+      // instead of the controller, fabricates a "same view" pass while every arm is measured from a
+      // different heading: another lane measured 53-109/255 between two loads of ONE arm that way.
+      // So read the yaw back through whatever getter exists, or say plainly that it is unverified.
+      const read = (o, names) => {
+        for (const n of names) {
+          try {
+            if (o && typeof o[n] === 'function') { const v = o[n](); if (Number.isFinite(v)) return v }
+            else if (o && typeof o[n] === 'number' && Number.isFinite(o[n])) return o[n]
+          } catch (_) {}
+        }
+        return null
+      }
       out.camRestored = true
+      out.camYawRead = read(c, ['getYaw', 'getVRYaw', 'yaw'])
+      out.camPitchRead = read(c, ['getPitch', 'getVRPitch', 'pitch'])
+      out.camVerified = Number.isFinite(out.camYawRead) && Number.isFinite(yaw)
+        && Math.abs(out.camYawRead - yaw) < 0.02
+      if (out.camVerified === false) console.log('[player-shadow] camera pin UNVERIFIED: restore() ran but the yaw did not read back (requested=' + yaw + ' read=' + out.camYawRead + ')')
     }
   } catch (_) {}
   try {
