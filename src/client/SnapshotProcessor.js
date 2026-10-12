@@ -1,4 +1,5 @@
 import { unpackGroundNormal } from '../shared/groundNormalWire.js'
+import { inputDepthFromWire, NO_INPUT_DEPTH } from '../shared/inputDepthWire.js'
 import { unpackWallPlanes } from '../shared/wallPlaneWire.js'
 import { reexpressPlayerRecord, reexpressEntityRecord } from './reexpressRecords.js'
 import { unpackReducedPlayerPose, makeReducedPlayerPose, isReducedPlayerPose, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, REDUCED_HEIGHT_ABSENT } from '../netcode/SnapshotBinFormat.js'
@@ -42,7 +43,7 @@ function unpackBinRecord(buf) {
 }
 
 function makePlayerSlot() {
-  return { id: 0, position: [0, REDUCED_HEIGHT_ABSENT, 0], heightAbsent: true, rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: -1, groundNormal: [0, 1, 0], tier: 0 }
+  return { id: 0, position: [0, REDUCED_HEIGHT_ABSENT, 0], heightAbsent: true, rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: NO_INPUT_DEPTH, groundNormal: [0, 1, 0], tier: 0 }
 }
 
 const _reducedPose = makeReducedPlayerPose()
@@ -89,7 +90,7 @@ function fillPlayerArr(s, p) {
 
 function applySelfBlock(s, me) {
   s.inputSequence = me[0] || 0
-  s.inputBuffer = me[1] ?? -1
+  s.inputBuffer = inputDepthFromWire(me[1])
   unpackGroundNormal(me[2] || 0, s.groundNormal)
   unpackWallPlanes(me[3], s.wallPlanes || (s.wallPlanes = []))
 }
@@ -108,7 +109,7 @@ function fillPlayerObj(s, p) {
   s.inputSequence = p.inputSequence ?? 0; s.crouch = p.crouch ?? 0; s.lookPitch = p.lookPitch ?? 0; s.lookYaw = p.lookYaw ?? 0
   s.expr = p.expr ?? 0
   s.weapon = p.weapon ?? 0
-  s.inputBuffer = p.inputBuffer ?? -1
+  s.inputBuffer = inputDepthFromWire(p.inputBuffer)
   s.tier = PLAYER_TIER_FULL
 }
 
@@ -175,7 +176,7 @@ function copyPlayerStateInto(dst, s) {
   dst.velocity[0] = s.velocity[0]; dst.velocity[1] = s.velocity[1]; dst.velocity[2] = s.velocity[2]
   dst.onGround = s.onGround; dst.health = s.health; dst.inputSequence = s.inputSequence; dst.crouch = s.crouch
   dst.lookPitch = s.lookPitch; dst.lookYaw = s.lookYaw; dst.tier = s.tier || 0
-  dst.expr = s.expr || 0; dst.weapon = s.weapon || 0; dst.inputBuffer = s.inputBuffer ?? -1
+  dst.expr = s.expr || 0; dst.weapon = s.weapon || 0; dst.inputBuffer = inputDepthFromWire(s.inputBuffer)
   if (s.groundNormal) { const g = dst.groundNormal || (dst.groundNormal = [0, 1, 0]); g[0] = s.groundNormal[0]; g[1] = s.groundNormal[1]; g[2] = s.groundNormal[2] }
   if (s.wallPlanes) copyWallPlanes(s.wallPlanes, dst.wallPlanes || (dst.wallPlanes = []))
   return dst
