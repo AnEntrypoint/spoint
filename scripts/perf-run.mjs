@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { spawnSync, spawn } from 'node:child_process'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import {
@@ -44,7 +44,7 @@ const ROOM_MODE = String(flag('room', 'singleplayer'))
 const ROUTE = flag('walk-route', '')
 const WALK_SPEED = flagNumber(flag, 'walk-speed', 7, argv)
 const WALKER = ROUTE.length > 0
-const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', argv)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height], 'x', argv)
 const GPU_PASSES = has('gpu-passes')
 const SERVE_ROOT = resolve(String(flag('serve-root', ROOT)))
 const WORKTREE_META = has('worktree-meta') ? JSON.parse(readFileSync(String(flag('worktree-meta', '')), 'utf8')) : null
@@ -542,7 +542,7 @@ async function main() {
     const pidRecord = { label: LABEL, nodePid: process.pid, chromePid: browser.pid, profileDir: browser.profileDir, startedAt: new Date().toISOString() }
     writeFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), JSON.stringify(pidRecord))
     console.log('[perf-run] spawned: ' + JSON.stringify(pidRecord))
-    const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)))
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })

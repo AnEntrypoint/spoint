@@ -2,7 +2,7 @@
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
@@ -56,8 +56,8 @@ async function main() {
   let rasterizer = 'unknown'
   try {
     browser = await chromium.launch({ headless: true, args: GPU_ARGS })
-    const ctxA = await browser.newContext({ viewport: { width: 640, height: 480 } })
-    const ctxB = await browser.newContext({ viewport: { width: 640, height: 480 } })
+    const ctxA = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
+    const ctxB = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const pageA = await ctxA.newPage()
     const pageB = await ctxB.newPage()
 

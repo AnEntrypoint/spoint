@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
@@ -59,7 +59,7 @@ const knobApplySrc = (knobs) => `(() => {
     set: (v) => { registry = v; if (registry && typeof registry.set === 'function') apply() },
   })
 })()`
-const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-grass-prewarm-witness')))
 
@@ -286,7 +286,7 @@ async function main() {
     const want = process.argv.includes('--require-raw-esm') ? CLIENT_ROOT_RAW : CLIENT_ROOT_BUNDLE
 
     for (let i = 0; i < REPS; i++) {
-      const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+      const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const pageErrors = []
       const consoleErrors = []
       page.on('pageerror', e => pageErrors.push(String(e)))

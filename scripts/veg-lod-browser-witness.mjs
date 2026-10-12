@@ -3,7 +3,7 @@ import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -34,7 +34,7 @@ const MOVE_SECONDS = flagNumber(flag, 'move', 8, argv)
 const READY_TIMEOUT_MS = flagNumber(flag, 'ready-timeout', 300000, argv)
 const VEG_WALK_MS = flagNumber(flag, 'veg-walk', 240000, argv)
 const EXTRA = flag('extra', 'at=200,0')
-const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', argv)
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height], 'x', argv)
 const SCALING = !has('no-scaling')
 const ORACLE = !has('no-oracle')
 const ORACLE_INSTANCES = flagNumber(flag, 'oracle-instances', 2000, argv)
@@ -436,7 +436,7 @@ async function main() {
 
   const args = [...gpuArgs({ accelerated: true }), ...LAUNCH_VENDOR_ARGS]
   const browser = await chromium.launch({ headless: true, args })
-  const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const failures = []
   try {
     const url = `http://localhost:${port}/?singleplayer&webgpu=1&world=tps-game&${EXTRA}&v=${Date.now()}`

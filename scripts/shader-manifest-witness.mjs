@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
@@ -66,7 +66,7 @@ async function main() {
   let browser = null
   try {
     browser = await chromium.launch({ headless: true, args: vendorLaunchArgs(GPU_MODE) })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page._send('Network.enable')

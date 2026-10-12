@@ -5,7 +5,7 @@
 // reallocates the drawing buffer and every render target sized from it.
 //
 // The deliverable is a COUNT and a COST, attributed. It never reports a per-pass GPU timing.
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { flagNumber } from './lib/witness-args.mjs'
@@ -24,7 +24,7 @@ const TIMEOUT_MS = flagNumber(flag, 'timeout', 240000, process.argv.slice(2))
 const SHOTS = flagNumber(flag, 'shots', 0, process.argv.slice(2))
 const HEADLESS = !has('headed')
 const GPU_VENDOR = flag('gpu', null)
-const VIEW = String(flag('viewport', '1280x720')).split('x').map(Number)
+const VIEW = String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number)
 const OUT = flag('out', null)
 
 const LABEL = 'resolution-thrash'
@@ -219,7 +219,7 @@ async function main() {
   try {
     const args = GPU_VENDOR ? vendorGpuArgs(GPU_VENDOR) : vendorLaunchArgs(gpuModeFlag())
     browser = await chromium.launch({ headless: HEADLESS, args })
-    const page = await browser.newPage({ viewport: { width: VIEW[0], height: VIEW[1] } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INIT })
     const url = `${base}/?${PARAMS}`
     console.log(`[${LABEL}] navigating to ${url} ...`)

@@ -15,7 +15,7 @@
 import { resolve, dirname } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -48,8 +48,8 @@ const AT = String(flag('at', '-500,-500'))
 const LABEL = String(flag('label', 'run'))
 const TOD_FRACTION = flagNumber(flag, 'tod', 0.34, argv)
 const SETTLE_MS = flagNumber(flag, 'settle', 40000, argv)
-const VIEWPORT_W = flagNumber(flag, 'w', 1280, argv)
-const VIEWPORT_H = flagNumber(flag, 'h', 720, argv)
+const VIEWPORT_W = flagNumber(flag, 'w', DEFAULT_VIEWPORT.width, argv)
+const VIEWPORT_H = flagNumber(flag, 'h', DEFAULT_VIEWPORT.height, argv)
 // Mid-tier band, as Vegetation.js derives it: D1 = min(14, renderDistance*0.045),
 // D2 = min(35, renderDistance*0.11), entered at d*(1+LOD_HYS) with LOD_HYS 0.12.
 const MID_NEAR_M = 14
@@ -106,7 +106,7 @@ let failed = 0
 const reasons = []
 try {
   browser = await chromium.launch({ args: LAUNCH_ARGS })
-  const page = await browser.newPage({ viewport: { width: VIEWPORT_W, height: VIEWPORT_H } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
   const url = `http://localhost:${port}/?singleplayer&world=tps-game&at=${encodeURIComponent(AT)}&v=${Date.now()}`

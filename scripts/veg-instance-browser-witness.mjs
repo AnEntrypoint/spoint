@@ -1,6 +1,6 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -76,7 +76,7 @@ let browser
 let failed = 0
 try {
   browser = await chromium.launch({ args: LAUNCH_ARGS })
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
   const url = `http://localhost:${port}/?singleplayer&world=tps-game&at=${encodeURIComponent(AT)}&v=${Date.now()}`

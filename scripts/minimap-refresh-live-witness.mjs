@@ -13,7 +13,7 @@
 // elevationAtDir call to a 16-iteration ground loop and manufactures most of what it measures.
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
@@ -97,7 +97,7 @@ async function main() {
 
   const browser = await chromium.launch({ headless: true, args: [...vendorLaunchArgs(GPU)] })
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', (e) => console.log('[minimap-live] pageerror: ' + String((e && e.message) || e).slice(0, 300)))
     const url = `http://127.0.0.1:${port}/?multiplayer&world=${WORLD}&v=${Date.now()}`
     console.log('[minimap-live] navigating ' + url)

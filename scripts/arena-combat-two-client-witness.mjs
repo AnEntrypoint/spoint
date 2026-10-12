@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, probeGpu, rasterizerClass, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
@@ -37,7 +37,7 @@ function textOf(entry) {
 }
 
 async function makeClient(browser, base, label) {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } })
+  const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
   const page = await context.newPage()
   const consoleEntries = []
   const pageErrors = []

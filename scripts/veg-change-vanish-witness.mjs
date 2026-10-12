@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { tmpdir, freemem, totalmem } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
@@ -66,7 +66,7 @@ const DRIVER_FILTER = flag('drivers', null)
 const WALK = flag('walk', '0') !== '0'
 // --look=1 turns the view through each capture (real CDP mouse moves while pointer-locked).
 const LOOK = flag('look', '0') !== '0'
-const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-veg-change-vanish-witness')))
 
@@ -555,7 +555,7 @@ async function main() {
   try {
     browser = await chromium.launch({ headless: false, args: vendorPinArgs(GPU_MODE) })
     for (const params of PARAMS) {
-      const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+      const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const pageErrors = []
       page.on('pageerror', e => pageErrors.push(String(e)))
       await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE_INIT })

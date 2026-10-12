@@ -7,7 +7,7 @@
 import { resolve, dirname } from 'node:path'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -54,7 +54,7 @@ const ROUTE = String(flag('route', '-500,-500;-440,-500;-440,-560;-500,-560;-500
 const WALK_SPEED = flagNumber(flag, 'walk-speed', 7, argv)
 const EXPECT_VENDOR = flag('expect-vendor', GPU)
 const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
-const VIEW = (String(flag('viewport', '1920x1080')).split('x').map(Number))
+const VIEW = (String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number))
 const VIEWPORT = { width: VIEW[0] || 1920, height: VIEW[1] || 1080 }
 
 const port = String(20000 + Math.floor(Math.random() * 20000))
@@ -173,7 +173,7 @@ let browser
 let failed = 0
 try {
   browser = await chromium.launch({ args: LAUNCH_ARGS })
-  const page = await browser.newPage({ viewport: VIEWPORT })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
   await page._send('Performance.enable').catch((e) => console.log('[grass-perframe] Performance.enable refused, so no ThreadTime will be readable: ' + e.message))

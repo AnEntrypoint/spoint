@@ -12,7 +12,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
@@ -50,7 +50,7 @@ console.log(`[shared-lattice-live] server up on ${PORT} world=${process.env.WORL
 
 const browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU)] })
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const terrainLines = []
   page.on('console', (m) => { const t = String(m.text() || ''); if (t.includes('[terrain]')) terrainLines.push(t.slice(0, 220)) })
   page.on('pageerror', (e) => console.log('[shared-lattice-live] pageerror: ' + String((e && e.message) || e).slice(0, 300)))

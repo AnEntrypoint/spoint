@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import {
@@ -57,7 +57,7 @@ async function measureRealColdLoadMs() {
   let browser
   try {
     browser = await chromium.launch({ headless: true, args: GPU_ARGS })
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
+    const ctx = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const page = await ctx.newPage()
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

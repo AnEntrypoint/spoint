@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs'
 import { join } from 'node:path'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
@@ -211,7 +211,7 @@ async function main() {
   let browser = null
   try {
     browser = await chromium.launch({ headless: false, args: gpuLaunchArgs(GPU_MODE) })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     const consoleLines = []
     page.on('pageerror', e => pageErrors.push(String(e)))

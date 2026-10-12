@@ -7,7 +7,7 @@
 // shipped world, and whether each system's candidate gate is reached.
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag, gpuLaunchArgs } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE } from './lib/served-client-root.mjs'
@@ -112,7 +112,7 @@ async function main() {
   let browser
   try {
     browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE })
     const query = BACKEND === 'webgpu' ? `${PARAMS}&webgpu=1` : (BACKEND === 'webgl' ? `${PARAMS}&legacygl=1` : PARAMS)
     const url = `http://localhost:${PORT}/?${query}&world=${WORLD}&v=${Date.now()}`

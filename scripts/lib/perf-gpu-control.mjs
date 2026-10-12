@@ -2,7 +2,7 @@ import { writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { chromium } from './cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './cdp-browser.mjs'
 import { gpuArgs } from './gpu-probe.mjs'
 
 export const GPU_CONTROL_PROBE_MS = 2000
@@ -10,8 +10,8 @@ export const GPU_CONTROL_SENSITIVE_P50_MS = 30
 export const GPU_CONTROL_MIN_P50_MS = 20
 export const GPU_CONTROL_SPREAD_FACTOR = 1.25
 
-const WIDTH = 1280
-const HEIGHT = 720
+const WIDTH = DEFAULT_VIEWPORT.width
+const HEIGHT = DEFAULT_VIEWPORT.height
 const PASSES = 2
 const LADDER = [1024, 2048, 3072, 4096, 8192]
 const READY_FRAMES = 3
@@ -147,7 +147,7 @@ export async function gpuControlProbe({ iterations, args, probeMs = GPU_CONTROL_
   let browser = null
   try {
     browser = await chromium.launch({ headless: true, args })
-    const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page.goto(pathToFileURL(file).href, { waitUntil: 'domcontentloaded' })
     await waitForControlFrames(page)
     const deltas = await frameProbe(page, probeMs)

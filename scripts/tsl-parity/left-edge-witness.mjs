@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { chromium } from '../lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from '../lib/cdp-browser.mjs'
 import { assertGpu, gpuArgs } from '../lib/gpu-probe.mjs'
 import { decodePng, regionMasks, regionMean, regionMeanAbs } from './png.mjs'
 import {
@@ -75,7 +75,7 @@ process.on('unhandledRejection', e => {
 async function runArm(browser, { legacy, tag, gpuProbe }) {
   const stamp = Date.now()
   const url = `${HOST}/?singleplayer&terrainhash=1${legacy ? '&legacygl=1' : ''}&at=${POSE}&v=${tag}${stamp}`
-  const page = await browser.newPage({ viewport: { width: 1036, height: 647 } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const report = { url, frames: {}, sigs: {} }
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })

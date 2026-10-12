@@ -17,7 +17,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
@@ -41,7 +41,7 @@ const MEASURE_MS = Number(flag('measure', '60000'))
 const LEG_MS = Number(flag('leg', '8000'))
 const SPEED = Number(flag('speed', '7'))
 const TIMEOUT_MS = Number(flag('timeout', '240000'))
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number)
 const WORST_N = Number(flag('worst', '30'))
 const WORST_CPU_N = Number(flag('worst-cpu', '6'))
 const MIN_COMPILES = Number(flag('min-compiles', '20'))
@@ -506,7 +506,7 @@ async function browserArm() {
   let travelled = 0
   try {
     browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
-    const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', e => pageErrors.push(String(e)))
     // The mutation has to be live BEFORE the boot warmup, not after it: with the fix installed,
     // every pipeline the warmup needs is already compiled asynchronously by the time the walk

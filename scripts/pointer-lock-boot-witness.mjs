@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
@@ -37,7 +37,7 @@ async function main() {
   let rasterizer = 'unknown'
   try {
     browser = await chromium.launch({ headless: true, args: GPU_ARGS })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const consoleEvents = []
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

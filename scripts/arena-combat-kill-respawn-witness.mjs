@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
@@ -34,8 +34,8 @@ const SEPARATE_MS = numberFlag('separate-ms', 1600)
 const USE_OBSERVER = args.clients !== '2'
 const EXPECTED_PLAYERS = numberFlag('expected-players', USE_OBSERVER ? 3 : 2)
 const SPAWN_TOLERANCE_M = numberFlag('spawn-tolerance', 1.5)
-const VIEW_W = numberFlag('view-width', 320)
-const VIEW_H = numberFlag('view-height', 180)
+const VIEW_W = numberFlag('view-width', DEFAULT_VIEWPORT.width)
+const VIEW_H = numberFlag('view-height', DEFAULT_VIEWPORT.height)
 const TELEPORT_OFFSET_M = numberFlag('teleport-offset', 6)
 const RELEVANCE_RADIUS_M = numberFlag('relevance-radius', 200)
 const EVAL_STALL_MS = numberFlag('eval-stall', 180000)
@@ -69,7 +69,7 @@ function textOf(entry) {
 }
 
 async function makeClient(browser, label) {
-  const context = await browser.newContext({ viewport: { width: VIEW_W, height: VIEW_H }, deviceScaleFactor: 1 })
+  const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT, deviceScaleFactor: 1 })
   const page = await context.newPage()
   const consoleEntries = []
   const pageErrors = []

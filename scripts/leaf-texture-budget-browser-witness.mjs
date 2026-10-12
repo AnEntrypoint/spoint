@@ -52,7 +52,7 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import { assertServedClientRoot, clientRootTag, CLIENT_ROOT_BUNDLE } from './lib/served-client-root.mjs'
@@ -71,7 +71,7 @@ const WORLD = flag('world', 'tps-game')
 const GPU_MODE = flag('gpu', 'nvidia')
 const TIMEOUT_MS = Number(flag('timeout', '240000'))
 const SETTLE_MS = Number(flag('settle', '4000'))
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number)
 const OUT = resolve(flag('out', join(REPO_ROOT, '.gm', 'witness-out', 'leaf-texture-budget')))
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-leaftex-budget')))
 // A boot that never completes costs the full arm timeout on every arm before it says
@@ -601,7 +601,7 @@ async function waitStableFrame(page, scratchPage, armName, pngPath, pngBPath) {
 }
 
 async function runArm(browser, base, arm, scratchPage) {
-  const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const pageErrors = []
   const consoleErrors = []
   page.on('pageerror', e => pageErrors.push(String(e)))
@@ -693,7 +693,7 @@ async function main() {
   const results = []
   try {
     browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
-    const scratchPage = await browser.newPage({ viewport: { width: 64, height: 64 } })
+    const scratchPage = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const walk = ONLY ? ARMS.filter(a => a.name === ONLY) : ARMS
     if (ONLY && walk.length !== 1) {
       console.error(`${LABEL}: --only=${ONLY} names no arm (arms: ${ARMS.map(a => a.name).join(',')})`)

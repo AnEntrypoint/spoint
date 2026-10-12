@@ -28,7 +28,7 @@
 import { resolve, dirname } from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -68,8 +68,8 @@ const STABLE_TIMEOUT_MS = flagNumber(flag, 'stable-timeout', 120000, argv)
 const YAW_STEPS = flagNumber(flag, 'yaw-steps', 8, argv)
 const ARM_MS = flagNumber(flag, 'arm-ms', 600, argv)
 const STILL_ATTEMPTS = flagNumber(flag, 'still-attempts', 3, argv)
-const VIEWPORT_W = flagNumber(flag, 'w', 1280, argv)
-const VIEWPORT_H = flagNumber(flag, 'h', 720, argv)
+const VIEWPORT_W = flagNumber(flag, 'w', DEFAULT_VIEWPORT.width, argv)
+const VIEWPORT_H = flagNumber(flag, 'h', DEFAULT_VIEWPORT.height, argv)
 const STAND_M = flagNumber(flag, 'stand-m', 3, argv)
 const TRUNK_CLEAR_M = flagNumber(flag, 'trunk-clear', 1.2, argv)
 const MAX_STAND_TREE_M = flagNumber(flag, 'max-stand-tree-m', 12, argv)
@@ -400,7 +400,7 @@ let standAt = null
 try {
   browser = await chromium.launch({ args: LAUNCH_ARGS })
   for (const density of ARMS) {
-    const page = await browser.newPage({ viewport: { width: VIEWPORT_W, height: VIEWPORT_H } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const errors = []
     page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
     const at = standAt || AT

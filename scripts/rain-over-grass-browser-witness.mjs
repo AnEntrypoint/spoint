@@ -30,7 +30,7 @@ import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import { decodePng } from './tsl-parity/png.mjs'
@@ -84,7 +84,7 @@ const HERO_ATTEMPTS = flagNumber('hero-attempts', 5)
 const HERO_NOISE_X = flagNumber('hero-noise-x', 2)
 const MAX_NOISE_FRAC = flagNumber('max-noise-frac', 0.25)
 const WEATHER_INTENSITY = flagNumber('intensity', 1)
-const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const [VIEW_W, VIEW_H] = String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number)
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-rain-over-grass')))
 const OUT_DIR = resolve(flag('out', join(tmpdir(), 'spoint-rain-over-grass-shots')))
@@ -333,7 +333,7 @@ async function main() {
     // every probe reads the state from before the change and the whole arm stalls. Push back on
     // the throttling instead of measuring a browser that is not rendering.
     browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU_MODE), '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'] })
-    const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e)))
     await page.goto(`${base}/?${PARAMS}`, { waitUntil: 'domcontentloaded' })

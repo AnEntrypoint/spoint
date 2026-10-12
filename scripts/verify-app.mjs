@@ -2,7 +2,7 @@
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFileSync, rmSync } from 'node:fs'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
@@ -82,7 +82,7 @@ async function main() {
     }
 
     browser = await chromium.launch({ headless: true, args: GPU_ARGS })
-    const context = await browser.newContext({ viewport: { width: 640, height: 480 } })
+    const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const page = await context.newPage()
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

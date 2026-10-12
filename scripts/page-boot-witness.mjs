@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, probeGpu, rasterizerClass, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
@@ -126,7 +126,7 @@ async function main() {
       ? await adapterLuidArgs(GPU_VENDOR)
       : vendorLaunchArgs(GPU_MODE)
     browser = await chromium.launch({ headless: HEADLESS, args })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const consoleEntries = []
     const pageErrors = []
     const failedRequests = []

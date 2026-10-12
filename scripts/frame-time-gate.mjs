@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
@@ -341,7 +341,7 @@ async function measureRealFrameTimes() {
 
     browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
     if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))
 

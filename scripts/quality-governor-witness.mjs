@@ -14,7 +14,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
@@ -46,7 +46,7 @@ const MAX_SAMPLES = flagNumber(flag, 'max-samples', 60, process.argv.slice(2))
 const MIN_TIER = flagNumber(flag, 'min-tier', 1, process.argv.slice(2))
 const CONTROL_FRAMES = flagNumber(flag, 'control-frames', 2010, process.argv.slice(2))
 const ARM = flag('arm', 'unlabelled')
-const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
+const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [DEFAULT_VIEWPORT.width, DEFAULT_VIEWPORT.height], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-quality-governor-witness')))
 
@@ -261,7 +261,7 @@ async function browserArm() {
   let convergedFrames = null
   try {
     browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
-    const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(`${base}/?${params}`, { waitUntil: 'domcontentloaded' })
     const root = await assertServedClientRoot(page, { want, label: LABEL }).catch(e => e)

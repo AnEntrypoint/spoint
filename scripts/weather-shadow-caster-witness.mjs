@@ -74,7 +74,7 @@ const RAIN_FORCE_MS = Number(flag('rain-force', '8000'))
 
 const { vendorPinArgs } = await import(pathToFileURL(resolve(HERE, 'lib', 'witness-gpu.mjs')).href)
 const { gpuArgs, assertGpu } = await import(pathToFileURL(resolve(HERE, 'lib', 'gpu-probe.mjs')).href)
-const { chromium } = await import(pathToFileURL(resolve(HERE, 'lib', 'cdp-browser.mjs')).href)
+const { chromium, DEFAULT_VIEWPORT } = await import(pathToFileURL(resolve(HERE, 'lib', 'cdp-browser.mjs')).href)
 const { decodePng, regionMasks } = await import(pathToFileURL(resolve(HERE, 'tsl-parity', 'png.mjs')).href)
 
 fs.mkdirSync(OUT, { recursive: true })
@@ -516,7 +516,7 @@ function versionsDelta(a, b) {
 let exitCode = 1
 const report = { label: LABEL, world: WORLD, qs: QS, gpu: GPU, threshold: DIFF_THRESHOLD, framesPerArm: FRAMES_PER_ARM }
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+  const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
   const url = `http://localhost:${port}/?v=${Date.now()}` + (QS ? '&' + QS.replace(/^[?&]/, '') : '')

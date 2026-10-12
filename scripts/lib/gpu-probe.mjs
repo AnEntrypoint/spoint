@@ -175,7 +175,7 @@ export function adapterLuidFor(pattern) {
 }
 
 export async function verifyVendorLuid(pattern, luids = null) {
-  const { chromium } = await import('./cdp-browser.mjs')
+  const { chromium, DEFAULT_VIEWPORT } = await import('./cdp-browser.mjs')
   const candidates = luids && luids.length
     ? luids.map(String)
     : luidCandidatesFor(pattern).map((a) => String(a.luid))
@@ -184,7 +184,7 @@ export async function verifyVendorLuid(pattern, luids = null) {
   for (const luid of candidates) {
     const browser = await chromium.launch({ args: [...ANGLE_D3D11_ARGS, `--use-adapter-luid=0,${luid}`] })
     try {
-      const page = await browser.newPage({ viewport: { width: 400, height: 300 } })
+      const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const probe = await probeGpu(page)
       results.push({
         luid,
@@ -205,7 +205,7 @@ function flagValue(name) {
 }
 
 async function main() {
-  const { chromium } = await import('./cdp-browser.mjs')
+  const { chromium, DEFAULT_VIEWPORT } = await import('./cdp-browser.mjs')
   const verifyVendor = flagValue('verify-luid')
   if (verifyVendor) {
     const pattern = VENDOR_ADAPTER_PATTERNS[verifyVendor] || verifyVendor
@@ -218,7 +218,7 @@ async function main() {
   const accelerated = process.argv.includes('--accelerated')
   const browser = await chromium.launch({ args: gpuArgs({ accelerated }) })
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     if (url) await page.goto(url, { waitUntil: 'domcontentloaded' })
     const gpu = await assertGpu(page, {
       requireAccelerated: process.argv.includes('--require-accelerated'),

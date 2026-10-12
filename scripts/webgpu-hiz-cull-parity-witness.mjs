@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from './lib/cdp-browser.mjs';
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs';
 import { gpuArgs, vendorGpuArgs } from './lib/gpu-probe.mjs';
 
 // Counts CPU-cull vs HiZ-cull disagreements per frame, on a real WebGPU device,
@@ -555,7 +555,7 @@ async function main() {
   const browser = await chromium.launch({ root: REPO_ROOT, owner: `${WITNESS}-${LABEL}`, args, leaseWaitMs: Number(process.env.HIZ_LEASE_WAIT_MS || 240000) });
   let out;
   try {
-    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT });
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(String((e && e.message) || e).split('\n')[0]));
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { chromium } from './lib/cdp-browser.mjs'
+import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
@@ -145,7 +145,7 @@ async function main() {
   let browser
   try {
     browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     const consoleEntries = []
     const textOfConsole = (p) => (p?.args || []).map((a) => (a?.value !== undefined ? String(a.value) : (a?.description || a?.unserializableValue || ''))).join(' ')
