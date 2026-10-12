@@ -1,4 +1,6 @@
+import { parseWorldDef } from './_shared/worldDefParse.js'
 const CONSTRUCT = {
+  clusters: { enabled: false },
   enabled: false,
   anchorDir: [0, 1, 0],
   radius: 1000,
@@ -13,7 +15,8 @@ const CONSTRUCT = {
   vegetation: { enabled: false }
 }
 
-export default {
+export default parseWorldDef('construct', {
+  planetRadius: 0,
   presets: ['tps'],
   port: 3001,
   gravity: [0, -9.81, 0],
@@ -48,4 +51,4 @@ export default {
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game' }
   ],
   spawnPoint: [0, 2, 0]
-}
+})
