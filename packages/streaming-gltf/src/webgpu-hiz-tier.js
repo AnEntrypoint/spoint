@@ -18,6 +18,7 @@ const ENTITY_PARAMS_FLOATS = ENTITY_PARAMS_BYTES / 4;
 const MAX_THRESHOLD_SLOTS = 2;
 const PIPELINE_ERROR_SCOPE = 'validation';
 const ENTITY_STAGING_POOL = 3;
+const _EMPTY = [];
 
 export class WebGPUPipelineError extends Error {
   constructor(label, message) {
@@ -61,6 +62,9 @@ function compileShaderModule(device, label, code) {
 }
 
 export class WebGpuHizTier {
+  // Identity label, not a knob: `constructor.name` is gone from a minified bundle, so a
+  // caller that has to prove which tier is installed has nothing else to read.
+  kind = 'webgpu-hiz';
   constructor(renderer, opts = {}) {
     this.renderer = renderer;
     this.minCandidates = opts.minCandidates ?? 64;
@@ -94,7 +98,19 @@ export class WebGpuHizTier {
     this._boxScratch = new Float32Array(64);
     this._boxScratchFilled = 0;
     this._attachRefused = new WeakSet();
-    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0, entityTested: 0, entityOccluded: 0, entityReadbacks: 0, pyramidsBuilt: 0, indirectAttached: 0, indirectAttachRefused: 0, readbackStarved: 0 };
+    // Per-candidate verdict bookkeeping, the WebGPU half of what OcclusionQueryTier keeps
+    // in `_records`: how many verdicts have landed for a candidate, and what the last one
+    // said. Both are candidate-keyed, never mesh-keyed.
+    this._resolveCount = new WeakMap();
+    this._lastVerdict = new WeakMap();
+    // Rotation cursor for the discovery sweep. The population is stable and far larger
+    // than a frame's budget, so a cursor covers it at a uniform rate.
+    this._rrCursor = 0;
+    // Undefined means "no slice in force", which is what ModelPool gets and what this
+    // tier has always done. A finite number is the frame's slice; zero is the caller's
+    // "the camera has not moved" gate.
+    this.maxQueriesPerFrame = opts.maxQueriesPerFrame;
+    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0, entityTested: 0, entityOccluded: 0, entityReadbacks: 0, pyramidsBuilt: 0, indirectAttached: 0, indirectAttachRefused: 0, readbackStarved: 0, sliceSize: 0, reverify: 0, discovered: 0 };
   }
 
   supported() {
@@ -779,19 +795,101 @@ export class WebGpuHizTier {
       staging.busy = false;
       let occ = 0;
       for (let i = 0; i < arr.length; i++) if (arr[i] === 1) occ++;
+      // A verdict lands for every candidate of the dispatch, so this is where each one's
+      // resolved count advances and where the sweep learns which candidates are being
+      // hidden. Both are what make the next slice's correctness classes meaningful.
+      for (const c of slots.keys()) {
+        this._resolveCount.set(c, (this._resolveCount.get(c) || 0) + 1);
+        const slot = slots.get(c);
+        this._lastVerdict.set(c, slot < arr.length && arr[slot] === 1);
+      }
       this._verdictSnapshot = { arr, slots };
       this.stats.entityOccluded = occ;
       this.stats.entityReadbacks++;
     }).catch(() => { staging.busy = false; });
   }
 
+  // How many verdicts have landed for this candidate -- the same question
+  // OcclusionQueryTier.getResolveCount answers, and the only thing the caller's policy
+  // can tell a fresh verdict from a repeated one with.
+  getResolveCount(candidate) {
+    return candidate ? (this._resolveCount.get(candidate) || 0) : 0;
+  }
+
+  // What the last verdict said, kept per candidate so the sweep can still tell "this is
+  // being hidden right now" for a candidate the previous dispatch did not include. The
+  // snapshot alone cannot: it only holds the candidates of one dispatch.
+  _wasOccluded(candidate) {
+    return this._lastVerdict.get(candidate) === true;
+  }
+
+  // The frame's slice of a population far larger than one dispatch should carry.
+  //
+  // Three classes, and the order between them is correctness, not tuning:
+  //  1. re-verification -- a candidate the last verdict called occluded is one a consumer
+  //     is currently hiding. Dropping it from the slice leaves it with a verdict the
+  //     policy will eventually fail open, which is exactly the pop the one-frame floor
+  //     exists to prevent. Re-verifying is not budget work, so it is never sliced.
+  //  2. discovery -- a candidate with no verdict yet has nothing to be stale, and until
+  //     it has one the tier cannot say anything about it at all.
+  //  3. rotation over everything else, at a rate the caller's budget sets.
+  //
+  // The order is deliberately NOT by instance count. Measured on tps-game, hiding every
+  // grass cell at once costs 0 draw calls while hiding every rock cell costs 112, and a
+  // grass cell carries ~7830 instances against a rock cell's ~0.2 -- so an
+  // instance-weighted order spends the budget on the one subsystem that cannot move a
+  // draw. Rotation makes no bet about which candidate carries the cost.
+  _selectFrameSlice(candidates) {
+    const limit = this.maxQueriesPerFrame;
+    if (!Number.isFinite(limit)) return candidates;
+    if (limit <= 0) return _EMPTY;
+    if (candidates.length <= limit) return candidates;
+    const out = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (c && this._wasOccluded(c)) out.push(c);
+    }
+    this.stats.reverify = out.length;
+    let room = limit;
+    for (let i = 0; i < candidates.length && room > 0; i++) {
+      const c = candidates[i];
+      if (!c || this._wasOccluded(c) || this._resolveCount.get(c)) continue;
+      out.push(c); room--;
+    }
+    if (room > 0) this._takeRotating(candidates, room, out);
+    this.stats.sliceSize = out.length;
+    return out;
+  }
+
+  // A rotating window, so a population larger than the budget is still covered at a
+  // uniform rate instead of the same candidates being tested every frame.
+  _takeRotating(candidates, room, out) {
+    const n = candidates.length;
+    let idx = this._rrCursor % n;
+    let taken = 0;
+    for (let examined = 0; examined < n && taken < room; examined++, idx = (idx + 1) % n) {
+      const c = candidates[idx];
+      if (!c || this._wasOccluded(c)) continue;
+      out.push(c);
+      taken++;
+    }
+    this._rrCursor = idx;
+    this.stats.discovered = taken;
+    return out;
+  }
+
   runQueries(camera, candidates) {
     if (!this.supported()) { this.stats.queried = 0; this.stats.occluded = 0; return; }
     this.stats.queried = 0;
+    this.stats.sliceSize = 0;
+    this.stats.reverify = 0;
+    this.stats.discovered = 0;
+    const slice = candidates && candidates.length ? this._selectFrameSlice(candidates) : _EMPTY;
+    if (!slice.length) return;
     if (!this._syncPyramid()) return;
-    this._runEntityOcclusion(camera, candidates);
-    for (let i = 0; i < candidates.length; i++) {
-      const meshes = this._clusterMeshesOf(candidates[i]);
+    this._runEntityOcclusion(camera, slice);
+    for (let i = 0; i < slice.length; i++) {
+      const meshes = this._clusterMeshesOf(slice[i]);
       if (!meshes) continue;
       for (let k = 0; k < meshes.length; k++) {
         const mesh = meshes[k];
@@ -814,8 +912,18 @@ export class WebGpuHizTier {
     return snap.arr[slot] === 1;
   }
 
-  release(mesh) {
-    this.unregisterClusterMesh(mesh);
+  // Candidate-scoped, not mesh-scoped: this is what `SceneOcclusion` calls when a
+  // subsystem's candidate set drops a cell, and a cell is a `{root, key}` proxy with no
+  // cluster mesh behind it. Forgetting it means the next slice must re-discover it, and
+  // `isOccluded` fails open in the meantime, which is the visible direction.
+  release(candidate) {
+    if (!candidate) return;
+    if (this._meshBuffers.has(candidate)) { this.unregisterClusterMesh(candidate); return; }
+    const root = candidate.root || candidate.object3d || null;
+    if (root) this._boxCache.delete(root);
+    this._resolveCount.delete(candidate);
+    this._lastVerdict.delete(candidate);
+    if (this._verdictSnapshot) this._verdictSnapshot.slots.delete(candidate);
   }
 
   dispose() {
@@ -831,6 +939,8 @@ export class WebGpuHizTier {
     for (const s of this._entityStaging) s.buf.destroy();
     this._entityStaging.length = 0;
     this._boxCache = new WeakMap();
+    this._resolveCount = new WeakMap();
+    this._lastVerdict = new WeakMap();
     this._verdictSnapshot = null;
     this._hzbMips.length = 0;
     for (const mesh of Array.from(this._meshBuffers.keys())) this.unregisterClusterMesh(mesh);

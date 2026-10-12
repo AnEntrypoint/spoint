@@ -14,6 +14,9 @@ const QUERY_BOX_DEPTH_UNITS_BIAS = -8;
 const STUCK_QUERY_FRAMES = 120;
 
 export class OcclusionQueryTier {
+  // Identity label, not a knob: `constructor.name` is gone from a minified bundle, so a
+  // caller that has to prove which tier is installed has nothing else to read.
+  kind = 'webgl2-query';
   constructor(renderer, opts = {}) {
     this.renderer = renderer;
     this.gl = renderer.getContext();

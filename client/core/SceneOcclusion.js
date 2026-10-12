@@ -1,12 +1,25 @@
 import * as THREE from 'three'
 import { OcclusionQueryTier } from 'streaming-gltf/occlusion-query-tier'
+import { WebGpuHizTier } from 'streaming-gltf/webgpu-hiz-tier'
 import { createOcclusionPolicy } from './OcclusionPolicy.js'
 import { dbg } from './debug-log.js'
 
 const _dbgOcclusion = dbg('occlusion')
 
+// The tier is chosen by what the renderer can actually answer a query with, not by a
+// setting. OcclusionQueryTier needs a WebGL2 context, so under the default
+// WebGPURenderer its supported() is false and every query asked of it is dropped before
+// one is issued -- which is why this system owned a real population and had never run.
+// WebGpuHizTier reads the same depth buffer through a compute pass instead, so it works
+// on the renderer that is actually in force.
+function createOcclusionTier(renderer, opts) {
+  if (renderer && renderer.isWebGPURenderer) return new WebGpuHizTier(renderer, opts)
+  return new OcclusionQueryTier(renderer, opts)
+}
+
 export function createSceneOcclusion(renderer, opts = {}) {
-  const tier = new OcclusionQueryTier(renderer, { minCandidates: opts.minCandidates ?? 32, maxQueriesPerFrame: opts.maxQueriesPerFrame ?? 16 })
+  const _tierOpts = { minCandidates: opts.minCandidates ?? 32, maxQueriesPerFrame: opts.maxQueriesPerFrame ?? 16 }
+  const tier = createOcclusionTier(renderer, _tierOpts)
   const subsystems = []
   const _occludedBySub = []
   const _policy = createOcclusionPolicy({
@@ -168,10 +181,14 @@ export function createSceneOcclusion(renderer, opts = {}) {
     for (let k = 0; k < _combined.length; k++) { const st = _combined[k]._occStreak; if (st && st.hidden && st.staleFrames > oldestPendingFrames) oldestPendingFrames = st.staleFrames }
     return {
       ...tier.stats,
+      tier: tier.kind || null,
       subsystems: subsystems.map(s => s.name),
       candidateCount,
       candidates: candidateCount,
-      queriedThisFrame: tier.stats.queried,
+      // The HiZ tier counts its cluster dispatches in `queried` and its box dispatches in
+      // `entityTested`; this system's population is all boxes, so reading `queried` alone
+      // would print a zero that is indistinguishable from "the cull never ran".
+      queriedThisFrame: (tier.stats.entityTested || 0) + (tier.stats.queried || 0),
       failOpens: _uniform.failOpens,
       anomalyTrips: _uniform.anomalyTrips,
       flips: _uniform.flips,
@@ -215,5 +232,5 @@ export function createSceneOcclusion(renderer, opts = {}) {
     return out
   }
 
-  return { register, unregister, runQueries, getStats, getCandidateCount, dispose, supported: () => tier.supported(), snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
+  return { register, unregister, runQueries, getStats, getCandidateCount, dispose, supported: () => tier.supported(), snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes, tierKind: () => tier.kind || null }
 }
