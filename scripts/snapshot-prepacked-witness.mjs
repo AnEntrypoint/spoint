@@ -115,12 +115,63 @@ function encodeEntities(SE, raws, tick, serverTime) {
   return SE.SnapshotEncoder.encodeDelta({ tick, serverTime, players: [], entities: raws }, new Map(), []).encoded.entities
 }
 
+function encodeEntityForSnapshot(e) {
+  return { id: e.id, model: e.model, position: [...e.position], rotation: [...e.rotation], scale: [...e.scale], velocity: [...(e.velocity || [0, 0, 0])], bodyType: e.bodyType, custom: e.custom || null, parent: e.parent || null }
+}
+
+function makeAppRuntimeStub(ents, players, mixinStaticMotion) {
+  const rt = {
+    entities: new Map(ents.map((e) => [e.id, e])),
+    currentTick: 0,
+    _dynamicEntityIds: new Set(),
+    _staticEntityIds: new Set(),
+    _movedStaticIds: new Set(),
+    _activeDynamicIds: new Set(),
+    _sleepingDynamicIds: new Set(),
+    _suspendedEntityIds: new Set(),
+    _staticCustomSum: 0,
+    _staticVersion: 0,
+    _playerIndex: {
+      nearby: (pos, r) => players.filter((p) => { const q = p.state.position, dx = q[0] - pos[0], dz = q[2] - pos[2]; return dx * dx + dz * dz <= r * r }).map((p) => p.id),
+      pruneIdleKeys() {},
+    },
+    tick(t) { this.currentTick = t },
+    getSnapshot() { return { tick: this.currentTick, timestamp: Date.now(), entities: Array.from(this.entities.values(), encodeEntityForSnapshot) } },
+    getStaticSnapshot() {
+      const e = []
+      for (const id of this._staticEntityIds) { const en = this.entities.get(id); if (en) e.push(encodeEntityForSnapshot(en)) }
+      return { tick: this.currentTick, timestamp: Date.now(), entities: e }
+    },
+    getStaticCustomVersionSum() { return this._staticCustomSum },
+    getActiveDynamicIds() { return this._activeDynamicIds },
+    getSleepingDynamicIds() { return this._sleepingDynamicIds },
+    getSuspendedEntityIds() { return this._suspendedEntityIds },
+    getUnmanagedDynamicIds() {
+      const skip = (id) => this._activeDynamicIds.has(id) || this._sleepingDynamicIds.has(id) || this._suspendedEntityIds.has(id)
+      return [...this._dynamicEntityIds, ...this._movedStaticIds].filter((id) => !skip(id))
+    },
+    relevantEntities() { return Array.from(this.entities.keys()) },
+    getRelevantDynamicIds(pos, r) { return this.relevantEntities(pos, r) },
+    getRelevantDynamicIdsWithStarvation(pos, r, _key, _maxTicksStarved, baseIds) { return baseIds || this.relevantEntities(pos, r) },
+    nearbyPlayerIds(pos, r) {
+      if (!Array.isArray(pos) || pos.length !== 3 || pos.some((v) => !Number.isFinite(v))) throw new TypeError('[AppRuntime] nearbyPlayerIds: pos must be a length-3 array of finite numbers')
+      if (!Number.isFinite(r) || r < 0) throw new RangeError('[AppRuntime] nearbyPlayerIds: radius')
+      return this._playerIndex.nearby(pos, r)
+    },
+    _drainReloadQueue() {},
+  }
+  for (const e of ents) { if (e.bodyType === 'static') rt._staticEntityIds.add(e.id); else rt._dynamicEntityIds.add(e.id) }
+  mixinStaticMotion(rt)
+  return rt
+}
+
 async function main() {
   const { pack, ensurePacked } = await import(pathToFileURL(join(REPO, 'src/protocol/msgpack.js')).href)
   const { MSG } = await import(pathToFileURL(join(REPO, 'src/protocol/MessageTypes.js')).href)
   const SE = await import(pathToFileURL(join(REPO, 'src/netcode/SnapshotEncoder.js')).href)
   const { createTickHandler } = await import(pathToFileURL(join(REPO, 'src/sdk/TickHandler.js')).href)
   const { NetworkState } = await import(pathToFileURL(join(REPO, 'src/netcode/NetworkState.js')).href)
+  const { mixinStaticMotion } = await import(pathToFileURL(join(REPO, 'src/apps/AppRuntimeStaticMotion.js')).href)
   await ensurePacked
 
   let CHG = null
@@ -266,7 +317,7 @@ async function main() {
     }
     const ents = []
     for (let k = 0; k < 14; k++) ents.push(makeEntity(3000 + k, 40, k === 5 ? 320 : 0))
-    const appRuntime = { tick() {}, getSnapshot: () => ({ entities: ents }), _drainReloadQueue() {} }
+    const appRuntime = makeAppRuntimeStub(ents, players, mixinStaticMotion)
     const connections = {
       sendPacked(id, buf) { sent.push({ id, bytes: Buffer.from(buf) }) },
       send() {}, broadcast() {}, emit() {}, getClient: () => null, clients: new Map(),
@@ -316,6 +367,26 @@ async function main() {
   const entryDigest = entryHash.digest('hex')
   say(`entry: packets=${sent.length} bytes=${entryBytes} sha256=${entryDigest}`)
   if (sent.length === 0) { say('RESULT: FAIL (entry scenario sent no snapshot packets)'); return 1 }
+
+  const smStatic = [
+    { id: 6001, model: 'crate', position: [1, 0, 2], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], scale: [1, 1, 1], bodyType: 'static', custom: null },
+    { id: 6002, model: 'crate', position: [3, 0, 4], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], scale: [1, 1, 1], bodyType: 'static', custom: null },
+  ]
+  const smRuntime = makeAppRuntimeStub(smStatic, [], mixinStaticMotion)
+  smRuntime.trackStaticMotion(2)
+  const smIdleBefore = smRuntime._movedStaticIds.size
+  smStatic[0].position[0] += 0.5
+  smRuntime.trackStaticMotion(2)
+  const smPromoted = smRuntime._movedStaticIds.has(6001)
+  const smVersionAtPromote = smRuntime._staticVersion
+  smRuntime.trackStaticMotion(2)
+  smRuntime.trackStaticMotion(2)
+  const smDemoted = !smRuntime._movedStaticIds.has(6001)
+  say(`static-motion: idle_before=${smIdleBefore} promoted=${smPromoted} demoted=${smDemoted} version_at_promote=${smVersionAtPromote} version=${smRuntime._staticVersion}`)
+  if (!smPromoted || !smDemoted || smRuntime._staticVersion !== smVersionAtPromote + 1) {
+    say('RESULT: FAIL (static motion: real mixinStaticMotion did not promote the moved static entity and demote it after idleSnapshots)')
+    return 1
+  }
 
   const buildSets = (n) => {
     const sets = []
