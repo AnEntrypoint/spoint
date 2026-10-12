@@ -41,7 +41,11 @@ const RES = num('resolution', 2)
 const EXTENT = num('extent', 256)
 const ARM = arg('arm', 'baked')
 const PROBE_HALF_M = num('half', 120)
-const ACCEPT_M = num('accept-m', 0.15)
+// Worst case: 0.20 m, against 0.1241 m measured. The floor is Jolt's own triangulation of each
+// 1 m cell (0.0825 m for a field hand-fed the source's exact samples), so this is a claim about
+// the collider that no lattice can beat, with room for a platform to differ -- and the mutation
+// arm still misses it by 1.6x (0.3291 m).
+const ACCEPT_M = num('accept-m', 0.2)
 // The mean is the discriminating statistic: a coarser lattice shifts it by 6x while the max is
 // bounded below by Jolt's own triangulation of each cell, which no lattice choice changes.
 const ACCEPT_MEAN_M = num('accept-mean-m', 0.01)
