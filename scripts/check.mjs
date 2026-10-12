@@ -44,6 +44,7 @@ const NO_GPU_WITNESSES = [
   { file: 'terrain-quad-upload-witness.mjs', must: /\[quad-upload\] RESULT: PASS -- 2 config\(s\), 0 upload\(s\) issued for 1200 frame\(s\) whose payload was unchanged/ },
   { file: 'contact-occlusion-softness-witness.mjs', must: /  passed \d+, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
+  { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default false[\s\S]*min trigger 40 frames[\s\S]*smallest visible hitch 299ms answered after 60 frames[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000

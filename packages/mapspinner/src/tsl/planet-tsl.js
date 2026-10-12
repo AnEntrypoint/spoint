@@ -105,6 +105,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   let lighting = initialLighting
 
   let patch = makePatchGeometry(INITIAL_QUAD_CAPACITY)
+  let uploadedQuadCount = -1
   const mesh = new THREE.Mesh(patch.geo, material)
   mesh.name = 'mapspinner-terrain-tsl'
   mesh.frustumCulled = false
@@ -158,6 +159,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
     let n = 0
+    let quadPayloadChanged = false
     for (let face = 0; face < 6; face++) {
       const F = FACE_FRAME[face]
       cull.ux = F.u[0]; cull.uy = F.u[1]; cull.uz = F.u[2]
@@ -172,14 +174,19 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
         if ((q.level | 0) >= 2 && quadOutsideFrustum(face, q.ox, q.oy, q.l, R, viewProjNoEye, camWorldPos)) continue
         if (n >= patch.capacity) growCapacity(patch.capacity * 2, n)
         const o = patch.offsets.array
-        o[n * 4] = q.ox; o[n * 4 + 1] = q.oy; o[n * 4 + 2] = q.l; o[n * 4 + 3] = q.level
+        const b = n * 4
+        if (o[b] !== q.ox || o[b + 1] !== q.oy || o[b + 2] !== q.l || o[b + 3] !== q.level || patch.faces.array[n] !== face) quadPayloadChanged = true
+        o[b] = q.ox; o[b + 1] = q.oy; o[b + 2] = q.l; o[b + 3] = q.level
         patch.faces.array[n] = face
         n++
       }
     }
     patch.geo.instanceCount = n
-    patch.offsets.clearUpdateRanges(); patch.offsets.addUpdateRange(0, n * 4); patch.offsets.needsUpdate = true
-    patch.faces.clearUpdateRanges(); patch.faces.addUpdateRange(0, n); patch.faces.needsUpdate = true
+    if (quadPayloadChanged || n !== uploadedQuadCount) {
+      patch.offsets.clearUpdateRanges(); patch.offsets.addUpdateRange(0, n * 4); patch.offsets.needsUpdate = true
+      patch.faces.clearUpdateRanges(); patch.faces.addUpdateRange(0, n); patch.faces.needsUpdate = true
+      uploadedQuadCount = n
+    }
     const waterQuadCount = water ? water.setQuads(patch.offsets.array, patch.faces.array, n) : 0
     return { quadCount: n, waterQuadCount, camDist, near: nf.near, far: nf.far }
   }
