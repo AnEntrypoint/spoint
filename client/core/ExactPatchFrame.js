@@ -4,12 +4,18 @@ import { isMeshSurfaceNoGround } from '../../src/terrain/TerrainMeshSurface.js'
 const MESH_SOLVE_ITERS = 4
 const MESH_SOLVE_TOL_M = 1e-6
 
-// The solve is seeded with the chart's own anchor height instead of a live CPU sample: it is already
-// known, it costs nothing, and the iteration is a fixed point, so the seed decides how many samples
-// the solve takes rather than what it returns (measured: 26% less time over the same elevations, and
-// a height that differs from the CPU-seeded one by at most 1.3e-9 m, inside the solver's own 1e-6 m
-// tolerance -- scripts/exact-patch-seed-witness.mjs). The CPU sampler is still the ANSWER where the
-// rendered mesh has no ground to give, so it is still asked there, and only there.
+// The solve keeps two seeds and no distance threshold. It starts from the chart's own anchor
+// height, which is already known and costs nothing, and it is ANSWERED from that start only where
+// the iteration reached its own tolerance. Where it did not, the answer would be wherever the
+// iteration ran out of budget -- a function of the seed rather than of the surface -- so the CPU
+// sampler is paid there and the solve runs from its elevation, exactly as it did before c822a7b4.
+//
+// The budget is what makes this necessary rather than theoretical: inside every placement ring the
+// anchor-seeded solve converges and agrees with the CPU-seeded one to 1e-9 m, but past ~200 m the
+// rendered mesh is coarse enough that 4 iterations no longer reach it, and the unguarded answer
+// there moves vegetation and rock placement by up to 1.77 m
+// (scripts/exact-patch-seed-radius-witness.mjs). Convergence is a property of the answer, so it
+// holds or fails per direction; a radius threshold would not.
 function meshElevationAtDir(frame, meshAt, fallback) {
   const radius = frame.radius
   const base = radius + frame.anchorHeight - frame.offsetY
@@ -23,11 +29,25 @@ function meshElevationAtDir(frame, meshAt, fallback) {
     const dn = (d[0] * N[0] + d[1] * N[1] + d[2] * N[2]) / len
     if (!(Math.abs(du) > 1e-9)) return fallback(d)
     let r = radius + seed
+    let converged = false
     for (let k = 0; k < MESH_SOLVE_ITERS; k++) {
       const y = meshAt(r * de, r * dn)
-      if (isMeshSurfaceNoGround(y)) return fallback(d)
+      if (isMeshSurfaceNoGround(y)) break
       const next = (y + base) / du
-      if (!Number.isFinite(next)) return fallback(d)
+      if (!Number.isFinite(next)) break
+      const step = next - r
+      r = next
+      if (Math.abs(step) <= MESH_SOLVE_TOL_M) { converged = true; break }
+    }
+    if (converged) return r - radius
+    const h0 = fallback(d)
+    if (!Number.isFinite(h0)) return h0
+    r = radius + h0
+    for (let k = 0; k < MESH_SOLVE_ITERS; k++) {
+      const y = meshAt(r * de, r * dn)
+      if (isMeshSurfaceNoGround(y)) return h0
+      const next = (y + base) / du
+      if (!Number.isFinite(next)) return h0
       const step = next - r
       r = next
       if (Math.abs(step) <= MESH_SOLVE_TOL_M) break
