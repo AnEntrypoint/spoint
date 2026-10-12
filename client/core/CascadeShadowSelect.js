@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 const _SPLITS_RE = /SPOINT_CASCADE_SPLITS\[3\] = float\[3\]\([^)]*\)/
 
-const BLEND_M = 4.0
+export const CASCADE_BLEND_M = 4.0
 
 let _installed = false
 let _cascadeCount = 1
@@ -19,7 +19,7 @@ export function installCascadeShadowSelect(cascadeCount, splitExtents) {
 
   const parsHeader =
     '\nconst float SPOINT_CASCADE_SPLITS[3] = float[3](0.0, 0.0, 0.0);' +
-    '\nconst float SPOINT_CASCADE_BLEND_M = ' + BLEND_M.toFixed(1) + ';' +
+    '\nconst float SPOINT_CASCADE_BLEND_M = ' + CASCADE_BLEND_M.toFixed(1) + ';' +
     '\n// Per-fragment cascade-select weight for unrolled loop index `idx` (0-based cascade index).' +
     '\n// 1.0 inside the cascade band, smoothstep-fades to 0.0 over SPOINT_CASCADE_BLEND_M at each' +
     '\n// boundary so at most two adjacent cascades ever contribute (never every covering cascade).' +

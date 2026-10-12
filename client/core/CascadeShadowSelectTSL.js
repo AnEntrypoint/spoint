@@ -1,11 +1,10 @@
 import { Fn, If, float, uniform, positionWorld, cameraPosition, smoothstep, mix, shadow } from 'three/tsl'
-
-const BLEND_M = 4.0
+import { CASCADE_BLEND_M } from './CascadeShadowSelect.js'
 
 export function installCascadeShadowSelectTSL(cascadeLights, splitExtents) {
   if (!Array.isArray(cascadeLights) || cascadeLights.length <= 1) return null
 
-  const blend = uniform(BLEND_M)
+  const blend = uniform(CASCADE_BLEND_M)
 
   const state = cascadeLights.map((light, idx) => {
     const farEdge = uniform((splitExtents && splitExtents[idx]) || 0)

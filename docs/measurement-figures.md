@@ -148,3 +148,49 @@ Entries below are open questions this file records and does not answer. They are
 - Whether the resolution-sweep non-scaling part (6.61 ms at 1080p) is fixed cost. Unresolved under the INVALIDATED statistic.
 - Whether any re-derived number from a fixed GPU-pass instrument agrees with the struck figures. Unresolved until that instrument exists.
 - `tc3-*` rows: the coordinator's update names a `tc3-*` set of per-pass figures in AGENTS.md. Neither this file nor the baseline 55cd0199 AGENTS.md contains any `tc3` token; the set was not located and is not invalidated here.
+
+## 14. Shadow cascade invalidation (counted, AMD iGPU, WebGPU)
+
+Rows below are counted work units, never timings: shadow passes, shadow draws and cascades left
+dirty by `forceUpdate`. No per-pass GPU figure and no frame-time figure is quoted.
+`[STAT:count] [INSTR:.gm/scratch/shadow-arm-49.mjs] [ADAPTER:AMD iGPU] [RES:1280x720] [LANDED]`
+
+Arm design: one page load carries BOTH arms. The counters wrap `shadowPipeline.forceUpdate`, and
+`window.__sh.legacy` selects the rule -- legacy dirties every cascade, the shipped rule dirties the
+cascades a moved caster's camera-distance band can reach -- so the pair shares the scene, the
+settled camera and the fps regime, and the only variable is the invalidation rule. Adapter pinned
+with `--use-adapter-luid=0,63299` and asserted against `window.__rendererInfo`
+(`amd rdna-2`, `backend webgpu`); knobs `qualityGovernorOff=true`, `dprOff=true`. Preset High,
+`cascadeCount` 2, extents `[60, 192]`, `mapSize` 1024. CONTENDED box: several sibling lanes queued
+on `gpulock`; within one run the two arms ran at 49.1 and 49.3 fps (run ab3) and 33.7 and 42.2 fps
+(run ab4), and across runs fps ranged 27.5-53.7, so every rate below is marked contended.
+
+- `forceUpdate` is called on 100% of frames: 589 calls over 589 idle frames (ab3), 404 over 404
+  (ab4), 644 over 644 walking (ab3). The only per-frame caller is the `shadow-move-gate`
+  frame-graph node in `client/app.js`, which calls it whenever `createShadowCasterTracker().sync`
+  reports a tracked caster pose change; a caster pose changes on every one of those frames (3
+  movers/frame: one inside 25 m, two at 25-50 m of the camera).
+- Before, idle: every call dirtied BOTH cascades -> `fuDirty [589, 589]`, 2.00 shadow passes/frame,
+  **40.0 shadow draws/frame** of 228 total (17.5%), 2 x 1024^2 = **2.10 Mtexels/frame** of shadow
+  map rewritten every frame. (ab4 reproduces it: `[404, 404]`, 2.00 passes, 38.0 draws.)
+- After, idle: `fuDirty [592, 13]` -- cascade 1 rendered on 2.2% of idle frames -- 1.02 shadow
+  passes/frame, **20.4 shadow draws/frame** of 208 (9.8%), 1.05 Mtexels/frame. Main draws
+  unchanged at 188/frame. **Shadow draws -48.9%**, shadow map texels written -50%. (ab4: `[506,
+  42]`, 1.08 passes, 20.6 draws.)
+- After, walking: `[644, 421]` -- cascade 1 dirty on 65% of frames, because a moving camera makes
+  `_updateCascade` re-dirty any cascade whose snapped centre moved, which is a separate path the
+  change does not touch. 40.5 shadow draws/frame against 48.6 on the same instrument before the
+  reach was derived from the sun elevation (ab2 vs ab3, main draws 68.9 vs 68.5).
+- Parity: the cross-rule frame delta sits inside the same-rule noise floor. Same rule, 6 s apart:
+  meanAbs `[6.47, 5.90, 4.51]`, block p99 68.5, block max 154.3. Rule change, 6 s apart: meanAbs
+  `[6.43, 6.12, 4.61]`, block p99 73.5, block max 195.8. Same rule again, 6 s apart: meanAbs
+  `[7.14, 6.59, 5.12]`, block p99 77.9, block max 199.1. The cross pair is bracketed by the two
+  floors on every statistic, so no shadow pop or lag is detectable. The floor is itself large
+  because the settled scene animates (character idle, time of day, veg wind), so this comparison
+  bounds a change to under about 7/255 mean -- it is a parity bracket, not a null result.
+- The band rule is derived, not guessed: `client/core/CascadeShadowSelectTSL.js` and the GLSL twin
+  select a cascade by `positionWorld - cameraPosition` length, cross-fading over
+  `CASCADE_BLEND_M` (4 m) at each split, so a cascade's map is never sampled outside its band.
+  `ShadowPipeline.js` widens that band by the live shadow reach
+  `SHADOW_REDRAW_CASTER_HEIGHT_M / tan(sun elevation)`, derived from the light offset rather than a
+  flat constant, so at a horizon sun the reach is unbounded and the skip turns itself off.

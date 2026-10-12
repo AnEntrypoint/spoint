@@ -114,7 +114,7 @@ if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
 }
 
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
-const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.025, 500)
+const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 500)
 scene.add(camera)
 let renderer
 let shadowPipeline
@@ -2659,11 +2659,16 @@ function buildFrameSectionNodes() {
         const _shadowTgt = pm.playerMeshes.get(ctx.res.localId)?.position || camera.position
         const _shadowMoved = shadowPipeline ? shadowPipeline.update(_shadowTgt) : false
         ctx.res.shadowMoved = _shadowMoved
-        const _playerCasterMoved = shadowPlayerCasters.sync(pm.playerMeshes.values())
-        const _entityCasterMoved = shadowEntityCasters.sync(el.entityMeshes.values())
+        _shadowMovers.length = 0
+        const _playerCasterMoved = shadowPlayerCasters.sync(pm.playerMeshes.values(), _shadowMovers)
+        const _entityCasterMoved = shadowEntityCasters.sync(el.entityMeshes.values(), _shadowMovers)
         const _casterMoved = _playerCasterMoved || _entityCasterMoved
         if (_shadowMoved || _casterMoved) renderer.shadowMap.needsUpdate = true
-        if (_casterMoved && shadowPipeline) shadowPipeline.forceUpdate()
+        // A caster that only moved near the camera cannot change what the far cascades show, so
+        // hand the movers over and let the pipeline dirty the cascades their band actually covers.
+        if (_casterMoved && shadowPipeline) {
+          shadowPipeline.forceUpdate(_shadowMovers.length ? _shadowMovers : null, camera.position)
+        }
       },
     },
     {
@@ -2673,6 +2678,7 @@ function buildFrameSectionNodes() {
         if (!timeOfDay) return
         const _todState = timeOfDay.update(ctx.res.frameDt)
         if (_todState && window.__grass && typeof window.__grass.setSun === 'function') window.__grass.setSun(_todState)
+        if (_todState && weather && typeof weather.setLightLevel === 'function') weather.setLightLevel(_todState.sunIntensity / 1.5)
         try {
           const fog = scene.fog
           if (fog && ambient && typeof window !== 'undefined' && window.__timeOfDay) fog.color.copy(ambient.color)
@@ -2761,6 +2767,7 @@ function buildFrameSectionNodes() {
 }
 const shadowPlayerCasters = createShadowCasterTracker()
 const shadowEntityCasters = createShadowCasterTracker()
+const _shadowMovers = []
 const frameGraph = createRenderGraph(buildFrameSectionNodes(), { expose: false })
 window.__frameGraph = frameGraph
 

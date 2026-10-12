@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { installCascadeShadowSelect } from './CascadeShadowSelect.js'
+import { installCascadeShadowSelect, CASCADE_BLEND_M } from './CascadeShadowSelect.js'
 import { installCascadeShadowSelectTSL } from './CascadeShadowSelectTSL.js'
 import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 
@@ -8,6 +8,11 @@ const MAX_CASCADES = 3
 const SHADOW_REDRAW_CASTER_HEIGHT_M = 20
 const FAR_CASCADE_LATERAL_STEP_M = 1
 const DEPTH_STEP_DIVISOR = 16
+
+// A fragment samples cascade i only inside cascade i's camera-distance band, cross-fading over
+// CASCADE_BLEND_M at each split, and a caster's shadow lands within roughly one caster height of
+// the caster itself (_casterShadowReachM). So a caster outside cascade i's widened band cannot
+// change any texel cascade i ever reads: re-rendering cascade i for it shows nothing new.
 
 export function createShadowPipeline(sun, opts = {}) {
   const scene = opts.scene || sun.parent || null
@@ -116,8 +121,55 @@ export function createShadowPipeline(sun, opts = {}) {
     return anyMoved
   }
 
-  function forceUpdate() {
-    for (const c of _cascades) c.light.shadow.needsUpdate = true
+  // How far a caster can throw a shadow sideways, derived from the live sun elevation rather than
+  // a flat guess: a caster of SHADOW_REDRAW_CASTER_HEIGHT_M throws height/tan(elevation). At the
+  // horizon that is unbounded, which correctly disables the band skip altogether.
+  function _casterShadowReachM() {
+    const horiz = Math.hypot(offset.x, offset.z)
+    const vert = Math.abs(offset.y)
+    if (!(vert > 1e-6)) return Infinity
+    return SHADOW_REDRAW_CASTER_HEIGHT_M * (horiz / vert)
+  }
+
+  // Camera-distance band of cascade i, widened by the cross-fade and by how far a caster can throw
+  // a shadow. Outside it, a fragment never samples cascade i, so a caster there cannot dirty
+  // anything cascade i shows.
+  function _bandReachesCaster(index, dist, reach) {
+    const lo = index === 0 ? 0 : _cascades[index - 1].extent - CASCADE_BLEND_M - reach
+    const hi = _cascades[index].extent + CASCADE_BLEND_M + reach
+    return dist >= lo && dist <= hi
+  }
+
+  // Dirty only the cascades a moved caster can actually change. `movers` are the caster roots
+  // whose pose changed since the last sync and `eye` is the camera world position the bands are
+  // measured from. Without both -- a caster appearing or vanishing carries no position -- every
+  // cascade is dirtied, because the invalidation is then unbounded.
+  function forceUpdate(movers, eye) {
+    // One cascade is not band-selected at all -- installCascadeShadowSelect(TSL) leaves a lone
+    // light on three's default shadow node, which samples its map at every fragment -- so there
+    // is no band to test against and every caster can reach it.
+    if (_cascades.length <= 1) { for (const c of _cascades) c.light.shadow.needsUpdate = true; return }
+    if (!movers || movers.length === 0 || !eye || !Number.isFinite(eye.x)) {
+      for (const c of _cascades) c.light.shadow.needsUpdate = true
+      return
+    }
+    const ex = eye.x, ey = eye.y, ez = eye.z
+    const reach = _casterShadowReachM()
+    for (let i = 0; i < _cascades.length; i++) {
+      const c = _cascades[i]
+      const shadow = c.light.shadow
+      if (shadow.needsUpdate || !c.light.castShadow) continue
+      for (let k = 0; k < movers.length; k++) {
+        const mover = movers[k]
+        if (!mover || !mover.matrixWorld) continue
+        const e = mover.matrixWorld.elements
+        const dx = e[12] - ex, dy = e[13] - ey, dz = e[14] - ez
+        if (_bandReachesCaster(i, Math.sqrt(dx * dx + dy * dy + dz * dz), reach)) {
+          shadow.needsUpdate = true
+          break
+        }
+      }
+    }
   }
 
   const pipeline = {
@@ -175,7 +227,10 @@ export function createShadowCasterTracker() {
   const _poses = new WeakMap()
   let _castingCount = 0
 
-  function sync(objects) {
+  // `movers` accumulates the roots whose pose changed, so the caller can dirty only the cascades
+  // they can reach. A change in the NUMBER of casters has no position, so it clears `movers` and
+  // the caller falls back to dirtying every cascade.
+  function sync(objects, movers) {
     let moved = false
     let castingNow = 0
     for (const obj of objects) {
@@ -187,12 +242,12 @@ export function createShadowCasterTracker() {
       if (poseChanged(obj, pose)) {
         writePose(obj, pose)
         const casting = castsShadow(obj)
-        if (casting || pose[POSE_CASTING] === 1) moved = true
+        if (casting || pose[POSE_CASTING] === 1) { moved = true; if (movers) movers.push(obj) }
         pose[POSE_CASTING] = casting ? 1 : 0
       }
       castingNow += pose[POSE_CASTING]
     }
-    if (castingNow !== _castingCount) moved = true
+    if (castingNow !== _castingCount) { moved = true; if (movers) movers.length = 0 }
     _castingCount = castingNow
     return moved
   }
