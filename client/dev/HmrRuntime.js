@@ -1,3 +1,5 @@
+import { ancestorsOf, findBoundaries, isClass, loadedByPath, nothingLive, sameValue } from './hmr-decide.js'
+
 const EVENTS_URL = '/__hmr/events'
 const POSE_KEY = '__spointHmrPose'
 const ONLY_KEY = '__spointHmrOnly'
@@ -88,23 +90,9 @@ const PAGE_FLOOR = Math.floor(performance.timeOrigin)
 function versionedUrl(key, v) { return `${key}?hmr=${v}&p=${PAGE_FLOOR}` }
 
 function trackChain(ev, boundary) {
-  for (const node of Object.keys(ancestorsOf(ev, ev.url))) {
-    if (node === boundary || boundary in ancestorsOf(ev, node)) listOf(instances, node).push(versionedUrl(node, ev.v))
+  for (const node of Object.keys(ancestorsOf(ev.parents, ev.url))) {
+    if (node === boundary || boundary in ancestorsOf(ev.parents, node)) listOf(instances, node).push(versionedUrl(node, ev.v))
   }
-}
-
-function ancestorsOf(ev, node) {
-  const out = {}, stack = [node]
-  while (stack.length) { const n = stack.pop(); if (n in out) continue; out[n] = true; stack.push(...(ev.parents[n] || [])) }
-  return out
-}
-
-function isClass(v) { return typeof v === 'function' && /^class[\s{]/.test(Function.prototype.toString.call(v)) }
-
-function sameValue(a, b) {
-  if (a === b) return true
-  if (typeof a === 'function' || typeof b === 'function') return false
-  try { return JSON.stringify(a) === JSON.stringify(b) } catch (_) { return false }
 }
 
 function patchClass(oldCls, newCls) {
@@ -125,8 +113,13 @@ function patchClass(oldCls, newCls) {
   }
 }
 
+// Exact name first (cheap, and the common case), then by pathname: a copy this
+// page pulled in through HMR is filed under its `?hmr=` url and must still
+// count as loaded, or the next edit to it would be reported as a noop while
+// the patched copy keeps running.
 function wasLoaded(url) {
-  return performance.getEntriesByName(new URL(url, location.href).href).length > 0
+  if (performance.getEntriesByName(new URL(url, location.href).href).length > 0) return true
+  return loadedByPath(performance.getEntriesByType('resource').map(e => e.name), url, location.href)
 }
 
 async function tryClassPatch(ev) {
@@ -145,20 +138,6 @@ async function tryClassPatch(ev) {
   if (ev.worker) listOf(instances, ev.url).push(versionedUrl(ev.url, ev.v))
   else fetch(`/__hmr/patched?url=${encodeURIComponent(ev.url)}&v=${ev.v}`, { method: 'POST' }).catch(() => {})
   return classes
-}
-
-function findBoundaries(ev) {
-  const boundaries = new Set(), seen = new Set(), stack = [ev.url]
-  while (stack.length) {
-    const node = stack.pop()
-    if (seen.has(node)) continue
-    seen.add(node)
-    if (acceptors.get(node)?.length) { boundaries.add(node); continue }
-    const parents = ev.parents[node] || []
-    if (!parents.length) return null
-    stack.push(...parents)
-  }
-  return [...boundaries]
 }
 
 async function applyBoundary(ev, boundary) {
@@ -188,11 +167,14 @@ async function applyModule(ev) {
   if (ev.worker && !isSingleplayer() && !ev.client) return record(ev, ev.serverHot ? 'server-hot-swapped' : 'server-restart-needed')
   if (ev.serverStale && !isSingleplayer()) parts.push(ev.restarting ? 'multiplayer server restarting with it' : 'multiplayer server still runs the old copy until restart')
   if (!ev.client) return parts.length ? record(ev, 'worker-swapped', parts.join('; ')) : record(ev, 'noop', 'not in client graph')
+  if (!acceptors.get(ev.url)?.length && nothingLive({ worker: ev.worker, eager: ev.eager, loaded: wasLoaded(ev.url), tracked: (instances.get(ev.url) || []).length })) {
+    return record(ev, 'noop', 'no acceptor and nothing on this page loaded it, so the next import reads the new copy')
+  }
   if (!acceptors.get(ev.url)?.length) {
     const patched = await tryClassPatch(ev).catch(e => { console.warn('[hmr] class patch failed:', e); return false })
     if (patched) { parts.push('patched ' + patched.join(',')); return record(ev, 'patched', parts.join('; ')) }
   }
-  const boundaries = findBoundaries(ev)
+  const boundaries = findBoundaries(acceptors, ev)
   if (!boundaries) return reloadPreserving(ev, 'no accept boundary up to the app root')
   for (const b of boundaries) await applyBoundary(ev, b)
   parts.push('accepted at ' + boundaries.join(','))
