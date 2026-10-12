@@ -58,6 +58,11 @@ function applyWind(material, wind) {
 }
 
 async function awaitMatTextures(mats) {
+  const _t0 = _now()
+  try { return await _awaitMatTextures(mats) } finally { _span('await-tex', _t0) }
+}
+
+async function _awaitMatTextures(mats) {
   const texes = []
   for (const m of mats) {
     if (!m) continue
@@ -65,19 +70,89 @@ async function awaitMatTextures(mats) {
       const t = m[k]; if (t && t.isTexture) texes.push(t)
     }
   }
-  await Promise.all(texes.map(async (t) => {
-    const img = t.image
-    try {
-      if (img && typeof img.decode === 'function') { await img.decode(); t.needsUpdate = true; return }
-    } catch (_) {}
-    for (let i = 0; i < 60; i++) {
-      if (t.image && (t.image.width > 0 || t.image.videoWidth > 0)) { t.needsUpdate = true; return }
-      await new Promise(r => setTimeout(r, 16))
-    }
-  }))
+  await Promise.all(texes.map((t) => _awaitOneTexture(t)))
+}
+
+const _decoded = new WeakMap()
+function decodeImage(img) {
+  let p = _decoded.get(img)
+  if (!p) {
+    p = img.decode().then(() => true, () => { _decoded.delete(img); return false })
+    _decoded.set(img, p)
+  }
+  return p
+}
+
+async function _awaitOneTexture(t) {
+  const img = t.image
+  if (img && typeof img.decode === 'function') {
+    try { if (await decodeImage(img)) { t.needsUpdate = true; return } } catch (_) {}
+  }
+  for (let i = 0; i < 60; i++) {
+    if (t.image && (t.image.width > 0 || t.image.videoWidth > 0)) { t.needsUpdate = true; return }
+    await new Promise(r => setTimeout(r, 16))
+  }
+}
+
+let _spanLabel = 'boot'
+const _span = (step, t0, t1) => {
+  if (typeof performance === 'undefined') return
+  try { performance.measure('boot:vegetation:' + _spanLabel + ':' + step, { start: t0, end: t1 || performance.now() }) } catch (_) {}
+}
+const _now = () => (typeof performance !== 'undefined' ? performance.now() : 0)
+
+const TREE_TEXTURE_HALVINGS = 4
+const halvedBySource = new WeakMap()
+const halvedOutputs = new WeakSet()
+
+function halveOnce(tex) {
+  const w = tex.image.width >> 1, h = tex.image.height >> 1
+  const cv = document.createElement('canvas')
+  cv.width = w; cv.height = h
+  cv.getContext('2d').drawImage(tex.image, 0, 0, w, h)
+  const next = new THREE.CanvasTexture(cv)
+  next.colorSpace = tex.colorSpace
+  next.wrapS = tex.wrapS; next.wrapT = tex.wrapT
+  next.flipY = tex.flipY
+  next.anisotropy = tex.anisotropy
+  next.generateMipmaps = true
+  next.minFilter = THREE.LinearMipmapLinearFilter
+  return next
+}
+
+function halveTexture(tex) {
+  const img = tex && tex.image
+  if (!img || halvedOutputs.has(tex) || !(img.width > 64)) return tex
+  const cached = halvedBySource.get(img)
+  if (cached) return cached
+  let cur = tex
+  for (let i = 0; i < TREE_TEXTURE_HALVINGS && cur.image.width > 64; i++) cur = halveOnce(cur)
+  halvedOutputs.add(cur)
+  halvedBySource.set(img, cur)
+  return cur
+}
+
+export function halveTreeMaterialTextures(mat) {
+  if (!mat) return
+  const _t0 = _now()
+  try { _halveTreeMaterialTextures(mat) } finally { _span('halve-tex', _t0) }
+}
+
+function _halveTreeMaterialTextures(mat) {
+  for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap', 'alphaMap', 'bumpMap']) {
+    const t = mat[k]
+    if (!t || !t.isTexture) continue
+    const next = halveTexture(t)
+    if (next !== t) { mat[k] = next; mat.needsUpdate = true }
+  }
 }
 
 async function capGeo(geo, maxTris) {
+  const _t0 = _now()
+  try { return await _capGeo(geo, maxTris) } finally { _span('capgeo', _t0) }
+}
+
+async function _capGeo(geo, maxTris) {
   try {
     const idx = geo.index ? geo.index.array : null
     if (!idx) return geo.clone()
@@ -93,15 +168,29 @@ function _stripInstanceIndexStamp(g) {
 }
 
 async function simplifyGeo(geo, ratio, sloppy) {
+  const _t0 = _now()
+  try { return await _simplifyGeo(geo, ratio, sloppy) } finally { _span('simplifygeo', _t0) }
+}
+
+const _simplifiedIndex = new WeakMap()
+
+async function _simplifyGeo(geo, ratio, sloppy) {
   try {
     await MeshoptSimplifier.ready
     const idx = geo.index ? geo.index.array : null
     const pos = geo.attributes.position.array
     if (!idx || !pos) return _stripInstanceIndexStamp(geo.clone())
-    const target = Math.max(12, Math.floor((idx.length / 3) * ratio) * 3)
-    const fn = sloppy && MeshoptSimplifier.simplifySloppy ? 'simplifySloppy' : 'simplify'
-    const args = sloppy ? [idx, pos, 3, null, target, 0.05] : [idx, pos, 3, target, 0.02, ['Sparse']]
-    const [newIdx] = MeshoptSimplifier[fn](...args)
+    const variant = ratio + ':' + (sloppy ? 'sloppy' : 'strict')
+    let byVariant = _simplifiedIndex.get(geo)
+    if (!byVariant) { byVariant = new Map(); _simplifiedIndex.set(geo, byVariant) }
+    let newIdx = byVariant.get(variant)
+    if (!newIdx) {
+      const target = Math.max(12, Math.floor((idx.length / 3) * ratio) * 3)
+      const fn = sloppy && MeshoptSimplifier.simplifySloppy ? 'simplifySloppy' : 'simplify'
+      const args = sloppy ? [idx, pos, 3, null, target, 0.05] : [idx, pos, 3, target, 0.02, ['Sparse']]
+      newIdx = MeshoptSimplifier[fn](...args)[0]
+      byVariant.set(variant, newIdx)
+    }
     const out = geo.clone()
     if (newIdx && newIdx.length >= 3) out.setIndex(new THREE.BufferAttribute(newIdx, 1))
     return _stripInstanceIndexStamp(out)
@@ -157,16 +246,28 @@ const _speciesTemplates = new Map()
 
 function buildSpecies(name, Tree, variant = 0, TreePreset = null) {
   const key = name + '#' + variant
+  _spanLabel = key
   let t = _speciesTemplates.get(key)
-  if (!t) { t = generateSpecies(name, Tree, variant, TreePreset); _speciesTemplates.set(key, t) }
-  return { branchGeo: t.branchGeo.clone(), leafGeo: t.leafGeo.clone(), branchMat: t.branchMat.clone(), leafMat: t.leafMat.clone(), tree: t.tree, dims: { ...t.dims } }
+  if (!t) {
+    const _g = _now()
+    t = generateSpecies(name, Tree, variant, TreePreset)
+    _span('generate-species', _g)
+    _speciesTemplates.set(key, t)
+  }
+  const _c = _now()
+  const out = { branchGeo: t.branchGeo.clone(), leafGeo: t.leafGeo.clone(), branchMat: t.branchMat.clone(), leafMat: t.leafMat.clone(), tree: t.tree, dims: { ...t.dims } }
+  _span('clone-species', _c)
+  return out
 }
 
 function generateSpecies(name, Tree, variant, TreePreset) {
+  const _t0 = _now()
   const tree = new Tree()
   const presetName = PRESET[name] || name
+  const _t1 = _now()
   if (variant > 0 && TreePreset && TreePreset[presetName]) tree.loadFromJson(perturbPreset(structuredClone(TreePreset[presetName]), name, variant))
   else tree.loadPreset(presetName)
+  const _t2 = _now()
   const branchGeo = tree.branchesMesh.geometry
   const leafGeo = tree.leavesMesh.geometry
   const branchMat = tree.branchesMesh.material
@@ -195,6 +296,9 @@ function generateSpecies(name, Tree, variant, TreePreset) {
   const bb = branchGeo.boundingBox, lb = leafGeo.boundingBox
   const width = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z, lb.max.x - lb.min.x, lb.max.z - lb.min.z) || target * 0.7
   const dims = { width, height: target }
+  _span('tree-new', _t0, _t1)
+  _span('tree-preset', _t1, _t2)
+  _span('geo-scale', _t2)
   return { branchGeo, leafGeo, branchMat, leafMat, tree, dims }
 }
 

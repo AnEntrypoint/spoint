@@ -4,7 +4,8 @@ import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 const ITEM_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 }
 const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1)
 const _m4 = new THREE.Matrix4()
-const LOD_REEVAL_MOVE_SQ = 0.5 * 0.5
+export const LOD_REEVAL_MOVE_M = 0.5
+const LOD_REEVAL_MOVE_SQ = LOD_REEVAL_MOVE_M * LOD_REEVAL_MOVE_M
 const NO_MESH_TIER = -1
 const SPAN_STRIDE = 7
 
@@ -135,7 +136,10 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   if (!Array.isArray(levels) || levels.length === 0) throw new Error('WebGPULodInstancer: at least one LOD level is required')
   const hysteresis = Number.isFinite(opts.hysteresis) ? opts.hysteresis : 0
   const shadowDistSq = Number.isFinite(opts.shadowDistance) ? opts.shadowDistance * opts.shadowDistance : -1
-  const thresholdsSq = levels.map(lv => { const d = Number.isFinite(lv.distance) ? lv.distance : 0; const t = d - d * hysteresis; return t * t })
+  const shadowOnSq = Number.isFinite(opts.shadowDistance) ? (opts.shadowDistance * (1 - hysteresis)) ** 2 : -1
+  const shadowOffSq = Number.isFinite(opts.shadowDistance) ? (opts.shadowDistance * (1 + hysteresis)) ** 2 : -1
+  const thresholdsSq = levels.map(lv => { const d = Number.isFinite(lv.distance) ? lv.distance : 0; const t = d + d * hysteresis; return t * t })
+  const leaveSq = levels.map(lv => { const d = Number.isFinite(lv.distance) ? lv.distance : 0; const t = d - d * hysteresis; return t * t })
   const props = { renderOrder: 0, visible: true, matrixAutoUpdate: true }
   const tiers = levels.map(lv => createDensePool(scene, lv.geometry, lv.material, capacity, attributeSchema, props, false))
   const shadow = opts.shadowGeometry ? createDensePool(scene, opts.shadowGeometry, opts.shadowMaterial || levels[0].material, capacity, attributeSchema, props, true) : null
@@ -152,12 +156,32 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
 
   let meshFarSq = Infinity
   let meshFarDist = Infinity
+  let meshReentryDist = NaN
+  let meshInSq = Infinity
   const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0, rebuilds: 0, rebuildRecords: 0, mirrored: 0 }
 
-  function tierFor(dsq) {
-    if (dsq >= meshFarSq) return NO_MESH_TIER
+  function lodTierFor(dsq) {
     for (let i = thresholdsSq.length - 1; i > 0; i--) if (dsq >= thresholdsSq[i]) return i
     return 0
+  }
+
+  function tierFor(dsq, current) {
+    if (dsq >= meshFarSq) return NO_MESH_TIER
+    if (current === NO_MESH_TIER && dsq >= meshInSq) return NO_MESH_TIER
+    const raw = lodTierFor(dsq)
+    if (current > raw && dsq >= leaveSq[current]) return current
+    return raw
+  }
+
+  function cellCrossesBand(dminSq, dmaxSq) {
+    if (dmaxSq >= meshInSq && dminSq < meshFarSq) return true
+    for (let i = 1; i < thresholdsSq.length; i++) if (dmaxSq >= leaveSq[i] && dminSq < thresholdsSq[i]) return true
+    return false
+  }
+
+  function shadowWantedOf(dsq, current) {
+    if (dsq <= shadowOnSq) return true
+    return current === true && dsq <= shadowOffSq
   }
 
   function addToTier(tier, id, rec) { if (tier !== NO_MESH_TIER) tiers[tier].add(id, rec) }
@@ -235,9 +259,18 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     if (rec.visible) show(id, rec)
   }
 
-  function applyMeshFar(d) {
+  function setMeshFarEdges(d, reentry) {
+    const nominal = d / (1 + hysteresis)
+    const hysteresisIn = nominal * (1 - hysteresis)
+    const inDist = Number.isFinite(reentry) ? Math.max(hysteresisIn, reentry) : hysteresisIn
     meshFarSq = d * d
     meshFarDist = d
+    meshReentryDist = reentry
+    meshInSq = inDist * inDist
+  }
+
+  function applyMeshFar(d, reentry) {
+    setMeshFarEdges(d, reentry)
     lodStale = true
   }
 
@@ -320,7 +353,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     proxy.id = id
     cb(proxy)
     _m4.compose(_pos, _quat, _scale)
-    const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, shadowWanted: false, visible: true, viewCulled: false, bounds: new THREE.Sphere().copy(levelBounds).applyMatrix4(_m4) }
+    const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, band: NO_MESH_TIER, shadowWanted: false, visible: true, viewCulled: false, bounds: new THREE.Sphere().copy(levelBounds).applyMatrix4(_m4) }
     recs[id] = rec
     storeSpan(id, rec)
     liveCount++
@@ -552,8 +585,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       const o = id * SPAN_STRIDE
       const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
       const dsq = dx * dx + dy * dy + dz * dz
-      const tier = tierFor(dsq)
-      const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+      const tier = tierFor(dsq, rec.band)
+      rec.band = tier
+      const shadowWanted = shadowWantedOf(dsq, rec.shadowWanted)
       if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
       let culled = false
       if (tier !== NO_MESH_TIER) {
@@ -618,17 +652,18 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
           const fz = Math.max(lodEyeZ - posMin[b + 2], posMax[b + 2] - lodEyeZ)
           const dminSq = gx * gx + gy * gy + gz * gz
           const dmaxSq = fx * fx + fy * fy + fz * fz
-          const tierNear = tierFor(dminSq)
-          const tierFar = tierFor(dmaxSq)
+          const tierNear = dminSq >= meshFarSq ? NO_MESH_TIER : lodTierFor(dminSq)
+          const tierFar = dmaxSq >= meshFarSq ? NO_MESH_TIER : lodTierFor(dmaxSq)
+          const crossesBand = cellCrossesBand(dminSq, dmaxSq)
           let shadowMode = SHADOW_NONE
-          if (shadowDistSq >= 0) shadowMode = dmaxSq <= shadowDistSq ? SHADOW_ALL : (dminSq > shadowDistSq ? SHADOW_NONE : SHADOW_MIXED)
+          if (shadowDistSq >= 0) shadowMode = dmaxSq <= shadowOnSq ? SHADOW_ALL : (dminSq > shadowOffSq ? SHADOW_NONE : SHADOW_MIXED)
           const state = cellOut ? CELL_OUT : (mask === 0 ? CELL_IN : CELL_PART)
           grid.state[c] = state
           grid.mask[c] = cellOut ? 63 : mask
           const out = cellOut
           let mode = MODE_MIXED, cellTier = tierNear
           if (tierNear === NO_MESH_TIER || out) mode = MODE_NOT_DRAWN
-          else if (tierNear === tierFar && shadowMode !== SHADOW_MIXED) mode = state === CELL_IN ? MODE_UNIFORM : MODE_MIXED
+          else if (tierNear === tierFar && !crossesBand && shadowMode !== SHADOW_MIXED) mode = state === CELL_IN ? MODE_UNIFORM : MODE_MIXED
           if (mode !== MODE_MIXED && grid.mode[c] === mode && grid.tier[c] === cellTier && grid.shadowMode[c] === shadowMode) { sweepStats.cellsSkipped++; grid.stamp[c] = now; nextActive[nextCount++] = c; continue }
           const s0 = grid.start[c], s1 = grid.start[c + 1]
           const order = grid.order
@@ -640,6 +675,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
               if (grid.cellOf[id] !== c) continue
               const rec = recs[id]
               walked++
+              rec.band = NO_MESH_TIER
               if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
             }
@@ -649,6 +685,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
               if (grid.cellOf[id] !== c) continue
               const rec = recs[id]
               walked++
+              rec.band = cellTier
               if (rec.tier !== cellTier || rec.viewCulled) placeInTier(id, rec, cellTier, false)
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
             }
@@ -662,8 +699,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
               const o = id * SPAN_STRIDE
               const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
               const dsq = dx * dx + dy * dy + dz * dz
-              const tier = tierFor(dsq)
-              const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+              const tier = tierFor(dsq, rec.band)
+              rec.band = tier
+              const shadowWanted = shadowWantedOf(dsq, rec.shadowWanted)
               if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
               let culled = out
               if (!culled && tier !== NO_MESH_TIER && cmask !== 0) {
@@ -695,6 +733,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
           if (grid.cellOf[id] !== c) continue
           const rec = recs[id]
           walked++
+          rec.band = NO_MESH_TIER
           if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
           if (shadow && rec.shadowWanted) applyShadowWanted(id, rec, false)
         }
@@ -715,8 +754,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
         if (moved) {
           const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
           const dsq = dx * dx + dy * dy + dz * dz
-          tier = tierFor(dsq)
-          const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+          tier = tierFor(dsq, rec.band)
+          rec.band = tier
+          const shadowWanted = shadowWantedOf(dsq, rec.shadowWanted)
           if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
         }
         let culled = false
@@ -798,12 +838,12 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     },
     resizeBuffers() {},
     updateLOD,
-    setMeshFarDistance(d) {
+    setMeshFarDistance(d, reentry) {
       if (!(d > 0)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: distance must be positive, got ${d}`)
-      meshFarSq = d * d
-      meshFarDist = d
+      if (reentry !== undefined && !(reentry > 0 && reentry < d)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: re-entry ${reentry} must lie in (0, ${d})`)
+      setMeshFarEdges(d, reentry)
       lodStale = true
-      for (let s = 0; s < satellites.length; s++) satellites[s].applyMeshFar(d)
+      for (let s = 0; s < satellites.length; s++) satellites[s].applyMeshFar(d, reentry)
       if (grid.usable) grid.mode.fill(APPLIED_INVALID, 0, grid.cells)
     },
     get lodTierCount() { return tiers.length },
@@ -811,7 +851,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       beginAddSlots,
       takeAddSlot,
       thresholdsSq,
+      leaveSq,
       get meshFarDist() { return meshFarDist },
+      get meshReentryDist() { return meshReentryDist },
       decisionOf(id, out) {
         const rec = id >= 0 ? recs[id] : null
         if (!rec) { out.tier = NO_MESH_TIER; out.culled = false; out.visible = false; out.shadowWanted = false; return }
@@ -841,9 +883,13 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     for (let i = 0; i < thresholdsSq.length; i++) {
       if (hostThresholds[i] !== thresholdsSq[i]) throw new Error(`WebGPULodInstancer: satellite LOD threshold ${i} is ${thresholdsSq[i]} but its host's is ${hostThresholds[i]}`)
     }
+    const hostLeave = host.lodPair.leaveSq
+    for (let i = 0; i < leaveSq.length; i++) {
+      if (hostLeave[i] !== leaveSq[i]) throw new Error(`WebGPULodInstancer: satellite LOD leave threshold ${i} is ${leaveSq[i]} but its host's is ${hostLeave[i]}`)
+    }
     const selfAsSatellite = { mirrorTier, mirrorShadow, mirrorVisibility, unbindHostSlot, applyMeshFar }
     host.lodPair.attach(selfAsSatellite)
-    selfAsSatellite.applyMeshFar(host.lodPair.meshFarDist)
+    selfAsSatellite.applyMeshFar(host.lodPair.meshFarDist, host.lodPair.meshReentryDist)
     api.disposeSatellite = () => host.lodPair.detach(selfAsSatellite)
   }
   for (const p of pools) p.mesh.userData.lodInstancer = api
