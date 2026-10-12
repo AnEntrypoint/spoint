@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { macrotaskYield } from '../client/core/macrotaskYield.js'
 
 const REPS = 5
-const VEG_SOURCE = 'C:/dev/spoint/client/core/Vegetation.js'
+const VEG_SOURCE = fileURLToPath(new URL('../client/core/Vegetation.js', import.meta.url))
 
 delete globalThis.requestAnimationFrame
 Object.defineProperty(globalThis, 'document', { value: { hidden: true }, configurable: true })
