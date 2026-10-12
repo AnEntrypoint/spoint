@@ -16,7 +16,7 @@
 // Fidelity is the third half: the decimation that replaces leaf cards must carry
 // the same total leaf area, or the canopy thins and the triangle saving is bought
 // with the picture.
-import { registerHooks } from 'node:module'
+import * as Module from 'node:module'
 import { readFileSync } from 'node:fs'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
@@ -24,12 +24,26 @@ import { resolve, dirname } from 'node:path'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const REPO_URL = pathToFileURL(`${REPO}/`).href
 
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('/src/')) return nextResolve(new URL(specifier.slice(1), REPO_URL).href, context)
-    return nextResolve(specifier, context)
-  },
-})
+// client/core/VegetationBuild.js imports '/src/terrain/...' by root-absolute specifier,
+// which the ESM resolver reads as a path from the filesystem root. Node spells "resolve
+// it against the repo root" two ways: registerHooks (>= 22.15, in-process) and register
+// with a loader module (>= 20.6). CI runs node 20, so both are here; a node with
+// neither cannot run this witness, and saying so beats a stack from a bare import.
+const resolverUrl = new URL('./lib/src-specifier-resolver.mjs', import.meta.url)
+const mapSrc = (specifier) => (specifier.startsWith('/src/') ? new URL(specifier.slice(1), REPO_URL).href : null)
+if (typeof Module.registerHooks === 'function') {
+  Module.registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const url = mapSrc(specifier)
+      return url ? { url, shortCircuit: true } : nextResolve(specifier, context)
+    },
+  })
+} else if (typeof Module.register === 'function') {
+  Module.register(resolverUrl.href, import.meta.url)
+} else {
+  console.log('[veg-leaf-cap] RESULT: FAIL (uncaught) -- this node exposes neither module.registerHooks nor module.register, so the /src/ specifiers in client/core/VegetationBuild.js cannot be resolved')
+  process.exit(1)
+}
 
 // ez-tree's module body runs THREE.TextureLoader.load, which wants
 // document.createElementNS for the img element. No texture is read here.
