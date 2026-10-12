@@ -285,7 +285,7 @@ async function main() {
         getPlayer: (id) => playersById.get(id),
       },
       physicsIntegration,
-      lagCompensator: { recordPlayerPosition() {} },
+      lagCompensator: { beginTick() {}, recordPlayerPosition() {} },
       physics: { step() {} },
       appRuntime,
       connections,

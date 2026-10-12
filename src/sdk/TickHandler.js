@@ -455,6 +455,7 @@ export function createTickHandler(deps) {
   }
 
   function onTick(tick, dt, explicitInputs = null) {
+    lagCompensator.beginTick(tick)
     const t0 = performance.now()
     const serverNow = Date.now()
     networkState.setTick(tick, serverNow)
@@ -493,6 +494,7 @@ export function createTickHandler(deps) {
       connections.broadcast(MSG.PEER_RTT_TABLE, { rtt: rttTable, pubkeys })
     }
     serverTimeOfDay.tick(dt)
+    serverWeather.tick(dt)
     if (players.length > 0 && serverTimeOfDay.shouldBroadcast()) {
       connections.broadcast(MSG.TIME_OF_DAY_SYNC, serverTimeOfDay.getSyncPayload())
     }
