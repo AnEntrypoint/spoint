@@ -1,6 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  ensureStandaloneServer,
+  isPortServing,
+  STANDALONE_READY_TIMEOUT_MS,
+} from './witness-server.mjs'
 
 const VERB = 'crawl'
 const SPOOL_IN = 'in/crawl'
@@ -30,10 +35,7 @@ function nextTaskId() {
 }
 
 export async function serverUp(port) {
-  try {
-    const r = await fetch(`http://localhost:${port}/`, { method: 'HEAD' })
-    return r.ok || r.status === 200
-  } catch { return false }
+  return isPortServing(port)
 }
 
 function stripLineComment(line) {
@@ -253,7 +255,20 @@ export async function withGpuPage(opts, fn) {
   const url = (opts && opts.url) || `http://localhost:${port}/?singleplayer${backend === 'legacygl' ? '&legacygl=1' : ''}&nc=${Date.now()}`
 
   if (angle) throw new Error(GPU_ARGS_UNSUPPORTED)
-  if (!(await serverUp(port))) throw new Error(`server not up on :${port} -- start it (PORT=${port} node server.js)`)
+  // Start the server instead of telling a human to. The old instruction here
+  // ("start it (PORT=<port> node server.js)") is what left detached
+  // `node server.js` processes on :3001/:3002/:8090 that nothing in the tree
+  // owned and nothing could stop -- `nohup` detaches the server from the
+  // witness's process group, so no in-process exit guard can reach it. A server
+  // already listening on the port is used as-is and stays theirs: this never
+  // stops a process it did not spawn.
+  const served = await ensureStandaloneServer({
+    port,
+    label: `gpu-eval node server.js :${port}`,
+    readyTimeoutMs: Number(process.env.GPU_EVAL_SERVER_BOOT_MS || STANDALONE_READY_TIMEOUT_MS),
+  })
+  if (!served.up) throw new Error(`server not up on :${port}, and scripts/lib/witness-server.mjs could not start one`)
+  if (served.owned) console.log(`[gpu-eval] started ${served.label} (pid=${served.proc?.pid}) -- registered on the witness shutdown path, so it stops with this process`)
 
   const run = async (script, extra = {}) => {
     const useProbe = extra.probe === undefined ? requireProbe : extra.probe
