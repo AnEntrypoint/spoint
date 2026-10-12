@@ -280,6 +280,16 @@ function gainedGrid(before, after, ref, idx, w, h, t) {
   return { rows, total, bottom }
 }
 
+// A state change reaches the screen on the next RENDERED frame, and under a loaded host this box
+// rendered on the order of seconds per frame -- a fixed wall-clock wait shorter than one frame
+// reads the state BEFORE it lands. Wait on the frame itself wherever a probe asserts a state the
+// renderer owns (Weather.js hides its four meshes inside update(), so "clear" needs a frame).
+async function frames(page, n) {
+  for (let i = 0; i < n; i++) {
+    await page.evaluate(`new Promise((r) => requestAnimationFrame(() => r(true)))`)
+  }
+}
+
 async function waitFor(page, expr, ms, label) {
   const t0 = Date.now()
   while (Date.now() - t0 < ms) {
@@ -525,14 +535,14 @@ async function main() {
 
     const clearReached = await waitFor(page, `window.__weather.getType() === 'clear'`, 5000, 'clear')
     if (!clearReached) await page.evaluate(setTypeSrc('clear'))
-    await page.waitForTimeout(400)
+    await frames(page, 3)
     const clearProbe = await page.evaluate(PROBE)
     console.log(`[${LABEL}] clear probe ${JSON.stringify({ type: clearProbe.type, rain: clearProbe.rain.visible, snow: clearProbe.snow.visible, far: clearProbe.far.visible, splash: clearProbe.splash.visible })}`)
     expect('clear draws no weather at all', JSON.stringify([clearProbe.rain.visible, clearProbe.snow.visible, clearProbe.far.visible, clearProbe.splash.visible]), '==', JSON.stringify([false, false, false, false]))
 
     const snowReached = await waitFor(page, `window.__weather.getType() === 'snow' && window.__weather._imSnow.visible === true`, 5000, 'snow')
     if (!snowReached) await page.evaluate(setTypeSrc('snow'))
-    await page.waitForTimeout(600)
+    await frames(page, 3)
     const snowProbe = await page.evaluate(PROBE)
     expect('snow draws in the same band as rain', snowProbe.snow.ro, '==', WEATHER_DRAWS_OVER_FOLIAGE_BAND)
     if (snowProbe.type === 'snow' && snowProbe.snow.visible === true) {
