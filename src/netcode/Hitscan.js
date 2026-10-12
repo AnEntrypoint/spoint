@@ -10,6 +10,12 @@ export function normalizeShotDirection(d) {
   return [x / len, y / len, z / len]
 }
 
+function unitDirection(d) {
+  const unit = normalizeShotDirection(d)
+  if (!unit) throw new TypeError(`[hitscan] shot direction must be a finite non-zero length-3 array, got ${Array.isArray(d) ? `length ${d.length}` : typeof d}`)
+  return unit
+}
+
 export function resolveFireRequest(lagComp, shooterId, shooterPosition, msg, hitbox = DEFAULT_HITBOX) {
   const eye = [shooterPosition[0], shooterPosition[1] + hitbox.centerHeight, shooterPosition[2]]
   if (!lagComp) return { origin: eye, viewTick: null }
@@ -24,10 +30,11 @@ export function resolveTargetPoint(target, lagComp, viewTick) {
 }
 
 export function rayVsCapsule(origin, direction, range, tp, hitbox = DEFAULT_HITBOX) {
+  const unit = unitDirection(direction)
   const toTarget = [tp[0] - origin[0], tp[1] + hitbox.centerHeight - origin[1], tp[2] - origin[2]]
-  const dot = toTarget[0] * direction[0] + toTarget[1] * direction[1] + toTarget[2] * direction[2]
+  const dot = toTarget[0] * unit[0] + toTarget[1] * unit[1] + toTarget[2] * unit[2]
   if (dot < 0 || dot > range) return null
-  const proj = [origin[0] + direction[0] * dot, origin[1] + direction[1] * dot, origin[2] + direction[2] * dot]
+  const proj = [origin[0] + unit[0] * dot, origin[1] + unit[1] * dot, origin[2] + unit[2] * dot]
   const ddx = proj[0] - tp[0], ddy = proj[1] - (tp[1] + hitbox.centerHeight), ddz = proj[2] - tp[2]
   const d2 = ddx * ddx + ddy * ddy + ddz * ddz
   if (d2 > hitbox.radiusSq) return null
@@ -38,19 +45,20 @@ export function hitHeightRatio(proj, tp, hitbox = DEFAULT_HITBOX) {
   return (proj[1] - tp[1]) / hitbox.height
 }
 
-function testTarget(target, shot) {
+function testTarget(target, shot, direction) {
   if (!target || !target.state || target.id === shot.shooterId) return null
   if (shot.isTargetable && !shot.isTargetable(target)) return null
   const resolved = resolveTargetPoint(target, shot.lagComp, shot.viewTick)
-  const hit = rayVsCapsule(shot.origin, shot.direction, shot.range, resolved.tp, shot.hitbox || DEFAULT_HITBOX)
+  const hit = rayVsCapsule(shot.origin, direction, shot.range, resolved.tp, shot.hitbox || DEFAULT_HITBOX)
   return hit ? { target, tp: resolved.tp, rewound: resolved.rewound, proj: hit.proj, dot: hit.dot } : null
 }
 
 export function findHitLinear(players, shot) {
+  const direction = unitDirection(shot.direction)
   let nearest = null
   let nearestDot = Infinity
   for (const target of players) {
-    const found = testTarget(target, shot)
+    const found = testTarget(target, shot, direction)
     if (!found) continue
     if (!(found.dot < nearestDot)) continue
     nearest = found
@@ -60,16 +68,17 @@ export function findHitLinear(players, shot) {
 }
 
 export function findHitSpatial(players, shot, liveIndex = null) {
+  const direction = unitDirection(shot.direction)
   const index = liveIndex || buildLiveIndex(players)
   const byId = index.playersById || new Map(players.map(p => [p.id, p]))
   const seen = new Set()
   let nearest = null
   let nearestDot = Infinity
   let nearestOrder = Infinity
-  index.queryRay(shot.origin, shot.direction, shot.range, (entry) => {
+  index.queryRay(shot.origin, direction, shot.range, (entry) => {
     if (seen.has(entry.id)) return
     seen.add(entry.id)
-    const found = testTarget(byId.get(entry.id), shot)
+    const found = testTarget(byId.get(entry.id), shot, direction)
     if (!found) return
     const order = index.arrayIndexOf ? index.arrayIndexOf(entry.id) : -1
     const closer = found.dot < nearestDot || (found.dot === nearestDot && order < nearestOrder)
