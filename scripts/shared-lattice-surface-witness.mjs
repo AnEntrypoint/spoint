@@ -170,6 +170,11 @@ for (let i = 0; i < leaves.length; i++) {
 }
 const quads = () => ({ offsets, faces, count: leaves.length, gridSize: TD.gridMeshSize, radius: R })
 console.log(`--- drawn mesh: maxLevel=${lod.maxLevel} splitDist=${splitDist.toFixed(3)} quads=${leaves.length} gridSize=${TD.gridMeshSize} vertsPerQuad=${(TD.gridMeshSize + 1) ** 2}`)
+// The duplicate, in one count: the GPU vertex stage evaluates the height function at every vertex of
+// every drawn quad EVERY frame, and the CPU mirror evaluated the same function again at the same
+// vertices to answer placement. The collider evaluates it once per field node, but reads the bake for
+// those. No GPU timing is used or implied -- this is a count of evaluations, not a measure of time.
+console.log(`--- same ground, counted evaluations: GPU vertex stage ${leaves.length * (TD.gridMeshSize + 1) ** 2}/frame ; collider field ${257 * 257} nodes per field (read from the bake where it covers) ; CPU mirror one per materialised vertex`)
 
 const anchorField = createCachedAnchorField(sampler.anchorField, frame)
 const lattice = latticeFor(frame, GRASS)
