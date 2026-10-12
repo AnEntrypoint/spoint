@@ -32,7 +32,7 @@ const WORLD = String(flag('world', 'tps-game'))
 const _ms = (p) => (_isNode ? `mapspinner/${p}` : `/node_modules/mapspinner/src/${p}`)
 const _isNode = true
 
-const { Quadtree } = await import('mapspinner/quadtree.js')
+const { Quadtree, groundPerFaceMetre } = await import('mapspinner/quadtree.js')
 const { TERRAIN_DEFAULTS: TD } = await import('mapspinner/terrain-defaults.js')
 const { LOD_STEP, lodDistFactor } = await import('mapspinner/lod-config.js')
 const { FACE_FRAME, worldToFaceLocal, pickFace } = await import('mapspinner/planet-orchestrator-cull.js')
@@ -376,12 +376,15 @@ if (frame && !ARGS.has('no-lattice')) {
 
   const nearFace = pickFace(camW)
   const lcNear = worldToFaceLocal(nearFace, camW, R)
+  const GPF = groundPerFaceMetre(lcNear[0], lcNear[1], R, nfl.requestedHalfExtentM)
+  console.log('[nearfield-lattice] ground metres per face-local metre at the camera: ' + GPF.toFixed(6))
+
   const perTier = []
   for (const L of LEVELS) {
     const before = leavesFor(L, TD.splitFactor, 0)
     const after = leavesFor(L, TD.splitFactor, nfl.maxLeafM, nfl.floorSpanLeaves)
     const leavesNear = after.all.filter((q) => q.face === nearFace)
-    const plan = nfl.plan(leavesNear, [lcNear[0], lcNear[1]], GRID, leavesNear.length)
+    const plan = nfl.plan(leavesNear, [lcNear[0], lcNear[1]], GRID, leavesNear.length, GPF)
     const drop = new Set(plan.drop)
     const payloadAfter = []
     for (const q of after.all) if (!drop.has(q)) payloadAfter.push(q)
@@ -393,7 +396,7 @@ if (frame && !ARGS.has('no-lattice')) {
     const fa = transect(WINDOW_M)
     // The ground the player can see, not the ground the band happens to cover: the band's own
     // half-extent first, then the rest of the collider's field, then beyond it.
-    const bandHalfM = plan.coveredHalfExtentM > 0 ? plan.coveredHalfExtentM : WINDOW_M
+    const bandHalfM = plan.coveredHalfExtentGroundM > 0 ? plan.coveredHalfExtentGroundM : WINDOW_M
     loadSurface(before.all)
     const bandsBefore = [
       { fromM: 0, toM: bandHalfM, quadtree: transectRange(0, bandHalfM) },
@@ -441,9 +444,11 @@ if (frame && !ARGS.has('no-lattice')) {
         measuredStepVm: stepV,
         leavesCovered: plan.coveredLeafCount,
         tilesPerAxis: plan.tilesPerAxis,
+        groundPerFaceMetre: +plan.groundPerFaceMetre.toFixed(6),
         coveredHalfExtentM: +plan.coveredHalfExtentM.toFixed(3),
-        requestedHalfExtentM: +plan.requestedHalfExtentM.toFixed(3),
-        shortfallM: +plan.shortfallM.toFixed(3),
+        coveredHalfExtentGroundM: +plan.coveredHalfExtentGroundM.toFixed(3),
+        requestedHalfExtentGroundM: +plan.requestedHalfExtentM.toFixed(3),
+        shortfallGroundM: +plan.shortfallM.toFixed(3),
         straddlingLeafCount: plan.straddlingLeafCount,
         suppressedTiles: plan.suppressedTiles,
         instanceBudget: leavesNear.length,

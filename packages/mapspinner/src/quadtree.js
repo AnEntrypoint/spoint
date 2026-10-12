@@ -146,6 +146,36 @@ export class Quadtree {
   }
 }
 
+// Metres of ground per face-local metre, measured from the same projection the renderer draws with:
+// two nearby face-local points through localToDeformed, chord length over the step. The cube-sphere
+// map is not conformal -- one face-local metre is 0.778 m of ground at the tps-game spawn and drifts
+// with position on the face -- so a lattice that wants a spacing in metres of GROUND has to convert,
+// or it draws 0.698 m tiles where the collider is 1.00 m and covers a third of the field it asked
+// for. The two axes are measured separately and the LARGER returned, so a band sized with this can
+// never come out coarser than the spacing it was given along either axis.
+//
+// halfSpanM spreads the samples over the footprint the answer will size, because the metric at one
+// point underestimates it across a band that is tens of metres wide -- and a slightly conservative
+// answer costs nothing: a larger factor gives a proportionally smaller tile AND a proportionally
+// smaller face-local extent, so the tile count for a given ground extent is unchanged.
+export function groundPerFaceMetre(u, v, R, halfSpanM = 0) {
+  const d = Math.max(1e-6, R * 1e-4)
+  const h = (typeof halfSpanM === 'number' && isFinite(halfSpanM) && halfSpanM > 0) ? halfSpanM : 0
+  let worst = 0
+  for (let su = -1; su <= 1; su++) {
+    for (let sv = -1; sv <= 1; sv++) {
+      const cu = u + su * h, cv = v + sv * h
+      const p0 = localToDeformed(cu, cv, 0, R)
+      for (let axis = 0; axis < 2; axis++) {
+        const p1 = localToDeformed(cu + (axis ? 0 : d), cv + (axis ? d : 0), 0, R)
+        const m = Math.hypot(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]) / d
+        if (m > worst) worst = m
+      }
+    }
+  }
+  return worst > 0 ? worst : 1
+}
+
 export function localToDeformed(x, y, z, R) {
   const k = Math.PI / 4.0;
   const wx = R * Math.tan((x / R) * k);

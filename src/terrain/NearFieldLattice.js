@@ -66,30 +66,39 @@ export function createNearFieldLattice(opts = {}) {
     // metres. instanceBudget caps the band's tile count at the number of instances the terrain
     // payload it joins already spends, so the band can never cost more than the ground it replaces
     // is worth at this tier; when that is less than the collider's extent the shortfall is reported.
-    plan(leaves, camera, gridStepsOverride, instanceBudget) {
+    // groundPerFaceMetre: how many metres of GROUND one face-local metre is at the band, from the
+    // cube-sphere map's own metric. spacingM and extentM are metres of ground -- they are the
+    // collider's -- but the tile grid is laid out in face-local metres, so without this the band
+    // draws at 0.698 m where the collider is 1.00 m and covers 89 m of ground where the collider's
+    // field is 256 m: the same number of tiles, a third of the ground, and a spacing that drifts
+    // with where on the face the player stands. Measured in the shipped client, TOD pinned.
+    plan(leaves, camera, gridStepsOverride, instanceBudget, groundPerFaceMetre) {
       const gs = Number.isInteger(gridStepsOverride) && gridStepsOverride >= 2 ? gridStepsOverride : gridSteps
+      const gpf = positiveFinite(groundPerFaceMetre) || 1
+      const tileMLocal = tileM / gpf
+      const halfExtentLocal = requestedHalfExtentM / gpf
       const empty = (extra) => ({
-        tiles: [], drop: [], tileM, stepM: spacingM, tileCount: 0, coveredLeafCount: 0, vertexCount: 0,
-        requestedHalfExtentM, coveredHalfExtentM: 0, shortfallM: requestedHalfExtentM,
-        straddlingLeafCount: 0, suppressedTiles: 0, tilesPerAxis: 0, ...extra,
+        tiles: [], drop: [], tileM: tileMLocal, stepM: spacingM, tileCount: 0, coveredLeafCount: 0, vertexCount: 0,
+        groundPerFaceMetre: gpf, requestedHalfExtentM, coveredHalfExtentM: 0, coveredHalfExtentGroundM: 0,
+        shortfallM: requestedHalfExtentM, straddlingLeafCount: 0, suppressedTiles: 0, tilesPerAxis: 0, ...extra,
       })
       if (!Array.isArray(leaves) || !leaves.length) return empty({})
       const camX = camera ? camera[0] : NaN, camY = camera ? camera[1] : NaN
       if (!Number.isFinite(camX) || !Number.isFinite(camY)) return empty({})
 
       const budget = Number.isInteger(instanceBudget) && instanceBudget >= 1 ? instanceBudget : leaves.length
-      const wanted = Math.ceil((2 * requestedHalfExtentM) / tileM)
+      const wanted = Math.ceil((2 * halfExtentLocal) / tileMLocal)
       const perAxis = Math.max(1, Math.min(Math.floor(Math.sqrt(budget)), wanted))
-      const half = (perAxis * tileM) / 2
+      const half = (perAxis * tileMLocal) / 2
       // The band is snapped to the collider's own grid so its vertices do not swim with the camera:
       // moving by less than a tile moves nothing, moving by a tile moves the band by a whole tile.
-      let x0 = Math.floor((camX - half) / tileM) * tileM
-      let y0 = Math.floor((camY - half) / tileM) * tileM
+      let x0 = Math.floor((camX - half) / tileMLocal) * tileMLocal
+      let y0 = Math.floor((camY - half) / tileMLocal) * tileMLocal
       if (faceHalfSpanM !== null) {
-        x0 = Math.min(Math.max(x0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileM)
-        y0 = Math.min(Math.max(y0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileM)
+        x0 = Math.min(Math.max(x0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileMLocal)
+        y0 = Math.min(Math.max(y0, -faceHalfSpanM), faceHalfSpanM - perAxis * tileMLocal)
       }
-      const x1 = x0 + perAxis * tileM, y1 = y0 + perAxis * tileM
+      const x1 = x0 + perAxis * tileMLocal, y1 = y0 + perAxis * tileMLocal
       const EPS = 1e-6
 
       // A leaf is dropped only when the band covers it WHOLE; a leaf straddling the rim is kept, and
@@ -108,19 +117,20 @@ export function createNearFieldLattice(opts = {}) {
       let suppressed = 0
       for (let j = 0; j < perAxis; j++) {
         for (let i = 0; i < perAxis; i++) {
-          const ox = x0 + i * tileM, oy = y0 + j * tileM
+          const ox = x0 + i * tileMLocal, oy = y0 + j * tileMLocal
           let covered = false
           for (const q of straddle) {
-            if (ox >= q.ox - EPS && oy >= q.oy - EPS && ox + tileM <= q.ox + q.l + EPS && oy + tileM <= q.oy + q.l + EPS) { covered = true; break }
+            if (ox >= q.ox - EPS && oy >= q.oy - EPS && ox + tileMLocal <= q.ox + q.l + EPS && oy + tileMLocal <= q.oy + q.l + EPS) { covered = true; break }
           }
           if (covered) { suppressed++; continue }
-          tiles.push({ ox, oy, l: tileM, level: 0 })
+          tiles.push({ ox, oy, l: tileMLocal, level: 0 })
         }
       }
       return {
-        tiles, drop, tileM, stepM: spacingM, tileCount: tiles.length, coveredLeafCount: drop.length,
+        tiles, drop, tileM: tileMLocal, stepM: spacingM, tileCount: tiles.length, coveredLeafCount: drop.length,
         vertexCount: tiles.length * (gs + 3) * (gs + 3),
-        requestedHalfExtentM, coveredHalfExtentM: half, shortfallM: requestedHalfExtentM - half,
+        groundPerFaceMetre: gpf, requestedHalfExtentM, coveredHalfExtentM: half,
+        coveredHalfExtentGroundM: half * gpf, shortfallM: requestedHalfExtentM - half * gpf,
         straddlingLeafCount: straddle.length, suppressedTiles: suppressed, tilesPerAxis: perAxis,
         refused: null,
       }

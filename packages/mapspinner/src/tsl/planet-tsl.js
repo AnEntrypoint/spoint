@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { Quadtree } from '../quadtree.js'
+import { Quadtree, groundPerFaceMetre } from '../quadtree.js'
 import { FACE_FRAME, worldToFaceLocal, quadOutsideFrustum, extractFrustumPlanes, pickFace, CULL_ELEV_FRAC } from '../planet-orchestrator-cull.js'
 import { createAnchorField } from '../anchor-field.js'
 import { M4 } from '../gl-render-mat4.js'
@@ -192,8 +192,12 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
         // leaves this face already draws, so the near band can at most double the terrain's instances
         // and at worst the collider's field is covered only part way -- reported, never silent.
         const nearBudget = leaves.length
-        const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE, nearBudget)
-        lastNear = { tiles: p.tileCount, dropped: p.coveredLeafCount, stepM: p.stepM, tileM: p.tileM, tilesPerAxis: p.tilesPerAxis, budget: nearBudget, coveredHalfExtentM: p.coveredHalfExtentM, requestedHalfExtentM: p.requestedHalfExtentM, straddling: p.straddlingLeafCount, suppressed: p.suppressedTiles, refused: p.refused || null }
+        // spacingM and extentM are metres of GROUND, but the band is laid out in face-local metres,
+        // and the cube-sphere map is not conformal: one face-local metre is 0.698 m of ground at the
+        // tps-game spawn and drifts with position on the face. Measured from the map's own projection
+        // (two nearby face-local points through localToDeformed), never assumed.
+        const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE, nearBudget, groundPerFaceMetre(lc[0], lc[1], R, near.requestedHalfExtentM))
+        lastNear = { tiles: p.tileCount, dropped: p.coveredLeafCount, stepM: p.stepM, tileM: p.tileM, tilesPerAxis: p.tilesPerAxis, budget: nearBudget, coveredHalfExtentM: p.coveredHalfExtentM, coveredHalfExtentGroundM: p.coveredHalfExtentGroundM, requestedHalfExtentM: p.requestedHalfExtentM, shortfallGroundM: p.shortfallM, groundPerFaceMetre: p.groundPerFaceMetre, straddling: p.straddlingLeafCount, suppressed: p.suppressedTiles, refused: p.refused || null }
         if (p.tiles.length) { drop = new Set(p.drop); tiles = p.tiles }
       }
       for (let i = 0; i < leaves.length; i++) {
