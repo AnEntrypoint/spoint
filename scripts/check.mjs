@@ -42,6 +42,7 @@ const NO_GPU_WITNESSES = [
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=\d+ failed=0/ },
   { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] RESULT: PASS \d+ tick\(s\) over \d+ node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick/ },
   { file: 'terrain-quad-upload-witness.mjs', must: /\[quad-upload\] RESULT: PASS -- 2 config\(s\), 0 upload\(s\) issued for 1200 frame\(s\) whose payload was unchanged/ },
+  { file: 'contact-occlusion-softness-witness.mjs', must: /  passed \d+, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
