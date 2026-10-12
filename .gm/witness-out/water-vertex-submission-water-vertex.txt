@@ -1,0 +1,45 @@
+water-vertex-submission witness (water-vertex) at 2026-10-12T07:55:52.922Z
+
+PASS backdrop-radius-matches-sampler: backdrop.R=6360000 sampler.radius=6360000
+PASS backdrop-hash-matches-sampler: hashVersion=2 (v2 is the parity backend)
+PASS backdrop-carves-match-sampler: carves=[]
+PASS backdrop-landbias-matches-sampler: uLandBias=-100000
+PASS backdrop-reliefscale-matches-sampler: reliefScale=0.100000
+PASS water-single-instanced-draw: one Mesh with InstancedBufferGeometry -> 1 instanced draw call per frame
+PASS water-mesh-not-frustum-culled: frustumCulled=false
+PASS water-verts-per-instance: water grid 4 skirtless -> 25 vertices/instance (skirted shipped 49)
+PASS water-tris-per-instance: water grid 4 skirtless -> 32 triangles/instance (96 indices; skirted shipped 72)
+PASS terrain-verts-per-instance: terrain grid 9 -> 144 vertices/instance
+PASS water-grid-carries-no-ring-flag: 0 of 25 water vertices carry the skirt ring flag, lattice is 5x5
+PASS water-grid-rasterizes-the-same-triangles: 32 skirtless triangles are exactly the 32 non-degenerate triangles of the 72-triangle skirted grid (40 zero-area skirt triangles removed)
+
+pose                quads  wInst  wVerts  wTris   terrainHEval  waterHEval  vsShare  dryInst  dryVerts  dryFrac
+gnd2m-0,0              109    109    2725    3488         78480        2725    3.36%       24       600    22.0%
+gnd2m-25,40            150    150    3750    4800        108000        3750    3.36%       75      1875    50.0%
+gnd2m--30,120          152    152    3800    4864        109440        3800    3.36%       87      2175    57.2%
+gnd2m--15,-12.5        199    199    4975    6368        143280        4975    3.36%       22       550    11.1%
+air500m-0,0            145    145    3625    4640        104400        3625    3.36%       35       875    24.1%
+air500m-45,-70         182    182    4550    5824        131040        4550    3.36%        0         0     0.0%
+air10km-0,0            227    227    5675    7264        163440        5675    3.36%       78      1950    34.4%
+
+measured counts
+  water draws per frame            1 (one instanced call)
+  water instances per frame        166 avg (1164 over 7 poses)
+  water vertices per frame         4157 avg (skirted shipped was 8148)
+  water triangles per frame        5321 avg (skirted shipped was 11973)
+  water VS height evals per frame  4157 avg (1 composeHeight per water vertex)
+  terrain VS height evals per frame 119726 avg (144 verts x FD_TAPS 5)
+  water share of VS height work    3.36% (per-pose 3.36%..3.36%), skirted shipped was 6.37%
+  dry instances (no water visible) 321/1164 = 27.6% (per-pose 0.0%..57.2%)
+  recoverable VS height work       0.93%
+  cpu heightAt                     4.48 us/sample median (min 3.94 max 32.25 over 5 batches of 4000)
+  classify cost per rebuild        18.6 ms (25 samples x every instance; skirted shipped was 36.5 ms)
+PASS water-instances-positive: water instances observed over 7 poses: 1164
+PASS water-instances-match-frame-report: geo.instanceCount === frame().waterQuadCount at every pose
+PASS water-vs-share-bounded: water is 3.36% of the frame VS height evaluations at maxLevel 11
+PASS water-vs-share-below-skirted: skirtless 3.36% < skirted 6.37% of VS height evals
+PASS dry-waste-is-real: 321 of 1164 instances (27.6%) sit over terrain above +1 m at all 25 samples
+PASS water-still-needed: every pose keeps at least one instance that can show water
+PASS classify-cost-unaffordable: a conservative per-instance land test costs 18.6 ms of main-thread CPU per quad rebuild, over half of a 16.7 ms frame
+
+RESULT: PASS -- 19/19 checks, 166 water instance(s)/frame, 4157 vertex(es)/frame, 3.36% of VS height work, 27.6% of instances dry, gate cost 18.6 ms/rebuild

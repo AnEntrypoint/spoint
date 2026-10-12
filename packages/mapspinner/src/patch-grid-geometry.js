@@ -1,17 +1,21 @@
-export function buildGridGeometry(gridSize) {
+export function buildGridGeometry(gridSize, skirt = true) {
   const g2 = gridSize + 2
   const n2 = g2 + 1
   const du = 1.0 / gridSize
+  const remap = new Int32Array(n2 * n2).fill(-1)
   const vlist = []
   for (let y = 0; y < n2; y++) for (let x = 0; x < n2; x++) {
     const isRing = (x === 0 || x === n2 - 1 || y === 0 || y === n2 - 1)
+    if (!skirt && isRing) continue
+    remap[y * n2 + x] = vlist.length / 3
     const px = Math.min(Math.max((x - 1) * du, 0.0), 1.0)
     const py = Math.min(Math.max((y - 1) * du, 0.0), 1.0)
     vlist.push(px, py, isRing ? 1.0 : 0.0)
   }
   const idx = []
   for (let y = 0; y < g2; y++) for (let x = 0; x < g2; x++) {
-    const a = y * n2 + x, b = a + 1, c = a + n2, d = c + 1
+    if (!skirt && (x === 0 || x === g2 - 1 || y === 0 || y === g2 - 1)) continue
+    const a = remap[y * n2 + x], b = remap[y * n2 + x + 1], c = remap[(y + 1) * n2 + x], d = remap[(y + 1) * n2 + x + 1]
     let h = (x | (y << 16)) | 0
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b | 0)
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b | 0)

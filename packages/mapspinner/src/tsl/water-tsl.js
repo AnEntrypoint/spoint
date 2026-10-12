@@ -11,6 +11,7 @@ import { displayReferredToSceneLinear, sceneLinearToDisplayReferred } from './di
 import { SEA_OCTAVES, seaNoise, seaOctave, seaHeight, seaHeightLF } from './sea-waves-tsl.js'
 
 const WATER_GRID = 4
+const WATER_GRID_SKIRT = false
 const WATER_MAX_LEVEL = 11
 const WATER_KEY_SPAN = 4096
 const QUARTER_PI = 0.7853981634
@@ -159,7 +160,7 @@ export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC 
   material.depthWrite = true
   material.side = THREE.DoubleSide
 
-  const grid = buildGridGeometry(WATER_GRID)
+  const grid = buildGridGeometry(WATER_GRID, WATER_GRID_SKIRT)
   let geo = null, offsets = null, faces = null, capacity = 0
   const mesh = new THREE.Mesh(undefined, material)
   mesh.name = 'mapspinner-water-tsl'

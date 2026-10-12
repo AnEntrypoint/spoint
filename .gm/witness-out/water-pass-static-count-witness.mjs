@@ -26,6 +26,13 @@ function sourceNumber(rel, re, label) {
   return Number(m[1])
 }
 
+function sourceFlag(rel, re, label) {
+  const src = readFileSync(join(ROOT, rel), 'utf8')
+  const m = re.exec(src)
+  if (!m) { check('source-const-' + label, false, 'pattern absent in ' + rel); return true }
+  return m[1] === 'true'
+}
+
 function regionTotals(prefix) {
   let total = 0
   for (const [k, v] of state.counts) {
@@ -64,6 +71,7 @@ say('water-pass-static-count witness (' + LABEL + ') at ' + new Date().toISOStri
 say('')
 
 const WATER_GRID = sourceNumber(WATER_TSL_REL, /const WATER_GRID = (\d+)/, 'water-grid')
+const WATER_SKIRT = sourceFlag(WATER_TSL_REL, /const WATER_GRID_SKIRT = (true|false)/, 'water-grid-skirt')
 const WATER_MAX_LEVEL = sourceNumber(WATER_TSL_REL, /const WATER_MAX_LEVEL = (\d+)/, 'water-max-level')
 const FD_TAPS = sourceNumber(TERRAIN_MATERIAL_REL, /const FD_TAPS = (\d+)/, 'fd-taps')
 const WATER_RENDER_ORDER = sourceNumber(PLANET_TSL_REL, /const WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS = (-?\d+)/, 'water-render-order')
@@ -77,9 +85,7 @@ check('grid-mesh-size', GRID_MESH_SIZE === 9, 'TERRAIN_DEFAULTS.gridMeshSize=' +
 check('water-render-order', WATER_RENDER_ORDER === -1, 'WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS=' + WATER_RENDER_ORDER)
 check('terrain-render-order', TERRAIN_RENDER_ORDER === 10, 'TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS=' + TERRAIN_RENDER_ORDER)
 
-const waterVerts = gridMod.buildGridGeometry(WATER_GRID).vertices.length / 3
 const terrainVerts = gridMod.buildGridGeometry(GRID_MESH_SIZE).vertices.length / 3
-check('water-verts-per-instance', waterVerts === 49, 'water grid ' + WATER_GRID + ' -> ' + waterVerts + ' vertices/instance')
 check('terrain-verts-per-instance', terrainVerts === 144, 'terrain grid ' + GRID_MESH_SIZE + ' -> ' + terrainVerts + ' vertices/instance')
 
 const spec = { composeHeight() { state.composeHeight += 1; return recorder.__node('height') } }
@@ -99,6 +105,12 @@ const water = waterMod.createWaterTSL({
   faceV: recorder.__node('faceV'),
   faceC: recorder.__node('faceC'),
 })
+
+const waterGridGeo = gridMod.buildGridGeometry(WATER_GRID, WATER_SKIRT)
+const waterVerts = waterGridGeo.vertices.length / 3
+const waterTris = waterGridGeo.indices.length / 3
+check('water-verts-per-instance', waterVerts === 25, 'water grid ' + WATER_GRID + ' built with skirt=' + WATER_SKIRT + ' -> ' + waterVerts + ' vertices/instance')
+check('water-tris-per-instance', waterTris === 32, 'water grid ' + WATER_GRID + ' built with skirt=' + WATER_SKIRT + ' -> ' + waterTris + ' triangles/instance')
 
 const heightPerWaterVertex = state.composeHeight
 check('water-vs-height-evaluations', heightPerWaterVertex === 1, 'createWaterTSL positionNode evaluates composeHeight ' + heightPerWaterVertex + ' time(s) per water vertex')
