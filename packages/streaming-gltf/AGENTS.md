@@ -73,6 +73,26 @@ visible. A previously-occluded entity stays a query candidate forever (its
 LOD/distance work is skipped while hidden, but it keeps getting re-tested) so
 a moving/disappearing occluder doesn't leave it permanently hidden.
 
+`src/webgpu-hiz-tier.js` `WebGpuHizTier` + `src/webgpu-hiz-shaders.js` run the
+per-cluster GPU frustum + HiZ occlusion cull. The invariant is that this cull
+EQUALS the CPU cull above, not approximately: `scripts/webgpu-hiz-cull-parity-witness.mjs`
+drives both culls over one 16-cluster mesh in a real accelerated browser and
+counts disagreements per frame (CPU-culls-but-GPU-draws, GPU-culls-but-CPU-draws,
+LOD mismatch); zero is a pass. It once reported 164 disagreements over a 12-frame
+sweep because `CULL_LOD_WGSL` did not compile at all (`operator >> (i32, i32)`
+in `selectHzbLevel`), so the pipeline was invalid and the cull emitted ZERO
+indirect draws while the CPU drew every cluster -- a shader that fails to compile
+is a silent no-op, not a visible error. So the cull reads the CPU's own inputs
+(screen height from the drawing buffer, `tanHalf` from the camera fov, hysteresis
+and thresholds from the mesh, and the pre-frame LOD index `_pickLod` read,
+published as `ClusterLodMesh._lodStateIn`) rather than keeping a second copy that
+drifts, uses three's own six-plane set over the eight world AABB corners, and
+mirrors `_render`'s full-LOD0 fallback group in `fallbackMain`, keyed off a
+frustum-visible count and not off the occluded draw count. The pyramid is one
+mip chain with per-level storage views (`textureLoad` at an arbitrary level needs
+`mipLevelCount > 1` on the view), reduces with `max`, and reads every texel the
+footprint touches, so occlusion errs towards drawing.
+
 ## Bake the corpus
 
 `npm run bake:corpus` (`tools/bake-cluster-corpus.mjs`) walks `../assets`
