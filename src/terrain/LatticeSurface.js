@@ -21,6 +21,13 @@ const _codecSpec = _isNode ? 'mapspinner/heightfield-codec' : '/node_modules/map
 
 const LATTICE_READ_TIMEOUT_MS = 4000
 
+// A lattice is chart-local, so a re-anchored chart rebases it: the same (x,z) then names different
+// ground. The epoch the artifact was baked at rides on the field so a reader can refuse instead of
+// answering from a chart it no longer describes.
+export function bakedEpochOf(artifact) {
+  return artifact.chartEpoch ?? 0
+}
+
 export function bakedHashVersionOf(artifact) {
   return artifact.hashVersion ?? LEGACY_TERRAIN_HASH_VERSION
 }
@@ -118,7 +125,7 @@ export async function loadLatticeSurface({ url, tcfg, frame }) {
       console.warn(`[terrain] shared lattice: ${url}: ${mismatch} -> not this ground`)
       return null
     }
-    return { ...createBakedHeightField(artifact), kind: 'bake' }
+    return { ...createBakedHeightField(artifact), kind: 'bake', chartEpoch: bakedEpochOf(artifact) }
   } catch (e) {
     console.warn(`[terrain] shared lattice: ${url} could not be read, so consumers keep solving the terrain:`, (e && e.message) || e)
     return null

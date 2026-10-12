@@ -82,6 +82,9 @@ export function createTerrainMeshSurface(opts = {}) {
   // components. An answer that has NOT converged is a function of the seed and not of the surface,
   // so it is refused and the sampler answers instead: no vertex silently loses its ground.
   function latticeHeightAtDir(d) {
+    // The lattice is chart-local and the chart can be re-anchored under it, after which the same
+    // (x,z) names different ground. Refuse rather than answer from a chart it no longer describes.
+    if (lattice.chartEpoch !== undefined && frame.chartEpoch !== lattice.chartEpoch) return NaN
     const len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
     if (!(len > 0)) return NaN
     const de = (d[0] * E[0] + d[1] * E[1] + d[2] * E[2]) / len
