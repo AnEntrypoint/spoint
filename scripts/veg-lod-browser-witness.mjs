@@ -39,6 +39,8 @@ const SCALING = !has('no-scaling')
 const ORACLE = !has('no-oracle')
 const ORACLE_INSTANCES = flagNumber(flag, 'oracle-instances', 2000, argv)
 const ORACLE_FRAMES = flagNumber(flag, 'oracle-frames', 40, argv)
+const ORACLE_SWEEP_FRAMES = flagNumber(flag, 'oracle-sweep-frames', 180, argv)
+const ORACLE_SWEEP_STEP = flagNumber(flag, 'oracle-sweep-step', 0.5, argv)
 const ORACLE_SURVIVORS = flagNumber(flag, 'oracle-survivors', 0, argv)
 const SCALING_COUNTS = flagListNumber(flag, 'scaling-counts', [10000, 50000], ',', argv)
 
@@ -241,7 +243,7 @@ const SCALING_RUN = (counts) => new Promise(async (res) => {
 
 const ORACLE_RUN = (opts) => {
   const THREE = window.__app && window.__app.THREE
-  const { instances: N, spacing: S, frames: F, speed: V, distances, hysteresis, meshFar, shadowDistance } = opts
+  const { instances: N, spacing: S, frames: F, speed: V, distances, hysteresis, meshFar, shadowDistance, sweepFrames: FB, sweepStep: STEP } = opts
   if (!THREE) return Promise.resolve({ error: 'no THREE on window.__app' })
   return (async () => {
     const src = await (await fetch('/core/WebGPULodInstancer.js')).text()
@@ -261,70 +263,134 @@ const ORACLE_RUN = (opts) => {
     const shadowGeo = new THREE.BoxGeometry(1.5, 3, 1.5)
     shadowGeo.translate(0, 6, 0)
     shadowGeo.boundingSphere = shared.clone()
-    const scene = new THREE.Scene()
-    const inst = mod.createWebGPULodInstancer(scene, levels, N, { windPhase: 'float', tint: 'vec3' }, {
-      hysteresis, shadowGeometry: shadowGeo, shadowMaterial: levels[0].material, shadowDistance,
-    })
-    inst.setMeshFarDistance(meshFar)
     const side = Math.max(1, Math.ceil(Math.sqrt(N)))
     const half = (side - 1) * S * 0.5
     const pos = new Map()
-    inst.addInstances(N, (p) => {
-      const x = (p.id % side) * S - half
-      const z = Math.floor(p.id / side) * S - half
-      p.position.set(x, 0, z)
-      pos.set(p.id, [x, 0, z])
-    })
+    const build = () => {
+      const scene = new THREE.Scene()
+      const inst = mod.createWebGPULodInstancer(scene, levels, N, { windPhase: 'float', tint: 'vec3' }, {
+        hysteresis, shadowGeometry: shadowGeo, shadowMaterial: levels[0].material, shadowDistance,
+      })
+      inst.setMeshFarDistance(meshFar)
+      inst.addInstances(N, (p) => {
+        const x = (p.id % side) * S - half
+        const z = Math.floor(p.id / side) * S - half
+        p.position.set(x, 0, z)
+        pos.set(p.id, [x, 0, z])
+      })
+      return inst
+    }
     const cam = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000)
     const frustum = new THREE.Frustum()
     const projScreen = new THREE.Matrix4()
-    const tsq = distances.map((d) => { const t = d - d * hysteresis; return t * t })
+    const NO_MESH = -1
+    const BAND_UNSET = -2
+    // client/core/WebGPULodInstancer.js: a tier is ENTERED at (d + d*h)^2 and LEFT
+    // at (d - d*h)^2 -- two different numbers, not one. The LEAVE number only holds
+    // the current band while that band sits above the raw one, so a tier is sticky
+    // on the way in and only relaxes once the distance drops past its own leave
+    // threshold. `rec.band` is that carried per-instance state; it starts at
+    // BAND_UNSET, which makes the first placement use the raw (enter) thresholds.
+    const enterSq = distances.map((d) => { const t = d + d * hysteresis; return t * t })
+    const leaveSq = distances.map((d) => { const t = d - d * hysteresis; return t * t })
     const mfsq = meshFar * meshFar
-    const tierFor = (dsq) => {
-      if (dsq >= mfsq) return -1
-      for (let i = tsq.length - 1; i > 0; i--) if (dsq >= tsq[i]) return i
+    const nominalFar = meshFar / (1 + hysteresis)
+    const meshInSq = (nominalFar * (1 - hysteresis)) ** 2
+    const rawTier = (dsq) => {
+      for (let i = enterSq.length - 1; i > 0; i--) if (dsq >= enterSq[i]) return i
       return 0
     }
+    const tierFor = (dsq, band) => {
+      if (dsq >= mfsq) return NO_MESH
+      const raw = rawTier(dsq)
+      if (band === BAND_UNSET) return raw
+      if (band === NO_MESH) return dsq >= meshInSq ? NO_MESH : raw
+      return band > raw && dsq >= leaveSq[band] ? band : raw
+    }
     const bcx = shared.center.x, bcy = shared.center.y, bcz = shared.center.z, rad = shared.radius
-    let mismatches = 0, firstMismatch = null, survivorsLast = 0
-    for (let f = 0; f < F; f++) {
-      const travelled = V * (1 / 60) * f
-      cam.position.set(-0.35 * (half * 2) + Math.cos(Math.PI / 4) * travelled, 1.7, -0.35 * (half * 2) + Math.sin(Math.PI / 4) * travelled)
-      cam.rotation.set(0, Math.PI / 4 + 0.35 * Math.sin(f * 0.05), 0)
-      cam.updateMatrixWorld(true)
-      cam.updateProjectionMatrix()
-      projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
-      frustum.setFromProjectionMatrix(projScreen)
-      inst.updateLOD(cam.position, frustum, true)
-      const want = []
-      for (const [id, p] of pos) {
-        const dx = p[0] - cam.position.x, dy = p[1] - cam.position.y, dz = p[2] - cam.position.z
-        const tier = tierFor(dx * dx + dy * dy + dz * dz)
-        let culled = false
-        if (tier !== -1) {
-          const ox = p[0] + bcx, oy = p[1] + bcy, oz = p[2] + bcz
-          for (let q = 0; q < 6; q++) {
-            const pl = frustum.planes[q]
-            if (pl.normal.x * ox + pl.normal.y * oy + pl.normal.z * oz + pl.constant < -rad) { culled = true; break }
+    // One leg = one camera path over the same field of instances. `sticky` counts the
+    // placements where the leave threshold is what decided the tier, and `reentry`
+    // the ones where the mesh-far re-entry edge decided it -- a leg that reports 0
+    // for either never reached that part of the rule and pins nothing about it.
+    const runLeg = (label, frames, place) => {
+      const inst = build()
+      const parity = {
+        enter: enterSq.every((v, i) => v === inst.lodPair.thresholdsSq[i]),
+        leave: leaveSq.every((v, i) => v === inst.lodPair.leaveSq[i]),
+      }
+      const band = new Map()
+      let mismatches = 0, firstMismatch = null, survivorsLast = 0, sticky = 0, reentry = 0
+      for (let f = 0; f < frames; f++) {
+        place(f, cam)
+        cam.updateMatrixWorld(true)
+        cam.updateProjectionMatrix()
+        projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+        frustum.setFromProjectionMatrix(projScreen)
+        inst.updateLOD(cam.position, frustum, true)
+        const want = []
+        for (const [id, p] of pos) {
+          const dx = p[0] - cam.position.x, dy = p[1] - cam.position.y, dz = p[2] - cam.position.z
+          const dsq = dx * dx + dy * dy + dz * dz
+          const cur = band.has(id) ? band.get(id) : BAND_UNSET
+          const tier = tierFor(dsq, cur)
+          const raw = tier === NO_MESH ? NO_MESH : rawTier(dsq)
+          if (cur !== BAND_UNSET && cur !== NO_MESH && cur > raw && dsq >= leaveSq[cur]) sticky++
+          if (cur === NO_MESH && dsq < mfsq && dsq >= meshInSq) reentry++
+          let culled = false
+          if (tier !== NO_MESH) {
+            const ox = p[0] + bcx, oy = p[1] + bcy, oz = p[2] + bcz
+            for (let q = 0; q < 6; q++) {
+              const pl = frustum.planes[q]
+              if (pl.normal.x * ox + pl.normal.y * oy + pl.normal.z * oz + pl.constant < -rad) { culled = true; break }
+            }
+          }
+          // The band carries across frames. A culled instance keeps the band it had,
+          // but a beyond-mesh-far distance re-bands it to NO_MESH even while culled
+          // (the not-drawn, stale-cell and grid-rebuild paths all write that).
+          if (!culled || tier === NO_MESH) band.set(id, tier)
+          if (tier !== NO_MESH && !culled) want.push(id * 8 + tier)
+        }
+        want.sort((a, b) => a - b)
+        const got = []
+        for (let t = 0; t < inst.tierIds.length; t++) for (const id of inst.tierIds[t]) got.push(id * 8 + t)
+        got.sort((a, b) => a - b)
+        survivorsLast = got.length
+        if (got.length !== want.length || got.some((v, i) => v !== want[i])) {
+          mismatches++
+          if (!firstMismatch) {
+            const i = got.findIndex((v, j) => v !== want[j])
+            firstMismatch = { leg: label, frame: f, index: i, got: got[i], want: want[i], gotLen: got.length, wantLen: want.length }
           }
         }
-        if (tier !== -1 && !culled) want.push(id * 8 + tier)
       }
-      want.sort((a, b) => a - b)
-      const got = []
-      for (let t = 0; t < inst.tierIds.length; t++) for (const id of inst.tierIds[t]) got.push(id * 8 + t)
-      got.sort((a, b) => a - b)
-      survivorsLast = got.length
-      if (got.length !== want.length || got.some((v, i) => v !== want[i])) {
-        mismatches++
-        if (!firstMismatch) {
-          const i = got.findIndex((v, j) => v !== want[j])
-          firstMismatch = { frame: f, index: i, got: got[i], want: want[i], gotLen: got.length, wantLen: want.length }
-        }
-      }
+      inst.dispose()
+      return { label, frames, mismatches, firstMismatch, survivorsLast, parity, sticky, reentry }
     }
-    inst.dispose()
-    return { moduleSha, frames: F, mismatches, firstMismatch, survivorsLast }
+    const walkLeg = runLeg('walk', F, (f, c) => {
+      const travelled = V * (1 / 60) * f
+      c.position.set(-0.35 * (half * 2) + Math.cos(Math.PI / 4) * travelled, 1.7, -0.35 * (half * 2) + Math.sin(Math.PI / 4) * travelled)
+      c.rotation.set(0, Math.PI / 4 + 0.35 * Math.sin(f * 0.05), 0)
+    })
+    // Out along the grid diagonal and back: the outward half crosses every ENTER
+    // threshold and the return half every LEAVE threshold, which is the only way to
+    // put an instance inside a hysteresis window and see the band hold it.
+    const sweepLeg = runLeg('sweep', FB, (f, c) => {
+      const t = f < FB / 2 ? f : FB - f
+      const r = STEP * t
+      c.position.set(r, 1.7, r)
+      c.rotation.set(0, Math.PI / 4, 0)
+    })
+    const legs = [walkLeg, sweepLeg]
+    return {
+      moduleSha, legs,
+      frames: legs.reduce((s, l) => s + l.frames, 0),
+      mismatches: legs.reduce((s, l) => s + l.mismatches, 0),
+      firstMismatch: legs.find((l) => l.firstMismatch) ? legs.find((l) => l.firstMismatch).firstMismatch : null,
+      survivorsLast: sweepLeg.survivorsLast,
+      parity: walkLeg.parity,
+      sticky: legs.reduce((s, l) => s + l.sticky, 0),
+      reentry: legs.reduce((s, l) => s + l.reentry, 0),
+    }
   })()
 }
 
@@ -410,6 +476,7 @@ async function main() {
       oracle = await page.evaluate(ORACLE_RUN, {
         instances: ORACLE_INSTANCES, spacing: 3, frames: ORACLE_FRAMES, speed: 40,
         distances: [0, 14, 35], hysteresis: 0.12, meshFar: 90, shadowDistance: 35,
+        sweepFrames: ORACLE_SWEEP_FRAMES, sweepStep: ORACLE_SWEEP_STEP,
       }).catch((e) => ({ error: String(e && e.message || e) }))
       console.log('[veg-lod-browser] oracle: ' + JSON.stringify(oracle))
       if (oracle.error) failures.push('in-page tier-equivalence phase failed: ' + oracle.error)
@@ -417,6 +484,9 @@ async function main() {
         const diskSha = createHash('sha256').update(readFileSync(resolve(ROOT, 'client', 'core', 'WebGPULodInstancer.js'))).digest('hex').slice(0, 16)
         if (oracle.moduleSha !== diskSha) failures.push(`in-page tier-equivalence ran module sha ${oracle.moduleSha} but client/core/WebGPULodInstancer.js on disk is ${diskSha}: the page did not exercise this checkout's LOD code`)
         if (oracle.mismatches > 0) failures.push(`in-page tier-equivalence: ${oracle.mismatches} of ${oracle.frames} poses classified differently from the brute-force per-instance sweep (first ${JSON.stringify(oracle.firstMismatch)})`)
+        if (oracle.parity && !(oracle.parity.enter && oracle.parity.leave)) failures.push(`in-page tier-equivalence derived thresholds that the instancer does not use (parity ${JSON.stringify(oracle.parity)}): the oracle no longer models client/core/WebGPULodInstancer.js`)
+        if (!(oracle.sticky > 0)) failures.push('in-page tier-equivalence: no placement was ever decided by a LEAVE threshold, so the hysteresis window is unexercised and the oracle cannot see a leave-threshold error')
+        if (!(oracle.reentry > 0)) failures.push('in-page tier-equivalence: no placement was ever decided by the mesh-far re-entry edge, so that edge is unexercised and the oracle cannot see a re-entry error')
         if (ORACLE_SURVIVORS > 0 && oracle.survivorsLast !== ORACLE_SURVIVORS) failures.push(`in-page tier-equivalence: ${oracle.survivorsLast} survivors at the final pose, expected ${ORACLE_SURVIVORS} from the reference build: the same pose no longer selects the same instances`)
       }
     }
