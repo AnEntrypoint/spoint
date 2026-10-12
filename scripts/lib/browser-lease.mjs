@@ -125,6 +125,7 @@ function claim(dir, owner, fingerprint, ttlMs) {
     fs.closeSync(fd)
   }
   held.set(dir, { owner, ttlMs })
+  reapProfileOwners(profileDir(dir))
   return true
 }
 

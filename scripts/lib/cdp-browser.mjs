@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
+import { acquire as acquireLease } from './browser-lease.mjs'
 
 const RELAY_EXTERNAL = process.env.CDP_RELAY_EXTERNAL === '1' || (process.env.CDP_RELAY_EXTERNAL !== '0' && !!(process.env.HTTPS_PROXY || process.env.https_proxy))
 const RELAY_CACHE_DIR = process.env.CDP_RELAY_CACHE || path.join(os.tmpdir(), 'spoint-cdp-relay')
@@ -268,10 +269,11 @@ class BrowserContext {
 }
 
 class Browser {
-  constructor(conn, proc, profileDir) {
+  constructor(conn, proc, profileDir, lease) {
     this._conn = conn
     this._proc = proc
     this._profileDir = profileDir
+    this._lease = lease || null
     this._pages = []
   }
 
@@ -308,6 +310,7 @@ class Browser {
     if (process.platform === 'win32' && this._proc && this._proc.pid) spawnSync('taskkill', ['/PID', String(this._proc.pid), '/T', '/F'], { stdio: 'ignore' })
     await wait(150)
     try { fs.rmSync(this._profileDir, { recursive: true, force: true }) } catch (_) {}
+    if (this._lease) this._lease.release()
   }
 }
 
@@ -415,8 +418,15 @@ export async function launch(opts = {}) {
   if (!chrome) {
     throw new Error('no chromium/chrome binary found. Set CHROME=/path/to/chrome (this repo does not depend on playwright).')
   }
-  sweepStaleProfiles()
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), PROFILE_DIR_PREFIX))
+  const lease = await acquireLease({
+    root: opts.root || process.cwd(),
+    owner: opts.owner || `${path.basename(process.cwd())}-${process.pid}`,
+    waitMs: opts.leaseWaitMs,
+    ttlMs: opts.leaseTtlMs,
+  })
+  const profileDir = lease.profileDir
+  fs.mkdirSync(profileDir, { recursive: true })
+  try { fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true }) } catch (_) {}
   let proc = null
   let ws = null
   try {
@@ -447,12 +457,14 @@ export async function launch(opts = {}) {
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('CDP websocket failed to open')) })
     const conn = new Connection(ws)
     await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => {})
-    return new Browser(conn, proc, profileDir)
+    lease.record({ browserPid: proc.pid, port: dport, profileDir })
+    return new Browser(conn, proc, profileDir, lease)
   } catch (err) {
     try { ws && ws.close() } catch (_) {}
     killProcessTree(proc)
     await wait(150)
     await removeProfileDir(profileDir)
+    lease.release()
     throw err
   }
 }
