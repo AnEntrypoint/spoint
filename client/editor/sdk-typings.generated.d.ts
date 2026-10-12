@@ -277,10 +277,10 @@ export declare class AppContext {
             event: string;
             state: any;
         } | {
+            reason?: undefined;
             ok: boolean;
             event: string;
             state: any;
-            reason?: undefined;
         };
         onTransition(fn: any): () => void;
         tick(dt: any): void;
@@ -557,10 +557,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
+            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
-            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};
