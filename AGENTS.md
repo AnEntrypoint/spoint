@@ -160,7 +160,8 @@ Skills encode environment-specific constraints that override general knowledge.
 
 ## Client and app runtime
 
-- HUD `applyDiff(uiRoot, hudVdom)` replaces uiRoot children every frame; imperative DOM overlays mount on `document.body`. Read vdom from `node.__vdom`, never `uiRoot.__vdom`.
+- HUD `applyDiff(container, hudVdom)` (`client/AppModuleSystem.js` renderAppUI) is 4 Hz, not per frame, and already diffs in place: webjsx keeps the previous vdom on the container, so an unchanged subtree costs 0 removes / 0 adds / 0 attribute writes and a one-field change costs 1 text write. Pinned by `scripts/hud-applydiff-witness.mjs`. Imperative DOM overlays mount on `document.body`. The previous vdom webjsx stores is `node.__webjsx_props` plus a `node.__webjsx_childNodes` cache — there is no `__vdom` property anywhere in `client/`.
+- webjsx 0.0.73 (`node_modules/webjsx`, used by `client/AppModuleSystem.js`) has no `newVNode instanceof Node` branch in either `canUpdateVNodes` or `applyChanges`, so a real DOM node placed in a vdom throws `Cannot read properties of undefined (reading 'xmlns')` inside `createDOMElement`; `renderAppUI`'s try/catch swallows it and the HUD silently stops updating. The vendored `vendor/design/vendor/webjsx` copy has that branch; `anentrypoint-design` (used by `client/hud/*`) re-exports the vendored one.
 - `_buildWorldScenery` is joinable: boot adopts a running build (`Promise.race` doesn't cancel the loser).
 - `app.js animate()` returns early while `window.__warmupInFlight`; model-pool + streaming loads pump from frame jobs there, so never park a wait inside warmup.
 - Client `WORLD_DEF` from `sendWorldDefAndModules` has `entities` STRIPPED and carries `_modelUrls`: derive world-entity facts from `_modelUrls`.
