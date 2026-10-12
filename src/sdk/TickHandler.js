@@ -507,7 +507,6 @@ export function createTickHandler(deps) {
       connections.broadcast(MSG.PEER_RTT_TABLE, { rtt: rttTable, pubkeys })
     }
     serverTimeOfDay.tick(dt)
-    serverWeather.tick(dt)
     if (players.length > 0 && serverTimeOfDay.shouldBroadcast()) {
       connections.broadcast(MSG.TIME_OF_DAY_SYNC, serverTimeOfDay.getSyncPayload())
     }
