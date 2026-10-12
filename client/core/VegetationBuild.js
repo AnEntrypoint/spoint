@@ -153,13 +153,202 @@ async function capGeo(geo, maxTris) {
 }
 
 async function _capGeo(geo, maxTris) {
-  try {
-    const idx = geo.index ? geo.index.array : null
-    if (!idx) return geo.clone()
-    const tris = idx.length / 3
-    if (tris <= maxTris) return geo.clone()
-    return await simplifyGeo(geo, maxTris / tris, false)
-  } catch (_) { return geo.clone() }
+  const idx = geo.index ? geo.index.array : null
+  if (!idx) return geo.clone()
+  const tris = idx.length / 3
+  if (tris <= maxTris) return geo.clone()
+  // LOD0 is the near band. Reaching an aggressive cap on a leaf-card cloud is only
+  // possible by merging whole leaf cards into one, which is a visible change at
+  // that range, so the cap is refused here rather than delivered: a budget that is
+  // asked for and not delivered must say so, not hand back the source quietly.
+  const out = await simplifyGeo(geo, maxTris / tris, false, false)
+  const delivered = triCountOf(out)
+  if (delivered <= maxTris) return out
+  const cloud = leafCardCloudOf(geo)
+  const mergeFactor = cloud ? cloud.cards / Math.max(1, Math.floor(maxTris / 2)) : null
+  refuseCap({
+    species: _currentSpecies,
+    kind: cloud ? 'leaf-card-cloud' : 'mesh',
+    target: maxTris,
+    delivered,
+    source: tris,
+    cards: cloud ? cloud.cards : null,
+    mergeFactor,
+    reason: cloud
+      ? `leaf-card cloud of ${cloud.cards} card(s): reaching ${maxTris} triangle(s) means merging ${mergeFactor.toFixed(2)} leaf card(s) into one, which is a visible change in the near band, and meshopt at strict error 0.02 stops at ${delivered}`
+      : `meshopt simplify at strict error 0.02 stops at ${delivered} of ${tris} triangle(s)`,
+  })
+  return out
+}
+
+// A leaf cloud is a flat list of independent quads: card c owns vertices 4c..4c+3,
+// and every triangle stays inside one such group. meshopt's vertex collapse cannot
+// decimate it -- collapsing inside a card moves the leaf by the leaf's own size, so
+// the strict 0.02 error budget refuses nearly every collapse and the call hands back
+// the input. The unit of decimation for a leaf cloud is therefore the CARD, not the
+// vertex: cluster cards by Morton order of their centroids and emit one card per
+// cluster carrying the cluster's total leaf area, so the canopy keeps its area as
+// the triangle count falls.
+const LEAF_CARD_VERTICES = 4
+
+function triCountOf(geo) { return geo && geo.index ? geo.index.array.length / 3 : 0 }
+
+function leafCardCloudOf(geo) {
+  const idx = geo && geo.index ? geo.index.array : null
+  const pos = geo && geo.attributes ? geo.attributes.position : null
+  if (!idx || !pos || idx.length < 3) return null
+  if (!pos.count || pos.count % LEAF_CARD_VERTICES !== 0) return null
+  const groups = pos.count / LEAF_CARD_VERTICES
+  const live = new Uint8Array(groups)
+  for (let t = 0; t < idx.length; t += 3) {
+    const g = (idx[t] / LEAF_CARD_VERTICES) | 0
+    if (g !== ((idx[t + 1] / LEAF_CARD_VERTICES) | 0)) return null
+    if (g !== ((idx[t + 2] / LEAF_CARD_VERTICES) | 0)) return null
+    live[g] = 1
+  }
+  let cards = 0
+  for (let g = 0; g < groups; g++) if (live[g]) cards++
+  return cards < 2 ? null : { live, groups, cards }
+}
+
+function mortonSpread10(v) {
+  v = (v | (v << 16)) & 0x030000ff
+  v = (v | (v << 8)) & 0x0300f00f
+  v = (v | (v << 4)) & 0x030c30c3
+  v = (v | (v << 2)) & 0x09249249
+  return v
+}
+
+const _mergedLeaf = new WeakMap()
+
+function mergedLeafCloud(geo, targetTris) {
+  const cloud = leafCardCloudOf(geo)
+  if (!cloud) return null
+  const { live, groups, cards } = cloud
+  const keep = Math.max(1, Math.floor(targetTris / 2))
+  if (keep >= cards) return null
+  const nameList = []
+  for (const n of Object.keys(geo.attributes)) {
+    const a = geo.attributes[n]
+    if (!a || !a.array || a.isInterleavedBufferAttribute) return null
+    if (n === 'instanceIndex') continue
+    nameList.push(n)
+  }
+  const cached = _mergedLeaf.get(geo)
+  if (cached && cached.keep === keep) return cached.out
+
+  const src = geo.attributes.position.array
+  const cardOf = new Uint32Array(cards)
+  let n = 0
+  for (let g = 0; g < groups; g++) if (live[g]) cardOf[n++] = g
+  const cent = new Float64Array(cards * 3)
+  const nrm = new Float64Array(cards * 3)
+  const area = new Float64Array(cards)
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+  let areaBefore = 0
+  for (let i = 0; i < cards; i++) {
+    const v0 = cardOf[i] * LEAF_CARD_VERTICES, v1 = v0 + 1, v3 = v0 + 3
+    const ax = src[v0 * 3], ay = src[v0 * 3 + 1], az = src[v0 * 3 + 2]
+    const ux = src[v1 * 3] - ax, uy = src[v1 * 3 + 1] - ay, uz = src[v1 * 3 + 2] - az
+    const wx = src[v3 * 3] - ax, wy = src[v3 * 3 + 1] - ay, wz = src[v3 * 3 + 2] - az
+    let gx = uy * wz - uz * wy, gy = uz * wx - ux * wz, gz = ux * wy - uy * wx
+    const gl = Math.sqrt(gx * gx + gy * gy + gz * gz)
+    if (gl > 1e-12) { gx /= gl; gy /= gl; gz /= gl } else { gx = 0; gy = 1; gz = 0 }
+    area[i] = gl
+    areaBefore += gl
+    nrm[i * 3] = gx; nrm[i * 3 + 1] = gy; nrm[i * 3 + 2] = gz
+    const mx = ax + 0.5 * ux + 0.5 * wx, my = ay + 0.5 * uy + 0.5 * wy, mz = az + 0.5 * uz + 0.5 * wz
+    cent[i * 3] = mx; cent[i * 3 + 1] = my; cent[i * 3 + 2] = mz
+    if (mx < minX) minX = mx
+    if (my < minY) minY = my
+    if (mz < minZ) minZ = mz
+    if (mx > maxX) maxX = mx
+    if (my > maxY) maxY = my
+    if (mz > maxZ) maxZ = mz
+  }
+  const sx = 1023 / Math.max(1e-6, maxX - minX)
+  const sy = 1023 / Math.max(1e-6, maxY - minY)
+  const sz = 1023 / Math.max(1e-6, maxZ - minZ)
+  const keys = new Float64Array(cards)
+  for (let i = 0; i < cards; i++) {
+    const qx = mortonSpread10(Math.max(0, Math.min(1023, Math.floor((cent[i * 3] - minX) * sx))))
+    const qy = mortonSpread10(Math.max(0, Math.min(1023, Math.floor((cent[i * 3 + 1] - minY) * sy))))
+    const qz = mortonSpread10(Math.max(0, Math.min(1023, Math.floor((cent[i * 3 + 2] - minZ) * sz))))
+    keys[i] = qx * 4 + qy * 2 + qz
+  }
+  const ord = new Array(cards)
+  for (let i = 0; i < cards; i++) ord[i] = i
+  ord.sort((a, b) => keys[a] - keys[b])
+
+  const srcAttrs = nameList.map((k) => geo.attributes[k])
+  const outAttrs = srcAttrs.map((a) => new a.array.constructor(keep * LEAF_CARD_VERTICES * a.itemSize))
+  const posSlot = nameList.indexOf('position')
+  const nrmSlot = nameList.indexOf('normal')
+  const posOut = outAttrs[posSlot]
+  const nrmOut = nrmSlot >= 0 ? outAttrs[nrmSlot] : null
+  const run = cards / keep
+  for (let j = 0; j < keep; j++) {
+    const s0 = Math.floor(j * run)
+    const s1 = Math.max(s0 + 1, Math.min(cards, Math.floor((j + 1) * run)))
+    let sumA = 0, cX = 0, cY = 0, cZ = 0, nX = 0, nY = 0, nZ = 0, best = -1, bestA = -1
+    for (let s = s0; s < s1; s++) {
+      const i = ord[s]
+      const a = area[i]
+      sumA += a
+      cX += cent[i * 3] * a; cY += cent[i * 3 + 1] * a; cZ += cent[i * 3 + 2] * a
+      nX += nrm[i * 3] * a; nY += nrm[i * 3 + 1] * a; nZ += nrm[i * 3 + 2] * a
+      if (a > bestA) { bestA = a; best = i }
+    }
+    const inv = sumA > 1e-12 ? 1 / sumA : 0
+    cX *= inv; cY *= inv; cZ *= inv
+    nX *= inv; nY *= inv; nZ *= inv
+    let nl = Math.sqrt(nX * nX + nY * nY + nZ * nZ)
+    if (!(nl > 1e-9)) { nX = nrm[best * 3]; nY = nrm[best * 3 + 1]; nZ = nrm[best * 3 + 2]; nl = 1 }
+    nX /= nl; nY /= nl; nZ /= nl
+    const b0 = cardOf[best] * LEAF_CARD_VERTICES, b1 = b0 + 1
+    let tx = src[b1 * 3] - src[b0 * 3], ty = src[b1 * 3 + 1] - src[b0 * 3 + 1], tz = src[b1 * 3 + 2] - src[b0 * 3 + 2]
+    const d = tx * nX + ty * nY + tz * nZ
+    tx -= d * nX; ty -= d * nY; tz -= d * nZ
+    let tl = Math.sqrt(tx * tx + ty * ty + tz * tz)
+    if (!(tl > 1e-9)) {
+      tx = Math.abs(nY) < 0.9 ? 0 : 1; ty = Math.abs(nY) < 0.9 ? 1 : 0; tz = 0
+      const d2 = tx * nX + ty * nY + tz * nZ
+      tx -= d2 * nX; ty -= d2 * nY; tz -= d2 * nZ
+      tl = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
+    }
+    tx /= tl; ty /= tl; tz /= tl
+    const bx = nY * tz - nZ * ty, by = nZ * tx - nX * tz, bz = nX * ty - nY * tx
+    const half = Math.sqrt(sumA) / 2
+    for (let k = 0; k < LEAF_CARD_VERTICES; k++) {
+      const su = (k === 1 || k === 2) ? half : -half
+      const sv = (k === 2 || k === 3) ? half : -half
+      const v = j * LEAF_CARD_VERTICES + k
+      posOut[v * 3] = cX + su * tx + sv * bx
+      posOut[v * 3 + 1] = cY + su * ty + sv * by
+      posOut[v * 3 + 2] = cZ + su * tz + sv * bz
+      if (nrmOut) { nrmOut[v * 3] = nX; nrmOut[v * 3 + 1] = nY; nrmOut[v * 3 + 2] = nZ }
+      for (let ai = 0; ai < srcAttrs.length; ai++) {
+        if (ai === posSlot || (nrmOut && ai === nrmSlot)) continue
+        const a = srcAttrs[ai]
+        const from = (b0 + k) * a.itemSize, to = v * a.itemSize
+        for (let e = 0; e < a.itemSize; e++) outAttrs[ai][to + e] = a.array[from + e]
+      }
+    }
+  }
+  const out = new THREE.BufferGeometry()
+  for (let i = 0; i < nameList.length; i++) out.setAttribute(nameList[i], new THREE.BufferAttribute(outAttrs[i], srcAttrs[i].itemSize))
+  const idxCtor = keep * LEAF_CARD_VERTICES > 65535 ? Uint32Array : Uint16Array
+  const newIdx = new (idxCtor)(keep * 6)
+  for (let j = 0; j < keep; j++) {
+    const v = j * LEAF_CARD_VERTICES, b = j * 6
+    newIdx[b] = v; newIdx[b + 1] = v + 1; newIdx[b + 2] = v + 2
+    newIdx[b + 3] = v; newIdx[b + 4] = v + 2; newIdx[b + 5] = v + 3
+  }
+  out.setIndex(new THREE.BufferAttribute(newIdx, 1))
+  const result = { geometry: out, delivered: keep * 2, cards, keep, mergeFactor: cards / keep, areaBefore }
+  _mergedLeaf.set(geo, { keep, out: result })
+  return result
 }
 
 function _stripInstanceIndexStamp(g) {
@@ -167,20 +356,30 @@ function _stripInstanceIndexStamp(g) {
   return g
 }
 
-async function simplifyGeo(geo, ratio, sloppy) {
+let _currentSpecies = 'unknown'
+const _capRefusals = []
+
+export function leafCapRefusals() { return _capRefusals.slice() }
+
+function refuseCap(row) {
+  _capRefusals.push(row)
+  console.error(`[veg-cap] cap unmet: species=${row.species} kind=${row.kind} target=${row.target} tri delivered=${row.delivered} of ${row.source} -- ${row.reason}`)
+}
+
+async function simplifyGeo(geo, ratio, sloppy, leafMerge = true) {
   const _t0 = _now()
-  try { return await _simplifyGeo(geo, ratio, sloppy) } finally { _span('simplifygeo', _t0) }
+  try { return await _simplifyGeo(geo, ratio, sloppy, leafMerge) } finally { _span('simplifygeo', _t0) }
 }
 
 const _simplifiedIndex = new WeakMap()
 
-async function _simplifyGeo(geo, ratio, sloppy) {
+async function _simplifyGeo(geo, ratio, sloppy, leafMerge) {
   try {
     await MeshoptSimplifier.ready
     const idx = geo.index ? geo.index.array : null
     const pos = geo.attributes.position.array
     if (!idx || !pos) return _stripInstanceIndexStamp(geo.clone())
-    const variant = ratio + ':' + (sloppy ? 'sloppy' : 'strict')
+    const variant = ratio + ':' + (sloppy ? 'sloppy' : 'strict') + ':' + (leafMerge ? 'merge' : 'nomerge')
     let byVariant = _simplifiedIndex.get(geo)
     if (!byVariant) { byVariant = new Map(); _simplifiedIndex.set(geo, byVariant) }
     let newIdx = byVariant.get(variant)
@@ -193,7 +392,13 @@ async function _simplifyGeo(geo, ratio, sloppy) {
     }
     const out = geo.clone()
     if (newIdx && newIdx.length >= 3) out.setIndex(new THREE.BufferAttribute(newIdx, 1))
-    return _stripInstanceIndexStamp(out)
+    const meshoptOut = _stripInstanceIndexStamp(out)
+    if (!leafMerge) return meshoptOut
+    const targetTris = Math.floor((idx.length / 3) * ratio)
+    if (triCountOf(meshoptOut) <= targetTris) return meshoptOut
+    const merged = mergedLeafCloud(geo, targetTris)
+    if (merged && merged.delivered < triCountOf(meshoptOut)) return merged.geometry
+    return meshoptOut
   } catch (_) { return _stripInstanceIndexStamp(geo.clone()) }
 }
 
@@ -247,6 +452,7 @@ const _speciesTemplates = new Map()
 function buildSpecies(name, Tree, variant = 0, TreePreset = null) {
   const key = name + '#' + variant
   _spanLabel = key
+  _currentSpecies = key
   let t = _speciesTemplates.get(key)
   if (!t) {
     const _g = _now()
