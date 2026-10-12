@@ -5,6 +5,7 @@ const ITEM_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 }
 const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1)
 const _m4 = new THREE.Matrix4()
 export const LOD_REEVAL_MOVE_M = 0.5
+const LEAF_GATE_HYSTERESIS = 0.05
 const LOD_REEVAL_MOVE_SQ = LOD_REEVAL_MOVE_M * LOD_REEVAL_MOVE_M
 const NO_MESH_TIER = -1
 const BAND_UNSET = -2
@@ -159,6 +160,15 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   let meshFarSq = Infinity
   let meshFarDist = Infinity
   let meshInSq = Infinity
+  // Per-instance cutoff applied to this instancer's SATELLITES only (the leaf instancer is a
+  // satellite of the branch instancer). Positive => a satellite instance beyond this radius is
+  // placed in NO_MESH_TIER, so the host still draws its own mesh. Set from the host via
+  // setLeafDrawDistance(); Infinity is the no-cutoff default.
+  let leafGateSq = Infinity
+  let leafGateDist = Infinity
+  let leafGateInSq = Infinity
+  function applyLeafGate(sq) { leafGateSq = sq }
+  function syncEye(x, y, z) { lodEyeX = x; lodEyeY = y; lodEyeZ = z; lodStale = false }
   const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0, rebuilds: 0, rebuildRecords: 0, mirrored: 0 }
 
   function lodTierFor(dsq) {
@@ -175,6 +185,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   }
 
   function cellCrossesBand(dminSq, dmaxSq) {
+    // A cell straddling the leaf gate is not uniform in the SATELLITE (leaf) tier even when every
+    // host tier in it agrees, so it can never be skipped wholesale.
+    if (leafGateDist !== Infinity && dmaxSq >= leafGateInSq && dminSq < leafGateSq) return true
     if (dmaxSq >= meshInSq && dminSq < meshFarSq) return true
     for (let i = 1; i < thresholdsSq.length; i++) if (dmaxSq >= leaveSq[i] && dminSq < thresholdsSq[i]) return true
     return false
@@ -251,12 +264,18 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   function seedFromHost(slot, id) {
     host.lodPair.decisionOf(slot, seedScratch)
     const rec = recs[id]
-    if (rec.tier === seedScratch.tier && rec.visible === seedScratch.visible && rec.viewCulled === seedScratch.culled) return
+    const o = id * SPAN_STRIDE
+    const gated = o + 2 < spans.length
+      ? gateAt((spans[o] - lodEyeX) ** 2 + (spans[o + 1] - lodEyeY) ** 2 + (spans[o + 2] - lodEyeZ) ** 2, rec.gated)
+      : false
+    const tier = gated ? NO_MESH_TIER : seedScratch.tier
+    if (rec.tier === tier && rec.visible === seedScratch.visible && rec.viewCulled === seedScratch.culled) return
     removeFromTier(rec.tier, id)
     rec.visible = seedScratch.visible
     rec.viewCulled = seedScratch.culled
     rec.shadowWanted = seedScratch.shadowWanted
-    rec.tier = seedScratch.tier
+    rec.tier = tier
+    rec.gated = gated
     if (rec.visible) show(id, rec)
   }
 
@@ -283,11 +302,31 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     return rec === null || rec === undefined ? -1 : id
   }
 
-  function mirrorTier(slot, tier, culled) {
+  function mirrorTier(slot, tier, culled, gated) {
     const id = slotId(slot)
     if (id < 0) return
     sweepStats.mirrored++
-    placeInTier(id, recs[id], tier, culled)
+    placeInTier(id, recs[id], gatedTier(id, tier, gated), culled)
+  }
+
+  // A satellite (leaf) instance past the gate is dropped to NO_MESH_TIER while its host (branch)
+  // keeps its own tier, so shedding foliage never hands the tree a no-mesh gap the impostor does
+  // not already cover and never touches the instance inside the gate -- including the one at 0m.
+  // `gated` is the host's own decision; when it is absent (a host-side path that never computed a
+  // distance) the satellite derives it from its own span and the synced eye.
+  function gatedTier(id, tier, gated) {
+    if (gated === true) return NO_MESH_TIER
+    if (gated === false || leafGateSq === Infinity) return tier
+    const o = id * SPAN_STRIDE
+    if (o + 2 >= spans.length) return tier
+    const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
+    return (dx * dx + dy * dy + dz * dz) >= leafGateSq ? NO_MESH_TIER : tier
+  }
+
+  function gateAt(dsq, wasGated) {
+    if (leafGateDist === Infinity) return false
+    if (dsq >= leafGateSq) return true
+    return dsq > leafGateInSq ? wasGated === true : false
   }
 
   function mirrorShadow(slot, shadowWanted) {
@@ -320,14 +359,14 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     return addSlotIds[addSlotCursor++]
   }
 
-  function placeInTier(id, rec, tier, culled) {
+  function placeInTier(id, rec, tier, culled, gated) {
     const wasDrawn = inView(rec) && rec.tier !== NO_MESH_TIER
     const nowDrawn = rec.visible && !culled && tier !== NO_MESH_TIER
     if (wasDrawn && (!nowDrawn || tier !== rec.tier)) tiers[rec.tier].remove(id)
     const addNow = nowDrawn && (!wasDrawn || tier !== rec.tier)
     rec.tier = tier; rec.viewCulled = culled
     if (addNow) tiers[tier].add(id, rec)
-    for (let s = 0; s < satellites.length; s++) satellites[s].mirrorTier(id, tier, culled)
+    for (let s = 0; s < satellites.length; s++) satellites[s].mirrorTier(id, tier, culled, gated)
   }
 
   const planeBuf = new Float64Array(24)
@@ -568,7 +607,10 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       const o = id * SPAN_STRIDE
       const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
       if (dx * dx + dy * dy + dz * dz >= meshFarSq) rec.band = NO_MESH_TIER
-      if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
+      if (rec.tier !== NO_MESH_TIER || rec.viewCulled || rec.gated !== true) {
+        rec.gated = true
+        placeInTier(id, rec, NO_MESH_TIER, false, true)
+      }
       if (shadow && rec.shadowWanted) applyShadowWanted(id, rec, false)
     }
   }
@@ -601,7 +643,11 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
         }
       }
       if (!culled) rec.band = tier
-      if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+      const gated = gateAt(dsq, rec.gated)
+      if (tier !== rec.tier || culled !== rec.viewCulled || gated !== rec.gated) {
+        rec.gated = gated
+        placeInTier(id, rec, tier, culled, gated)
+      }
     }
   }
 
@@ -613,7 +659,10 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     const ex = cameraPos.x - lodEyeX, ey = cameraPos.y - lodEyeY, ez = cameraPos.z - lodEyeZ
     const moved = lodStale || ex * ex + ey * ey + ez * ez >= LOD_REEVAL_MOVE_SQ
     if (!moved && !viewChanged) return
-    if (moved) { lodEyeX = cameraPos.x; lodEyeY = cameraPos.y; lodEyeZ = cameraPos.z; lodStale = false }
+    if (moved) {
+      lodEyeX = cameraPos.x; lodEyeY = cameraPos.y; lodEyeZ = cameraPos.z; lodStale = false
+      for (let s = 0; s < satellites.length; s++) satellites[s].syncEye(lodEyeX, lodEyeY, lodEyeZ)
+    }
     if (frustum) for (let p = 0, o = 0; p < 6; p++, o += 4) { const pl = frustum.planes[p]; planeBuf[o] = pl.normal.x; planeBuf[o + 1] = pl.normal.y; planeBuf[o + 2] = pl.normal.z; planeBuf[o + 3] = pl.constant }
     if (gridNeedsRebuild()) rebuildGrid()
     if (grid.usable && frustum) {
@@ -687,7 +736,10 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
                 const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
                 if (dx * dx + dy * dy + dz * dz >= meshFarSq) rec.band = NO_MESH_TIER
               }
-              if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
+              if (rec.tier !== NO_MESH_TIER || rec.viewCulled || rec.gated !== true) {
+                rec.gated = true
+                placeInTier(id, rec, NO_MESH_TIER, false, true)
+              }
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
             }
           } else if (mode === MODE_UNIFORM) {
@@ -697,7 +749,11 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
               const rec = recs[id]
               walked++
               rec.band = cellTier
-              if (rec.tier !== cellTier || rec.viewCulled) placeInTier(id, rec, cellTier, false)
+              const cellGated = leafGateDist !== Infinity && dminSq >= leafGateSq
+              if (rec.tier !== cellTier || rec.viewCulled || rec.gated !== cellGated) {
+                rec.gated = cellGated
+                placeInTier(id, rec, cellTier, false, cellGated)
+              }
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
             }
           } else {
@@ -723,7 +779,11 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
                 }
               }
               if (!culled) rec.band = tier
-              if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+              const gated = gateAt(dsq, rec.gated)
+              if (tier !== rec.tier || culled !== rec.viewCulled || gated !== rec.gated) {
+                rec.gated = gated
+                placeInTier(id, rec, tier, culled, gated)
+              }
             }
           }
           grid.mode[c] = mode
@@ -745,7 +805,10 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
           const rec = recs[id]
           walked++
           rec.band = NO_MESH_TIER
-          if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
+          if (rec.tier !== NO_MESH_TIER || rec.viewCulled || rec.gated !== true) {
+            rec.gated = true
+            placeInTier(id, rec, NO_MESH_TIER, false, true)
+          }
           if (shadow && rec.shadowWanted) applyShadowWanted(id, rec, false)
         }
         grid.mode[c] = MODE_NOT_DRAWN
@@ -849,6 +912,18 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     },
     resizeBuffers() {},
     updateLOD,
+    // Host-only: gate the satellite (leaf) instances at a radius. Invalidating every cell's mode
+    // forces one full re-sweep, which is what re-mirrors every leaf instance through the new gate.
+    setLeafDrawDistance(m) {
+      const on = Number.isFinite(m) && m > 0
+      leafGateDist = on ? m : Infinity
+      leafGateSq = on ? m * m : Infinity
+      leafGateInSq = on ? (m * (1 - LEAF_GATE_HYSTERESIS)) ** 2 : Infinity
+      for (let s = 0; s < satellites.length; s++) satellites[s].applyLeafGate(leafGateSq)
+      lodStale = true
+      if (grid.usable) grid.mode.fill(APPLIED_INVALID, 0, grid.cells)
+    },
+    get leafDrawDistance() { return leafGateDist },
     setMeshFarDistance(d, reentry) {
       if (!(d > 0)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: distance must be positive, got ${d}`)
       if (reentry !== undefined && !(reentry > 0 && reentry < d)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: re-entry ${reentry} must lie in (0, ${d})`)
@@ -898,7 +973,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     for (let i = 0; i < leaveSq.length; i++) {
       if (hostLeave[i] !== leaveSq[i]) throw new Error(`WebGPULodInstancer: satellite LOD leave threshold ${i} is ${leaveSq[i]} but its host's is ${hostLeave[i]}`)
     }
-    const selfAsSatellite = { mirrorTier, mirrorShadow, mirrorVisibility, unbindHostSlot, applyMeshFar }
+    const selfAsSatellite = { mirrorTier, mirrorShadow, mirrorVisibility, unbindHostSlot, applyMeshFar, applyLeafGate, syncEye }
     host.lodPair.attach(selfAsSatellite)
     selfAsSatellite.applyMeshFar(host.lodPair.meshFarDist, host.lodPair.meshReentryDist)
     api.disposeSatellite = () => host.lodPair.detach(selfAsSatellite)

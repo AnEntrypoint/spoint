@@ -12,8 +12,10 @@ import { createPlacementRing } from './PlacementRing.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
-import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
-import { createWebGPULodInstancer } from './WebGPULodInstancer.js'
+import { leafGateM, LEAF_OFF_UNLIMITED_M } from './QualityGovernor.js'
+import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H, halveTreeMaterialTextures } from './VegetationBuild.js'
+import { contactOcclusionField, treeContactStamps, contactFieldLoadChunk, contactFieldUnloadChunk } from '/src/terrain/ContactOcclusionField.js'
+import { createWebGPULodInstancer, LOD_REEVAL_MOVE_M } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
 import { macrotaskYield } from './macrotaskYield.js'
@@ -50,6 +52,7 @@ const _cullMat = new THREE.Matrix4(), _cullShift = new THREE.Matrix4(), _cullFru
 
 export async function createVegetation(opts = {}) {
   const { renderer, scene, frame } = opts
+  const pendingTierWarm = []
   const biomeOverride = createBiomeOverride()
   const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
   const cfg = opts.cfg || {}
@@ -158,6 +161,9 @@ export async function createVegetation(opts = {}) {
       const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
       for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
       bootSpan('simplify', label, _t); _t = performance.now()
+      await awaitMatTextures([sp.branchMat, sp.leafMat])
+      halveTreeMaterialTextures(sp.branchMat)
+      halveTreeMaterialTextures(sp.leafMat)
       if (isWebGPU) {
         applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
         applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
@@ -175,15 +181,15 @@ export async function createVegetation(opts = {}) {
           { geometry: l1, material: sp.leafMat, distance: D1 },
           { geometry: l2, material: sp.leafMat, distance: D2 },
         ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS, host: branch })
+        queueTierNodeWarm(branch); queueTierNodeWarm(leaf)
         bootSpan('instancers', label, _t); _t = performance.now()
         try {
           if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
           if (variant > 0) throw SHARED_IMPOSTOR_BAKE
           if (!USE_SHARED_IMPOSTOR) throw new Error('WebGPU draws impostors only through the shared atlas (?veg=full or ?veg=shared)')
-          await awaitMatTextures([sp.branchMat, sp.leafMat])
           const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
           if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
-            const baked = createTextureAtlas({ renderer, target: sp.tree, useHemiOctahedron: false, spritesPerSide: 8, textureSize: 1024, makeCaptureMaterial: makeImpostorCaptureMaterialTSL })
+            const baked = createTextureAtlas({ renderer, target: sp.tree, useHemiOctahedron: false, spritesPerSide: 8, textureSize: 512, makeCaptureMaterial: makeImpostorCaptureMaterialTSL })
             impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
             impostor = true
             impMatRef = { map: baked.albedo, normalMap: baked.normalDepth, dispose() { baked.renderTarget.dispose() } }
@@ -231,14 +237,13 @@ export async function createVegetation(opts = {}) {
         try {
           if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
           if (variant > 0) throw SHARED_IMPOSTOR_BAKE
-          await awaitMatTextures([sp.branchMat, sp.leafMat])
           const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
           if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
             const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
             const impMat = createOctahedralImpostorMaterial({
               baseType: THREE.MeshStandardMaterial, useHemiOctahedron: false,
               spritesPerSide: 8, alphaClamp: 0.4, transform, transparent: false,
-              renderer, target: sp.tree, textureSize: 1024,
+              renderer, target: sp.tree, textureSize: 512,
               farSingleSprite: true,
             })
             impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
@@ -325,10 +330,16 @@ export async function createVegetation(opts = {}) {
   }
 
   const FAR_LOD_SWAP = Math.max(D2 * (1 + LOD_HYS), impostorHandoffDistances(IMPOSTOR_NEAR_CUTOFF).meshEnd)
+  const MESH_REENTRY_DIST = IMPOSTOR_NEAR_CUTOFF + LOD_REEVAL_MOVE_M
+  // A leaf cutoff is "no leaf meshes at or beyond N metres", so anything at or inside the mid band's
+  // far edge reads on screen as bare branches at medium distance -- trees are mesh-drawn out to
+  // FAR_LOD_SWAP and only then does the shared impostor (whose atlas already carries foliage) take
+  // over. The consumer therefore refuses a cutoff inside the mid band and floors it at that edge.
+  const LEAF_OFF_FLOOR_M = D2 * (1 + LOD_HYS)
   for (const rec of meshes) {
     if (!rec.impostor && rec.impTile == null) continue
     if (isWebGPU) {
-      if (sharedImpostor && rec.impTile != null) { rec.branch.setMeshFarDistance(FAR_LOD_SWAP); rec.leaf.setMeshFarDistance(FAR_LOD_SWAP) }
+      if (sharedImpostor && rec.impTile != null) { rec.branch.setMeshFarDistance(FAR_LOD_SWAP, MESH_REENTRY_DIST); rec.leaf.setMeshFarDistance(FAR_LOD_SWAP, MESH_REENTRY_DIST) }
     } else if (sharedImpostor && rec.impTile != null) {
       rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, 0)
       rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
@@ -435,6 +446,7 @@ export async function createVegetation(opts = {}) {
     const c = placementRing.centre(key)
     const extent = commitTileExtent('vegetation tile ground height', (x, z) => frame.groundHeightLocal(x, z), c, b, _minY, _maxY, 2)
     loaded.set(key, { entries, ...extent, occluded: false })
+    contactFieldLoadChunk(contactOcclusionField, 'v' + String(key), treeContactStamps(list || []))
     _occCands = null
     profile.loads++
     profile.loadChunkMs += _nowMs() - _lcT0; profile.loadChunkCalls++
@@ -443,6 +455,7 @@ export async function createVegetation(opts = {}) {
 
   function unloadChunk(key) {
     staleKeys.delete(key)
+    contactFieldUnloadChunk(contactOcclusionField, 'v' + String(key))
     const cell = loaded.get(key)
     if (!cell) return
     for (const en of cell.entries) {
@@ -550,6 +563,22 @@ export async function createVegetation(opts = {}) {
     return n
   }
 
+  function queueTierNodeWarm(instancer) {
+    const tierCount = instancer.tierMeshes.length
+    for (let k = 0; k < tierCount; k++) pendingTierWarm.push([instancer, k])
+    if (instancer.shadowMesh) pendingTierWarm.push([instancer, -1])
+  }
+
+  function warmOneTierMesh(camera) {
+    const [instancer, slot] = pendingTierWarm.shift()
+    const mesh = slot < 0 ? instancer.shadowMesh : instancer.tierMeshes[slot]
+    if (!mesh) return
+    const { count, visible } = mesh
+    mesh.count = 1
+    mesh.visible = true
+    try { renderer.compile(mesh, camera, scene) } finally { mesh.count = count; mesh.visible = visible }
+  }
+
   function warmShaders(camera) {
     if (!camera) return runWarmPasses(null, 0)
     return runWarmPasses(() => renderer.render(scene, camera), 2)
@@ -648,6 +677,7 @@ export async function createVegetation(opts = {}) {
 
   function update(dt, camera, playerPos, shadowStill) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    if (isWebGPU && pendingTierWarm.length > 0 && camera) warmOneTierMesh(camera)
     let px, pz
     if (playerPos && Array.isArray(playerPos.position)) { px = playerPos.position[0]; pz = playerPos.position[2] }
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
@@ -664,10 +694,21 @@ export async function createVegetation(opts = {}) {
     }
     if (shadowStill === false) _cullDirty = true
     if (totalInstances > 0) { try { if (!bvhBuilt) ensureBVH(); else rebuildBVHAfterIncrementalGrowth() } catch (_) { bvhBuilt = true } }
+    // vegLeafOff is a DISTANCE in metres, not a boolean: leaf meshes stop drawing at or beyond it,
+    // applied per instance inside the instancer, so the near and mid bands -- including 0m -- keep
+    // their foliage at every tier. 0 means no cutoff, and a cutoff inside the mid band is floored to
+    // that band's far edge rather than applied, so no knob value can strip mid-distance foliage.
+    const leafCut = (typeof window !== 'undefined')
+      ? leafGateM(window.__vegLeafOff, LEAF_OFF_FLOOR_M)
+      : LEAF_OFF_UNLIMITED_M
     for (const rec of meshes) {
       const vis = rec.count > 0
       if (rec.branch.visible !== vis) { rec.branch.visible = vis; rec.leaf.visible = vis }
-      if (typeof window !== 'undefined' && window.__vegLeafOff) rec.leaf.visible = false
+      if ((rec.leafGate || LEAF_OFF_UNLIMITED_M) !== leafCut) {
+        if (typeof rec.branch.setLeafDrawDistance === 'function') rec.branch.setLeafDrawDistance(leafCut > 0 ? leafCut : Infinity)
+        else rec.leaf.visible = !(leafCut > 0) // legacy GL InstancedMesh2 has no per-instance gate
+        rec.leafGate = leafCut
+      }
       if (typeof window !== 'undefined' && window.__vegAllOff) { rec.branch.visible = false; rec.leaf.visible = false }
       if (typeof window !== 'undefined' && window.__vegHideFar && window.__vegHideFar.includes(rec.name)) { rec.branch.visible = false; rec.leaf.visible = false }
     }
@@ -676,8 +717,9 @@ export async function createVegetation(opts = {}) {
     _profAccum += dt
     if (_profAccum >= 0.25) {
       _profAccum = 0
-      let vis = 0, impostorInst = 0, meshInst = 0, branchMeshInst = 0, vegDraws = 0
+      let vis = 0, impostorInst = 0, meshInst = 0, branchMeshInst = 0, leafMeshInst = 0, vegDraws = 0
       const bandTotals = []
+      const leafBands = []
       const countDraws = (im) => {
         const lod = im.LODinfo && im.LODinfo.render
         const lc = lod && lod.count
@@ -710,6 +752,8 @@ export async function createVegetation(opts = {}) {
         const ls = tierSplit(rec.leaf, impLevel)
         meshInst += bs.mesh + ls.mesh
         branchMeshInst += bs.mesh
+        leafMeshInst += ls.mesh
+        for (let i = 0; i < ls.bands.length; i++) leafBands[i] = (leafBands[i] || 0) + ls.bands[i]
         impostorInst += bs.impostor + ls.impostor
         for (let i = 0; i < bs.bands.length; i++) bandTotals[i] = (bandTotals[i] || 0) + bs.bands[i] + (ls.bands[i] || 0)
         vegDraws += countDraws(rec.branch) + countDraws(rec.leaf)
@@ -732,6 +776,11 @@ export async function createVegetation(opts = {}) {
       profile.sharedImpostorCount = sharedImpostor ? (sharedImpostor.count || 0) : 0
       profile.meshInstances = meshInst
       profile.meshTierInstances = bandTotals
+      profile.leafMeshInstances = leafMeshInst
+      profile.leafTierInstances = leafBands
+      // Read back the gate the instancer actually holds, not the knob that asked for it.
+      profile.leafGateM = meshes.length && typeof meshes[0].branch.leafDrawDistance === 'number' ? meshes[0].branch.leafDrawDistance : null
+      profile.leafFloorM = LEAF_OFF_FLOOR_M
       profile.vegDrawCalls = vegDraws
       try { profile.drawCalls = renderer.info.render.calls } catch (_) {}
       if (typeof window !== 'undefined') window.__vegProfile = profile

@@ -8,10 +8,21 @@ export const RAISE_BELOW_MS = FRAME_BUDGET_MS - DEAD_BAND_LOWER_MS
 const FRAMES_PER_WINDOW = 30
 const WINDOWS_BEFORE_STEP = 2
 export const MIN_STEP_INTERVAL_MS = 1000
+// Recovery used to share the shed path's 1000ms floor, so a tier shed in 200ms took >=1000ms to
+// come back -- a 5:1 ratchet that only ever walked down. Raising is gated on 2 clean 30-frame
+// windows anyway, so the interval is what decides how fast a recovered frame budget is given back.
+export const RECOVER_STEP_INTERVAL_MS = 400
 export const HITCH_ABOVE_MS = 2 * FRAME_BUDGET_MS
-export const HITCH_STEP_INTERVAL_MS = 200
+// 200ms let the latch shed a full tier every 12 frames at 60Hz: a single dropped frame on every
+// other tick walked the ladder to the floor while nothing on screen said why. 500ms still answers
+// a sustained stall inside 2 windows but leaves the ladder legible.
+export const HITCH_STEP_INTERVAL_MS = 500
 export const HITCH_RESPONSE_BOUND_FRAMES = 1
 const WINDOW_P95_Q = 0.95
+
+// vegLeafOff is a DISTANCE, not a boolean: leaf meshes are dropped at or beyond it, so the near
+// range (including 0m) keeps its foliage at every tier. 0 means "no cutoff".
+export const LEAF_OFF_UNLIMITED_M = 0
 
 export const RESOLUTION_KEYS = new Set([
   'dprAuto', 'dprOff', 'dpr', 'vdrsAuto', 'vdrsOff', 'vdrs', 'vdrsScale',
@@ -31,9 +42,9 @@ export const GOVERNED_KNOBS = [
   { key: 'ssr', type: 'boolean',
     consumer: 'client/core/SSR.js:320 (shouldRun: RenderControls.get(\'ssr\') === true && !!ctx.ssr && RenderControls.get(\'ssao\') === true)',
     enableBit: 'live per-frame gate, additionally gated on ssao === true, so ssao:false already disables it.' },
-  { key: 'vegLeafOff', type: 'boolean',
-    consumer: 'client/core/Vegetation.js:666 (per-frame loop inside update(): if (window.__vegLeafOff) rec.leaf.visible = false)',
-    enableBit: 'live per-frame read; hides every leaf mesh. Branches/trunks and the shared impostor stay.' },
+  { key: 'vegLeafOff', type: 'number',
+    consumer: 'client/core/Vegetation.js (per-frame loop inside update(): rec.branch.setLeafDrawDistance(leafCutoffM(window.__vegLeafOff)), gated per instance inside WebGPULodInstancer.js mirrorTier)',
+    enableBit: 'live per-frame read; metres at/beyond which leaf meshes stop drawing. Near trees keep their leaves at every tier; the trunk/branch mesh and the shared impostor are untouched, so nothing gains a no-mesh band.' },
   { key: 'maxLevel', type: 'number',
     consumer: 'packages/mapspinner/src/tsl/planet-tsl.js:162-163 (writeQuads, clamped [2,22]); packages/mapspinner/src/planet-orchestrator.js:196-197 (frame())',
     enableBit: 'live per-frame read; an explicit value also disables the altitude deck cap and high-altitude LOD drop in planet-orchestrator.js:205-207, so the governor clamps it below the booted value instead of raising it.' },
@@ -42,16 +53,54 @@ export const GOVERNED_KNOBS = [
     enableBit: 'live per-frame read. Smaller = quads split only when nearer the camera = coarser mesh = cheaper, so the governor only ever lowers it.' },
 ]
 
+// vegLeafOff is a leaf-mesh cutoff in metres, shrinking as the tier deepens. Tier 3 used to be a
+// global boolean that stripped the foliage off every tree including the one at 0m while maxLevel
+// only moved 10 -> 9; the ladder below drops leaves from the OUTSIDE of the mesh band inward.
+//
+// The cutoff is "no leaf meshes at or beyond N metres", and Vegetation.js draws leaf meshes in
+// three bands -- near 0-D1, mid D1-D2, far D2-FAR_LOD_SWAP -- handing everything past
+// FAR_LOD_SWAP to the shared impostor, whose baked atlas already carries foliage. D1/D2 cap at
+// 14/35 m and LOD_HYS is 0.12, so the mid band ends at 39.2 m: a cutoff inside it reads on screen
+// as "medium distance trees have no foliage". Every rung therefore sits AT OR BEYOND that edge and
+// sheds only the outer mesh band; Vegetation.js re-floors the value there as well, so no knob
+// setting can reach into the mid band.
+export const LEAF_OFF_MID_BAND_EDGE_M = 39.2
 export const QUALITY_TIERS = [
-  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: false },
-  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: false },
-  { maxLevel: 10, splitFactor: 0.20, vegLeafOff: false },
-  { maxLevel: 9, splitFactor: 0.15, vegLeafOff: true },
-  { maxLevel: 8, splitFactor: 0.10, vegLeafOff: true },
-  { maxLevel: 7, splitFactor: 0.07, vegLeafOff: true },
+  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0 },
+  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0 },
+  { maxLevel: 10, splitFactor: 0.20, vegLeafOff: 0 },
+  { maxLevel: 9, splitFactor: 0.15, vegLeafOff: 45 },
+  { maxLevel: 8, splitFactor: 0.10, vegLeafOff: 42 },
+  { maxLevel: 7, splitFactor: 0.07, vegLeafOff: 40 },
 ]
 export const MAX_TIER = QUALITY_TIERS.length - 1
 const EFFECT_KEYS = ['ssao', 'bloom', 'ssr']
+
+// One parse boundary for the leaf cutoff: metres at/beyond which leaf meshes stop drawing.
+// 0 (and every non-number, and every non-finite or negative number) means "no cutoff", so a bad
+// or legacy boolean value can never turn into a 1m cutoff that strips the tree you are standing on.
+export function leafCutoffM(v) {
+  if (typeof v !== 'number') return LEAF_OFF_UNLIMITED_M
+  if (!Number.isFinite(v) || v <= 0) return LEAF_OFF_UNLIMITED_M
+  return v
+}
+
+// The consumer-side floor, applied where the band edges live: Vegetation.js owns D1/D2/LOD_HYS and
+// passes the mid band's far edge in, so a cutoff that would strip foliage inside that band is
+// floored to it instead of applied. 0 stays 0 -- no cutoff is not a cutoff to be raised.
+export function leafGateM(v, midBandEdgeM = LEAF_OFF_MID_BAND_EDGE_M) {
+  const c = leafCutoffM(v)
+  if (c <= 0) return LEAF_OFF_UNLIMITED_M
+  const floor = Number.isFinite(midBandEdgeM) && midBandEdgeM > 0 ? midBandEdgeM : LEAF_OFF_MID_BAND_EDGE_M
+  return Math.max(c, floor)
+}
+
+// The governor only ever degrades: two cutoffs combine to the SMALLER positive one, and an absent
+// cutoff never wins against a real one in either direction.
+function _cutoffMin(a, b) {
+  if (a > 0 && b > 0) return Math.min(a, b)
+  return a > 0 ? a : b
+}
 
 function _num(v, fallback) { return Number.isFinite(v) ? v : fallback }
 
@@ -103,7 +152,7 @@ export function createQualityGovernor(opts = {}) {
     base = {
       maxLevel: _inDeclaredRange('maxLevel', _num(read('maxLevel'), _declaredDefault('maxLevel'))),
       splitFactor: _inDeclaredRange('splitFactor', _num(read('splitFactor'), _declaredDefault('splitFactor'))),
-      vegLeafOff: read('vegLeafOff') === true,
+      vegLeafOff: leafCutoffM(read('vegLeafOff')),
       ssao: read('ssao') === true,
       bloom: read('bloom') === true,
       ssr: read('ssr') === true,
@@ -117,7 +166,7 @@ export function createQualityGovernor(opts = {}) {
     const out = {
       maxLevel: _inDeclaredRange('maxLevel', Math.min(base.maxLevel, t.maxLevel)),
       splitFactor: _inDeclaredRange('splitFactor', Math.min(base.splitFactor, t.splitFactor)),
-      vegLeafOff: base.vegLeafOff || t.vegLeafOff,
+      vegLeafOff: _cutoffMin(base.vegLeafOff, leafCutoffM(t.vegLeafOff)),
     }
     for (const k of EFFECT_KEYS) out[k] = false
     return out
@@ -134,7 +183,7 @@ export function createQualityGovernor(opts = {}) {
     return want
   }
 
-  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, knobs: null }
+  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, recoverStepIntervalMs: RECOVER_STEP_INTERVAL_MS, minStepIntervalMs: MIN_STEP_INTERVAL_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, leafOffM: 0, knobs: null }
 
   function publish() {
     state.tier = tier
@@ -147,6 +196,7 @@ export function createQualityGovernor(opts = {}) {
     state.inBand = n === 0 && avgMs > 0 ? avgMs >= RAISE_BELOW_MS && avgMs <= LOWER_ABOVE_MS && lastWinP95Ms <= LOWER_ABOVE_MS : false
     state.atCeiling = tier === 0
     state.atFloor = tier === MAX_TIER
+    state.leafOffM = leafCutoffM(applied.vegLeafOff)
     state.knobs = { ...applied }
     if (typeof window !== 'undefined') window.__qualityGovernorState = state
     write('qualityGovernorState', state)
@@ -196,7 +246,7 @@ export function createQualityGovernor(opts = {}) {
     if (slowStreak >= WINDOWS_BEFORE_STEP) {
       if (nowMs - lastStepMs >= MIN_STEP_INTERVAL_MS && step(+1, nowMs)) slowStreak = 0
     } else if (fastStreak >= WINDOWS_BEFORE_STEP) {
-      if (nowMs - lastStepMs >= MIN_STEP_INTERVAL_MS && step(-1, nowMs)) fastStreak = 0
+      if (nowMs - lastStepMs >= RECOVER_STEP_INTERVAL_MS && step(-1, nowMs)) fastStreak = 0
     }
     publish()
     return tier
@@ -213,6 +263,6 @@ export function createQualityGovernor(opts = {}) {
   function snapshot() { return publish() }
 
   const api = { tick, setTier, reset, state: snapshot, base: () => (base ? { ...base } : null), get tier() { return tier } }
-  if (typeof window !== 'undefined') window.__qualityGovernor = api
+  if (typeof window !== 'undefined') window.__qualityGovernorApi = api
   return api
 }

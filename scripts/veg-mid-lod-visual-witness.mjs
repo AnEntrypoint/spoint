@@ -55,6 +55,10 @@ const VIEWPORT_H = flagNumber(flag, 'h', 720, argv)
 const MID_NEAR_M = 14
 const MID_FAR_M = 35
 const EXPECT_VENDOR = flag('expect-vendor', GPU)
+// Tier ladder to capture. vegLeafOff is a DISTANCE now, so the interesting arms are the tier where
+// leaves first get a cutoff (3) and the floor (5), against the booted tier (0).
+const TIERS = String(flag('tiers', '0')).split(',').map((s) => Number(s.trim()))
+  .filter((n) => Number.isInteger(n) && n >= 0 && n <= 5)
 const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
 
 const port = String(20000 + Math.floor(Math.random() * 20000))
@@ -75,6 +79,12 @@ const readProfile = (page) => page.evaluate(() => {
     mesh: p ? p.meshInstances : null,
     impostor: p ? p.impostorInstances : null,
     meshTierInstances: p ? (p.meshTierInstances || null) : null,
+    leafTierInstances: p ? (p.leafTierInstances || null) : null,
+    leafMeshInstances: p ? (p.leafMeshInstances ?? null) : null,
+    // Read back the gate the instancer actually holds, not the knob that asked for it. Infinity is
+    // the no-cutoff value and would serialize to null, so name it.
+    leafGateM: p ? (p.leafGateM === undefined || p.leafGateM === null ? null
+      : (Number.isFinite(p.leafGateM) ? p.leafGateM : String(p.leafGateM))) : null,
     vegDrawCalls: p ? p.vegDrawCalls : null,
     sharedImpostor: p ? !!p.sharedImpostor : null,
   }
@@ -135,30 +145,98 @@ try {
     profile = await readProfile(page)
   }
 
-  // QualityGovernor readback, not a flag: force the top tier, then read back what
-  // the governor actually reports at the instant the frame is captured.
+  // QualityGovernor readback, not a flag: force each tier, then read back what the governor
+  // actually reports at the instant the frame is captured. leafOffM is metres, 0 = leaves
+  // everywhere, so a tier that strips foliage now says how far out instead of just "on".
   const gov = await page.evaluate(() => {
     const before = window.__qualityGovernorState ? JSON.parse(JSON.stringify(window.__qualityGovernorState)) : null
-    const api = window.__qualityGovernorApi
-    if (api && typeof api.setTier === 'function') api.setTier(0)
-    const after = api && typeof api.state === 'function' ? JSON.parse(JSON.stringify(api.state())) : (window.__qualityGovernorState ? JSON.parse(JSON.stringify(window.__qualityGovernorState)) : null)
-    return { before, after, api: !!api }
+    return { before, api: !!window.__qualityGovernorApi }
   }).catch((e) => ({ error: e.message }))
   console.log('[veg-mid-lod] governor ' + JSON.stringify(gov))
   if (!gov.api) { failed = 1; reasons.push('window.__qualityGovernorApi is absent, so the governor tier cannot be forced or read back') }
-  if (gov.after && gov.after.tier !== 0) { failed = 1; reasons.push(`governor read back tier ${gov.after.tier} after setTier(0), so the capture is not a top-tier frame`) }
-  if (gov.after && gov.after.vegLeafOff) { failed = 1; reasons.push('governor read back vegLeafOff=true after setTier(0), so leaves are hidden in the capture') }
 
-  profile = await readProfile(page)
-  const pos = await readPos(page)
-  console.log('[veg-mid-lod] profile ' + JSON.stringify(profile))
-  console.log('[veg-mid-lod] position ' + JSON.stringify(pos))
-  if (!profile.meshTierInstances) { failed = 1; reasons.push('window.__vegProfile.meshTierInstances is absent, so no per-tier instance count backs this capture') }
+  // Freeze the governor's own ticking for the capture. Under a real browser load the frame time
+  // sits above the budget, so a forced tier is re-shed within a second -- the first run's "tier 3"
+  // row was really a tier 4 frame. setTier still applies its knobs with ticking off, so each
+  // capture is the tier it names.
+  const frozen = await page.evaluate(() => {
+    const rc = window.__renderControls
+    if (rc && typeof rc.set === 'function') rc.set('qualityGovernorOff', true)
+    return { off: !!(typeof window !== 'undefined' && window.__qualityGovernorOff) }
+  }).catch((e) => ({ error: e.message }))
+  console.log('[veg-mid-lod] governor frozen ' + JSON.stringify(frozen))
+  if (!frozen.off) { failed = 1; reasons.push('qualityGovernorOff could not be set, so a tier capture can be re-shed before the frame is read') }
+
+  const forceTier = (t) => page.evaluate((tier) => {
+    const api = window.__qualityGovernorApi
+    if (api && typeof api.setTier === 'function') api.setTier(tier)
+    const st = api && typeof api.state === 'function' ? api.state() : window.__qualityGovernorState
+    return st ? JSON.parse(JSON.stringify(st)) : null
+  }, t).catch((e) => ({ error: e.message }))
 
   mkdirSync(OUT_DIR, { recursive: true })
-  const pngPath = resolve(OUT_DIR, `veg-mid-lod-${LABEL}.png`)
-  await page.screenshot({ path: pngPath })
-  console.log('[veg-mid-lod] png ' + pngPath)
+  const perTier = []
+  let refBranch = null
+  for (const tier of (TIERS.length ? TIERS : [0])) {
+    const st = await forceTier(tier)
+    // setTier rewrites the leaf gate, which invalidates every grid cell; give the instancer a few
+    // frames so the captured frame is the tier's steady state, not mid-rebuild.
+    await new Promise((r2) => setTimeout(r2, 3000))
+    const st2 = await forceTier(tier)
+    const p = await readProfile(page)
+    const bands = p.meshTierInstances || []
+    const leafBands = p.leafTierInstances || []
+    const branchBands = bands.map((n, i) => n - (leafBands[i] || 0))
+    const pngPath = resolve(OUT_DIR, `veg-mid-lod-${LABEL}-t${tier}.png`)
+    await page.screenshot({ path: pngPath })
+    const row = {
+      tier, requestedTier: tier,
+      realizedTier: (st2 && st2.tier !== undefined) ? st2.tier : null,
+      png: pngPath,
+      leafOffM: (st2 && st2.leafOffM !== undefined) ? st2.leafOffM : null,
+      gateReadbackM: p.leafGateM,
+      branchBands, leafBands,
+      branchMesh: branchBands.reduce((a, b) => a + b, 0),
+      leafMesh: leafBands.reduce((a, b) => a + b, 0),
+      nearLeaf: leafBands[0] || 0,
+      nearBranch: branchBands[0] || 0,
+      vegDrawCalls: p.vegDrawCalls,
+    }
+    perTier.push(row)
+    console.log(`[veg-mid-lod] tier ${tier} ` + JSON.stringify(row))
+    if (!bands.length) { failed = 1; reasons.push(`tier ${tier}: window.__vegProfile.meshTierInstances is absent, so no per-band instance count backs this capture`) ; continue }
+    if (!(row.leafMesh > 0)) { failed = 1; reasons.push(`tier ${tier}: no leaf instance drew at all, so this capture says nothing about the near/mid bands`) }
+    // The complaint was that near-range trees lost their foliage while nothing on screen said why.
+    if (!(row.nearLeaf > 0)) { failed = 1; reasons.push(`tier ${tier}: the near band (0-${MID_NEAR_M}m) drew ${row.nearLeaf} leaf instance(s), so the near range lost its foliage`) }
+    if (row.nearBranch > 0 && row.nearLeaf !== row.nearBranch) {
+      failed = 1
+      reasons.push(`tier ${tier}: the near band drew ${row.nearLeaf} leaf for ${row.nearBranch} branch instance(s), so a near tree is missing its foliage`)
+    }
+    // Shedding foliage must never buy its saving by widening the no-mesh band.
+    if (refBranch === null) refBranch = row.branchBands.join('/')
+    else if (row.branchBands.join('/') !== refBranch) {
+      failed = 1
+      reasons.push(`tier ${tier}: the branch band ladder moved (${refBranch} -> ${row.branchBands.join('/')}), so a leaf shed changed the mesh/no-mesh distance`)
+    }
+    const wantGate = (st2 && st2.leafOffM > 0) ? st2.leafOffM : 'Infinity'
+    if (p.leafGateM !== null && p.leafGateM !== wantGate) {
+      failed = 1
+      reasons.push(`tier ${tier}: the instancer holds a ${p.leafGateM}m leaf gate where the governor reported ${wantGate}m`)
+    }
+    if (row.realizedTier !== null && row.realizedTier !== tier) {
+      failed = 1
+      reasons.push(`tier ${tier}: the governor read back tier ${row.realizedTier} at capture, so this frame is not the tier it names`)
+    }
+  }
+  const shedRows = perTier.filter((r) => r.leafOffM > 0)
+  for (let i = 1; i < shedRows.length; i++) {
+    if (!(shedRows[i].leafMesh < shedRows[i - 1].leafMesh)) {
+      failed = 1
+      reasons.push(`tier ${shedRows[i].tier} drew ${shedRows[i].leafMesh} leaf instance(s), not fewer than tier ${shedRows[i - 1].tier}'s ${shedRows[i - 1].leafMesh}`)
+    }
+  }
+  const pos = await readPos(page)
+  console.log('[veg-mid-lod] position ' + JSON.stringify(pos))
 
   // Frame cost, with the governor re-pinned to tier 0 every frame so the two arms
   // differ in geometry only and not in the six knobs the governor drives. rAF-to-rAF
@@ -194,18 +272,18 @@ try {
   }
   const govEnd = await page.evaluate(() => {
     const s = window.__qualityGovernorState
-    return s ? { tier: s.tier, vegLeafOff: !!s.vegLeafOff, avgMs: s.avgMs } : null
+    return s ? { tier: s.tier, leafOffM: s.leafOffM ?? null, avgMs: s.avgMs } : null
   }).catch((e) => ({ error: e.message }))
   console.log('[veg-mid-lod] frame ' + JSON.stringify(frame) + ' governorAtEnd ' + JSON.stringify(govEnd))
 
   const metaPath = resolve(OUT_DIR, `veg-mid-lod-${LABEL}.json`)
-  const bands = profile.meshTierInstances || []
-  const midTrees = bands.length > 1 ? bands[1] / 2 : null
+  const top = perTier[0] || { branchBands: [], leafBands: [] }
+  const midTrees = top.branchBands.length > 1 ? top.branchBands[1] : null
   const meta = {
-    label: LABEL, url, png: pngPath, at: AT, tod, governor: gov, profile, pos,
+    label: LABEL, url, at: AT, tod, governor: gov, pos,
     midBandM: [MID_NEAR_M, MID_FAR_M],
     midTierTrees: midTrees,
-    vegDrawCalls: profile.vegDrawCalls,
+    perTier,
     frame, govEnd,
     gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, vendor: gpu.adapter },
     servedClientRoot: servedRoot.sha256,
@@ -213,7 +291,10 @@ try {
   }
   writeFileSync(metaPath, JSON.stringify(meta, null, 2))
   console.log('[veg-mid-lod] meta ' + metaPath)
-  console.log(`[veg-mid-lod] mid band ${MID_NEAR_M}-${MID_FAR_M} m: midTierTrees=${midTrees} (of ${bands.join('/')} instances at near/mid/far tier)`)
+  for (const r of perTier) {
+    console.log(`[veg-mid-lod] tier ${r.tier}: leaf cutoff ${r.leafOffM}m (read back ${r.gateReadbackM}m), ` +
+      `branch near/mid/far ${r.branchBands.join('/')}, leaf ${r.leafBands.join('/')}, draws ${r.vegDrawCalls}, png ${r.png}`)
+  }
   if (errors.length) { failed = 1; reasons.push(`${errors.length} page error(s): ${errors[0].slice(0, 200)}`) }
   if (midTrees === 0) { failed = 1; reasons.push('no tree was drawn with mid-tier geometry, so this capture says nothing about the mid distance') }
 } catch (e) {
