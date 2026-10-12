@@ -29,6 +29,11 @@ process.chdir(WORK_DIR)
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+// Ordering inside this witness is measured on the monotonic clock, never on Date.now(): Date.now()
+// has millisecond granularity, so two arms that run back to back on a fast CI box record the SAME
+// millisecond and "arm 2 started after arm 1 stopped" reads a gap of 0ms and refuses for no reason.
+const monotonicNow = () => performance.now()
+
 const handleList = () => (process._getActiveHandles?.() ?? []).filter(Boolean)
 
 const resourceKindCounts = () => {
@@ -144,7 +149,7 @@ let armSeq = 0
 async function bootArm({ bakedHeightfield, start }) {
   const attempt = ++armSeq
   const port = await drawUnusedPort()
-  const startedAt = Date.now()
+  const startedAt = monotonicNow()
   const server = await createSpointServer({
     port, tickRate,
     appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')],
@@ -153,9 +158,9 @@ async function bootArm({ bakedHeightfield, start }) {
   })
   const terrain = { ...baseWorldDef.terrain, gpuPatchCollider: false, bakedHeightfield }
   let bootError = null
-  const loadStartedAt = Date.now()
+  const loadStartedAt = monotonicNow()
   try { await server.loadWorld({ ...baseWorldDef, terrain, tickRate }) } catch (e) { bootError = e }
-  const bootDurationMs = Date.now() - loadStartedAt
+  const bootDurationMs = monotonicNow() - loadStartedAt
   let listening = false
   if (!bootError && start) { await server.start(); listening = await connectsToPort(port) }
   const handlesLive = handleCensus()
@@ -164,7 +169,7 @@ async function bootArm({ bakedHeightfield, start }) {
   let stopError = null
   try { server.stop() } catch (e) { stopError = e }
   await sleep(200)
-  const stoppedAt = Date.now()
+  const stoppedAt = monotonicNow()
   return {
     attempt, port, startedAt, stoppedAt, bootDurationMs, listening, listenerLeaked,
     postBootLogLines: postBootWindow.lines, postBootWindowMs: postBootWindow.windowMs,
@@ -222,11 +227,13 @@ expect('censusResourceInfoCorroboratesServerHandle', { servers: controlBoot.hand
 expect('failedBootLiveOwnedNoMoreThanControl', [firstFailedBoot.handlesLive.owned, controlBoot.handlesLive.owned], ([failed, control]) => control >= 1 && failed <= control)
 expect('corruptHeightfieldWasTheFileOnDisk', corruptHeightfieldOnDisk, disk => disk.bytes === CORRUPT_HF_BYTES && disk.magic === CORRUPT_HF_MAGIC_HEX && disk.namedByError === true && disk.absentHeightfieldExists === false)
 expect('corruptHeightfieldIsProximateCause', { corruptArmError: firstFailedBoot.bootError, absentArmError: controlBoot.bootError }, arms => arms.corruptArmError !== null && arms.absentArmError === null && arms.corruptArmError.includes(CORRUPT_HEIGHTFIELD) && !arms.corruptArmError.includes(ABSENT_HEIGHTFIELD))
+// Two distinct attempts: an ordinal this witness minted, two ports this witness chose, and a
+// strictly positive monotonic gap proving arm 2 started after arm 1 stopped rather than next to it.
 expect('failedBootsAreDistinctAttempts', {
   firstAttempt: firstFailedBoot.attempt, secondAttempt: secondFailedBoot.attempt,
   firstPort: firstFailedBoot.port, secondPort: secondFailedBoot.port,
   firstStoppedAt: firstFailedBoot.stoppedAt, secondStartedAt: secondFailedBoot.startedAt,
-}, arms => arms.firstAttempt >= 1 && arms.secondAttempt === arms.firstAttempt + 1 && arms.firstPort > 1024 && arms.secondPort > 1024 && arms.firstPort !== arms.secondPort && arms.secondStartedAt >= arms.firstStoppedAt)
+}, arms => arms.firstAttempt >= 1 && arms.secondAttempt === arms.firstAttempt + 1 && arms.firstPort > 1024 && arms.secondPort > 1024 && arms.firstPort !== arms.secondPort && arms.secondStartedAt > arms.firstStoppedAt)
 expect('repeatedFailedBootReproducesSameError', [firstFailedBoot.bootError, secondFailedBoot.bootError], ([first, second]) => first !== null && first === second)
 
 const arms = [firstFailedBoot, secondFailedBoot, controlBoot]
