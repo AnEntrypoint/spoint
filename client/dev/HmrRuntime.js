@@ -29,6 +29,16 @@ function acceptSelf(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: tr
 const assetHandlers = []
 function acceptAsset(fn) { assetHandlers.push(fn) }
 function dispose(url, fn) { listOf(disposers, keyOf(url)).push(fn) }
+
+// A subsystem is one object the app holds that its module's factory can rebuild
+// from scratch. `rebuild` is the function the app calls to build it in the first
+// place, so registering it here means a swap runs exactly what a cold boot ran
+// and the two cannot drift apart. The returned function is the same one, so the
+// construction site and the accept handler are literally one call.
+function subsystem(url, rebuild) {
+  listOf(acceptors, keyOf(url)).push({ fn: rebuild, self: false })
+  return rebuild
+}
 function data(url) { const k = keyOf(url); if (!store.has(k)) store.set(k, {}); return store.get(k) }
 
 async function toast(message, kind) {
@@ -271,7 +281,7 @@ function connect() {
   }
 }
 
-globalThis.__spointHmr = { accept, acceptSelf, acceptAsset, dispose, data, only, log, settled: () => queue }
+globalThis.__spointHmr = { accept, acceptSelf, acceptAsset, dispose, data, only, log, subsystem, settled: () => queue }
 performance.setResourceTimingBufferSize?.(20000)
 connect()
 restorePose()

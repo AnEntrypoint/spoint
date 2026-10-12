@@ -107,7 +107,7 @@ const _dbgWater = dbg('water')
 const _dbgBoot = dbg('boot')
 const _dbgEditor = dbg('editor')
 const _dbgInput = dbg('input')
-const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel }
+const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel, createCaveMeshes, createColliderDebug, createSculptOverlay, createOcclusionQueryBudget, createReplayBuffer, createSceneGraphCaptureFn, createMobileControlsUI }
 
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   navigator.serviceWorker.register('/service-worker.js').catch(() => {})
@@ -543,14 +543,25 @@ function _ensureRocks(tb) {
   _foliagePending.rocks = pending
   return pending
 }
+// Rebuilds the cave meshes from the live terrain config. Boot and the hot-reload
+// swap both call this, so a swapped cave pass is built exactly as boot built it.
+function _rebuildCaveMeshes() {
+  const caveCfg = _terrainCfg && _terrainCfg.caveCarve
+  if (!Array.isArray(caveCfg) || caveCfg.length === 0) {
+    if (caveMeshes) { try { caveMeshes.dispose?.() } catch (_) {} }
+    caveMeshes = null
+    if (window.__app) window.__app.caveMeshes = null
+    return null
+  }
+  const prev = caveMeshes
+  caveMeshes = _hmrFactories.createCaveMeshes({ scene, cfg: caveCfg })
+  if (window.__app) window.__app.caveMeshes = caveMeshes
+  if (prev && prev !== caveMeshes) { try { prev.dispose?.() } catch (_) {} }
+  return caveMeshes
+}
 function _ensureCaves(tb) {
   if (caveMeshes || !tb || !_terrainCfg) return null
-  const caveCfg = _terrainCfg.caveCarve
-  if (!Array.isArray(caveCfg) || caveCfg.length === 0) return null
-  try {
-    caveMeshes = createCaveMeshes({ scene, cfg: caveCfg })
-    if (window.__app) window.__app.caveMeshes = caveMeshes
-  } catch (e) { console.error('[caves] init failed:', e?.message || e) }
+  try { _rebuildCaveMeshes() } catch (e) { console.error('[caves] init failed:', e?.message || e) }
   return null
 }
 function _ensureGrass(tb) {
@@ -607,7 +618,7 @@ async function _buildWorldSceneryOnce() {
   performance.mark('boot:terrain')
   _hp('after-backdrop')
   terrainBackdrop = tb; _bootSceneryStarted = true; _markSceneryPhase('planet'); try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
-  try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay init failed:', e?.message || e) }
+  try { _rebuildSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay init failed:', e?.message || e) }
   _applyPendingSculptBackfill()
   const _bootSunDir = (_terrainCfg && _terrainCfg.sun) || [0, 0.343, 0.939]
   try { shadowPipeline.setSunDirection(_bootSunDir) } catch (e) { _dbgTerrain('setSunDirection failed:', e?.message || e) }
@@ -626,9 +637,7 @@ async function _buildWorldSceneryOnce() {
   if (_planetReady) {
     try { const f = tb.frame; if (f) { setSeaLevelY((f.offsetY || 0) - (f.anchorHeight || 0), scene, f.radius); _dbgWater('sea-level set to', (f.offsetY || 0) - (f.anchorHeight || 0)) } } catch (e) { console.warn('[water] sea-level tint setup failed:', e?.message || e) }
     try {
-      colliderDebug = createColliderDebug({ scene, frame: tb.frame, cfg: _terrainCfg })
-      if (window.__app) window.__app.colliderDebug = colliderDebug
-      if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
+      _rebuildColliderDebug()
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
     performance.mark('boot:foliage-started')
     _markSceneryPhase('foliage')
@@ -677,11 +686,13 @@ loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label
 loadingMgr.setLabel(STRINGS.loadingConnecting)
 const deviceInfo = _deviceInfoEarly; let mobileControls = null, mobileControlsUI = null, inputConfig = { pointerLock: true }
 let _worldDef = null
-if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); mobileControlsUI = createMobileControlsUI(mobileControls, worldMobileButtons(null)); inputConfig.pointerLock = false }
+if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); mobileControlsUI = _hmrFactories.createMobileControlsUI(mobileControls, worldMobileButtons(null)); inputConfig.pointerLock = false }
+// The boot build and the hot-reload swap are the same function, so a swapped
+// mobile HUD cannot end up built differently from the one a cold boot built.
 const _rebuildMobileControls = (wd) => {
   if (!deviceInfo.isMobile || !mobileControls) return
   mobileControlsUI?.destroy?.()
-  mobileControlsUI = createMobileControlsUI(mobileControls, worldMobileButtons(wd))
+  mobileControlsUI = _hmrFactories.createMobileControlsUI(mobileControls, worldMobileButtons(wd))
 }
 installQualityPresets()
 QualityPresets.autoApplyPersisted({ renderer, deviceInfo })
@@ -698,8 +709,17 @@ floatingOrigin.onRebase((dx, dy, dz) => {
   try { modelPool?.pool?.shiftFloatingOrigin(dx, dy, dz) } catch (_) {}
   try { shadowPipeline?.shiftFloatingOrigin(dx, dy, dz) } catch (_) {}
 })
-const replayBuffer = createReplayBuffer({ maxFrames: 600, captureFn: createSceneGraphCaptureFn(sceneGraph) })
+let replayBuffer = _hmrFactories.createReplayBuffer({ maxFrames: 600, captureFn: _hmrFactories.createSceneGraphCaptureFn(sceneGraph) })
 if (typeof window !== 'undefined') window.__replayBuffer = replayBuffer
+// A replay buffer captures the scene graph it was built with, so a swap has to
+// re-capture from the live one instead of keeping the graph boot had.
+const _rebuildReplayBuffer = () => {
+  const prev = replayBuffer
+  replayBuffer = _hmrFactories.createReplayBuffer({ maxFrames: 600, captureFn: _hmrFactories.createSceneGraphCaptureFn(sceneGraph) })
+  if (typeof window !== 'undefined') window.__replayBuffer = replayBuffer
+  if (prev && prev !== replayBuffer) { try { prev.dispose?.() } catch (_) {} }
+  return replayBuffer
+}
 const entityAppMap = new Map()
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
@@ -724,12 +744,55 @@ function _applyPendingSculptBackfill() {
     console.log(`[terrain] sculpt late-join backfill: replayed=${replayed} uploaded=${uploaded}`)
   } catch (e) { console.error('[terrain] sculpt late-join backfill failed:', e?.message || e) }
 }
+// Rebuilds the sculpt overlay over a terrain backdrop. Boot, a reseed and the
+// hot-reload swap all call this one function, so a swapped overlay is built the
+// same way the boot one was.
+function _rebuildSculptOverlay(tb = terrainBackdrop) {
+  if (!tb) return null
+  const prev = sculptOverlay
+  sculptOverlay = _hmrFactories.createSculptOverlay(tb)
+  if (prev && prev !== sculptOverlay) { try { prev.dispose?.() } catch (_) {} }
+  return sculptOverlay
+}
+// Rebuilds the collider debug view over the live terrain frame. Boot and the
+// hot-reload swap call this one function; the ?drawcollider visibility is part
+// of the build so a swap keeps whatever the operator had on screen.
+function _rebuildColliderDebug() {
+  const frame = terrainBackdrop && terrainBackdrop.frame
+  if (!frame || !_terrainCfg) return null
+  const prev = colliderDebug
+  colliderDebug = _hmrFactories.createColliderDebug({ scene, frame, cfg: _terrainCfg })
+  if (window.__app) window.__app.colliderDebug = colliderDebug
+  if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
+  if (prev && prev !== colliderDebug) { try { prev.dispose?.() } catch (_) {} }
+  return colliderDebug
+}
 const modelPool=createModelPool(scene,renderer,camera,{deviceInfo})
 const decalSystem = createDecalSystem(scene, THREE)
 let sceneOcclusion=_hmrFactories.createSceneOcclusion(renderer)
 window.__sceneOcclusion=sceneOcclusion
-const occlusionQueryBudget=createOcclusionQueryBudget()
+// Rebuilds the occlusion registry over whatever scenery is live right now. Boot
+// and the hot-reload swap call this same function, so a swap re-registers the
+// current vegetation/rocks/grass instead of whatever was live at first boot.
+const _rebuildSceneOcclusion = () => {
+  const prev = sceneOcclusion
+  sceneOcclusion = _hmrFactories.createSceneOcclusion(renderer)
+  window.__sceneOcclusion = sceneOcclusion
+  for (const [key, sys] of [['vegetation', vegetation], ['rocks', rocks], ['grass', grass]]) if (sys) sceneOcclusion.register(key, sys)
+  if (prev && prev !== sceneOcclusion) { try { prev.dispose?.() } catch (_) {} }
+  return sceneOcclusion
+}
+let occlusionQueryBudget=createOcclusionQueryBudget()
 window.__occlusionQueryBudget=occlusionQueryBudget
+// The query budget owns no scenery, so a swap is a fresh budget published to the
+// same two places boot published it.
+const _rebuildOcclusionQueryBudget = () => {
+  const prev = occlusionQueryBudget
+  occlusionQueryBudget = _hmrFactories.createOcclusionQueryBudget()
+  window.__occlusionQueryBudget = occlusionQueryBudget
+  if (prev && prev !== occlusionQueryBudget) { try { prev.dispose?.() } catch (_) {} }
+  return occlusionQueryBudget
+}
 const cullingHub = createCullingHub()
 cullingHub.register('sceneOcclusion', () => sceneOcclusion.getStats ? sceneOcclusion.getStats() : (sceneOcclusion.stats || null))
 cullingHub.register('terrainOcclusion', () => (window.__terrain && window.__terrain.occlusionStats) ? window.__terrain.occlusionStats() : null)
@@ -932,14 +995,19 @@ if (globalThis.__spointHmr) {
     _hmrFactories.createTerrainBackdrop = m.createTerrainBackdrop
     if (terrainBackdrop) await engineCtx.rebuildTerrain({})
   })
-  hmr.accept('/core/SceneOcclusion.js', m => {
-    _hmrFactories.createSceneOcclusion = m.createSceneOcclusion
-    const old = sceneOcclusion
-    sceneOcclusion = m.createSceneOcclusion(renderer)
-    window.__sceneOcclusion = sceneOcclusion
-    for (const [key, sys] of [['vegetation', vegetation], ['rocks', rocks], ['grass', grass]]) if (sys) sceneOcclusion.register(key, sys)
-    old.dispose?.()
-  })
+  // Each line is a subsystem the app built with one factory call, and its rebuild
+  // function is the function boot itself ran -- so pairing the two is all an
+  // in-place swap needs. The handler is handed the freshly imported module, puts
+  // its new factory where boot reads it, then runs the same rebuild: a swapped
+  // subsystem is built exactly the way a cold boot built it, or it throws and
+  // the page reloads.
+  hmr.subsystem('/core/SceneOcclusion.js', m => { _hmrFactories.createSceneOcclusion = m.createSceneOcclusion; return _rebuildSceneOcclusion() })
+  hmr.subsystem('/core/OcclusionQueryBudget.js', m => { _hmrFactories.createOcclusionQueryBudget = m.createOcclusionQueryBudget; return _rebuildOcclusionQueryBudget() })
+  hmr.subsystem('/core/ReplayBuffer.js', m => { _hmrFactories.createReplayBuffer = m.createReplayBuffer; _hmrFactories.createSceneGraphCaptureFn = m.createSceneGraphCaptureFn; return _rebuildReplayBuffer() })
+  hmr.subsystem('/core/CaveMeshes.js', m => { _hmrFactories.createCaveMeshes = m.createCaveMeshes; return _rebuildCaveMeshes() })
+  hmr.subsystem('/core/ColliderDebug.js', m => { _hmrFactories.createColliderDebug = m.createColliderDebug; return _rebuildColliderDebug() })
+  hmr.subsystem('/core/SculptOverlay.js', m => { _hmrFactories.createSculptOverlay = m.createSculptOverlay; return _rebuildSculptOverlay() })
+  hmr.subsystem('/hud/MobileControlsUI.js', m => { _hmrFactories.createMobileControlsUI = m.createMobileControlsUI; return _rebuildMobileControls(_worldDef) })
   const graphBuilders = { '/core/RenderGraph.js': ['createRenderGraph'], '/core/RenderGraph.nodes.js': ['buildRenderSectionNodes'], '/core/SSAO.js': ['buildSSAONodes'], '/core/Bloom.js': ['buildBloomNodes'], '/core/SSR.js': ['buildSSRNodes'], '/core/FSR1.js': ['buildFSR1Nodes'] }
   for (const [file, names] of Object.entries(graphBuilders)) hmr.accept(file, m => {
     for (const n of names) _hmrFactories[n] = m[n]
@@ -1036,7 +1104,7 @@ const engineCtx = {
         if (terrainBackdrop && terrainBackdrop !== tb) { try { terrainBackdrop.dispose() } catch (e) { _dbgTerrain('superseded terrainBackdrop dispose failed:', e?.message || e) } }
         terrainBackdrop = tb; if (window.__app) window.__app.terrain = tb
         if (timeOfDay && !timeOfDay.isPaused()) timeOfDay.notifyDirection()
-        try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay reseed-rebuild failed:', e?.message || e) }
+        try { _rebuildSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay reseed-rebuild failed:', e?.message || e) }
         _applyPendingSculptBackfill()
         try { const f = tb.frame; if (f) setSeaLevelY((f.offsetY || 0) - (f.anchorHeight || 0), scene, f.radius) } catch (_) {}
         const reseed = _terrainReseedPending

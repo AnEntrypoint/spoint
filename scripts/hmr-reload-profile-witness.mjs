@@ -117,7 +117,11 @@ expectTrue('the graph reaches the two HMR roots', g.size() > 100 && g.reaches(CL
 // --- the real accept table, read out of client/app.js ------------------------
 const appSrc = readFileSync(APP, 'utf8')
 const accepted = new Set()
+// `hmr.subsystem(url, fn)` pushes fn into the same acceptor table `hmr.accept`
+// does, so it is a registration of exactly the same kind -- read both or the
+// profile under-counts the modules an edit can land in place.
 for (const m of appSrc.matchAll(/\.accept\(\s*'([^']+)'/g)) accepted.add(m[1])
+for (const m of appSrc.matchAll(/\.subsystem\(\s*'([^']+)'/g)) accepted.add(m[1])
 const sceneryBlock = /const scenery = \{([\s\S]*?)\n  \}/.exec(appSrc)
 const sceneryNames = sceneryBlock ? [...sceneryBlock[1].matchAll(/^\s{4}(\w+): \{ key:/gm)].map(m => m[1]) : []
 for (const n of sceneryNames) accepted.add(`/core/${n}.js`)
