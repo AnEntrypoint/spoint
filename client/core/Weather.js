@@ -14,6 +14,7 @@ import { createGroundNodeGrid } from './GroundNodeGrid.js'
 import {
   makeRainMaterialTSL, makeSplashMaterialTSL, makeSnowMaterialTSL, makeFarSheetMaterialTSL,
 } from './WeatherMaterialsTSL.js'
+import { WEATHER_DRAWS_OVER_FOLIAGE_BAND } from './drawBands.js'
 
 const _q = new THREE.Quaternion(), _upY = new THREE.Vector3(0, 1, 0)
 const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion(), _authScratch = new THREE.Vector3()
@@ -149,6 +150,10 @@ export function createWeather(opts = {}) {
   imFar.frustumCulled = false
   imFar.visible = false
   if (!isWebGPU) scene.add(imFar)
+  im.renderOrder = WEATHER_DRAWS_OVER_FOLIAGE_BAND
+  imSplash.renderOrder = WEATHER_DRAWS_OVER_FOLIAGE_BAND
+  imSnow.renderOrder = WEATHER_DRAWS_OVER_FOLIAGE_BAND
+  imFar.renderOrder = WEATHER_DRAWS_OVER_FOLIAGE_BAND
   let _farGeoIsSnow = false
 
   const SNOW_MELT_HALF_LIFE_S = Number.isFinite(cfg.snowMeltHalfLifeS) ? cfg.snowMeltHalfLifeS : 1800
