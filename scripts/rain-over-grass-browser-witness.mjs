@@ -284,10 +284,20 @@ function gainedGrid(before, after, ref, idx, w, h, t) {
 // rendered on the order of seconds per frame -- a fixed wall-clock wait shorter than one frame
 // reads the state BEFORE it lands. Wait on the frame itself wherever a probe asserts a state the
 // renderer owns (Weather.js hides its four meshes inside update(), so "clear" needs a frame).
-async function frames(page, n) {
+// The wait is bounded: an occluded headful window or a renderer that has stopped issuing frames
+// must not turn "wait for a frame" into a hang that holds the GPU lock for the whole host.
+async function frames(page, n, perFrameMs = 20000) {
   for (let i = 0; i < n; i++) {
-    await page.evaluate(`new Promise((r) => requestAnimationFrame(() => r(true)))`)
+    const arrived = await Promise.race([
+      page.evaluate(`new Promise((r) => requestAnimationFrame(() => r(true)))`).then((v) => v === true, () => false),
+      new Promise((r) => setTimeout(() => r(false), perFrameMs)),
+    ])
+    if (arrived !== true) {
+      console.log(`[${LABEL}] warn: no rendered frame arrived within ${perFrameMs}ms (frame ${i + 1} of ${n}); the renderer is stalled, so this probe may read the state from before the change`)
+      return false
+    }
   }
+  return true
 }
 
 async function waitFor(page, expr, ms, label) {
@@ -318,7 +328,11 @@ async function main() {
 
   let browser = null
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
+    // Headful is required for a real GPU adapter, and a headful window this host is also driving
+    // for a dozen other lanes gets backgrounded or occluded -- requestAnimationFrame then stops,
+    // every probe reads the state from before the change and the whole arm stalls. Push back on
+    // the throttling instead of measuring a browser that is not rendering.
+    browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU_MODE), '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'] })
     const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e)))
