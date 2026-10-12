@@ -4,6 +4,7 @@ import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { numericFlag } from './lib/witness-args.mjs'
+import { acquire as acquireBrowserLease, status as browserLeaseStatus } from './lib/browser-lease.mjs'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const LOCK_DIR = process.env.SPOINT_GPU_LOCK_DIR ? resolve(process.env.SPOINT_GPU_LOCK_DIR) : join(REPO_ROOT, '.gpu-lock')
@@ -15,7 +16,15 @@ const MAX_TTL_MS = DEFAULT_TTL_MS
 const DEFAULT_WAIT_MS = 600000
 const MIN_WAIT_MS = 0
 const MAX_WAIT_MS = MAX_TTL_MS * 5
+// The browser lease is the other serializer on this box, and it is the one a browser
+// arm queues on. A lane must never be granted the GPU lock while it is still queued
+// for the browser, so the lease is taken with a bounded wait and the lock is claimed
+// only once the lease is in hand: a queued lane then holds neither.
+const DEFAULT_LEASE_WAIT_MS = 150000
+const MIN_LEASE_WAIT_MS = 0
+const MAX_LEASE_WAIT_MS = 600000
 const POLL_MS = 500
+const EXIT_LEASE_UNAVAILABLE = 145
 const RECLAIM_CONFIRM_MS = 250
 const CHILD_STOP_GRACE_MS = 2000
 const CHILD_STOP_HARD_MS = 5000
@@ -210,22 +219,60 @@ async function tryAcquire(owner, nonce) {
   return { held: takeOver(owner, nonce, reason), tookOverFrom: reason, reaped }
 }
 
-async function acquire(owner, nonce, waitMs) {
+function waitedError(owner, waitMs, holder) {
+  return new Error(`gpulock: ${owner} waited ${waitMs} ms for the GPU lock held by ${holder.owner} pid ${holder.pid} (holding since ${new Date(holder.startedAt).toISOString()}), so no measurement was taken`)
+}
+
+function leaseUnavailableError(owner, waitedMs, root, cause) {
+  const e = new Error(`gpulock: ${owner} waited ${waitedMs} ms for the browser lease of ${root} (${cause?.message || cause}), so it never claimed the GPU lock and no measurement was taken`)
+  e.leaseUnavailable = true
+  return e
+}
+
+// One serializer, not two. The GPU lock and the browser lease are independent today, so
+// a lane can be granted the adapter and then queue for minutes behind another lane's
+// browser while it owns it. Pairing inverts that: the lease is taken only while the lock
+// looks free, and the lock is claimed only once the lease is in hand. A queued lane then
+// holds NEITHER, and holding the adapter without holding the browser is impossible.
+async function acquire(owner, nonce, waitMs, leaseWaitMs = null, leaseRoot = null) {
   const deadline = nowMs() + waitMs
   addTicket(owner, nonce)
   let announced = false
   try {
     for (;;) {
-      const deferral = nowMs() < deadline ? waitingOn(owner, nonce, readOwner()) : null
+      const holder = readOwner()
+      const deferral = nowMs() < deadline ? waitingOn(owner, nonce, holder) : null
       if (deferral) {
         if (!announced) { announced = true; console.log(deferral) }
         await sleep(POLL_MS)
         continue
       }
+      if (leaseWaitMs !== null && holder && holder.nonce !== nonce && holderIsLive(holder)) {
+        if (nowMs() >= deadline) throw waitedError(owner, waitMs, holder)
+        if (!announced) {
+          announced = true
+          console.log(`gpulock: ${owner} is waiting for the GPU lock held by ${holder.owner} pid ${holder.pid} (holding since ${new Date(holder.startedAt).toISOString()}), and holds neither the lock nor the browser lease while it waits`)
+        }
+        await sleep(POLL_MS)
+        continue
+      }
+      let lease = null
+      if (leaseWaitMs !== null) {
+        const budget = Math.max(0, Math.min(leaseWaitMs, deadline - nowMs()))
+        try {
+          lease = await acquireBrowserLease({ root: leaseRoot, owner: `${owner}-browser`, waitMs: budget, sinceMs: waitSinceMs() })
+        } catch (e) {
+          throw leaseUnavailableError(owner, waitMs - Math.max(0, deadline - nowMs()), leaseRoot, e)
+        }
+      }
       const attempt = await tryAcquire(owner, nonce)
-      if (attempt.held) return attempt
+      if (attempt.held) {
+        attempt.lease = lease
+        return attempt
+      }
+      if (lease) lease.release()
       if (nowMs() >= deadline) {
-        throw new Error(`gpulock: ${owner} waited ${waitMs} ms for the GPU lock held by ${attempt.holder.owner} pid ${attempt.holder.pid} (holding since ${new Date(attempt.holder.startedAt).toISOString()}), so no measurement was taken`)
+        throw waitedError(owner, waitMs, readOwner() ?? { owner: 'an acquirer that removed the owner record', pid: 0, startedAt: nowMs() })
       }
       await sleep(POLL_MS)
     }
@@ -309,11 +356,22 @@ async function runMode(argv) {
   if (command.length === 0) throw new Error('gpulock: run needs a command after --')
   currentTtl = boundedMs(flags, 'ttl-ms', DEFAULT_TTL_MS, MIN_TTL_MS, MAX_TTL_MS, 'ttl-ms-out-of-range')
   const waitMs = boundedMs(flags, 'wait-ms', DEFAULT_WAIT_MS, MIN_WAIT_MS, MAX_WAIT_MS, 'wait-ms-out-of-range')
+  const pairBrowser = !flags.includes('--no-browser')
+  const leaseWaitMs = pairBrowser
+    ? boundedMs(flags, 'lease-wait-ms', DEFAULT_LEASE_WAIT_MS, MIN_LEASE_WAIT_MS, MAX_LEASE_WAIT_MS, 'lease-wait-ms-out-of-range')
+    : null
   const nonce = randomUUID()
-  const attempt = await acquire(owner, nonce, waitMs)
+  const attempt = await acquire(owner, nonce, waitMs, leaseWaitMs, REPO_ROOT)
   if (attempt.reaped) console.log(`gpulock: orphan-reaped: stopped pid ${attempt.reaped}, the arm of the holder this lock was taken from, so it cannot share the adapter`)
   if (attempt.tookOverFrom) console.log(`gpulock: ${owner} took the GPU lock from ${attempt.tookOverFrom}`)
   else console.log(`gpulock: ${owner} holds the GPU lock`)
+  if (attempt.lease) {
+    // The arm inherits the lease this process already holds instead of claiming a second
+    // one, so the browser and the adapter stay one serializer for the whole arm.
+    process.env.SPOINT_BROWSER_LEASE_OWNER_PID = String(process.pid)
+    process.env.SPOINT_BROWSER_LEASE_DIR = attempt.lease.dir
+    console.log(`gpulock: ${owner} holds the browser lease of ${attempt.lease.dir}, so it claimed the GPU lock only once the browser was in hand`)
+  }
   let child = null
   let lockLost = false
   const whoTookIt = seen => (seen ? `owner ${seen.owner} pid ${seen.pid}` : 'an acquirer that removed the owner record')
@@ -370,6 +428,14 @@ function statusMode() {
   if (queued > 0) {
     console.log(`gpulock: ${queued} lane(s) waiting; longest-waiting is ${oldest.owner} pid ${oldest.pid}, waiting ${nowMs() - Number(oldest.ts)} ms -- it is served next`)
   }
+  const lease = browserLeaseStatus({ root: REPO_ROOT })
+  if (!lease.held) {
+    console.log('gpulock: the browser lease is free')
+    return 0
+  }
+  const browser = Number(lease.browserPid ?? 0) > 0 ? `, browser pid ${lease.browserPid}` : ', no browser launched yet'
+  const behind = lease.queued > 0 ? `, ${lease.queued} lane(s) queued behind it` : ''
+  console.log(`gpulock: the browser lease is ${lease.live ? 'HELD' : 'STALE'} by ${lease.owner} pid ${lease.pid}${browser}, heartbeat ${lease.heartbeatAgeMs} ms ago${behind}`)
   return 0
 }
 
@@ -399,8 +465,8 @@ function releaseMode(argv) {
 }
 
 function usage() {
-  console.error('gpulock: usage: gpulock.mjs run <owner> [--wait-ms N] [--ttl-ms N] -- <command> <args...> | gpulock.mjs status | gpulock.mjs release [owner]')
-  console.error(`gpulock: run exits with the child's code, 127 when the command cannot start, 2 on a bad flag, or ${EXIT_LOCK_LOST} when the lock was lost mid-arm (that arm is void, retry it)`)
+  console.error('gpulock: usage: gpulock.mjs run <owner> [--wait-ms N] [--ttl-ms N] [--lease-wait-ms N] [--no-browser] -- <command> <args...> | gpulock.mjs status | gpulock.mjs release [owner]')
+  console.error(`gpulock: run exits with the child's code, 127 when the command cannot start, 2 on a bad flag, ${EXIT_LEASE_UNAVAILABLE} when the browser lease never became free (no GPU lock was claimed), or ${EXIT_LOCK_LOST} when the lock was lost mid-arm (that arm is void, retry it)`)
   return 2
 }
 
@@ -416,5 +482,5 @@ async function main() {
 
 main().catch(e => {
   console.error(`gpulock: ${e?.message || e}`)
-  process.exit(1)
+  process.exit(e?.leaseUnavailable ? EXIT_LEASE_UNAVAILABLE : 1)
 })

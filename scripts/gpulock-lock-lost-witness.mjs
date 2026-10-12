@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 
 const SOURCE = join(dirname(fileURLToPath(import.meta.url)), 'gpulock.mjs')
 const RUNTIME = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'witness-args.mjs')
+const LEASE_RUNTIME = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'browser-lease.mjs')
 const MUTANT = process.argv.includes('--mutant')
 const base = process.argv.slice(2).find(arg => !arg.startsWith('--')) || tmpdir()
 const scratch = join(base, 'gpulock-lock-lost-witness')
@@ -40,6 +41,7 @@ for (const line of [STOP_LINE, REAP_LINE]) {
 if (MUTANT) source = source.replace(STOP_LINE, '').replace(REAP_LINE, '  const reaped = 0\n')
 writeFileSync(scratchScript, source, 'utf8')
 writeFileSync(join(scratch, 'scripts', 'lib', 'witness-args.mjs'), readFileSync(RUNTIME, 'utf8'), 'utf8')
+writeFileSync(join(scratch, 'scripts', 'lib', 'browser-lease.mjs'), readFileSync(LEASE_RUNTIME, 'utf8'), 'utf8')
 
 const ENV = { ...process.env, SPOINT_GPU_LOCK_DIR: scratchLock }
 
@@ -50,8 +52,11 @@ function owner() {
 
 const arms = []
 
+// These arms are `node -e` one-liners that never launch a browser, so they pass
+// --no-browser: gpulock's default pairs the GPU lock with the browser lease, and an arm
+// that never takes the browser must not be made to queue for one.
 function startHolder(name, pidFile) {
-  const proc = spawn(process.execPath, [scratchScript, 'run', name, '--wait-ms', '0', '--', ...armCommand(pidFile)], { env: ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+  const proc = spawn(process.execPath, [scratchScript, 'run', name, '--wait-ms', '0', '--no-browser', '--', ...armCommand(pidFile)], { env: ENV, stdio: ['ignore', 'pipe', 'pipe'] })
   proc.stdout.setEncoding('utf8')
   proc.stderr.setEncoding('utf8')
   let out = '', err = ''
@@ -120,7 +125,7 @@ async function displacedHolderStopsItsArm() {
   for (let attempt = 0; attempt < 10 && !tookOver; attempt++) {
     const record = owner()
     if (record) writeFileSync(scratchOwner, `${JSON.stringify({ ...record, heartbeatAt: Date.now() - 121000 })}\n`, 'utf8')
-    const probe = spawnSync(process.execPath, [scratchScript, 'run', 'displacer', '--wait-ms', '0', '--', process.execPath, '-e', '0'], { env: ENV, encoding: 'utf8', timeout: 20000 })
+    const probe = spawnSync(process.execPath, [scratchScript, 'run', 'displacer', '--wait-ms', '0', '--no-browser', '--', process.execPath, '-e', '0'], { env: ENV, encoding: 'utf8', timeout: 20000 })
     tookOver = probe.stdout.includes('took the GPU lock from')
     if (!tookOver) await sleep(120)
   }
@@ -151,7 +156,7 @@ async function deadHolderIsStillReclaimable() {
   const now = Date.now()
   writeFileSync(scratchOwner, `${JSON.stringify({ owner: 'trav-dead', pid: DEAD_PID, childPid: orphanArm, startedAt: now, heartbeatAt: now })}\n`, 'utf8')
   const started = Date.now()
-  const reclaimer = spawnSync(process.execPath, [scratchScript, 'run', 'reclaimer', '--wait-ms', '20000', '--', process.execPath, '-e', '0'], { env: ENV, encoding: 'utf8', timeout: 60000 })
+  const reclaimer = spawnSync(process.execPath, [scratchScript, 'run', 'reclaimer', '--wait-ms', '20000', '--no-browser', '--', process.execPath, '-e', '0'], { env: ENV, encoding: 'utf8', timeout: 60000 })
   const elapsed = Date.now() - started
   await sleep(500)
   console.log(`RECLAIM dead holder pid ${DEAD_PID} with surviving arm pid ${orphanArm}, reclaimed in ${elapsed} ms`)

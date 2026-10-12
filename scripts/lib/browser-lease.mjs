@@ -9,6 +9,7 @@ const DEFAULT_WAIT_MS = 600000
 const POLL_MS = 500
 const PROFILE_NAME = 'profile'
 const DEFAULT_SESSION = 'session'
+const TICKET_MAX_AGE_MS = 3600000
 
 const held = new Map()
 
@@ -39,7 +40,11 @@ function killTree(pid) {
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
+// Reaping walks every chrome command line on the box, so it is only worth its cost
+// when a profile directory exists -- a lease that never launched a browser has no
+// chrome to reap, and a paired gpulock probes this lease on every poll.
 function reapProfileOwners(profile) {
+  if (!fs.existsSync(profile)) return
   if (process.platform === 'win32') {
     const marker = profile.replace(/'/g, "''")
     const script =
@@ -65,6 +70,8 @@ export function sessionFingerprint({ args = [], headless = false } = {}) {
 }
 
 export function sessionDir(root) {
+  const override = process.env.SPOINT_BROWSER_LEASE_DIR
+  if (override) return path.resolve(override)
   return path.join(path.resolve(root), '.gm', 'browser-lease', DEFAULT_SESSION)
 }
 
@@ -91,6 +98,22 @@ function writeOwner(dir, record) {
   fs.renameSync(tmp, file)
 }
 
+// The arm gpulock spawned inherits the lease gpulock already holds. Without adoption
+// the arm would queue for a lease its own parent owns, which is the deadlock of two
+// independent serializers: the parent holds the GPU lock and waits for the browser,
+// the arm holds the browser and waits for the GPU lock.
+function adoptPid() {
+  const v = Number(process.env.SPOINT_BROWSER_LEASE_OWNER_PID ?? 0)
+  return Number.isInteger(v) && v > 0 ? v : 0
+}
+
+function isOurHold(record, dir) {
+  if (!record) return false
+  if (Number(record.pid) === process.pid) return held.has(dir)
+  const adopt = adoptPid()
+  return adopt > 0 && Number(record.pid) === adopt && pidAlive(adopt)
+}
+
 function holderIsLive(record, dir, ttlMs) {
   if (!record) return false
   if (record.pid === process.pid) return held.has(dir)
@@ -108,6 +131,10 @@ function claim(dir, owner, fingerprint, ttlMs) {
   } catch (e) {
     if (e.code !== 'EEXIST') throw e
     const record = readOwner(dir)
+    if (isOurHold(record, dir)) {
+      held.set(dir, { owner: record.owner ?? owner, ttlMs, adopted: true })
+      return true
+    }
     if (holderIsLive(record, dir, ttlMs)) return false
     killTree(Number(record?.pid ?? 0))
     killTree(Number(record?.browserPid ?? 0))
@@ -124,9 +151,71 @@ function claim(dir, owner, fingerprint, ttlMs) {
   } finally {
     fs.closeSync(fd)
   }
-  held.set(dir, { owner, ttlMs })
+  held.set(dir, { owner, ttlMs, adopted: false })
   reapProfileOwners(profileDir(dir))
   return true
+}
+
+// --- fair waiting ---------------------------------------------------------
+// This lease is the gate a browser arm actually queues on, so it needs the same
+// seniority the GPU lock has: without a ticket, the next holder is whichever poller
+// reaches openSync first and a lane can be overtaken indefinitely. The wait START is
+// the seniority, not the start of the current retry, so a lane that fails its bounded
+// wait and retries keeps its place.
+function waitersDir(dir) {
+  return `${dir}-waiters`
+}
+
+function sinceMs() {
+  for (const name of ['SPOINT_BROWSER_LEASE_SINCE', 'SPOINT_GPU_LOCK_SINCE']) {
+    const v = Number(process.env[name])
+    if (Number.isFinite(v) && v > 0) return v
+  }
+  return nowMs()
+}
+
+function addTicket(dir, owner, nonce, since) {
+  try {
+    fs.mkdirSync(waitersDir(dir), { recursive: true })
+    fs.writeFileSync(path.join(waitersDir(dir), `${nowMs()}.${nonce}.json`), `${JSON.stringify({ owner, nonce, pid: process.pid, ts: since })}\n`, 'utf8')
+  } catch {}
+}
+
+function dropTicket(dir, nonce) {
+  try {
+    for (const name of fs.readdirSync(waitersDir(dir))) {
+      if (!name.endsWith('.json')) continue
+      let t = null
+      try { t = JSON.parse(fs.readFileSync(path.join(waitersDir(dir), name), 'utf8')) } catch {}
+      if (t && t.nonce === nonce) { try { fs.unlinkSync(path.join(waitersDir(dir), name)) } catch {} }
+    }
+  } catch {}
+}
+
+function oldestLiveTicket(dir) {
+  let list
+  try { list = fs.readdirSync(waitersDir(dir)) } catch { return null }
+  let oldest = null
+  for (const name of list) {
+    if (!name.endsWith('.json')) continue
+    let t = null
+    try { t = JSON.parse(fs.readFileSync(path.join(waitersDir(dir), name), 'utf8')) } catch { continue }
+    if (!t || !Number.isFinite(Number(t.ts))) continue
+    if (!pidAlive(t.pid) || nowMs() - Number(t.ts) > TICKET_MAX_AGE_MS) {
+      try { fs.unlinkSync(path.join(waitersDir(dir), name)) } catch {}
+      continue
+    }
+    if (!oldest || Number(t.ts) < Number(oldest.ts) || (Number(t.ts) === Number(oldest.ts) && String(name) < String(oldest.name))) {
+      oldest = { ...t, name }
+    }
+  }
+  return oldest
+}
+
+function waitingOn(dir, nonce) {
+  const oldest = oldestLiveTicket(dir)
+  if (!oldest || oldest.nonce === nonce) return null
+  return oldest
 }
 
 function startHeartbeat(dir) {
@@ -142,25 +231,48 @@ function startHeartbeat(dir) {
   return timer
 }
 
-export async function acquire({ root = process.cwd(), owner = `browser-${process.pid}`, fingerprint = DEFAULT_SESSION, waitMs = DEFAULT_WAIT_MS, ttlMs = DEFAULT_TTL_MS } = {}) {
+export async function acquire({ root = process.cwd(), owner = `browser-${process.pid}`, fingerprint = DEFAULT_SESSION, waitMs = DEFAULT_WAIT_MS, ttlMs = DEFAULT_TTL_MS, sinceMs: sinceOverride } = {}) {
   const dir = sessionDir(root)
+  const since = Number.isFinite(Number(sinceOverride)) && Number(sinceOverride) > 0 ? Number(sinceOverride) : sinceMs()
+  const nonce = crypto.randomUUID()
   const deadline = nowMs() + waitMs
-  for (;;) {
-    if (claim(dir, owner, fingerprint, ttlMs)) break
-    const record = readOwner(dir)
-    if (nowMs() >= deadline) {
-      throw new Error(
-        `browser-lease: ${owner} waited ${waitMs}ms for the accelerated browser session of ${path.resolve(root)} ` +
-        `held by ${record?.owner ?? 'an unreadable holder'} pid ${record?.pid ?? '?'} ` +
-        `fingerprint ${record?.fingerprint ?? '?'} ` +
-        `since ${new Date(Number(record?.startedAt ?? nowMs())).toISOString()}, so no browser was launched`,
-      )
+  addTicket(dir, owner, nonce, since)
+  try {
+    for (;;) {
+      const ahead = waitingOn(dir, nonce)
+      if (ahead) {
+        if (nowMs() >= deadline) {
+          throw new Error(
+            `browser-lease: ${owner} waited ${waitMs}ms for the accelerated browser session of ${path.resolve(root)} ` +
+            `behind ${ahead.owner} pid ${ahead.pid}, waiting since ${new Date(Number(ahead.ts)).toISOString()}, so no browser was launched`,
+          )
+        }
+        await sleep(POLL_MS)
+        continue
+      }
+      if (claim(dir, owner, fingerprint, ttlMs)) break
+      const record = readOwner(dir)
+      if (nowMs() >= deadline) {
+        throw new Error(
+          `browser-lease: ${owner} waited ${waitMs}ms for the accelerated browser session of ${path.resolve(root)} ` +
+          `held by ${record?.owner ?? 'an unreadable holder'} pid ${record?.pid ?? '?'} ` +
+          `fingerprint ${record?.fingerprint ?? '?'} ` +
+          `since ${new Date(Number(record?.startedAt ?? nowMs())).toISOString()}, so no browser was launched`,
+        )
+      }
+      await sleep(POLL_MS)
     }
-    await sleep(POLL_MS)
+  } finally {
+    dropTicket(dir, nonce)
   }
-  const timer = startHeartbeat(dir)
+  const entry = held.get(dir)
+  const adopted = entry?.adopted === true
+  const timer = adopted ? null : startHeartbeat(dir)
   const release = () => {
-    if (!held.delete(dir)) return
+    const current = held.get(dir)
+    if (!current) return
+    held.delete(dir)
+    if (current.adopted) return
     clearInterval(timer)
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
@@ -174,10 +286,13 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
   return {
     dir,
     owner,
+    adopted,
     profileDir: profileDir(dir),
     record(extra) {
       const current = readOwner(dir)
-      if (current && current.pid === process.pid) writeOwner(dir, { ...current, ...extra, heartbeatAt: nowMs() })
+      if (current && (current.pid === process.pid || isOurHold(current, dir))) {
+        writeOwner(dir, { ...current, ...extra, heartbeatAt: nowMs() })
+      }
     },
     release,
   }
@@ -187,6 +302,18 @@ export function status({ root = process.cwd() } = {}) {
   const dir = sessionDir(root)
   const record = readOwner(dir)
   if (!record) return { held: false, dir }
+  let queued = 0
+  let oldest = null
+  try {
+    for (const name of fs.readdirSync(waitersDir(dir))) {
+      if (!name.endsWith('.json')) continue
+      let t = null
+      try { t = JSON.parse(fs.readFileSync(path.join(waitersDir(dir), name), 'utf8')) } catch { continue }
+      if (!t || !pidAlive(t.pid)) continue
+      queued++
+      if (!oldest || Number(t.ts) < Number(oldest.ts)) oldest = t
+    }
+  } catch {}
   return {
     held: true,
     dir,
@@ -195,5 +322,7 @@ export function status({ root = process.cwd() } = {}) {
     browserPid: record.browserPid ?? null,
     heartbeatAgeMs: nowMs() - Number(record.heartbeatAt ?? 0),
     live: holderIsLive(record, dir, Number(record.ttlMs ?? DEFAULT_TTL_MS)),
+    queued,
+    oldestWaiter: oldest ? { owner: oldest.owner, pid: oldest.pid, waitingMs: nowMs() - Number(oldest.ts) } : null,
   }
 }

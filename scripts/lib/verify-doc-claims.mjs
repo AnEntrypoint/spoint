@@ -435,7 +435,7 @@ const FOLD_CORRECTED = {
   'git_push {rev:"HEAD"}': 'form reworded: AGENTS.md now states the literal-sha push form "{rev:"HEAD"}"',
   'git_push {branch:...}': 'form reworded: AGENTS.md now states that the bare branch form is refused',
   'git_rm {"cached":true}': 'form reworded: AGENTS.md now writes git_rm {cached:true}',
-  'scripts/gpulock.mjs run <owner> -- <node> <script>': 'arg form extended: scripts/gpulock.mjs run <owner> [--wait-ms N] [--ttl-ms N] -- <cmd>',
+  'scripts/gpulock.mjs run <owner> -- <node> <script>': 'arg form extended: scripts/gpulock.mjs run <owner> [--wait-ms N] [--ttl-ms N] [--lease-wait-ms N] [--no-browser] -- <cmd>, and the browser lease is claimed before the GPU lock',
   'in/<verb>/<session_id>-<random8>.txt': 'spool naming changed: the body file is now in/<verb>/<session>-<pid>-<epochms>-<rand>.txt',
   "(() => './' + 'ServerAPI' + '.js')()": 'example swapped: the opaque-import IIFE is now shown as the MinimapBake form',
   'head-vs-worktree.mjs <paths>': 'arg form dropped, name kept: "scripts/lib/": head-vs-worktree.mjs',

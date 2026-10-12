@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 
 const SOURCE = join(dirname(fileURLToPath(import.meta.url)), 'gpulock.mjs')
 const RUNTIME = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'witness-args.mjs')
+const LEASE_RUNTIME = join(dirname(fileURLToPath(import.meta.url)), 'lib', 'browser-lease.mjs')
 const OWNER_CHECK = 'if (owner && record.owner !== owner) {'
 const MUTANT = process.argv.includes('--mutant')
 const base = process.argv.slice(2).find(arg => !arg.startsWith('--')) || tmpdir()
@@ -43,6 +44,7 @@ try {
   mkdirSync(join(scratch, 'scripts'), { recursive: true })
   mkdirSync(join(scratch, 'scripts', 'lib'), { recursive: true })
   writeFileSync(join(scratch, 'scripts', 'lib', 'witness-args.mjs'), readFileSync(RUNTIME, 'utf8'), 'utf8')
+  writeFileSync(join(scratch, 'scripts', 'lib', 'browser-lease.mjs'), readFileSync(LEASE_RUNTIME, 'utf8'), 'utf8')
   writeFileSync(scratchScript, source, 'utf8')
 
   seedOwner()
