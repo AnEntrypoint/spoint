@@ -39,6 +39,20 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
   const terrainHashVersion = terrainHashVersionOf(cfg)
+  // THE NEAR FIELD'S DENSITY IS THE COLLIDER'S, not a level count. Both are resolved here from one
+  // derivation and handed to the planet as a lattice plan, so the ground the player walks on and the
+  // ground the player sees are built at one spacing by construction and cannot drift apart.
+  let nearLattice = null
+  try {
+    const { colliderLatticeSpacingOf } = await import('/src/shared/colliderLattice.js')
+    const { createNearFieldLattice } = await import('/src/terrain/NearFieldLattice.js')
+    const cl = await colliderLatticeSpacingOf(cfg)
+    nearLattice = createNearFieldLattice({ spacingM: cl.spacingM })
+    console.log(`[terrain] near-field lattice at the collider's ${cl.spacingM.toFixed(2)}m (${cl.kind}: configured ${cl.resolutionM}m over ${cl.extentM}m -> N=${cl.N}), leaves finer than ${nearLattice.maxLeafM.toFixed(0)}m`)
+  } catch (e) {
+    nearLattice = null
+    console.warn('[terrain] near-field lattice unavailable -> the near band keeps the quadtree level:', e?.message || e)
+  }
   const isLegacyHash = terrainHashVersion === LEGACY_TERRAIN_HASH_VERSION
   const isTslTerrain = isWebGPU
   if (!isLegacyHash && !isTslTerrain) console.error(`[terrain] world terrain hashVersion ${terrainHashVersion} needs the TSL terrain (?webgpu=1); the legacy GLSL renderer draws hashVersion 1, so the visible ground will not match physics or placement`)
@@ -70,7 +84,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (isTslTerrain) {
-          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, geomorphLod: RenderControls.get('geomorphLod') !== false, heightAt: (d) => sampler.heightAt(d) })
+          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, geomorphLod: RenderControls.get('geomorphLod') !== false, heightAt: (d) => sampler.heightAt(d), nearLattice })
         }
         if (isWebGPU) {
           return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })

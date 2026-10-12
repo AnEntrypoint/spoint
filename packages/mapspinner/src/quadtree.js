@@ -31,7 +31,24 @@ export class Quadtree {
     this._altitudeDistTerm = 0.0;
     this._nearProtectRadius = 0.0;
     this._farCoarsenFloor = 0.6;
+    this._nearLeafFloor = 0.0;
+    this._nearLeafFloorSpan = 2.0;
   }
+
+  // A FLOOR on the near field's subdivision, in metres, not a level: while a node is near enough to
+  // the camera to be in the near field, it keeps splitting until its side is at or under leafM --
+  // even past maxLevel. The near band's density is thereby a property of the near field's own
+  // requirement and not of the level count the display is allowed to shed to, which is what lets the
+  // near-field lattice (src/terrain/NearFieldLattice.js) replace whole leaves at every quality tier.
+  // A node only ever splits while it is within spanLeaves leaf-sides of the camera, so the cost is
+  // confined to the near field: the far field still stops at maxLevel.
+  setNearFieldLeafFloor(leafM, spanLeaves = 1.0) {
+    this._nearLeafFloor = (typeof leafM === 'number' && isFinite(leafM) && leafM > 0) ? leafM : 0.0;
+    this._nearLeafFloorSpan = (typeof spanLeaves === 'number' && isFinite(spanLeaves) && spanLeaves > 0) ? spanLeaves : 2.0;
+    return this._nearLeafFloor;
+  }
+
+  get nearLeafFloor() { return this._nearLeafFloor; }
 
   setConfig(size, maxLevel, distFactor) {
     this.size = _positiveFinite('size', size ?? QUADTREE_DEFAULT_SIZE); this.maxLevel = _levelCount('maxLevel', maxLevel); this.distFactor = _positiveFinite('distFactor', distFactor);
@@ -72,7 +89,18 @@ export class Quadtree {
     const fall = 1.0 / (1.0 + Math.max(0.0, latC - near) / near);
     const floor = this._farCoarsenFloor;
     const effSplit = this.splitDist * Math.max(floor, fall);
-    if (dist < l * effSplit && level < this.maxLevel) {
+    const nearFloor = this._nearLeafFloor;
+    // The gap from the camera to this node's box -- zero when the node contains it, unlike the LOD
+    // distance above, which measures to the nearer EDGE and is therefore positive inside. A floor
+    // keyed on that would skip the very node that holds the player.
+    let forced = false;
+    if (nearFloor > 0.0 && l > nearFloor && level < QUADTREE_LEVEL_CEILING) {
+      const gx = Math.max(ox - this._cam[0], 0.0, this._cam[0] - (ox + l));
+      const gy = Math.max(oy - this._cam[1], 0.0, this._cam[1] - (oy + l));
+      const gap = Math.max(this._altitudeDistTerm, Math.sqrt(gx * gx + gy * gy));
+      forced = gap <= nearFloor * this._nearLeafFloorSpan;
+    }
+    if ((dist < l * effSplit && level < this.maxLevel) || forced) {
       const hl = l / 2.0;
       this._recurse(level + 1, 2 * tx,     2 * ty,     ox,      oy,      hl);
       this._recurse(level + 1, 2 * tx + 1, 2 * ty,     ox + hl, oy,      hl);

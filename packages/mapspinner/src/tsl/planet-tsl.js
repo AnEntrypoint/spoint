@@ -147,6 +147,12 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
 
   const qt = new Quadtree(R)
   const cull = { planes: new Float64Array(24), ex: 0, ey: 0, ez: 0, ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0, cx: 0, cy: 0, cz: 0, R, maxElev: R * CULL_ELEV_FRAC }
+  // The near-field lattice, supplied by the host: it names the spacing the near band must be drawn
+  // at and plans the tiles that replace whole quadtree leaves with it. It lives outside this package
+  // because the spacing is the collider's, which only the host knows.
+  const near = (opts.nearLattice && typeof opts.nearLattice.plan === 'function') ? opts.nearLattice : null
+  let lastNear = null
+  if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
 
   function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
@@ -155,9 +161,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
     const lod = resolveLodConfig(opts, fovy)
     applyLodConfig(qt, R, viewportH, lod)
+    if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
+    const nearFace = near ? pickFace(camWorldPos) : -1
     let n = 0
     let quadPayloadChanged = false
     for (let face = 0; face < 6; face++) {
@@ -169,8 +177,19 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       const al = aim ? worldToFaceLocal(face, aim, R) : null
       u.morphAim.array[face].set(al ? al[0] : 0, al ? al[1] : 0, al ? 1 : 0)
       const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
+      // The lattice replaces WHOLE leaves: every tile is a whole fraction of one, so a leaf is
+      // either fully covered and dropped, or untouched. That is what keeps the near band free of
+      // both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the lattice
+      // also draws), at every quality tier.
+      let drop = null, tiles = null
+      if (face === nearFace && near) {
+        const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE)
+        lastNear = { tiles: p.tiles.length, dropped: p.coveredLeafCount, stepM: p.stepM, leafM: p.leafM, c: p.c, refused: p.refused || null }
+        if (p.tiles.length) { drop = new Set(p.drop); tiles = p.tiles }
+      }
       for (let i = 0; i < leaves.length; i++) {
         const q = leaves[i]
+        if (drop && drop.has(q)) continue
         if ((q.level | 0) >= 2 && quadOutsideFrustum(face, q.ox, q.oy, q.l, R, viewProjNoEye, camWorldPos)) continue
         if (n >= patch.capacity) growCapacity(patch.capacity * 2, n)
         const o = patch.offsets.array
@@ -179,6 +198,21 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
         o[b] = q.ox; o[b + 1] = q.oy; o[b + 2] = q.l; o[b + 3] = q.level
         patch.faces.array[n] = face
         n++
+      }
+      if (tiles) {
+        for (let i = 0; i < tiles.length; i++) {
+          const t = tiles[i]
+          if (n >= patch.capacity) growCapacity(patch.capacity * 2, n)
+          const o = patch.offsets.array
+          const b = n * 4
+          if (o[b] !== t.ox || o[b + 1] !== t.oy || o[b + 2] !== t.l || o[b + 3] !== 0 || patch.faces.array[n] !== face) quadPayloadChanged = true
+          // Level 0 disables the geomorph for these: the lattice's neighbours are its own tiles at
+          // the same spacing, and a tile edge that morphed toward a coarser parent would open the
+          // seam the skirt is there to close.
+          o[b] = t.ox; o[b + 1] = t.oy; o[b + 2] = t.l; o[b + 3] = 0
+          patch.faces.array[n] = face
+          n++
+        }
       }
     }
     patch.geo.instanceCount = n
@@ -262,7 +296,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.wetness.value = resolveWetness()
     if (water) water.update({ camWorldPos, camDist, R, sunDir: sunDir || DEFAULT_SUN_DIR, time, ocean: typeof window !== 'undefined' ? window.__cam : null })
     lastFar = nf.far
-    return { quadCount: res.quadCount, waterQuadCount: res.waterQuadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
+    return { quadCount: res.quadCount, waterQuadCount: res.waterQuadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: lastNear, nearQuads: lastNear ? lastNear.tiles : 0, nearStepM: lastNear ? lastNear.stepM : 0, nearRefused: lastNear ? lastNear.refused : null, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
   }
 
   function dispose() {
@@ -289,6 +323,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     frame, dispose, R, mesh, material, water, lighting, sky, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
     drawnQuads: () => ({ offsets: patch.offsets.array, faces: patch.faces.array, count: patch.geo.instanceCount, gridSize: GRID_SIZE, radius: R }),
+    nearField: () => (lastNear ? { ...lastNear, spacingM: near ? near.spacingM : 0 } : null),
     clearCache() { quadCache.res = null },
     SCULPT_RES,
     setSculptOverride(center, extent, frameBasis, heights) { currentSculpt.set(center, extent, frameBasis, heights) },
