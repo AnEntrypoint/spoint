@@ -14,6 +14,7 @@ const REAL_MODEL = './apps/maps/aim_sillos.glb'
 const MISSING_MODEL = './apps/maps/definitely-not-a-model.glb'
 const INSIDE_EMPTY_MODEL = './.gm/scratch/witness-trigger-only.glb'
 const RETRY_MODEL = './.gm/scratch/witness-retry-model.glb'
+const SLAB_MODEL = './.gm/scratch/witness-chain-slab.glb'
 const OUTSIDE_ROOT_MODEL = resolve(tmpdir(), 'spoint-witness-outside-root.glb')
 const args = Object.fromEntries(process.argv.slice(2).map(a => {
   const eq = a.indexOf('=')
@@ -70,6 +71,60 @@ function buildTriangleGlb(materialName) {
 mkdirSync(resolve(SDK_ROOT, '.gm/scratch'), { recursive: true })
 writeFileSync(resolve(SDK_ROOT, INSIDE_EMPTY_MODEL), buildTriangleGlb('trigger'))
 writeFileSync(OUTSIDE_ROOT_MODEL, buildTriangleGlb('trigger'))
+
+function buildSlabGlb(materialName) {
+  const lo = [-1, 0, -1]
+  const hi = [1, 0.2, 1]
+  const verts = [
+    lo[0], lo[1], lo[2], hi[0], lo[1], lo[2], hi[0], lo[1], hi[2], lo[0], lo[1], hi[2],
+    lo[0], hi[1], lo[2], hi[0], hi[1], lo[2], hi[0], hi[1], hi[2], lo[0], hi[1], hi[2],
+  ]
+  const indices = [
+    0, 2, 1, 0, 3, 2,
+    4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4,
+    3, 7, 6, 3, 6, 2,
+    0, 4, 7, 0, 7, 3,
+    1, 2, 6, 1, 6, 5,
+  ]
+  const vbin = Buffer.alloc(verts.length * 4)
+  verts.forEach((v, i) => vbin.writeFloatLE(v, i * 4))
+  const ibin = Buffer.alloc(indices.length * 4)
+  indices.forEach((v, i) => ibin.writeUInt32LE(v, i * 4))
+  const bin = Buffer.concat([vbin, ibin])
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    materials: [{ name: materialName }],
+    meshes: [{ name: 'witness-slab', primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 8, type: 'VEC3' },
+      { bufferView: 1, componentType: 5125, count: 36, type: 'SCALAR' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: 96 },
+      { buffer: 0, byteOffset: 96, byteLength: 144 },
+    ],
+    buffers: [{ byteLength: 240 }],
+  }
+  let jsonBytes = Buffer.from(JSON.stringify(json), 'utf8')
+  const jsonPad = (4 - (jsonBytes.length % 4)) % 4
+  if (jsonPad) jsonBytes = Buffer.concat([jsonBytes, Buffer.alloc(jsonPad, 0x20)])
+  const total = 12 + 8 + jsonBytes.length + 8 + bin.length
+  const out = Buffer.alloc(total)
+  out.write('glTF', 0, 'ascii')
+  out.writeUInt32LE(2, 4)
+  out.writeUInt32LE(total, 8)
+  out.writeUInt32LE(jsonBytes.length, 12)
+  out.writeUInt32LE(0x4e4f534a, 16)
+  jsonBytes.copy(out, 20)
+  out.writeUInt32LE(bin.length, 20 + jsonBytes.length)
+  out.writeUInt32LE(0x004e4942, 24 + jsonBytes.length)
+  bin.copy(out, 28 + jsonBytes.length)
+  return out
+}
 
 function makeConnections() {
   const broadcasts = []
@@ -303,6 +358,57 @@ async function armShippedAssetsAreNotEmpty() {
   })
 }
 
+async function armPropConvexDynamicTrimeshChain() {
+  const settleSteps = 240
+  writeFileSync(resolve(SDK_ROOT, SLAB_MODEL), buildSlabGlb('opaque'))
+  const prop = runtime.spawnEntity('chain-prop', { model: SLAB_MODEL, position: [100000, 0, 100000], autoTrimesh: true })
+  await drainBuilds()
+  const trimeshBody = prop._physicsBodyId
+  const trimeshCollider = describeCollider(prop)
+  const trimeshStart = trimeshBody === undefined ? null : [...physics.getBodyPosition(trimeshBody)]
+  for (let i = 0; i < 60; i++) physics.step(1 / 60)
+  const trimeshEnd = trimeshBody === undefined ? null : [...physics.getBodyPosition(trimeshBody)]
+  const trimeshDriftM = trimeshStart && trimeshEnd
+    ? Math.hypot(trimeshEnd[0] - trimeshStart[0], trimeshEnd[1] - trimeshStart[1], trimeshEnd[2] - trimeshStart[2])
+    : null
+
+  const drop = (id, position) => {
+    const e = runtime.spawnEntity(id, { position })
+    e.collider = { type: 'sphere', radius: 0.5 }
+    runtime.changeBodyType(id, 'dynamic')
+    return e._physicsBodyId
+  }
+  const fallerBody = drop('chain-faller', [100000, 4, 100000])
+  const controlBody = drop('chain-control', [100060, 4, 100060])
+  for (let i = 0; i < settleSteps; i++) physics.step(1 / 60)
+  const fallerRestY = fallerBody === undefined ? null : physics.getBodyPosition(fallerBody)[1]
+  const controlRestY = controlBody === undefined ? null : physics.getBodyPosition(controlBody)[1]
+
+  editor.handle(MSG.EDITOR_UPDATE, { entityId: prop.id, changes: { bodyType: 'dynamic' } }, 1)
+  await drainBuilds()
+  await waitFor(() => prop.collider && prop.collider.type === 'convex' && prop.collider.points)
+  const convexBody = prop._physicsBodyId
+  const convexStartY = convexBody === undefined ? null : physics.getBodyPosition(convexBody)[1]
+  for (let i = 0; i < 60; i++) physics.step(1 / 60)
+  const convexEndY = convexBody === undefined ? null : physics.getBodyPosition(convexBody)[1]
+
+  const row = record({
+    arm: 'chain.propConvexDynamicTrimesh',
+    trimeshCollider,
+    trimeshBody: trimeshBody === undefined ? 'undefined' : String(trimeshBody),
+    trimeshDriftM,
+    fallerRestY,
+    controlRestY,
+    convexCollider: describeCollider(prop),
+    convexShapeType: prop._bodyDef?.shapeType ?? null,
+    convexHullFloats: prop._bodyDef?.params?.length ?? 0,
+    convexBody: convexBody === undefined ? 'undefined' : String(convexBody),
+    convexFellM: convexStartY === null || convexEndY === null ? null : convexStartY - convexEndY,
+  })
+  try { unlinkSync(resolve(SDK_ROOT, SLAB_MODEL)) } catch {}
+  return row
+}
+
 async function main() {
   const good = await armAppRuntimeAutoTrimesh('probe-good', REAL_MODEL)
   const bad = await armAppRuntimeAutoTrimesh('probe-bad', MISSING_MODEL)
@@ -381,6 +487,18 @@ async function main() {
   const assets = await armShippedAssetsAreNotEmpty()
   expect(assets.files > 0, 'shipped map assets scanned')
   expect(assets.empties === 0, 'no shipped map asset is a legitimately empty model')
+
+  const chain = await armPropConvexDynamicTrimeshChain()
+  expect(chain.trimeshCollider === 'trimesh', 'a prop keeps a trimesh collider')
+  expect(chain.trimeshBody !== 'undefined', 'a prop gets a trimesh body')
+  expect(chain.trimeshDriftM !== null && chain.trimeshDriftM < 1e-9, 'the trimesh static collider stays put over 60 physics steps')
+  expect(chain.fallerRestY !== null && chain.fallerRestY > 0.4 && chain.fallerRestY < 1.4, 'a dynamic sphere dropped on the trimesh rests on it')
+  expect(chain.controlRestY !== null && chain.controlRestY < -1, 'a dynamic sphere dropped beside the trimesh falls past it')
+  expect(chain.convexCollider === 'convex', 'promoting the prop to dynamic builds a convex hull')
+  expect(chain.convexShapeType === 'convex', 'the dynamic prop is admitted with a convex shape')
+  expect(chain.convexHullFloats > 0, 'the convex hull carries hull points')
+  expect(chain.convexBody !== 'undefined', 'the dynamic prop gets a body')
+  expect(chain.convexFellM !== null && chain.convexFellM > 0.05, 'the dynamic prop falls under gravity')
 
   const boxAnnouncements = editorErrors().filter(p => /box collider fallback|falling back to box/i.test(`${p.message || ''} ${p.detail || ''}`))
   expect(boxAnnouncements.length === 0, 'no box fallback is announced anywhere')

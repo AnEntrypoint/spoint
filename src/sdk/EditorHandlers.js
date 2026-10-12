@@ -151,19 +151,22 @@ export function createEditorHandlers(ctx) {
     const requested = entity.custom?._collider
     const type = COLLIDER_TYPES.has(requested) ? requested : (entity.collider?.type || entity._failedColliderType || 'box')
     entity._failedColliderType = null
-    if (entity._physicsBodyId !== undefined) {
-      ctx.physics.removeBody(entity._physicsBodyId)
-      appRuntime._physicsBodyToEntityId?.delete(entity._physicsBodyId)
-      entity._physicsBodyId = undefined
+    const previousBodyId = entity._physicsBodyId
+    const retirePreviousBody = () => {
+      if (previousBodyId === undefined) return
+      ctx.physics.removeBody(previousBodyId)
+      appRuntime._physicsBodyToEntityId?.delete(previousBodyId)
     }
-    if (type === 'none') { entity.collider = null; return }
-    const finish = (bid) => { entity._physicsBodyId = bid; appRuntime._physicsBodyToEntityId?.set(bid, entity.id) }
+    if (type === 'none') { retirePreviousBody(); entity._physicsBodyId = undefined; entity.collider = null; return }
+    const finish = (bid) => { retirePreviousBody(); entity._physicsBodyId = bid; appRuntime._physicsBodyToEntityId?.set(bid, entity.id) }
     const motion = entity.bodyType === 'dynamic' || entity.bodyType === 'kinematic' ? entity.bodyType : 'static'
     const toBox = () => { entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }; finish(ctx.physics.addBody('box', [0.5, 0.5, 0.5], entity.position, motion, { rotation: entity.rotation })) }
     const preventUnhandledRejection = (p) => { p.catch(() => {}) }
     const failColliderBuild = (what, cause) => {
       const err = colliderBuildError(what, cause)
       console.error(`[collider] ${err.message}`)
+      retirePreviousBody()
+      entity._physicsBodyId = undefined
       entity.collider = null
       entity._failedColliderType = type
       connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `collider build failed for ${entity.model}`, entityId: entity.id, detail: err.message })
@@ -173,6 +176,11 @@ export function createEditorHandlers(ctx) {
       const message = `[physics] ${what} refused: ${reason}`
       console.error(`[collider] ${message}`)
       entity.collider = null
+      if (entity._physicsBodyId !== undefined) {
+        ctx.physics.removeBody(entity._physicsBodyId)
+        appRuntime._physicsBodyToEntityId?.delete(entity._physicsBodyId)
+        entity._physicsBodyId = undefined
+      }
       entity._failedColliderType = type
       connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `collider refused for ${entity.model ?? entity.id}`, entityId: entity.id, detail: message, reason })
     }
