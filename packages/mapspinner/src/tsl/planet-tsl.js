@@ -114,7 +114,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   mesh.castShadow = false
   mesh.renderOrder = TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS
   scene.add(mesh)
-  const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC })
+  const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC, heightAt: opts.heightAt, sculpt })
   if (water) { water.mesh.renderOrder = WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS; scene.add(water.mesh) }
   const swapTerrainMaterial = (m) => {
     const next = m.createTerrainMaterialTSL({ ...terrainArgs, reuse: { uniforms: u, faceU, faceV, faceC, sculpt: currentSculpt } })

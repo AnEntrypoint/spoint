@@ -25,6 +25,12 @@ function _createFallbackBackdrop() {
   }
 }
 
+export function prewarmMapspinnerPlanetModules(isTslTerrain) {
+  if (isTslTerrain) import('/node_modules/mapspinner/src/tsl/planet-tsl.js').catch(() => {})
+  else import('mapspinner/planet-orchestrator').catch(() => {})
+  import('mapspinner/height-cpu').catch(() => {})
+}
+
 export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   const isWebGPU = !!(renderer && renderer.isWebGPURenderer)
   const gl = isWebGPU ? null : renderer.getContext()
@@ -46,6 +52,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     } else {
       ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
     }
+    performance.mark('boot:backdrop:planet-module-imported')
     ;({ createHeightSampler } = await import('mapspinner/height-cpu'))
     performance.mark('terrain:modules')
     performance.mark('boot:backdrop:modules-imported')
@@ -62,7 +69,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (isTslTerrain) {
-          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, geomorphLod: RenderControls.get('geomorphLod') !== false })
+          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, geomorphLod: RenderControls.get('geomorphLod') !== false, heightAt: (d) => sampler.heightAt(d) })
         }
         if (isWebGPU) {
           return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })

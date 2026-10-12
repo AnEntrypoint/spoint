@@ -27,7 +27,19 @@ const DEFAULT_OCEAN = { amplitude: 1.0, choppiness: 0.5, foam: 0.5 }
 
 const acesDisplay = (c) => pow(clamp(c.mul(c.mul(2.51).add(0.03)).div(c.mul(c.mul(2.43).add(0.59)).add(0.14)), 0.0, 1.0), vec3(1.0 / 2.2))
 
-export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC }) {
+const LAND_KEY_QUANT_M = 1.0
+
+function landProbeOrder(n) {
+  const mid = n >> 1
+  const center = mid * n + mid
+  const early = [center, 0, n - 1, (n - 1) * n, n * n - 1, mid, mid * n, (n - 1) * n + mid, mid * n + n - 1]
+  const taken = new Set(early)
+  const order = early.slice()
+  for (let k = 0; k < n * n; k++) if (!taken.has(k)) order.push(k)
+  return order
+}
+
+export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC, heightAt, sculpt }) {
   const u = {
     camMod: uniform(new THREE.Vector3()),
     sunDir: uniform(new THREE.Vector3(0, 1, 0)),
@@ -186,10 +198,51 @@ export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC 
   }
   ensureCapacity(256)
 
+  const landLattice = Math.round(Math.sqrt(grid.vertices.length / 3))
+  const landProbe = landProbeOrder(landLattice)
+  const landMemo = new Map()
+  const landStats = { lookups: 0, evaluations: 0, dropped: 0 }
+  const sculptActive = sculpt && sculpt.uniforms ? sculpt.uniforms.active : null
+  const _dir = [0, 0, 0]
+
+  function landGateActive() {
+    if (typeof heightAt !== 'function') return false
+    return !(sculptActive && sculptActive.value > 0.5)
+  }
+
+  function landProbeDry(ox, oy, l, face, k) {
+    const R = tu.defRadius.value
+    const fx = Math.tan((ox + grid.vertices[k * 3] * l) / R * QUARTER_PI) * R
+    const fy = Math.tan((oy + grid.vertices[k * 3 + 1] * l) / R * QUARTER_PI) * R
+    const key = face + ':' + Math.round(fx / LAND_KEY_QUANT_M) + ':' + Math.round(fy / LAND_KEY_QUANT_M)
+    let h = landMemo.get(key)
+    if (h === undefined) {
+      const U = faceU.array[face], V = faceV.array[face], C = faceC.array[face]
+      const dx = U.x * fx + V.x * fy + C.x * R
+      const dy = U.y * fx + V.y * fy + C.y * R
+      const dz = U.z * fx + V.z * fy + C.z * R
+      const m = Math.hypot(dx, dy, dz) || 1
+      _dir[0] = dx / m; _dir[1] = dy / m; _dir[2] = dz / m
+      h = heightAt(_dir)
+      landMemo.set(key, h)
+      landStats.evaluations++
+    }
+    return h > LAND_ABOVE_SEA_DISCARD_M
+  }
+
+  function landInstanceDry(ox, oy, l, face) {
+    for (let i = 0; i < landProbe.length; i++) {
+      landStats.lookups++
+      if (!landProbeDry(ox, oy, l, face, landProbe[i])) return false
+    }
+    return true
+  }
+
   const seen = new Set()
   function setQuads(srcOffsets, srcFaces, n) {
     ensureCapacity(n)
     seen.clear()
+    const gate = landGateActive()
     const o = offsets.array, f = faces.array
     let wc = 0
     for (let i = 0; i < n; i++) {
@@ -202,6 +255,7 @@ export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC 
       const key = ((face * WATER_KEY_SPAN + Math.round(oy / l) + WATER_KEY_SPAN / 2) * WATER_KEY_SPAN + Math.round(ox / l) + WATER_KEY_SPAN / 2) * (WATER_MAX_LEVEL + 1) + lv
       if (seen.has(key)) continue
       seen.add(key)
+      if (gate && landInstanceDry(ox, oy, l, face)) { landStats.dropped++; continue }
       o[wc * 4] = ox; o[wc * 4 + 1] = oy; o[wc * 4 + 2] = l; o[wc * 4 + 3] = lv
       f[wc] = face
       wc++
@@ -229,7 +283,12 @@ export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC 
     mesh.visible = !(w && w.__waterSurface === false)
   }
 
-  function dispose() { if (geo) geo.dispose(); material.dispose() }
+  function landGateStats() {
+    return { active: landGateActive(), lookups: landStats.lookups, evaluations: landStats.evaluations, dropped: landStats.dropped, memoPoints: landMemo.size, lattice: landLattice, samplesPerInstance: landProbe.length }
+  }
+  function resetLandGateStats() { landStats.lookups = 0; landStats.evaluations = 0; landStats.dropped = 0 }
 
-  return { mesh, material, uniforms: u, setQuads, update, dispose }
+  function dispose() { if (geo) geo.dispose(); material.dispose(); landMemo.clear() }
+
+  return { mesh, material, uniforms: u, setQuads, update, dispose, landGateStats, resetLandGateStats }
 }

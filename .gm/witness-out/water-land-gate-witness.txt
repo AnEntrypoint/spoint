@@ -1,0 +1,48 @@
+water-land-gate witness at 2026-10-12T08:56:51.217Z
+
+PASS water-lattice-is-5x5: WATER_GRID 4 -> 25 vertices/instance = (WATER_GRID+1)^2, the exact lattice the water VS displaces at
+PASS gate-on-requires-a-height-sampler: no heightAt -> active=false; heightAt supplied -> active=true
+PASS gate-probes-every-lattice-point: the gate probes 25 points per instance, matching the 25 the VS evaluates
+
+warm-up pose gnd2m-0,0 primes the memo, so pose 1 (the same pose) re-evaluates nothing: its gateEval is 0 by design.
+the walk phase below runs on a third backdrop whose memo starts empty, so the cold cost is measured there.
+pose                inst  bruteS  distinct  dedup   dryInst  dryFrac  gateLook  gateEval  bruteWall  us/samp
+gnd2m-0,0             109     2725      2006    26.4%        24     22.0%        799          0        16.2      5.93
+gnd2m-25,40           150     3750      2817    24.9%        75     50.0%       1990       1474        21.1      5.64
+gnd2m--30,120         152     3800      2783    26.8%        87     57.2%       2330       1664        20.3      5.34
+gnd2m--15,-12.5       199     4975      3652    26.6%        22     11.1%        789        643        27.2      5.46
+air500m-0,0           145     3625      2598    28.3%        35     24.1%       1106        221        17.9      4.94
+air500m-45,-70        182     4550      3359    26.2%         0      0.0%        206        175        23.8      5.22
+air10km-0,0           227     5675      3946    30.5%        78     34.4%       2282        830        32.8      5.77
+
+re-derived claim (water-vertex lane, sha d67c1175)
+  samples per instance           25 = (WATER_GRID+1)^2 -- the water VS displaces at exactly these points
+  instances per rebuild          166 avg (1164 over 7 poses)
+  brute gate samples per rebuild 4157 (25 x 166)
+  cpu heightAt, real lattice dirs 5.47 us/sample (29100 calls, 25 per instance, no early exit -- the honest basis)
+  cpu heightAt, d67c1175 microbench 4.25 us/sample median (min 3.55 max 26.69 over 5 batches of 4000)
+  brute gate cost per rebuild    22.7 ms of main thread (measured wall; 17.7 ms at the microbench rate)
+  dry instances                  321/1164 = 27.6%  -> the gate can only help this often
+  lattice sharing                21161 distinct points for 29100 samples (27.3% dedup inside one rebuild)
+
+shipped gate (ordered early-exit + persistent lattice memo)
+  lattice lookups per rebuild    1357 avg (was 4157)
+  height evaluations per rebuild 715.3 avg (was 4157)
+  gate cost per rebuild          3.91 ms  (6x cheaper than brute)
+
+walk: 40 consecutive rebuilds, 25 m per step, fresh memo
+  cold rebuild evaluations       619 (3.39 ms, once per boot)
+  steady-state evaluations       avg 19.5 / rebuild (min 0 max 152 over rebuilds 1..39)
+  steady-state cost per rebuild  0.107 ms
+  memo size after the walk       781 lattice points
+  instances per rebuild          113.0 ungated -> 87.4 gated (22.6% dropped)
+
+PASS gate-stands-down-under-a-sculpt-override: a live sculpt override makes the CPU mirror disagree with the GPU height, so the gate is off while it is set (active false -> true)
+PASS brute-and-gated-agree-on-every-instance: at all 7 poses the shipped instance set is exactly the brute set minus the instances whose 25 samples are all above +1 m
+PASS brute-cost-is-a-dropped-frame: the ungated 25-samples-per-instance land test costs 22.7 ms of main thread per rebuild (measured wall, 29100 real heightAt calls), over half of a 16.7 ms frame
+PASS shipped-gate-is-affordable: shipped gate 3.91 ms/rebuild cold (brute 22.7 ms) and 0.107 ms in steady state
+PASS evaluation-counter-is-real: the witness counted 5007 heightAt calls through its own wrapper and the gate counter agreed at every rebuild
+PASS dry-waste-is-real: 321 of 1164 instances (27.6%) sit over terrain above +1 m at all 25 samples
+PASS gate-drops-something: the gate memoised 781 lattice points and dropped 1023 of 4519 instances over the walk
+
+RESULT: PASS -- 10/10 checks, 166 instance(s)/rebuild, brute 22.7 ms/rebuild, shipped gate 3.91 ms/rebuild cold and 0.107 ms steady state, decisions identical
