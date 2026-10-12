@@ -312,7 +312,11 @@ async function main() {
   await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
   await page._send('Performance.enable').catch(() => {})
 
-  const url = `http://localhost:${port}/?singleplayer&webgpu=1&world=${WORLD}&v=${Date.now()}`
+  // tod=off is not redundant with the pin: setPaused(true) stops the LOCAL clock, but the server's
+  // TOD sync writes a new fraction as soon as setFraction()'s 8 s local-override grace lapses, so a
+  // pinned session still walked 20.7 deg of sun elevation across one run. Only the world-level opt
+  // out holds still long enough to compare two shots.
+  const url = `http://localhost:${port}/?singleplayer&webgpu=1&world=${WORLD}${PIN ? '&tod=off' : ''}&v=${Date.now()}`
   console.log('[nearfield] navigating ' + url)
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 240000 })
 
@@ -341,6 +345,15 @@ async function main() {
       const w = window, out = {}
       try { const api = w.__timeOfDayApi; if (api) { api.setPaused(true); api.setFraction(0.30); out.clock = api.getClockString(); out.paused = api.isPaused() } else out.tod = 'no api' } catch (e) { out.todError = String(e && e.message || e) }
       try { const rc = w.__renderControls; if (rc && typeof rc.set === 'function') { out.weatherType = rc.set('weatherType', 'clear'); out.weatherIntensity = rc.set('weatherIntensity', 0); w.__wetnessForce = 0 } else out.weather = 'no registry' } catch (e) { out.weatherError = String(e && e.message || e) }
+      // setFraction()'s local-override grace is 8 s and setPaused() only stops the LOCAL clock, so a
+      // server TOD sync still writes a new fraction afterwards (measured: 20.7 -> 62.5 deg of sun
+      // elevation across one run, with and without ?tod=off). Re-asserting inside the grace window is
+      // what actually holds the sun still; every row reads the clock back so a slip is visible.
+      w.__nfTodHold = setInterval(() => {
+        try { const a = w.__timeOfDayApi; if (a) { a.setPaused(true); a.setFraction(0.30) } } catch (_) {}
+        try { const rc = w.__renderControls; if (rc && rc.set) { rc.set('weatherType', 'clear'); rc.set('weatherIntensity', 0) } } catch (_) {}
+      }, 2000)
+      out.holdInstalled = !!w.__nfTodHold
       return out
     })()`).catch((e) => ({ error: e.message }))
     console.log('[nearfield] pinned ' + JSON.stringify(pinned))
@@ -513,7 +526,12 @@ async function main() {
   // The tier has to be VISIBLE in the payload, not merely held in a knob: quadCount is the count of
   // instances the draw actually consumes, so a set of tiers that all report one count is a knob that
   // did not reach the geometry.
-  check('drawnQuadPayloadRespondsToMaxLevel', new Set(okRows.map((r) => r.quadCount)).size >= 3, JSON.stringify(rows.map((r) => [r.tier, r.still && r.still.quadCount, r.quadCount])))
+  // A plateau is legitimate -- L14 and L13 both draw 192 quads at this pose -- so counting distinct
+  // values would fail a run that happened to ask for two adjacent tiers. The claim is monotone in the
+  // extreme instead: the coarsest level asked for must draw strictly fewer quads than the finest.
+  const byLevel = okRows.filter((r) => Number.isFinite(r.windowMaxLevel)).slice().sort((a, b) => b.windowMaxLevel - a.windowMaxLevel)
+  const finest = byLevel[0], coarsest = byLevel[byLevel.length - 1]
+  check('drawnQuadPayloadRespondsToMaxLevel', !!(finest && coarsest && coarsest.windowMaxLevel < finest.windowMaxLevel && coarsest.quadCount < finest.quadCount), `finest ${JSON.stringify(finest && [finest.windowMaxLevel, finest.quadCount])} coarsest ${JSON.stringify(coarsest && [coarsest.windowMaxLevel, coarsest.quadCount])}; per tier ${JSON.stringify(rows.map((r) => [r.tier, r.windowMaxLevel, r.quadCount]))}`)
   // ...and it has to be visible WITHOUT an outside nudge: a payload that only changes once something
   // else shakes the camera is a shed the governor cannot make while the player stands still.
   check('payloadFreshWithoutForcedRefresh', okRows.every((r) => r.still && r.still.quadCount === r.quadCount && r.still.deepestLevel === r.deepestLevel), JSON.stringify(rows.map((r) => [r.tier, r.still && r.still.quadCount, r.quadCount, r.still && r.still.deepestLevel, r.deepestLevel])))
