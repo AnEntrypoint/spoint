@@ -270,7 +270,8 @@ console.log(ok ? 'RESULT: PASS' : 'RESULT: FAIL')
 try { terrainPhysics.stopTerrainStreaming(physics, streamer) } catch (e) { console.log(`stopTerrainStreaming threw: ${e && e.message}`) }
 // process._getActiveHandles() does not count timers on Node 24 (measured: a pending setTimeout is
 // absent from it but present in process.getActiveResourcesInfo()), so the drain can only ever wait
-// on stdio. 1500 ms is the flush window, not a measurement: every handle this witness owns is
-// already stopped above.
+// on stdio. DRAIN_BOUND_MS is the flush window, not a measurement: every handle this witness owns
+// is already stopped above, and it is an order of magnitude below QUIET_AFTER_VERDICT_MS so the
+// guard can only fire on a real stall and never on the drain itself.
 const { exitAfterQuiesce } = await import(href('scripts/lib/quiesce.mjs'))
 await exitAfterQuiesce(ok ? 0 : 1, DRAIN_BOUND_MS)
