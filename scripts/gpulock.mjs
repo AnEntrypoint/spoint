@@ -5,11 +5,15 @@ import { fileURLToPath } from 'node:url'
 import { numericFlag } from './lib/witness-args.mjs'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const LOCK_DIR = join(REPO_ROOT, '.gpu-lock')
+const LOCK_DIR = process.env.SPOINT_GPU_LOCK_DIR ? resolve(process.env.SPOINT_GPU_LOCK_DIR) : join(REPO_ROOT, '.gpu-lock')
 const OWNER_FILE = join(LOCK_DIR, 'owner.json')
 const HEARTBEAT_MS = 2000
 const DEFAULT_TTL_MS = 120000
+const MIN_TTL_MS = HEARTBEAT_MS * 5
+const MAX_TTL_MS = DEFAULT_TTL_MS
 const DEFAULT_WAIT_MS = 600000
+const MIN_WAIT_MS = 0
+const MAX_WAIT_MS = MAX_TTL_MS * 5
 const POLL_MS = 500
 
 function nowMs() {
@@ -122,6 +126,15 @@ function numFlag(argv, name, fallback) {
   return numericFlag({ [name]: argv[i + 1] ?? true }, name, fallback)
 }
 
+function boundedMs(argv, name, fallback, min, max, code) {
+  const value = numFlag(argv, name, fallback)
+  if (!Number.isFinite(value) || value < min || value > max) {
+    console.error(`gpulock: ${code}: --${name}=${value} ms is outside ${min}..${max} ms`)
+    process.exit(2)
+  }
+  return value
+}
+
 function argSplit(argv) {
   const at = argv.indexOf('--')
   if (at === -1) return { flags: argv, command: [] }
@@ -133,8 +146,8 @@ async function runMode(argv) {
   const owner = flags[0]
   if (!owner) throw new Error('gpulock: run needs an owner name: gpulock.mjs run <owner> -- <command>')
   if (command.length === 0) throw new Error('gpulock: run needs a command after --')
-  currentTtl = numFlag(flags, 'ttl-ms', DEFAULT_TTL_MS)
-  const waitMs = numFlag(flags, 'wait-ms', DEFAULT_WAIT_MS)
+  currentTtl = boundedMs(flags, 'ttl-ms', DEFAULT_TTL_MS, MIN_TTL_MS, MAX_TTL_MS, 'ttl-ms-out-of-range')
+  const waitMs = boundedMs(flags, 'wait-ms', DEFAULT_WAIT_MS, MIN_WAIT_MS, MAX_WAIT_MS, 'wait-ms-out-of-range')
   const attempt = await acquire(owner, waitMs)
   if (attempt.tookOverFrom) console.log(`gpulock: ${owner} took the GPU lock from ${attempt.tookOverFrom}`)
   else console.log(`gpulock: ${owner} holds the GPU lock`)
