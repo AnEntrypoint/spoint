@@ -9,8 +9,15 @@
 // point of the card by a distance this witness can compute exactly from the shipped constants.
 //
 // This is gpu-free and node-side: it measures the shader's own arithmetic, not pixels. What it
-// cannot tell you is whether that many millimetres is VISIBLE -- that needs a real frame -- so it
+// cannot tell you is whether that much movement is VISIBLE -- that needs a real frame -- so it
 // prints the distance and the wind it holds at, and nothing else claims to be covered here.
+//
+// The distance is a fraction of the card's own height, not a number of metres. makeClumpGeo builds
+// the card one unit tall (v runs 0..1, GrassTSL clamps transformed.y to it), so every displacement
+// the shader adds is in card heights; the instance scale that turns a card height into metres is
+// Grass.js's business, not this witness's, and calling the raw number "mm" over-reads it. The
+// budget is therefore a fraction of the card -- the one length the row count actually controls --
+// so it holds for any uGrassWind, gAmp or uGrassBendStrength the grass lanes ship.
 import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -102,35 +109,55 @@ for (let i = 0; i < SAMPLES; i++) {
   const d = Math.abs(gwWithRows(NEAR_ROWS, v) - gwWithRows(3, v))
   if (d > maxDelta) { maxDelta = d; deltaAt = v }
 }
+let dropDelta = 0
+for (let i = 0; i < SAMPLES; i++) {
+  const v = i / (SAMPLES - 1)
+  const d = Math.abs(gwWithRows(NEAR_ROWS - 1, v) - gwWithRows(NEAR_ROWS, v))
+  if (d > dropDelta) dropDelta = d
+}
 const before = maxErr(3)
 const after = maxErr(NEAR_ROWS)
 
-// Metres of displacement per unit of gw, per unit of wind. The flow term is a unit direction
+// Displacement per unit of gw, per unit of wind, in CARD HEIGHTS: the flow term is a unit direction
 // times (AMP_BASE + AMP_FLOW*gFlow); the wobble is a unit-ish vector (sin, cos) of length <= sqrt2.
 const perGwPerWind = (Math.abs(AMP_BASE) + AMP_FLOW * FLOW_ENV) + WOBBLE * Math.SQRT2
-const metres = (deltaGw, wind) => deltaGw * perGwPerWind * wind
+// makeClumpGeo puts v at 0..1 down the card, so the card is exactly one unit tall in shader space.
+const CARD_HEIGHT = 1
+const ofCard = (deltaGw, wind) => deltaGw * perGwPerWind * wind / CARD_HEIGHT
 
 console.log('[grass-bend] gw error against the true quadratic: 3 rows '
   + `${before.err.toFixed(6)} (worst at v=${before.at.toFixed(3)}), ${NEAR_ROWS} rows `
   + `${after.err.toFixed(6)} (worst at v=${after.at.toFixed(3)})`)
 console.log(`[grass-bend] largest gw difference between 3 rows and ${NEAR_ROWS} rows: `
   + `${maxDelta.toFixed(6)} (worst at v=${deltaAt.toFixed(3)})`)
-console.log(`[grass-bend] displacement per unit gw per unit wind: ${perGwPerWind.toFixed(6)} m `
+console.log(`[grass-bend] displacement per unit gw per unit wind: ${perGwPerWind.toFixed(6)} card `
   + `(flow ${(Math.abs(AMP_BASE) + AMP_FLOW * FLOW_ENV).toFixed(6)} + wobble ${(WOBBLE * Math.SQRT2).toFixed(6)})`)
 
-const shipM = metres(maxDelta, DEFAULT_WIND)
-const stressM = metres(maxDelta, 1)
-const bendM2 = maxDelta * BEND_STRENGTH
-console.log(`[grass-bend] the shipped card moves at most ${(shipM * 1000).toFixed(2)} mm at the default wind ${DEFAULT_WIND}`)
-console.log(`[grass-bend] the shipped card moves at most ${(stressM * 1000).toFixed(2)} mm at wind 1`)
-console.log(`[grass-bend] plus ${(bendM2 * 1000).toFixed(2)} mm per fully-engaged bender (bendXZ.mul(gw) is not scaled by wind, and benders can overlap), so ${((shipM + bendM2) * 1000).toFixed(2)} mm with one`)
+const shipFrac = ofCard(maxDelta, DEFAULT_WIND)
+const stressFrac = ofCard(maxDelta, DEFAULT_WIND * 4)
+const bendFrac = maxDelta * BEND_STRENGTH / CARD_HEIGHT
+// The row-count cost as a fraction of the card's own full deflection: cost and deflection both
+// scale with uGrassWind and with the gAmp amplitudes, so this ratio depends on the row count
+// alone. It is the one bound here that no grass lane can break by moving a wind knob.
+const GW_MAX = GW_K
+const ofDeflection = (deltaGw) => deltaGw / GW_MAX
+const pct = (f) => `${(f * 100).toFixed(2)}%`
+console.log(`[grass-bend] the shipped card moves at most ${pct(shipFrac)} of the card height at the default wind ${DEFAULT_WIND}`)
+console.log(`[grass-bend] the shipped card moves at most ${pct(stressFrac)} of the card height at four times that wind`)
+console.log(`[grass-bend] plus ${pct(bendFrac)} per fully-engaged bender (bendXZ.mul(gw) is not scaled by wind, and benders can overlap), so ${pct(shipFrac + bendFrac)} with one`)
 
-// A real change, small at the wind that ships. These are bounds: worst case over v, over the flow
+// A real change, small against the card it moves. These are bounds: worst case over v, over the flow
 // envelope and over the wobble phase simultaneously, so a given blade at a given instant moves less.
 check('the row count really does change the geometry', maxDelta > 0, `maxDeltaGw=${maxDelta.toFixed(6)}`)
-check('the change is sub-centimetre at the wind that ships', shipM < 0.01, `${(shipM * 1000).toFixed(2)} mm at wind ${DEFAULT_WIND}`)
-check('the change is under 2 cm with a bender standing in the grass', shipM + bendM2 < 0.02, `${((shipM + bendM2) * 1000).toFixed(2)} mm at wind ${DEFAULT_WIND}`)
-check('the change stays under 3 cm at four times the wind', stressM < 0.03, `${(stressM * 1000).toFixed(2)} mm at wind 1`)
+check('the change is under 8% of the card height at the wind that ships', shipFrac < 0.08, `${pct(shipFrac)} at wind ${DEFAULT_WIND}`)
+check('the change is under 12% with a bender standing in the grass', shipFrac + bendFrac < 0.12, `${pct(shipFrac + bendFrac)} at wind ${DEFAULT_WIND}`)
+check('the change stays under 20% at four times the wind', stressFrac < 0.20, `${pct(stressFrac)} at wind ${(DEFAULT_WIND * 4).toFixed(4)}`)
+// Non-vacuous, and the only check here that holds at any wind: one segment fewer must blow the
+// row-count budget, which is the claim Grass.js makes above makeClumpGeo -- two segments is the
+// fewest that still carries the curve. At wind 0.25 every card-height figure is under 8%, so the
+// card-height gate alone cannot tell 2 segments from 1; this ratio can.
+check('the row-count cost is under 8% of the card\'s own deflection', ofDeflection(maxDelta) < 0.08, `${pct(ofDeflection(maxDelta))} of ${GW_MAX} gw`)
+check('one segment fewer would break that budget', ofDeflection(dropDelta) > 0.08, `${pct(ofDeflection(dropDelta))} for the ${NEAR_ROWS - 1}-segment card`)
 
-console.log(`RESULT: ${failed.length === 0 ? 'PASS' : 'FAIL'} (${failed.length} failure(s)) rowsBefore=3 rowsAfter=${NEAR_ROWS} maxDeltaGw=${maxDelta.toFixed(6)} mmAtDefaultWind=${(shipM * 1000).toFixed(2)} mmAtWind1=${(stressM * 1000).toFixed(2)}`)
+console.log(`RESULT: ${failed.length === 0 ? 'PASS' : 'FAIL'} (${failed.length} failure(s)) rowsBefore=3 rowsAfter=${NEAR_ROWS} maxDeltaGw=${maxDelta.toFixed(6)} pctAtDefaultWind=${(shipFrac * 100).toFixed(2)} pctAtWind4x=${(stressFrac * 100).toFixed(2)}`)
 process.exit(failed.length === 0 ? 0 : 1)
