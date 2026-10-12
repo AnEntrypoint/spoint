@@ -24,6 +24,8 @@ export function createServerWeather(getConfig) {
   let wind = [0, 0, 0]
   let _initialized = false
   let _dirty = false
+  let _cycleClock = 0
+  let _cycleIdx = -1
 
   function _clampType(t) { return (t === 'rain' || t === 'snow' || t === 'clear') ? t : 'clear' }
   function _clampIntensity(v) { return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1 }
@@ -78,5 +80,30 @@ export function createServerWeather(getConfig) {
   function getIntensity() { _resolve(); return intensity }
   function getWind() { _resolve(); return [wind[0], wind[1], wind[2]] }
 
-  return { setState, setWind, shouldBroadcast, getSyncPayload, isEnabled, getType, getIntensity, getWind }
+  function cycleHash(i) {
+    let x = Math.imul(i + 1, 2654435761) >>> 0
+    x ^= x >>> 13
+    x = Math.imul(x, 1274126177) >>> 0
+    return (x >>> 0) / 4294967296
+  }
+
+  function applyCycle(idx, c) {
+    const rainy = cycleHash(idx) < (Number.isFinite(c.rainFraction) ? c.rainFraction : 0.5)
+    const intensity = rainy ? 0.3 + 0.6 * cycleHash(idx + 7919) : 0
+    setState(rainy ? (type === 'snow' ? 'snow' : 'rain') : 'clear', intensity)
+  }
+
+  function tick(dt) {
+    _resolve()
+    const cfg = _getConfig()
+    const c = cfg && cfg.cycle
+    if (!enabled || !c || !(c.periodSec > 0) || !Number.isFinite(dt) || dt < 0) return
+    _cycleClock += dt
+    const idx = Math.floor(_cycleClock / c.periodSec)
+    if (idx === _cycleIdx) return
+    _cycleIdx = idx
+    applyCycle(idx, c)
+  }
+
+  return { setState, setWind, shouldBroadcast, getSyncPayload, isEnabled, getType, getIntensity, getWind, tick }
 }
