@@ -56,7 +56,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { witnessGpu } from './lib/gpu-probe.mjs'
 import { assertServedClientRoot, clientRootTag, CLIENT_ROOT_BUNDLE } from './lib/served-client-root.mjs'
-import { mipChainBytes } from '../client/core/TreeTextureBudget.js'
+import { mipChainBytes, halvingsFor, LEAF_TEXTURE_MAX_PX_DEFAULT, TREE_TEXTURE_SOURCE_PX } from '../client/core/TreeTextureBudget.js'
 
 const LABEL = 'leaf-texture-budget-browser-witness'
 const LF = String.fromCharCode(10)
@@ -87,7 +87,13 @@ const FROZEN = 'tod=off'
 const ARMS = [
   { name: 'leaf1024', query: `leaftex=1024&${BARK}&${FROZEN}`, leafPx: 1024, halvings: 0 },
   { name: 'leaf512', query: `leaftex=512&${BARK}&${FROZEN}`, leafPx: 512, halvings: 1 },
+  { name: 'leaf256', query: `leaftex=256&${BARK}&${FROZEN}`, leafPx: 256, halvings: 2 },
   { name: 'leaf64', query: `leaftex=64&${BARK}&${FROZEN}`, leafPx: 64, halvings: 4 },
+  // The URL is silent on leaftex, so this arm measures whatever the shipped default
+  // resolves to. It is the arm that proves a default change actually reaches the
+  // upload: an explicit ?leaftex= arm proves the halver works, only this one proves
+  // the value the app picks on its own is the value that gets uploaded.
+  { name: 'leafDefault', query: `${BARK}&${FROZEN}`, leafPx: LEAF_TEXTURE_MAX_PX_DEFAULT, halvings: halvingsFor(TREE_TEXTURE_SOURCE_PX, LEAF_TEXTURE_MAX_PX_DEFAULT), isDefault: true },
   { name: 'leaf1024b', query: `leaftex=1024&${BARK}&${FROZEN}`, leafPx: 1024, halvings: 0, control: true },
 ]
 const LEAF_MAPS = 4
@@ -174,6 +180,38 @@ const BUDGET_EXPR = `(() => {
     }
   }
   out.sceneTextures = [...seen.values()]
+  // A texture-resolution change must not move geometry. The same bundle builds every
+  // arm, so the leaf and branch triangle counts and the LOD ladder are read per arm
+  // and compared: identical signatures are what makes "texture only" a measurement
+  // rather than an assertion about the diff.
+  const geo = []
+  const triCountOf = (g) => {
+    if (!g) return 0
+    if (g.index && g.index.count) return g.index.count / 3
+    const p = g.attributes && g.attributes.position
+    return p ? p.count / 3 : 0
+  }
+  const lodOf = (mesh) => {
+    const li = mesh && mesh.LODinfo
+    const objs = (li && (li.objects || li.levels)) || []
+    if (!objs.length) return { levels: 1, dists: 'x' }
+    const dists = objs.map(o => (o && (o.distance !== undefined ? o.distance : (o.dist !== undefined ? o.dist : o.d))) )
+    return { levels: objs.length, dists: dists.map(v => (v === undefined || v === null ? 'x' : String(v))).join(',') }
+  }
+  if (veg && veg._meshes) {
+    for (const m of veg._meshes) {
+      for (const which of ['leaf', 'branch']) {
+        const mesh = m[which]
+        if (!mesh) continue
+        const lod = lodOf(mesh)
+        geo.push(which + ':' + triCountOf(mesh.geometry) + ':' + lod.levels + ':' + lod.dists)
+        const levels = mesh.LODinfo && mesh.LODinfo.objects
+        if (levels) for (const l of levels) if (l && l !== mesh) geo.push(which + '/lod:' + triCountOf(l.geometry))
+      }
+    }
+  }
+  out.geometry = geo
+  out.geometrySig = geo.join('|')
   let halveMs = 0, halveN = 0, awaitMs = 0, awaitN = 0
   try {
     for (const e of performance.getEntriesByType('measure')) {
@@ -251,6 +289,121 @@ function diffExpr(aB64, bB64) {
   })()`
 }
 
+// A close-up is only comparable between two arms when both frames look at the same tree
+// from the same stand-off, and where the spawn point puts the player is not under this
+// witness's control: move first, capture second. A frame with no foliage in the near band
+// would make every fidelity delta below read as zero, so the stand-off is claimed, not
+// assumed.
+const STAND_M = 6
+const TRUNK_CLEAR_M = 4
+const TOD_FRACTION = 0.28
+
+const readPos = (page) => page.evaluate(() => {
+  const c = window.__client || (window.__app && window.__app.client)
+  const st = c && c.getLocalState ? c.getLocalState() : null
+  const q = st ? st.position : null
+  if (!q) return null
+  if (typeof q.x === 'number') return { x: +q.x.toFixed(2), z: +q.z.toFixed(2) }
+  if (q.length >= 3) return { x: +q[0].toFixed(2), z: +q[2].toFixed(2) }
+  return null
+}).catch(() => null)
+
+const readTrees = (page) => page.evaluate(() => {
+  const veg = window.__veg
+  const out = { trees: [], species: 0 }
+  if (!veg || !veg._meshes) return out
+  const seen = new Set()
+  for (const rec of veg._meshes) {
+    const b = rec && rec.branch
+    if (!b) continue
+    out.species++
+    const cands = []
+    if (b.mesh) cands.push([b.mesh, b.count ?? b.mesh.count ?? 0])
+    if (Array.isArray(b.tierMeshes)) for (const m of b.tierMeshes) cands.push([m, b.count ?? m.count ?? 0])
+    let took = false
+    for (const [m, n] of cands) {
+      const im = m && m.instanceMatrix && m.instanceMatrix.array
+      if (!im) continue
+      const cap = Math.min(n || 0, Math.floor(im.length / 16))
+      for (let i = 0; i < cap; i++) {
+        const x = im[i * 16 + 12], z = im[i * 16 + 14]
+        if (!Number.isFinite(x) || !Number.isFinite(z)) continue
+        if (Math.abs(x) < 1e-6 && Math.abs(z) < 1e-6) continue
+        const key = Math.round(x) + ':' + Math.round(z)
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.trees.push([+x.toFixed(2), +z.toFixed(2)])
+      }
+      took = true
+      break
+    }
+    if (!took) continue
+  }
+  return out
+}).catch(() => ({ trees: [], species: 0 }))
+
+async function relocateBesideTree(page, label) {
+  const read = await readTrees(page)
+  const pos = await readPos(page)
+  if (!read.trees.length || !pos) return { error: `no trunk position(s) (${read.trees.length}) or no local state` }
+  const ranked = read.trees.map(([x, z]) => ({ x, z, d: Math.hypot(x - pos.x, z - pos.z) })).sort((a, b) => a.d - b.d)
+  let plan = null
+  for (const t of ranked) {
+    const k = t.d > 0 ? STAND_M / t.d : 0
+    const sx = t.x + (pos.x - t.x) * k
+    const sz = t.z + (pos.z - t.z) * k
+    let ok = true
+    for (const o of read.trees) if (Math.hypot(o[0] - sx, o[1] - sz) < TRUNK_CLEAR_M) { ok = false; break }
+    if (!ok) continue
+    plan = { tree: { x: +t.x.toFixed(2), z: +t.z.toFixed(2), distance: +t.d.toFixed(2) }, stand: { x: +sx.toFixed(2), z: +sz.toFixed(2) } }
+    break
+  }
+  if (!plan) return { error: `no trunk with a ${STAND_M} m stand-off clear of ${TRUNK_CLEAR_M} m (${ranked.length} trunk(s))` }
+  await page.evaluate(({ x, z }) => {
+    window.__goReport = null
+    try {
+      window.__spoint.go({ x, z })
+        .then(r => { window.__goReport = { ms: r && r.ms, placed: r && r.placed } })
+        .catch(e => { window.__goReport = { error: String((e && e.message) || e) } })
+    } catch (e) { window.__goReport = { error: String((e && e.message) || e) } }
+  }, plan.stand)
+  const t0 = Date.now()
+  let report = null
+  while (Date.now() - t0 < 60000) {
+    report = await page.evaluate(() => window.__goReport || null).catch(() => null)
+    if (report) break
+    await new Promise(r => setTimeout(r, 250))
+  }
+  plan.moved = report || { error: 'window.__spoint.go never reported' }
+  console.log(`[${LABEL}] ${label} stand ${JSON.stringify(plan)}`)
+  return plan
+}
+
+// Two loads of the SAME arm differ by more than a halved leaf map unless the scene is
+// pinned as well as the clock: the time of day has to sit at one fraction, the quality
+// governor must not be free to pick a different tier per load, and the grass wind has to
+// be zero or the sway alone moves every near-band pixel.
+const pinScene = (page) => page.evaluate((frac) => {
+  const out = { tod: false, governor: false, wind: false, fraction: null, paused: null, tier: null }
+  const tod = window.__timeOfDayApi
+  if (tod) {
+    try {
+      tod.setPaused(true)
+      tod.setFraction(frac)
+      out.tod = true
+      out.fraction = tod.getFraction()
+      out.paused = tod.isPaused()
+    } catch (_) {}
+  }
+  const gov = window.__qualityGovernorApi
+  if (gov && typeof gov.setTier === 'function') {
+    try { gov.setTier(0); out.governor = true } catch (_) {}
+    try { const s = gov.state ? gov.state() : window.__qualityGovernorState; out.tier = s ? s.tier : null } catch (_) {}
+  }
+  try { window.__grassWind = 0; out.wind = true } catch (_) {}
+  return out
+}, TOD_FRACTION).catch(e => ({ error: e.message }))
+
 async function runArm(browser, base, arm, scratchPage) {
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
   const pageErrors = []
@@ -268,7 +421,10 @@ async function runArm(browser, base, arm, scratchPage) {
       await new Promise(r => setTimeout(r, 250))
     }
     if (!probe) throw new Error(`arm ${arm.name}: the page never became playable with a vegetation budget within ${TIMEOUT_MS}ms (pageErrors=${pageErrors.length}${pageErrors[0] ? ': ' + pageErrors[0].slice(0, 200) : ''})`)
+    const stand = await relocateBesideTree(page, arm.name)
     await page.waitForTimeout(SETTLE_MS)
+    const pin = await pinScene(page)
+    await page.waitForTimeout(600)
     const frozen = await page.evaluate(FREEZE_EXPR)
     await page.waitForTimeout(FREEZE_SETTLE_MS)
     const pngPath = join(OUT, `${arm.name}.png`)
@@ -276,7 +432,7 @@ async function runArm(browser, base, arm, scratchPage) {
     await page.waitForTimeout(FREEZE_HOLD_MS)
     const pngBPath = join(OUT, `${arm.name}-b.png`)
     await page.screenshot({ path: pngBPath })
-    return { arm, probe, gpu, root: clientRootTag(root), pngPath, pngBPath, frozen, bytes: buf.length, pageErrors }
+    return { arm, probe, gpu, root: clientRootTag(root), pngPath, pngBPath, frozen, bytes: buf.length, pageErrors, stand, pin }
   } finally {
     await page.close().catch(() => {})
   }
@@ -318,8 +474,10 @@ async function main() {
     const shots = {}
     for (const r of results) shots[r.arm.name] = r.pngPath
     const a512 = results.find(r => r.arm.name === 'leaf512')
+    const a256 = results.find(r => r.arm.name === 'leaf256')
     const a1024 = results.find(r => r.arm.name === 'leaf1024')
     const a64 = results.find(r => r.arm.name === 'leaf64')
+    const aDefault = results.find(r => r.arm.name === 'leafDefault')
 
     const readB64 = p => readFileSync(p).toString('base64')
     const diffPaths = async (x, y) => {
@@ -336,6 +494,9 @@ async function main() {
       return res
     }
     const diff512v1024 = await pair('leaf512', 'leaf1024', 'leaf512-vs-leaf1024')
+    const diff256v512 = await pair('leaf256', 'leaf512', 'leaf256-vs-leaf512')
+    const diffDefault512 = await pair('leafDefault', 'leaf512', 'leafDefault-vs-leaf512')
+    const diff64v512 = await pair('leaf64', 'leaf512', 'leaf64-vs-leaf512')
     const diff64v1024 = await pair('leaf64', 'leaf1024', 'leaf64-vs-leaf1024')
     const diffControl = await pair('leaf1024', 'leaf1024b', 'control-leaf1024-vs-leaf1024b')
 
@@ -366,7 +527,19 @@ async function main() {
       expect(`${arm.name}: the live scene carries at least ${LEAF_MAPS} leaf map slot(s)`, leafObservations, '>=', LEAF_MAPS)
       expect(`${arm.name}: every leaf map found in the live scene is ${arm.leafPx}px an edge`, leafOnScene.length > 0 && leafOnScene.every(t => t.w === arm.leafPx), '==', true)
       expect(`${arm.name}: no uncaught page errors`, r.pageErrors.length, '==', 0)
+      expect(`${arm.name}: the capture frames a real tree from a fixed ${STAND_M} m stand-off`, !!(r.stand && !r.stand.error && r.stand.moved && !r.stand.moved.error), '==', true)
+      expect(`${arm.name}: the time of day is pinned to one fraction before the capture`, !!(r.pin && r.pin.tod === true && r.pin.paused !== false), '==', true)
+      expect(`${arm.name}: the quality governor is pinned to one tier before the capture`, !!(r.pin && r.pin.governor === true), '==', true)
     }
+
+    // --- the change moved texture resolution only ----------------------------
+    const distinctGeo = new Set(results.map(r => r.probe.geometrySig))
+    console.log(`[${LABEL}] geometry ${jsonLine(results.map(r => ({ arm: r.arm.name, n: (r.probe.geometry || []).length, sig: String(r.probe.geometrySig || '').slice(0, 160) })))}`)
+    expect('geometry: every arm reports a geometry signature (an empty signature is a silent pass)', results.every(r => (r.probe.geometry || []).length > 0), '==', true)
+    expect(`geometry: all ${results.length} arms carry the same leaf/branch triangle counts and LOD ladder (texture resolution moved, geometry did not)`, distinctGeo.size, '==', 1)
+
+    const distinctStands = new Set(results.map(r => (r.stand && !r.stand.error ? JSON.stringify(r.stand.stand) : 'error')))
+    expect(`close-up: all ${results.length} arms frame the same stand-off point (every near-band delta below is the same view)`, distinctStands.size, '==', 1)
 
     // --- a frozen frame, or the fidelity claim has no floor -------------------
     for (const r of results) {
@@ -383,13 +556,26 @@ async function main() {
     // --- non-vacuity: the full-size arm must NOT meet the budget -------------
     const leaf1024 = a1024.probe.stats.leaf
     const leaf512 = a512.probe.stats.leaf
+    const leaf256 = a256.probe.stats.leaf
     expect('non-vacuity: with the halving disabled the leaf maps stay at the source size', leaf1024.residentBytes, '==', leaf1024.sourceBytes)
     expect('non-vacuity: the 512 arm frees real leaf bytes', leaf512.sourceBytes - leaf512.residentBytes, '>', 0)
     expect('non-vacuity: the 512 arm frees exactly 16777216 B of leaf mip chain', leaf512.sourceBytes - leaf512.residentBytes, '==', 16777216)
+    expect('non-vacuity: halving the 512 default to 256 frees exactly 4194304 more B of leaf mip chain', leaf512.residentBytes - leaf256.residentBytes, '==', 4194304)
+    expect('non-vacuity: the 256 arm frees exactly 20971520 B of leaf mip chain from the source', leaf256.sourceBytes - leaf256.residentBytes, '==', 20971520)
+    // The arm that decides the claim: no ?leaftex= in the URL, so this is the value the
+    // app picks on its own, and it is read off the textures the live scene actually
+    // carries rather than off the constant.
+    expect('the arm with no ?leaftex= resolves to the shipped LEAF_TEXTURE_MAX_PX_DEFAULT', aDefault.probe.budget.leafMaxPx, '==', LEAF_TEXTURE_MAX_PX_DEFAULT)
+    const defaultLeafPx = aDefault.probe.budget.leafMaxPx
+    expect(`the default arm's leaf maps are resident at ${defaultLeafPx}px an edge`, aDefault.probe.stats.leaf.residentBytes, '==', LEAF_MAPS * mipChainBytes(defaultLeafPx, defaultLeafPx))
+    const defaultSceneLeaf = aDefault.probe.sceneTextures.filter(t => t.leaf)
+    expect(`every leaf map in the live default scene is ${defaultLeafPx}px an edge`, defaultSceneLeaf.length > 0 && defaultSceneLeaf.every(t => t.w === defaultLeafPx), '==', true)
 
     console.log(`[${LABEL}] diff control ${jsonLine(diffControl)}`)
     // --- fidelity is a separate claim from the byte saving -------------------
-    console.log(`[${LABEL}] diff 512-vs-1024 ${jsonLine(diff512v1024)}`)
+    console.log(`[${LABEL}] diff 256-vs-512 ${jsonLine(diff256v512)}`)
+    console.log(`[${LABEL}] diff default-vs-512 ${jsonLine(diffDefault512)}`)
+    console.log(`[${LABEL}] diff 64-vs-512 ${jsonLine(diff64v512)}`)
     console.log(`[${LABEL}] diff 64-vs-1024 ${jsonLine(diff64v1024)}`)
     writeFileSync(join(OUT, 'arms.json'), JSON.stringify(results.map(r => ({
       arm: r.arm.name, query: r.arm.query, budget: r.probe.budget, stats: r.probe.stats,
@@ -407,10 +593,14 @@ async function main() {
       expect(`fidelity: a second load of the SAME arm is pixel-stable in the near band (the floor every delta below is judged against) <= ${CONTROL_NEAR_MEAN_ABS_MAX}/255`, diffControl.near.meanAbs, '<=', CONTROL_NEAR_MEAN_ABS_MAX)
       expect(`fidelity: near-band mean |delta| between 512 and 1024 stays <= ${NEAR_BAND_MEAN_ABS_MAX}/255`, diff512v1024.near.meanAbs, '<=', NEAR_BAND_MEAN_ABS_MAX)
       expect(`fidelity: fewer than ${NEAR_BAND_FRAC_GT8_MAX * 100}% of near-band pixels differ by more than 8/255`, diff512v1024.near.fracGt8, '<=', NEAR_BAND_FRAC_GT8_MAX)
+      // The change under test: halving the shipped default again, 512 -> 256.
+      expect(`fidelity: near-band mean |delta| between the new default (256) and the old default (512) stays <= ${NEAR_BAND_MEAN_ABS_MAX}/255`, diff256v512.near.meanAbs, '<=', NEAR_BAND_MEAN_ABS_MAX)
+      expect(`fidelity: fewer than ${NEAR_BAND_FRAC_GT8_MAX * 100}% of near-band pixels differ by more than 8/255 between 256 and 512`, diff256v512.near.fracGt8, '<=', NEAR_BAND_FRAC_GT8_MAX)
     } else {
-      unresolved.push(`fidelity: no per-band claim is made -- the frame is not static, so every delta below sits at the noise floor. Two captures ${FREEZE_HOLD_MS}ms apart inside ONE frozen page still differ by up to ${worstWithin}/255 mean |delta|; a second load of the SAME arm differs by ${diffControl.near.meanAbs}/255 in the near band; 512-vs-1024 is ${diff512v1024.near.meanAbs}/255 and 64-vs-1024 is ${diff64v1024.near.meanAbs}/255. The texture effect is smaller than the floor, so it is unmeasured, not measured-good.`)
+      unresolved.push(`fidelity: no per-band claim is made -- the frame is not static, so every delta below sits at the noise floor. Two captures ${FREEZE_HOLD_MS}ms apart inside ONE frozen page still differ by up to ${worstWithin}/255 mean |delta|; a second load of the SAME arm differs by ${diffControl.near.meanAbs}/255 in the near band; 512-vs-1024 is ${diff512v1024.near.meanAbs}/255, 256-vs-512 is ${diff256v512.near.meanAbs}/255 and 64-vs-1024 is ${diff64v1024.near.meanAbs}/255. The texture effect is smaller than the floor, so it is unmeasured, not measured-good.`)
     }
     expect('fidelity: the 64 arm is measurably coarser than the 512 arm in the near band (so the gate is not vacuous)', diff64v1024.near.meanAbs, '>', diff512v1024.near.meanAbs)
+    expect('fidelity: against the same 512 baseline the 64 arm is measurably coarser than the 256 arm (so the 256 gate is not vacuous)', diff64v512.near.meanAbs, '>', diff256v512.near.meanAbs)
   } catch (e) {
     console.error(`[${LABEL}] ${e && e.stack ? e.stack : e}`)
     if (browser) await browser.close().catch(() => {})
