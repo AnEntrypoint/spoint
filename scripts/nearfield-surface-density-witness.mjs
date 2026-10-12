@@ -438,9 +438,44 @@ async function main() {
   writeFileSync(resolve(OUT_DIR, LABEL + '.json'), JSON.stringify(out, null, 1))
   console.log('[nearfield] wrote ' + resolve(OUT_DIR, LABEL + '.json'))
   console.log('[nearfield] RESULT ' + JSON.stringify(verdict))
+
+  // ---- the decision ----------------------------------------------------------------------------
+  // The table above is a measurement, not a verdict. What makes "the near band is 2.409 m against a
+  // 1.00 m collider" a fact rather than a printout is that the on-sphere spacing it reports is the
+  // drawn leaf's own step length times the cube-sphere metric the PREDICT block declares -- two
+  // numbers the page computes by different routes (radius/level/gridSize, and a metric integral over
+  // the real drawn-quad payload) that have to agree. Everything else here is the instrument proving
+  // it ran: the knob read back what was set, the renderer is the accelerated path, frames were
+  // counted and both comparison lattices were measured. A gate on the table alone cannot fail, so
+  // the run decides on those and nothing else.
+  const checks = []
+  const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); if (!ok) console.log(`FAIL: ${name} ${detail}`) }
+  const okRows = rows.filter((r) => !r.error && Number.isFinite(r.nearSpacingMeanM))
+
+  check('tiersMeasured', okRows.length === rows.length && rows.length === TIERS.length && okRows.every((r) => r.nearSpacingMeanM > 0 && Number.isFinite(r.nearSpacingMinM) && Number.isFinite(r.nearSpacingMaxM)), `rows=${rows.length} of ${TIERS.length}, measured=${okRows.length}`)
+  check('knobTookTheTierThatWasSet', rows.every((r) => r.tier === 'boot' ? r.windowMaxLevel === prediction.bootMaxLevel : r.windowMaxLevel === Number(r.tier)), JSON.stringify(rows.map((r) => [r.tier, r.windowMaxLevel])))
+  let metricWorst = null
+  for (const r of okRows) {
+    if (!(Number.isFinite(r.stepLocalM) && r.stepLocalM > 0)) { metricWorst = 'stepLocalM ' + r.stepLocalM; continue }
+    const gu = (r.nearSpacingUm / r.stepLocalM) / PREDICT_METRIC.dSdu
+    const gv = (r.nearSpacingVm / r.stepLocalM) / PREDICT_METRIC.dSdv
+    const worst = Math.max(Math.abs(gu - 1), Math.abs(gv - 1))
+    if (metricWorst === null || typeof metricWorst === 'string' || worst > metricWorst) metricWorst = worst
+  }
+  check('metricFactorMatchesPrediction', typeof metricWorst === 'number' && metricWorst <= 0.05, `worst |measured metric / predicted metric - 1| = ${metricWorst}`)
+  check('drawnQuadPayloadMeasured', okRows.every((r) => Number.isInteger(r.deepestLevel) && r.deepestLevel > 0 && r.quadCount > 0 && r.gridSize === prediction.gridMeshSize && r.radius === prediction.radius), JSON.stringify(okRows.map((r) => [r.tier, r.quadCount, r.deepestLevel, r.gridSize, r.radius])))
+  check('rendererIsTheAcceleratedWebGpuPath', !!(gpu && gpu.accelerated) && rows.every((r) => r.rendererInfo && r.rendererInfo.class === 'WebGPURenderer' && r.rendererInfo.backend === 'webgpu'), JSON.stringify({ gpu: gpu && { accelerated: gpu.accelerated, renderer: gpu.renderer }, classes: [...new Set(rows.map((r) => r.rendererInfo && r.rendererInfo.class))] }))
+  check('framesCounted', okRows.every((r) => r.cost && r.cost.frames > 0), JSON.stringify(rows.map((r) => [r.tier, r.cost && r.cost.frames])))
+  check('comparisonLatticesMeasured', verdict.every((v) => !v.error && Number.isFinite(v.colliderSpacingM) && v.colliderSpacingM > 0 && Number.isFinite(v.grassPlacementSpacingM) && v.grassPlacementSpacingM > 0), JSON.stringify(verdict.map((v) => [v.tier, v.colliderSpacingM, v.grassPlacementSpacingM])))
+
+  const failed = checks.filter((c) => !c.ok)
+  console.log(`[nearfield] decision metricWorst=${metricWorst} tiers=${rows.length} deepestLevels=${JSON.stringify([...new Set(okRows.map((r) => r.deepestLevel))])} windowMaxLevels=${JSON.stringify(rows.map((r) => r.windowMaxLevel))}`)
+  console.log(`[nearfield] checks ${checks.length - failed.length} passed, ${failed.length} failed`)
+  if (failed.length) console.log(`RESULT: FAIL (${failed.length} of ${checks.length} check(s))`)
+  else console.log('RESULT: PASS')
   try { await server.stop() } catch (_) {}
   await wait(1500)
-  process.exit(0)
+  process.exit(failed.length ? 1 : 0)
 }
 
 main().catch(async (e) => { console.error('[nearfield] FAILED: ' + (e && e.stack || e)); process.exit(1) })
