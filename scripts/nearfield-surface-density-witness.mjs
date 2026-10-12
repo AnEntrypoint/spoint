@@ -34,6 +34,15 @@ const SPLIT_PROBE = flag('split-probe', null)
 const LOAD_MS = Number(flag('load-ms', 0))
 const LOAD_BURN_MS = Number(flag('load-burn-ms', 38))
 const SHOTS = !ARGS.has('no-shots')
+// writeQuads is the only writer of the drawn-quad payload and quadsFor skips it while the camera
+// holds still, so a read taken with the player idle is the payload the last camera move produced.
+// REFRESH reads that stale number too, then drops the quad cache and reads the payload the tier
+// that is actually live produces; both are reported, and the verdict uses the refreshed one.
+const REFRESH = String(flag('refresh', '1')) !== '0'
+const REFRESH_SETTLE_MS = Number(flag('refresh-settle-ms', 900))
+const PIN = String(flag('pin', '0')) !== '0'
+const SHOT_TIERS_ALL = ARGS.has('shot-all-tiers')
+if (SHOT_TIERS_ALL) for (const t of TIERS) SHOT_TIERS.add(t)
 
 const KNOBS = BASE_KNOBS.split(',').filter(Boolean).map((p) => {
   const eq = p.indexOf('=')
@@ -113,6 +122,8 @@ const measureExpr = (radiusFallback) => `(async () => {
   } catch (_) {}
   let player = null
   try { const c = W.__client; const s = c && c.getLocalState && c.getLocalState(); if (s && Array.isArray(s.position)) player = [s.position[0], s.position[1], s.position[2]] } catch (_) {}
+  let nearField = null
+  try { if (typeof p.nearField === 'function') nearField = p.nearField() } catch (_) {}
   return {
     radius: R,
     gridSize: g,
@@ -129,6 +140,9 @@ const measureExpr = (radiusFallback) => `(async () => {
     splitFactor, splitDistRaw, splitDist, fov, canvasH,
     knobMaxLevel: rc && typeof rc.get === 'function' ? rc.get('maxLevel') : null,
     windowMaxLevel: W.__maxLevel == null ? null : W.__maxLevel,
+    nearField,
+    weatherType: rc && typeof rc.get === 'function' ? rc.get('weatherType') : null,
+    tod: W.__timeOfDay ? { paused: !!W.__timeOfDay.paused, clock: W.__timeOfDay.clock, elevationDeg: W.__timeOfDay.elevationDeg, sunIntensity: W.__timeOfDay.sunIntensity } : null,
     governor: W.__qualityGovernorState || null,
     playerLocal: player,
     rendererInfo: W.__rendererInfo || null,
@@ -310,8 +324,28 @@ async function main() {
   if (!ready) throw new Error('[nearfield] world never became ready')
   const gpu = await assertGpu(page, { requireAccelerated: true, expectVendor: EXPECT_VENDOR })
   console.log('[nearfield] gpu ' + JSON.stringify(gpu))
+  // The planet module is a root-relative runtime import (/node_modules/mapspinner/...), so the page
+  // can be running a build other than the working tree. Prove which one before trusting any number.
+  const buildProbe = await page.evaluate(`(async () => {
+    const u = '/node_modules/mapspinner/src/tsl/planet-tsl.js'
+    try { const t = await (await fetch(u)).text(); return { bytes: t.length, hasLodCacheKey: t.includes('nearLeafM'), hasQuadCache: t.includes('quadCache') } } catch (e) { return { error: String(e && e.message || e) } }
+  })()`).catch((e) => ({ error: e.message }))
+  console.log('[nearfield] build-probe ' + JSON.stringify(buildProbe))
   console.log('[nearfield] knobs ' + JSON.stringify(await page.evaluate(() => window.__nearfieldKnobs || null).catch(() => null)))
   await wait(6000)
+
+  // A 600 s day cycle and live rain both move every pixel, so a shot-to-shot comparison across tiers
+  // is only readable with the clock stopped and the weather off. Read the pin back on every row.
+  if (PIN) {
+    const pinned = await page.evaluate(`(() => {
+      const w = window, out = {}
+      try { const api = w.__timeOfDayApi; if (api) { api.setPaused(true); api.setFraction(0.30); out.clock = api.getClockString(); out.paused = api.isPaused() } else out.tod = 'no api' } catch (e) { out.todError = String(e && e.message || e) }
+      try { const rc = w.__renderControls; if (rc && typeof rc.set === 'function') { out.weatherType = rc.set('weatherType', 'clear'); out.weatherIntensity = rc.set('weatherIntensity', 0); w.__wetnessForce = 0 } else out.weather = 'no registry' } catch (e) { out.weatherError = String(e && e.message || e) }
+      return out
+    })()`).catch((e) => ({ error: e.message }))
+    console.log('[nearfield] pinned ' + JSON.stringify(pinned))
+    await wait(1500)
+  }
 
   const grass = await page.evaluate(GRASS_EXPR).catch((e) => ({ error: e.message }))
   console.log('[nearfield] grass ' + JSON.stringify(grass))
@@ -342,6 +376,13 @@ async function main() {
       setReturned = await page.evaluate(`(() => { const rc = window.__renderControls; const ok = rc && rc.set ? rc.set('maxLevel', ${Number(tier)}) : null; return { ok, readback: rc && rc.get ? rc.get('maxLevel') : null } })()`).catch((e) => ({ error: e.message }))
     }
     await wait(SETTLE_MS)
+    const still = await page.evaluate(measureExpr(PREDICT.radius)).catch((e) => ({ error: e.message }))
+    let refreshed = still, clearCache = null
+    if (REFRESH) {
+      clearCache = await page.evaluate(`(() => { const p = window.__terrain && window.__terrain.planet; if (!p || typeof p.clearCache !== 'function') return 'no clearCache'; p.clearCache(); return 'cleared' })()`).catch((e) => ({ error: e.message }))
+      await wait(REFRESH_SETTLE_MS)
+      refreshed = await page.evaluate(measureExpr(PREDICT.radius)).catch((e) => ({ error: e.message }))
+    }
     await page.evaluate(NF_RESET).catch(() => null)
     const send0 = await page._send('Performance.getMetrics').catch(() => ({ metrics: [] }))
     const t0wall = Date.now()
@@ -353,7 +394,7 @@ async function main() {
     const m0 = by(send0), m1 = by(send1)
     const f = ((acc && acc.frames) || []).filter((d) => d > 0)
     const nF = f.length
-    const m = await page.evaluate(measureExpr(PREDICT.radius)).catch((e) => ({ error: e.message }))
+    const m = refreshed
     const dev = await page.evaluate(TRANS_EXPR).catch((e) => ({ error: e.message }))
     const cost = {
       frames: nF,
@@ -366,8 +407,8 @@ async function main() {
       deepestQuads: m.deepestQuadCount ?? null,
     }
     const images = (SHOTS && wantShots) ? await shot(page, LABEL + '-' + tier) : null
-    const row = { tier, setReturned, ...m, dev, cost, images }
-    console.log('[nearfield] ' + tier + ' ' + JSON.stringify({ ...m, dev, cost, images: images ? Object.keys(images) : null }))
+    const row = { tier, setReturned, still, refreshed, clearCache, ...m, dev, cost, images }
+    console.log('[nearfield] ' + tier + ' ' + JSON.stringify({ still, refreshed, clearCache, dev, cost, images: images ? Object.keys(images) : null }))
     return row
   }
 
@@ -431,6 +472,11 @@ async function main() {
       maxFacetingErrorM: r.dev ? r.dev.maxAbsDevM : null,
       splitDist: r.splitDist, splitDistRaw: r.splitDistRaw, splitFactor: r.splitFactor,
       quads: r.cost.terrainQuads, tris: r.cost.terrainTris, threadMsPerFrame: r.cost.threadMsPerFrame,
+      nearFieldStepM: r.nearField ? r.nearField.stepM : null,
+      nearFieldTiles: r.nearField ? r.nearField.tiles : null,
+      stillQuads: r.still ? r.still.quadCount : null,
+      stillDeepestLevel: r.still ? r.still.deepestLevel : null,
+      stillNearSpacingM: r.still && Number.isFinite(r.still.nearSpacingMeanM) ? +r.still.nearSpacingMeanM.toFixed(3) : null,
     }
   })
 
@@ -464,6 +510,13 @@ async function main() {
   }
   check('metricFactorMatchesPrediction', typeof metricWorst === 'number' && metricWorst <= 0.05, `worst |measured metric / predicted metric - 1| = ${metricWorst}`)
   check('drawnQuadPayloadMeasured', okRows.every((r) => Number.isInteger(r.deepestLevel) && r.deepestLevel > 0 && r.quadCount > 0 && r.gridSize === prediction.gridMeshSize && r.radius === prediction.radius), JSON.stringify(okRows.map((r) => [r.tier, r.quadCount, r.deepestLevel, r.gridSize, r.radius])))
+  // The tier has to be VISIBLE in the payload, not merely held in a knob: quadCount is the count of
+  // instances the draw actually consumes, so a set of tiers that all report one count is a knob that
+  // did not reach the geometry.
+  check('drawnQuadPayloadRespondsToMaxLevel', new Set(okRows.map((r) => r.quadCount)).size >= 3, JSON.stringify(rows.map((r) => [r.tier, r.still && r.still.quadCount, r.quadCount])))
+  // ...and it has to be visible WITHOUT an outside nudge: a payload that only changes once something
+  // else shakes the camera is a shed the governor cannot make while the player stands still.
+  check('payloadFreshWithoutForcedRefresh', okRows.every((r) => r.still && r.still.quadCount === r.quadCount && r.still.deepestLevel === r.deepestLevel), JSON.stringify(rows.map((r) => [r.tier, r.still && r.still.quadCount, r.quadCount, r.still && r.still.deepestLevel, r.deepestLevel])))
   check('rendererIsTheAcceleratedWebGpuPath', !!(gpu && gpu.accelerated) && rows.every((r) => r.rendererInfo && r.rendererInfo.class === 'WebGPURenderer' && r.rendererInfo.backend === 'webgpu'), JSON.stringify({ gpu: gpu && { accelerated: gpu.accelerated, renderer: gpu.renderer }, classes: [...new Set(rows.map((r) => r.rendererInfo && r.rendererInfo.class))] }))
   check('framesCounted', okRows.every((r) => r.cost && r.cost.frames > 0), JSON.stringify(rows.map((r) => [r.tier, r.cost && r.cost.frames])))
   check('comparisonLatticesMeasured', verdict.every((v) => !v.error && Number.isFinite(v.colliderSpacingM) && v.colliderSpacingM > 0 && Number.isFinite(v.grassPlacementSpacingM) && v.grassPlacementSpacingM > 0), JSON.stringify(verdict.map((v) => [v.tier, v.colliderSpacingM, v.grassPlacementSpacingM])))

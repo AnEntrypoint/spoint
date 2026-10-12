@@ -154,12 +154,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   let lastNear = null
   if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
 
-  function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev) {
+  function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev, lod) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
-    const lod = resolveLodConfig(opts, fovy)
     applyLodConfig(qt, R, viewportH, lod)
     if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
@@ -240,22 +239,31 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
 
   let lastFar = 0
   let skyClampReleased = false
-  const quadCache = { res: null, hit: false, pos: [0, 0, 0], fwd: [0, 0, 0], fovy: 0, w: 0, h: 0 }
+  const quadCache = { res: null, hit: false, pos: [0, 0, 0], fwd: [0, 0, 0], fovy: 0, w: 0, h: 0, maxLevel: -1, splitFactor: -1, distFactor: -1, nearLeafM: -1 }
   function quadsFor(camWorldPos, camTarget, fy, up, w, h, surfElev) {
     const c = quadCache
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
     const moveTol = Math.min(250.0, Math.max(1.0, (camDist - R) * 0.00005))
     const fl = Math.hypot(camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]) || 1
     const fx = (camTarget[0] - camWorldPos[0]) / fl, fyv = (camTarget[1] - camWorldPos[1]) / fl, fz = (camTarget[2] - camWorldPos[2]) / fl
+    // The LOD config decides WHICH quads exist, so it is an input to this cache exactly as the pose and
+    // the viewport are: a tier the quality governor sheds to while the player stands still has to reach
+    // writeQuads on the next frame, or the shed is a no-op until the player happens to move past
+    // moveTol. Measured: with the LOD config out of the key, a still camera reports the PREVIOUS
+    // tier's payload (scripts/nearfield-surface-density-witness.mjs, still vs forced-refresh columns).
+    const lod = resolveLodConfig(opts, fy)
+    const nearLeafM = (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) ? near.maxLeafM : 0
     const unchanged = c.res && c.fovy === fy && c.w === w && c.h === h
+      && c.maxLevel === lod.maxLevel && c.splitFactor === lod.splitFactor && c.distFactor === lod.distFactor && c.nearLeafM === nearLeafM
       && Math.hypot(camWorldPos[0] - c.pos[0], camWorldPos[1] - c.pos[1], camWorldPos[2] - c.pos[2]) <= moveTol
       && fx * c.fwd[0] + fyv * c.fwd[1] + fz * c.fwd[2] >= QUAD_CACHE_MIN_FORWARD_DOT
     c.hit = !!unchanged
     if (unchanged) return c.res
-    c.res = writeQuads(camWorldPos, camTarget, fy, up, w / Math.max(1, h), h, surfElev)
+    c.res = writeQuads(camWorldPos, camTarget, fy, up, w / Math.max(1, h), h, surfElev, lod)
     c.pos[0] = camWorldPos[0]; c.pos[1] = camWorldPos[1]; c.pos[2] = camWorldPos[2]
     c.fwd[0] = fx; c.fwd[1] = fyv; c.fwd[2] = fz
     c.fovy = fy; c.w = w; c.h = h
+    c.maxLevel = lod.maxLevel; c.splitFactor = lod.splitFactor; c.distFactor = lod.distFactor; c.nearLeafM = nearLeafM
     return c.res
   }
   function frame(camWorldPos, camTarget, fovy, displayMode, sunDir, time, up, surfElev, shadowInfo, view) {
