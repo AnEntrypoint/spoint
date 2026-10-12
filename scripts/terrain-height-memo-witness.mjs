@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
@@ -25,7 +26,7 @@ const SECONDS = flagNumber(flag, 'seconds', 45, argv)
 const WARMUP_MS = flagNumber(flag, 'warmup', 10000, argv)
 const WORLD = String(flag('world', 'tps-game'))
 const GPU = String(flag('gpu', 'nvidia'))
-const KNOB = flag('knob', null)
+const KNOB_SPEC = String(flag('knob', ''))
 
 const MIN_FRAMES = 600
 const MIN_MOVED_M = 5
@@ -42,6 +43,71 @@ function expect(name, got, predicate) {
   return got
 }
 const finite = (v) => Number.isFinite(v)
+
+// --knob resolves against the RenderControls registry and installs through it via CDP, the same
+// route scripts/perf-run.mjs uses. A knob is never carried in the page URL: nothing in client/
+// reads a `knob` query param, so a URL knob is silently discarded and the run measures defaults --
+// lethal here because qualityGovernor defaults TRUE and moves maxLevel/splitFactor underneath the
+// measured walk.
+const knobApplySrc = (knobs) => `(() => {
+  const W = window
+  const want = ${JSON.stringify(knobs)}
+  let registry = null
+  const apply = () => {
+    const applied = []
+    for (const k of want) {
+      const ok = registry.set(k.key, k.value)
+      applied.push({ key: k.key, global: '__' + k.key, type: k.type, value: k.value, setReturned: ok, readback: W['__' + k.key] })
+    }
+    W.__rigKnobs = applied
+  }
+  Object.defineProperty(W, '__renderControls', {
+    configurable: true,
+    get: () => registry,
+    set: (v) => {
+      registry = v
+      if (registry && typeof registry.set === 'function') apply()
+      else W.__rigKnobsError = 'window.__renderControls assigned without a set() function'
+    },
+  })
+})()`
+
+async function resolveKnobSpec(spec) {
+  const pairs = String(spec || '').split(',').filter(Boolean)
+  if (!pairs.length) return []
+  const registryPath = resolve(ROOT, 'client', 'core', 'RenderControls.js')
+  if (!existsSync(registryPath)) throw new Error('[terrain-memo] --knob resolves keys against the render-controls registry at ' + registryPath + '; that file is absent')
+  const mod = await import(pathToFileURL(registryPath).href)
+  const byKey = new Map(((mod.RenderControls && mod.RenderControls.controls) || []).map((c) => [c.key, c]))
+  const knobs = []
+  const rejected = []
+  for (const pair of pairs) {
+    const eq = pair.indexOf('=')
+    const key = (eq > 0 ? pair.slice(0, eq) : pair).trim()
+    const raw = eq > 0 ? pair.slice(eq + 1).trim() : ''
+    const entry = byKey.get(key)
+    if (!entry) { rejected.push(`"${key}" is not in the RenderControls registry (${byKey.size} keys registered)`); continue }
+    if (eq < 0) { rejected.push(`"${key}" carries no =<value>`); continue }
+    let value
+    if (entry.type === 'boolean') {
+      if (/^(true|1|on|yes)$/i.test(raw)) value = true
+      else if (/^(false|0|off|no)$/i.test(raw)) value = false
+      else { rejected.push(`"${key}=${raw}" is not a boolean (registry type ${entry.type}): expected true/false/1/0/on/off/yes/no`); continue }
+    } else if (entry.type === 'number') {
+      const n = Number(raw)
+      if (raw === '' || !Number.isFinite(n)) { rejected.push(`"${key}=${raw}" is not a finite number (registry type ${entry.type})`); continue }
+      if (typeof entry.min === 'number' && n < entry.min) { rejected.push(`"${key}=${raw}" is below the declared min ${entry.min}`); continue }
+      if (typeof entry.max === 'number' && n > entry.max) { rejected.push(`"${key}=${raw}" is above the declared max ${entry.max}`); continue }
+      value = n
+    } else {
+      rejected.push(`"${key}=${raw}" has registry type ${entry.type}; --knob sets boolean and number knobs only`)
+      continue
+    }
+    knobs.push({ key, type: entry.type, value, default: entry.default })
+  }
+  if (rejected.length) throw new Error('[terrain-memo] --knob rejected ' + rejected.length + ' of ' + pairs.length + ' knob(s): ' + rejected.join('; '))
+  return knobs
+}
 
 function armCounters() {
   const t = window.__terrain
@@ -121,6 +187,8 @@ async function readModule() {
 }
 
 async function main() {
+  const KNOBS = await resolveKnobSpec(KNOB_SPEC)
+  if (KNOBS.length) console.log('[terrain-memo] knobs resolved: ' + KNOBS.map((k) => '__' + k.key + '=' + JSON.stringify(k.value) + ' [' + k.type + ', default ' + JSON.stringify(k.default) + ']').join('  '))
   const port = String(20000 + Math.floor(Math.random() * 20000))
   process.env.WORLD = process.env.WORLD || WORLD
   process.env.PORT = port
@@ -133,7 +201,8 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     page.on('pageerror', (e) => console.log('[terrain-memo] pageerror: ' + String((e && e.message) || e).slice(0, 300)))
-    const url = `http://127.0.0.1:${port}/?multiplayer&world=${WORLD}&v=${Date.now()}${KNOB ? `&knob=${encodeURIComponent(KNOB)}` : ''}`
+    if (KNOBS.length) await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
+    const url = `http://127.0.0.1:${port}/?multiplayer&world=${WORLD}&v=${Date.now()}`
     console.log('[terrain-memo] navigating ' + url)
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
 
@@ -156,6 +225,16 @@ async function main() {
     const gpu = await assertGpu(page, { requireAccelerated: true, expectVendor: GPU })
     console.log(`[terrain-memo] gpu=${GPU} accelerated=${gpu.accelerated} rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'}`)
     if (gpu.accelerated !== true) throw new Error('gpu arm not accelerated: ' + JSON.stringify(gpu))
+
+    let knobApplied = []
+    if (KNOBS.length) {
+      const knobState = await page.evaluate(() => ({ knobs: window.__rigKnobs || null, error: window.__rigKnobsError || null })).catch((e) => ({ error: String((e && e.message) || e) }))
+      if (!Array.isArray(knobState.knobs)) throw new Error('[terrain-memo] --knob never applied in the page: ' + JSON.stringify(knobState))
+      knobApplied = knobState.knobs
+      const notLanded = knobApplied.filter((k) => k.setReturned !== true || k.readback !== k.value)
+      if (notLanded.length) throw new Error('[terrain-memo] --knob values did not land through RenderControls.set: ' + JSON.stringify(notLanded))
+      console.log('[terrain-memo] knobs applied: ' + knobApplied.map((k) => k.global + '=' + JSON.stringify(k.readback)).join('  '))
+    }
 
     const armed = await page.evaluate(armCounters)
     console.log('[terrain-memo] armed: ' + JSON.stringify(armed))
@@ -233,6 +312,7 @@ async function main() {
       msPerMiss_us: expect('msPerMiss_us', mod.memo.misses ? Math.round((read.ms / mod.memo.misses) * 1000 * 100) / 100 : null, finite),
     }
     console.log('[terrain-memo] measurements ' + JSON.stringify(report, null, 2))
+    if (knobApplied.length) console.log('[terrain-memo] knobs in force throughout the measured walk: ' + knobApplied.map((k) => k.key + '=' + JSON.stringify(k.readback)).join('  '))
     for (const f of failures) console.log(`FAIL: ${f}`)
     if (failures.length) console.log(`RESULT: FAIL (${failures.length} of ${measurements.length} measurement(s))`)
     else console.log('RESULT: PASS')
