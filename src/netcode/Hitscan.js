@@ -47,11 +47,16 @@ function testTarget(target, shot) {
 }
 
 export function findHitLinear(players, shot) {
+  let nearest = null
+  let nearestDot = Infinity
   for (const target of players) {
     const found = testTarget(target, shot)
-    if (found) return found
+    if (!found) continue
+    if (!(found.dot < nearestDot)) continue
+    nearest = found
+    nearestDot = found.dot
   }
-  return null
+  return nearest
 }
 
 export function findHitSpatial(players, shot, liveIndex = null) {

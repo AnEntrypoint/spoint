@@ -466,7 +466,7 @@ export interface AppContext {
   /** The server's lag compensator; null only when the runtime was built without one. */
   readonly lagCompensator: LagCompensator | null;
 
-  /** Engine lag-compensated hitscan (src/netcode/Hitscan.js): normalizeShotDirection, resolveFireRequest, findHitSpatial(players, shot, liveIndex?), findHitLinear(players, shot), rayVsCapsule, hitHeightRatio, buildLiveIndex, DEFAULT_HITBOX, recordHit. A shot is { shooterId, origin, direction, viewTick, range, lagComp, isTargetable? }. */
+  /** Engine lag-compensated hitscan (src/netcode/Hitscan.js): normalizeShotDirection, resolveFireRequest, findHitSpatial(players, shot, liveIndex?), findHitLinear(players, shot), rayVsCapsule, hitHeightRatio, buildLiveIndex, DEFAULT_HITBOX, recordHit. A shot is { shooterId, origin, direction, viewTick, range, lagComp, isTargetable? }. Postcondition of both findHitLinear and findHitSpatial: the hit returned is the smallest-dot one among the targetable players the ray hits, ties broken by the lowest index in the players array, so the two agree for every permutation of that array; null when the ray hits no player. */
   readonly combat: Record<string, any>;
   /** Kill-plane height under x/z: terrain height minus depth (default 20 m), or -20 without terrain. */
   fallFloorY(x: number, z: number, depth?: number): number;
