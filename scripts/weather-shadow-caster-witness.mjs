@@ -729,11 +729,32 @@ try {
   report.errors = errors.slice(0, 10)
   fs.writeFileSync(resolve(OUT, `report-${LABEL}.json`), JSON.stringify(report, null, 2))
   console.log('[weather-shadow] report written to ' + resolve(OUT, `report-${LABEL}.json`))
-  exitCode = 0
+  // A run that measured nothing must not pass. Both pixel arms are a signal-vs-control design, so the
+  // verdict is that the signal moved more pixels than the control: frames that differ on their own --
+  // wind, waves, the clock -- move the control too, and then this run proved nothing either way.
+  const armVerdict = (arm, signalKey, controlKey) => {
+    const s = report[arm] && report[arm][signalKey]
+    const c = report[arm] && report[arm][controlKey]
+    const px = (o) => (o && Number.isFinite(o.changedPixels) ? o.changedPixels : null)
+    return { arm, signal: px(s), control: px(c), beats: px(s) != null && px(c) != null && px(s) > px(c) }
+  }
+  const arms = [
+    armVerdict('castVisual', 'signal_offVsOn', 'control_offVsOff'),
+    armVerdict('splashVisual', 'signal_shownVsHidden', 'control_shownVsShown'),
+  ]
+  const deadArms = arms.filter((a) => !a.beats)
+  if (deadArms.length || (errors && errors.length)) {
+    console.log(`RESULT: FAIL (${deadArms.length} arm(s) whose signal did not beat its control, ${errors ? errors.length : 0} page error(s)) ` + JSON.stringify(arms))
+    exitCode = 1
+  } else {
+    console.log('RESULT: PASS -- the cast and splash arms both moved more pixels than their own control ' + JSON.stringify(arms))
+    exitCode = 0
+  }
 } catch (e) {
   report.fatal = String((e && e.stack) || e)
   try { fs.writeFileSync(resolve(OUT, `report-${LABEL}.json`), JSON.stringify(report, null, 2)) } catch (_) {}
   console.error('[weather-shadow] FAILED ' + report.fatal)
+  console.log(`RESULT: FAIL (fatal: ${String((e && e.message) || e)})`)
   exitCode = 1
 } finally {
   try { await browser.close() } catch (_) {}
