@@ -347,6 +347,11 @@ const GPU_PASS_ARM_SRC = `(() => {
   return { ok: true, hasFeature }
 })()`
 
+if (!GPU_PASS_ARM_SRC.includes('(\\d+)')) {
+  console.error('[perf-run] GPU_PASS_ARM_SRC lost its \\d+ escape: an untagged template literal turns a lone \\d into d, so the page would receive (d+), never match ?gpuabms=, and pin abPhaseMs at 5000')
+  process.exit(2)
+}
+
 const GPU_PROBE_PS1 = resolve(OUT_DIR, 'gpu-probe.ps1')
 const GATE_PROBE_REPO = resolve(__dirname, 'perf-run-gate.ps1')
 const GPU_PROBE_FALLBACK = `$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine
