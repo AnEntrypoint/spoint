@@ -48,6 +48,9 @@ const NO_GPU_WITNESSES = [
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
   { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
   { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=2[\s\S]*RESULT: PASS/ },
+  { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
+  { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
+  { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000

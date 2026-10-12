@@ -145,7 +145,7 @@ export async function createVegetation(opts = {}) {
       let _t = performance.now()
       const sp = buildSpecies(name, Tree, variant, TreePreset)
       bootSpan('generate', label, _t); _t = performance.now()
-      const branchGeo0 = await capGeo(sp.branchGeo, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 2200)
+      const branchGeo0 = await capGeo(sp.branchGeo, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 6000)
       const leafGeo0 = await capGeo(sp.leafGeo, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
       branchGeo0.computeBoundingBox(); leafGeo0.computeBoundingBox()
       const _treeBox = branchGeo0.boundingBox.clone().union(leafGeo0.boundingBox)
