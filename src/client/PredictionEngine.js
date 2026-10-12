@@ -13,6 +13,8 @@ const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 const WEDGE_TRAVEL_MIN_M = 0.05
 const WEDGE_LOST_FRAC = 0.2
+
+const WEDGE_STALL_ACKS = 2
 const RECONCILE_POS_EPS_M = 0.015
 const SURFACE_MATCH_M = 0.25
 const SURFACE_OFFSET_ALPHA = 0.2
@@ -168,6 +170,7 @@ export class PredictionEngine {
   _clearHorizontalBlock() {
     this.horizontallyWedged = false
     this._blockedByServer = false
+    this._stalledAcks = 0
     this.wedgeNormal[0] = 0
     this.wedgeNormal[1] = 0
   }
@@ -368,12 +371,13 @@ export class PredictionEngine {
     if (ackUsable && !firstContact) this._updateServerBlock(dx, dz, ackedTicks)
     const ackIdx = this.inputHistory.indexOf(ackedSeq)
     const predicted = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
+    const serverStalled = dx * dx + dz * dz < WEDGE_POS_EPS_SQ
+    this._stalledAcks = serverStalled && ackUsable && !firstContact ? this._stalledAcks + 1 : 0
     if (sv.onGround) {
       if (this._blockedByServer) this.horizontallyWedged = true
-      else {
+      else if (this._stalledAcks >= WEDGE_STALL_ACKS) {
         const commandedH = Math.hypot(sv.velocity[0], sv.velocity[2])
-        const stoppedWhileCommanding = (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && commandedH * commandedH > WEDGE_VEL_EPS_SQ
-        if (stoppedWhileCommanding) this.horizontallyWedged = this._setBlockNormal(-sv.velocity[0], -sv.velocity[2])
+        if (commandedH * commandedH > WEDGE_VEL_EPS_SQ) this.horizontallyWedged = this._setBlockNormal(-sv.velocity[0], -sv.velocity[2])
       }
     }
     this.verticallyBlocked = !sv.onGround && dy * dy < WEDGE_POS_EPS_SQ && sv.velocity[1] < -Math.sqrt(WEDGE_VEL_EPS_SQ)

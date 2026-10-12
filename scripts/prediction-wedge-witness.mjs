@@ -38,10 +38,9 @@ const CONTACT_SDF_M = numericFlag(args, 'contactSdf', 1)
 const CYCLES = numericFlag(args, 'cycles', 2)
 const CYCLE_TICKS = numericFlag(args, 'cycleTicks', 170)
 const SLIDE_YAWS_DEG = numericListFlag(args, 'slideYaws', [25, 75], ',')
-const SAMPLE_MS = 4
-const REST_LOOKAHEAD_MS = numericFlag(args, 'restLookaheadMs', 30)
+const REST_LOOKAHEAD_TICKS = numericFlag(args, 'restLookaheadTicks', 2)
 const REST_EPS_M = numericFlag(args, 'restEps', 0.01)
-const SETTLE_MS = numericFlag(args, 'settleMs', 40)
+const SETTLE_TICKS = numericFlag(args, 'settleTicks', 3)
 const MOVE_EPS_M = numericFlag(args, 'moveEps', 0.005)
 const UNIT_WARM = 40
 const UNIT_SNAP_EVERY = 3
@@ -151,6 +150,16 @@ async function runArm(cfg) {
     let tickCount = 0
     let serverPathM = 0
     let predPathM = 0
+    const stepPath = { m: 0, n: 0 }
+    const rawAddInput = pred.addInput.bind(pred)
+    pred.addInput = function (...a) {
+      const p = pred.localState.position
+      const x0 = p[0], z0 = p[2]
+      const r = rawAddInput(...a)
+      stepPath.m += Math.hypot(p[0] - x0, p[2] - z0)
+      stepPath.n++
+      return r
+    }
     const acksAtStart = pred.stats.acks
     const correctionsAtStart = pred.stats.corrections
     const inputSeqAtStart = pred._inputSeq ?? 0
@@ -181,20 +190,17 @@ async function runArm(cfg) {
         serverVelH: round(Math.hypot(player.state.velocity[0], player.state.velocity[2]), 6),
         onGround: player.state.onGround === true,
       })
+      stepPens.push({
+        tick: tickCount,
+        pen: predPos ? Math.max(0, -nearestSdf(predPos)) : null,
+        serverSdf: round(ss, 6),
+        sp: serverPos,
+        walls: pred.walls ? pred.walls.length : 0,
+        wedged: pred.horizontallyWedged ? 1 : 0,
+      })
+      if (stepPens.length > TICKS) stepPens.shift()
       if (samples.length > TICKS) samples.shift()
     })
-
-    let armLive = false
-    const srvHist = []
-    const sampler = setInterval(() => {
-      if (!armLive || !pred.localState) return
-      const p = pred.localState.position
-      const sp = player.state.position
-      const serverSdf = nearestSdf([sp[0], sp[1], sp[2]])
-      const pen = Math.max(0, -nearestSdf([p[0], p[1], p[2]]))
-      stepPens.push({ t: Date.now(), pen, serverSdf, sp: [sp[0], sp[1], sp[2]], walls: pred.walls ? pred.walls.length : 0, wedged: pred.horizontallyWedged ? 1 : 0 })
-    }, SAMPLE_MS)
-    sampler.unref?.()
 
     let phaseTick = 0
     let inputCalls = 0
@@ -207,18 +213,16 @@ async function runArm(cfg) {
       return { forward: true, sprint: true, yaw: cfg.yaw, pitch: 0 }
     })
     const startTick = tickCount
-    armLive = true
     const t0 = Date.now()
     while (tickCount - startTick < TICKS && Date.now() - t0 < ARM_TIMEOUT_MS) await sleep(2)
-    armLive = false
-    clearInterval(sampler)
     stopInput()
+    pred.addInput = rawAddInput
     const ticks = tickCount - startTick
 
     const post = samples.slice(WARMUP_TICKS)
     const restAt = stepPens.map((s, i) => {
       let moved = 0
-      for (let j = i + 1; j < stepPens.length && stepPens[j].t - s.t <= REST_LOOKAHEAD_MS; j++) {
+      for (let j = i + 1; j < stepPens.length && stepPens[j].tick - s.tick <= REST_LOOKAHEAD_TICKS; j++) {
         moved = Math.max(moved, Math.hypot(stepPens[j].sp[0] - s.sp[0], stepPens[j].sp[2] - s.sp[2]))
       }
       return moved < REST_EPS_M
@@ -226,9 +230,7 @@ async function runArm(cfg) {
     const atWallIdx = stepPens.map((s, i) => i).filter(i => stepPens[i].serverSdf <= CONTACT_SDF_M)
     const settledAt = stepPens.map((s, i) => {
       if (!restAt[i]) return false
-      let j = i
-      while (j > 0 && s.t - stepPens[j - 1].t <= SETTLE_MS) j--
-      if (j === 0) return false
+      const j = Math.max(1, i - SETTLE_TICKS)
       for (let k = j - 1; k <= i; k++) if (!restAt[k]) return false
       return true
     })
@@ -284,9 +286,11 @@ async function runArm(cfg) {
       inputSeqSteps: (pred._inputSeq ?? 0) - inputSeqAtStart,
       inputCalls,
       serverTicks: ticks,
-      predStepMeanM: round(predPathM / Math.max(1, inputCalls), 6),
+      predictedSteps: stepPath.n,
+      predStepPathM: round(stepPath.m, 4),
+      predStepMeanM: round(stepPath.m / Math.max(1, stepPath.n), 6),
       serverStepMeanM: round(serverPathM / Math.max(1, ticks), 6),
-      stepRatio: round((predPathM / Math.max(1, inputCalls)) / Math.max(1e-9, serverPathM / Math.max(1, ticks)), 4),
+      stepRatio: round((stepPath.m / Math.max(1, stepPath.n)) / Math.max(1e-9, serverPathM / Math.max(1, ticks)), 4),
       stepsPerServerTick: round(inputCalls / Math.max(1, ticks), 4),
       maxLeadTicks: post.reduce((m, s) => Math.max(m, s.lead ?? 0), 0),
       maxHeldDivergenceM: round(heldDiv.length ? Math.max(...heldDiv) : NaN, 5),
@@ -485,7 +489,7 @@ for (const o of results) {
   const p = o.arm + ': '
   expect(o.groundedAtStart, p + 'the player was standing on the floor before the arm started')
   expect(Number.isFinite(o.serverPathM) && o.serverPathM > 5, p + `the player walked a real distance: serverPath ${o.serverPathM} m`)
-  expect(o.stepRatio >= 0.9 && o.stepRatio <= 1.1, p + `the predicted step tracked the server step: per-step ratio ${o.stepRatio} (pred ${o.predStepMeanM} m over ${o.inputCalls} input step(s), server ${o.serverStepMeanM} m over ${o.serverTicks} tick(s))`)
+  expect(o.stepRatio >= 0.9 && o.stepRatio <= 1.1, p + `the predicted step tracked the server step: per-step ratio ${o.stepRatio} (pred ${o.predStepMeanM} m over ${o.predictedSteps} predicted step(s), server ${o.serverStepMeanM} m over ${o.serverTicks} tick(s))`)
   expect(Number.isFinite(o.maxFreeDivergenceTicks) && o.maxFreeDivergenceTicks <= o.maxLeadTicks + DIVERGENCE_SLACK_TICKS, p + `clear-lane divergence stayed inside the input lead: ${o.maxFreeDivergenceTicks} step(s) of ${o.clearStepMeanM} m (max ${o.maxFreeDivergenceM} m) at lead ${o.maxLeadTicks} tick(s) + slack ${DIVERGENCE_SLACK_TICKS}`)
   expect(o.acksDuringArm > 0, p + `the arm really reconciled against server snapshots: ${o.acksDuringArm} acks`)
   expect(o.heldSamplesOverTol === 0, p + `the predicted position never settled inside the wall: ${o.heldSamplesOverTol} of ${o.stoppedAtWall} settled samples over ${PEN_TOL_M} m (max ${o.heldMaxPenetrationM} m)`)
