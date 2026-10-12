@@ -1,8 +1,18 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { flagValue, requireExternalTarget } from './lib/external-target.mjs';
 
-const DEFAULT_WORKFLOW = 'C:/dev/gm/rs-plugkit/.github/workflows/release.yml';
-const WORKFLOW_FLAG = '--workflow=';
+const UNDER_CHECKOUT = 'rs-plugkit/.github/workflows/release.yml';
 const PATTERN_CHARSET = /^[A-Za-z0-9_.\-\/*?]+$/;
+const argv = process.argv.slice(2);
+const { path: workflowPath, source } = requireExternalTarget({
+  witness: 'gm-release-paths-witness',
+  label: 'plugkit release workflow',
+  flagName: 'workflow',
+  envName: 'GM_RELEASE_WORKFLOW',
+  underCheckout: UNDER_CHECKOUT,
+  flag: flagValue(argv, 'workflow'),
+  argv,
+});
 
 const EXPECTATIONS = [
   { path: 'crates/plugkit-core/src/orchestrator/instructions/prose/entry.md', ignored: false },
@@ -127,21 +137,15 @@ const globToRegExp = (pattern) => {
   return new RegExp('^' + source + '$');
 };
 
-const workflowPathFromArgs = () => {
-  const flag = process.argv.find((arg) => arg.startsWith(WORKFLOW_FLAG));
-  return flag === undefined ? DEFAULT_WORKFLOW : flag.slice(WORKFLOW_FLAG.length);
-};
-
 const run = () => {
-  const workflowPath = workflowPathFromArgs();
   const out = [
     'ts: ' + new Date().toISOString(),
     'workflow: ' + workflowPath,
+    'source: ' + source,
     'parser: hand-rolled flow/block YAML reader (js-yaml not used)',
   ];
   let ok = false;
   try {
-    if (!existsSync(workflowPath)) throw new Error('workflow file not found');
     const lines = readFileSync(workflowPath, 'utf8').split(/\r?\n/);
     const { line, patterns } = readPushPathsIgnore(lines);
     assertPatterns(patterns);

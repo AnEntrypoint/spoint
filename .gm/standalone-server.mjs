@@ -1,11 +1,12 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PORT = 8099;
 const HOST = '127.0.0.1';
-const root = path.resolve('C:/dev/spoint/.gm');
-const origGlbPath = 'C:/dev/maps/compress/output/aim_sillos.glb';
+const root = path.dirname(fileURLToPath(import.meta.url));
+const origGlbPath = process.env.SPOINT_ORIG_GLB ?? 'C:/dev/maps/compress/output/aim_sillos.glb';
 
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.glb': 'model/gltf-binary' };
 
