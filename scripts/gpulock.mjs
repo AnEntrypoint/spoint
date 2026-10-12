@@ -50,12 +50,18 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
-function writeOwner(record) {
+function writeOwner(record, ensureDir = false) {
   const tmp = `${OWNER_FILE}.${process.pid}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(record)}\n`, 'utf8')
+  const write = () => {
+    if (ensureDir) { try { mkdirSync(LOCK_DIR, { recursive: true }) } catch {} }
+    writeFileSync(tmp, `${JSON.stringify(record)}\n`, 'utf8')
+  }
+  write()
   // Windows denies a rename while another process has the destination open (EPERM)
   // or the file is briefly busy; that is transient, and losing the race outright
-  // kills the whole arm, so retry a few times before giving up.
+  // kills the whole arm, so retry a few times before giving up. ENOENT is the
+  // takeover race: the holder released and removed the lock directory between the
+  // write and the rename, so recreate it rather than dying.
   let lastErr
   for (let i = 0; i < 4; i++) {
     try {
@@ -63,8 +69,11 @@ function writeOwner(record) {
       return true
     } catch (e) {
       lastErr = e
-      if (e?.code !== 'EPERM' && e?.code !== 'EBUSY' && e?.code !== 'EACCES') throw e
-      sleepSync(50 * (i + 1))
+      const retryable = e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES'
+      const vanished = e?.code === 'ENOENT' && ensureDir
+      if (!retryable && !vanished) throw e
+      if (vanished) write()
+      else sleepSync(50 * (i + 1))
     }
   }
   throw lastErr
@@ -94,10 +103,20 @@ function ticketPath(nonce) {
   return join(WAITERS_DIR, `${nowMs()}.${nonce}.json`)
 }
 
+// Seniority is the wait START, not the start of the current retry: --wait-ms is
+// capped at 600000 ms and a holder can hold for hours, so a lane has to retry,
+// and a retry that minted a fresh timestamp would go to the back of the queue
+// every ten minutes and never be served. Set SPOINT_GPU_LOCK_SINCE to the epoch
+// ms the lane first started waiting to keep its place across retries.
+function waitSinceMs() {
+  const since = Number(process.env.SPOINT_GPU_LOCK_SINCE)
+  return Number.isFinite(since) && since > 0 ? since : nowMs()
+}
+
 function addTicket(owner, nonce) {
   try {
     mkdirSync(WAITERS_DIR, { recursive: true })
-    writeFileSync(ticketPath(nonce), `${JSON.stringify({ owner, nonce, pid: process.pid, ts: nowMs() })}\n`, 'utf8')
+    writeFileSync(ticketPath(nonce), `${JSON.stringify({ owner, nonce, pid: process.pid, ts: waitSinceMs() })}\n`, 'utf8')
   } catch {}
 }
 
@@ -141,8 +160,11 @@ function waitingOn(owner, nonce, holder) {
 }
 
 function takeOver(owner, nonce, reason) {
+  // The directory may vanish under us: the holder we are taking over from can
+  // release between takeoverAllowed() and here. Recreate it, or the rename of the
+  // owner record dies with ENOENT and the arm never runs.
   try { rmSync(OWNER_FILE, { force: true }) } catch {}
-  writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs(), tookOverFrom: reason })
+  writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs(), tookOverFrom: reason }, true)
   return true
 }
 
@@ -238,14 +260,9 @@ function startHeartbeat(owner, nonce, onLost) {
       return
     }
     try {
-      writeOwner({ ...record, heartbeatAt: nowMs(), childPid: currentChildPid })
-    } catch {
-      try { mkdirSync(LOCK_DIR) } catch {}
-      try {
-        writeOwner({ ...record, heartbeatAt: nowMs(), childPid: currentChildPid })
-      } catch (e) {
-        console.error(`gpulock: heartbeat could not refresh the lock (${e?.code || e}), so another acquirer may take over at the ${currentTtl} ms ttl`)
-      }
+      writeOwner({ ...record, heartbeatAt: nowMs(), childPid: currentChildPid }, true)
+    } catch (e) {
+      console.error(`gpulock: heartbeat could not refresh the lock (${e?.code || e}), so another acquirer may take over at the ${currentTtl} ms ttl`)
     }
   }, HEARTBEAT_MS)
   timer.unref?.()
