@@ -16,6 +16,7 @@ import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simp
 import { createWebGPULodInstancer } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
+import { macrotaskYield } from './macrotaskYield.js'
 
 const _dbgVeg = dbg('vegetation')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -256,7 +257,7 @@ export async function createVegetation(opts = {}) {
     const _now = (typeof performance !== 'undefined') ? performance.now() : 0
     if (_now - _buildT0 > BUILD_SLICE_BUDGET_MS) {
       const _yieldT = performance.now()
-      await new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
+      await macrotaskYield()
       bootSpan('yield', name + '#' + buildList[i].variant, _yieldT)
       _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
@@ -513,7 +514,6 @@ export async function createVegetation(opts = {}) {
     return didLoad || didDrop
   }
 
-  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
   const PREWARM_SLICE_MS = 24
   async function prewarm(px, pz, minChunks = 64, budgetMs = 4000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
@@ -537,7 +537,7 @@ export async function createVegetation(opts = {}) {
       if (sliceMs >= PREWARM_SLICE_MS) {
         sliceMs = 0
         const _y0 = _nowMs()
-        await _yieldSlice()
+        await macrotaskYield()
         yieldMs += _nowMs() - _y0
       }
     }
