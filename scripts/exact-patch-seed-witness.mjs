@@ -303,7 +303,11 @@ for (const name of ARM_NAMES) {
     usPerMeshSample: us(T.meshMs, T.mesh),
   }
   if (name !== 'legacy') {
-    report[name].parityVsLegacy_maxAbsDiffM = maxD === maxD ? maxD : null
+    // The max is only a measurement when the comparison that produced it ran: pin it to that
+    // population's size, and to the tolerance it is claimed against, never to itself.
+    report[name].parityVsLegacy_samplesCompared = d.length
+    report[name].parityVsLegacy_maxAbsDiffM = d.length > 0 ? maxD : null
+    report[name].parityVsLegacy_withinToleranceM = d.length > 0 ? maxD <= PARITY_TOL_M : null
     report[name].parityVsLegacy_overTolerance = d.filter((v) => v > PARITY_TOL_M).length
   }
 }
