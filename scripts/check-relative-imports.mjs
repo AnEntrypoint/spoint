@@ -54,6 +54,7 @@ function namedImportProblems(file, text) {
   for (const m of text.matchAll(NAMED_IMPORT_RE)) {
     const spec = m[2]
     if (!spec.startsWith('.') || spec.includes('${')) continue
+    if (isCommentary(text, m.index)) continue
     const target = resolveTarget(file, spec)
     if (!target || target.endsWith('.json')) continue
     const names = exportedNames(target)
@@ -105,6 +106,17 @@ function lineOf(text, index) {
   return line
 }
 
+// A specifier scan over raw text cannot tell an import from a quotation of one,
+// so a doc example such as "// ... as ESM (`import x from './a/b.png')`" used to
+// be checked as a real specifier and failed the gate on a path nothing imports.
+// A real import statement never sits on a line opened by //, /* or a * continuation.
+const COMMENTARY_PREFIX_RE = /^\s*(?:\/\/|\/\*|\*)/
+
+function isCommentary(text, index) {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1
+  return COMMENTARY_PREFIX_RE.test(text.slice(lineStart, index))
+}
+
 function specifiers(text) {
   const found = []
   for (const re of SPECIFIER_PATTERNS) {
@@ -146,6 +158,7 @@ function main() {
     for (const { spec, index } of specifiers(text)) {
       if (!spec.startsWith('.')) continue
       if (spec.includes('${')) continue
+      if (isCommentary(text, index)) continue
       const clean = spec.split('?')[0].split('#')[0]
       if (!clean) continue
       checked++
