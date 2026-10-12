@@ -84,7 +84,7 @@ const LINE_TOKEN = {
   'apps/world/construct.js#20': 'relevanceRadius',
   'src/sdk/server.js#80': 'getRelevanceRadius',
   'scripts/frame-time-gate.mjs#36': 'UNLOCK_RAF',
-  'scripts/perf-run.mjs#301': 'abPhaseMs',
+  'scripts/perf-run.mjs#277': 'abPhaseMs',
   'scripts/lib/gpu-eval.mjs#102': 'probeHeights',
 };
 
@@ -465,6 +465,7 @@ const FOLD_NUMBER_RETIRED = {
   '211': 're-measured: AGENTS.md now states 203 files are index-LF + worktree-CRLF, so the old file count cannot be restored',
   '122': 'CRLF example compacted: the +122/-122 diff illustration was dropped with the example sha',
   '2000': 'settle-probe cadence example (40 frames per 2000 ms) compacted out of AGENTS.md',
+  '301': 'perf-run.mjs line number: the abPhaseMs pin moved to 277 when the \\\\d+ escape landed, so the baseline line cannot be restored',
 };
 const BASELINE_REV = '55cd0199';
 const FOLD_FINDINGS_BASELINE = 84;
