@@ -5,9 +5,39 @@ export const BIN_RECORD_BYTES = 29
 export const POS_I32_MAX = 2147483647 / WIRE_UNITS_PER_METER
 export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
 
-export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
-export function clampI32Pos(v) { return Math.max(-2147483647, Math.min(2147483647, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
-export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((Number.isFinite(v) ? v : 1) * WIRE_UNITS_PER_METER))) }
+function wireUnits(field, v, minUnits, maxUnits) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new RangeError('[snapshot-bin] ' + field + ' is ' + String(v) + ', which is not a finite number the wire can carry')
+  const units = Math.round(v * WIRE_UNITS_PER_METER)
+  if (units < minUnits || units > maxUnits) throw new RangeError('[snapshot-bin] ' + field + ' ' + v + ' quantizes to ' + units + ' wire units, outside [' + minUnits + ', ' + maxUnits + ']')
+  return units
+}
+export function clampI16(v) { return wireUnits('velocity', v, -32767, 32767) }
+export function clampI32Pos(v) { return wireUnits('position', v, -2147483647, 2147483647) }
+export function clampU16Scale(v) { return wireUnits('scale', v, 0, 65535) }
+
+export const PLAYER_TIER_FULL = 0
+export const PLAYER_TIER_REDUCED = 1
+export const REDUCED_POSE_FIELDS = 5
+export const REDUCED_HEIGHT_ABSENT = NaN
+
+export function packReducedPlayerPose(id, x, z, yawN) {
+  return [id, clampI32Pos(x), clampI32Pos(z), yawN, PLAYER_TIER_REDUCED]
+}
+
+export function unpackReducedPlayerPose(rec, out) {
+  out.id = rec[0]
+  out.x = rec[1] / WIRE_UNITS_PER_METER
+  out.z = rec[2] / WIRE_UNITS_PER_METER
+  out.yawN = rec[3] || 0
+  out.tier = rec[4]
+  return out
+}
+
+export function makeReducedPlayerPose() { return { id: 0, x: 0, z: 0, yawN: 0, tier: 0 } }
+
+export function isReducedPlayerPose(rec) {
+  return Array.isArray(rec) && rec.length === REDUCED_POSE_FIELDS && rec[4] === PLAYER_TIER_REDUCED
+}
 
 function putI32(b, o, v) { b[o] = v & 0xFF; b[o + 1] = (v >> 8) & 0xFF; b[o + 2] = (v >> 16) & 0xFF; b[o + 3] = (v >> 24) & 0xFF }
 function getI32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) / WIRE_UNITS_PER_METER }

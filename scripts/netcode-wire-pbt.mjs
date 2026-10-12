@@ -40,6 +40,11 @@ function mulberry32(a) {
 const pick = (rng, atoms) => atoms[Math.floor(rng() * atoms.length) % atoms.length]
 const near = (x, y, tol) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x - y) <= tol
 const roundAt = (v) => Math.round(v * 100) / 100
+const unitsOf = (v) => Math.round(v * 100)
+const representable = (v, lo, hi) => Number.isFinite(v) && unitsOf(v) >= lo && unitsOf(v) <= hi
+const refuses = (fn) => {
+  try { fn(); return false } catch (_e) { return true }
+}
 
 const VEL = [0, 1, -1, 0.01, -0.01, 327.67, -327.67, 1e4, -1e4, NaN, Infinity, -Infinity]
 const POS = [0, 1, -1, 0.01, 21474836.47, -21474836.47, 1e7, -1e7, NaN, Infinity, -Infinity]
@@ -73,24 +78,27 @@ const BOUNDARIES = [
     id: 'velocity-i16',
     atoms: { v: VEL },
     prop: (c) => {
+      if (!representable(c.v, -32767, 32767)) return refuses(() => clampI16(c.v))
       const o = clampI16(c.v)
-      return Number.isInteger(o) && o >= -32767 && o <= 32767
+      return Number.isInteger(o) && o >= -32767 && o <= 32767 && o === unitsOf(c.v)
     },
   },
   {
     id: 'position-i32',
     atoms: { v: POS },
     prop: (c) => {
+      if (!representable(c.v, -2147483647, 2147483647)) return refuses(() => clampI32Pos(c.v))
       const o = clampI32Pos(c.v)
-      return Number.isInteger(o) && o >= -2147483647 && o <= 2147483647
+      return Number.isInteger(o) && o >= -2147483647 && o <= 2147483647 && o === unitsOf(c.v)
     },
   },
   {
     id: 'scale-u16',
     atoms: { v: SCALE },
     prop: (c) => {
+      if (!representable(c.v, 0, 65535)) return refuses(() => clampU16Scale(c.v))
       const o = clampU16Scale(c.v)
-      return Number.isInteger(o) && o >= 0 && o <= 65535
+      return Number.isInteger(o) && o >= 0 && o <= 65535 && o === unitsOf(c.v)
     },
   },
   {
@@ -146,6 +154,22 @@ const BOUNDARIES = [
       const o = unpackPlayerBinRecord(buf, {})
       return near(o.px, roundAt(c.px), 1e-6) && near(o.py, roundAt(c.py), 1e-6) && near(o.pz, roundAt(c.pz), 1e-6)
         && near(o.vx, roundAt(c.vx), 1e-6) && near(o.vy, roundAt(c.vy), 1e-6) && near(o.vz, roundAt(c.vz), 1e-6)
+    },
+  },
+  {
+    id: 'pack-refuses-unrepresentable',
+    atoms: { px: POS, vx: VEL, sx: SCALE },
+    prop: (c) => {
+      const carryable = representable(c.px, -2147483647, 2147483647) && representable(c.vx, -32767, 32767) && representable(c.sx, 0, 65535)
+      return refuses(() => packBinRecord(c.px, 0, 0, 0, c.vx, 0, 0, c.sx, 1, 1, 0)) === !carryable
+    },
+  },
+  {
+    id: 'player-pack-refuses-unrepresentable',
+    atoms: { px: POS, vx: VEL },
+    prop: (c) => {
+      const carryable = representable(c.px, -2147483647, 2147483647) && representable(c.vx, -32767, 32767)
+      return refuses(() => packPlayerBinRecord(c.px, 0, 0, 0, c.vx, 0, 0)) === !carryable
     },
   },
   {
