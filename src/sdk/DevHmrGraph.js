@@ -164,5 +164,5 @@ export function createModuleGraph({ staticDirs, importMap, roots }) {
   }
 
   crawl(roots)
-  return { crawl, rewrite, ancestors, urlOfFile, markChanged, forgetPatched, seed, isEager, effectiveVersion, reaches: (root, url) => root in ancestors(url) || url === root, size: () => deps.size, parents }
+  return { crawl, rewrite, ancestors, urlOfFile, markChanged, forgetPatched, seed, isEager, effectiveVersion, depsOf: (url) => [...(deps.get(url) || [])], reaches: (root, url) => root in ancestors(url) || url === root, size: () => deps.size, parents }
 }

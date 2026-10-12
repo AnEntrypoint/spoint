@@ -187,6 +187,20 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
 
   const headers = (type) => ({ 'Content-Type': type, 'Cache-Control': 'no-store', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' })
 
+  // A ?hmr= body is a pure function of the file's bytes, the floor, and the active
+  // version of the module itself and of each of its direct imports -- rewrite()
+  // stamps an import only while that import carries a version above the floor. So
+  // those are exactly what a validator must cover, and a body is re-sent only when
+  // one of them moves. `Cache-Control: no-cache` still forces a revalidate before
+  // every use, so a reload answers 304 and never re-reads or re-rewrites the
+  // source; only the handful of modules an edit actually reaches pay for a body.
+  const moduleValidator = (fp, path, floor) => {
+    let st = null
+    try { st = statSync(fp) } catch { return null }
+    const depVersions = graph.depsOf(path).map(d => graph.effectiveVersion(d, floor)).join('.')
+    return `"${st.size}-${st.mtimeMs}-${floor}-${graph.effectiveVersion(path, floor)}-${depVersions}"`
+  }
+
   const handle = (req, res) => {
     if (!isLocalRequest(req)) return false
     if (req.method === 'POST' && req.url.startsWith('/__hmr/patched?')) {
@@ -238,8 +252,14 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
     if (MODULE_RE.test(path) && /(^|&)hmr=/.test(query)) {
       const fp = urlToFile(path, liveDirs)
       if (!fp) return false
-      res.writeHead(200, headers('text/javascript'))
       const floor = Math.max(0, Math.floor(Number(new URLSearchParams(query).get('p')) || 0))
+      const etag = moduleValidator(fp, path, floor)
+      if (etag && req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ...headers('text/javascript'), 'Cache-Control': 'no-cache', ETag: etag })
+        res.end()
+        return true
+      }
+      res.writeHead(200, { ...headers('text/javascript'), 'Cache-Control': 'no-cache', ...(etag ? { ETag: etag } : null) })
       res.end(graph.rewrite(readFileSync(fp, 'utf8'), path, floor))
       return true
     }
