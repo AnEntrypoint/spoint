@@ -43,7 +43,17 @@ const resourceKindCounts = () => {
 
 const isStdioHandle = h => h === process.stdout || h === process.stderr || h === process.stdin || h?.fd === 0 || h?.fd === 1 || h?.fd === 2
 
-const isServerOrWatcherResource = kind => /tcpserver|tcpwrap|fs(event|watch)|statwatcher|pipe(server)?wrap/i.test(kind)
+const SERVER_OR_WATCHER_RESOURCE = /tcpserver|tcpwrap|fs(event|watch)|statwatcher|pipeserverwrap/i
+const PIPE_RESOURCE = /^pipewrap$/i
+
+const isServerOrWatcherResource = kind => SERVER_OR_WATCHER_RESOURCE.test(kind)
+const isPipeResource = kind => PIPE_RESOURCE.test(kind)
+
+const pipeResourceCount = resources =>
+  Object.keys(resources).filter(isPipeResource).reduce((n, kind) => n + resources[kind], 0)
+
+const stdioPipeCount = () =>
+  [process.stdin, process.stdout, process.stderr].filter(s => s?._handle?.constructor?.name === 'Pipe').length
 
 function handleCensus() {
   const handles = handleList()
@@ -209,7 +219,7 @@ while (drained.owned > 0 && Date.now() < drainDeadline) { await sleep(25); drain
 console.log(`RESULT handlesAfterDrain=${JSON.stringify(drained)}`)
 console.log(`RESULT handleInventory=${JSON.stringify(handleList().map(h => `${h?.constructor?.name || typeof h}:fd=${h?.fd ?? null}`))}`)
 expect('ownedHandlesDrainedBeforeExit', drained.owned, owned => owned === 0)
-expect('drainedCensusCorroboratedByLiveInstrument', { seenLiveTotal: peakLiveCensus.total, drainedTotal: drained.total, drainedServers: drained.servers, drainedWatchers: drained.watchers, drainedResources: drained.resources }, v => v.seenLiveTotal >= 1 && v.drainedServers === 0 && v.drainedWatchers === 0 && !Object.keys(v.drainedResources).some(isServerOrWatcherResource))
+expect('drainedCensusCorroboratedByLiveInstrument', { seenLiveTotal: peakLiveCensus.total, drainedTotal: drained.total, drainedServers: drained.servers, drainedWatchers: drained.watchers, drainedResources: drained.resources, drainedPipes: pipeResourceCount(drained.resources), stdioPipes: stdioPipeCount() }, v => v.seenLiveTotal >= 1 && v.drainedServers === 0 && v.drainedWatchers === 0 && !Object.keys(v.drainedResources).some(isServerOrWatcherResource) && v.drainedPipes <= v.stdioPipes)
 
 const inducedFailures = [firstFailedBoot, secondFailedBoot].filter(arm => arm.bootError !== null).length
 const controlSuccesses = controlBoot.bootError === null ? 1 : 0
