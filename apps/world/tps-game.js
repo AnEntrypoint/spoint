@@ -1,8 +1,10 @@
+import { parseWorldDef } from './_shared/worldDefParse.js'
 const TERRAIN = {
+  clusters: { enabled: false },
   bakedHeightfield: '/apps/world/tps-game.hf',
   carves: [{ center: [0, -20], radius: 60, falloff: 40 }],
   timeOfDay: { serverAuthoritative: true, dayLengthSec: 600, startFraction: 0.5 },
-  weather: { serverAuthoritative: true, type: 'rain', intensity: 0.6, particleCount: 3000 },
+  weather: { serverAuthoritative: true, type: 'rain', intensity: 0.6, particleCount: 3000, cycle: { periodSec: 240, rainFraction: 0.5 } },
   vegetation: {
     enabled: true, seed: 1337, renderDistance: 640, treeline: 4000, densityScale: 1.0, maxInstances: 30000, sharedImpostor: true,
     species: ['Oak Large', 'Pine Medium', 'Aspen Medium', 'Ash Medium', 'Bush', 'Ash Small', 'Ash Large', 'Aspen Small', 'Aspen Large', 'Bush 2', 'Bush 3', 'Oak Small', 'Oak Medium', 'Pine Small', 'Pine Large'],
@@ -12,7 +14,8 @@ const TERRAIN = {
   }
 }
 
-export default {
+export default parseWorldDef('tps-game', {
+  planetRadius: 0,
   presets: ['tps', 'planet'],
   port: 3001,
   physicsBodyBudget: 512,
@@ -38,7 +41,6 @@ export default {
   placeableApps: ['destructible-box', 'destructible-debris', 'box-dynamic', 'box-static', 'box-buoyant', 'button', 'trigger-volume', 'spawn-point', 'weapon-spawn', 'respawn-zone', 'collectible', 'pickup', 'moving-platform', 'capture-zone', 'waypoint', 'shrinking-zone', 'shrinking-zone-ring', 'playtest-bot', 'vehicle', 'tank', 'softbody-cloth', 'fluid-source', 'fluid3d-source'],
   terrain: TERRAIN,
   entities: [
-    { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 10.31, 0], scale: [1, 1, 1], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } },
     { id: 'spawn-sillos-1', position: [-25, 8.39, -45], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-2', position: [15, 8.39, -35], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-3', position: [-17.5, 8.39, -45], app: 'spawn-point', config: { team: 'any' } },
@@ -46,4 +48,4 @@ export default {
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game', config: { fire: { enabled: false } } }
   ],
   spawnPoint: [-25, 8.39, -45]
-}
+})
