@@ -132,7 +132,7 @@ async function main() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS, owner: 'occ-ab-r270', leaseWaitMs: 900000, leaseTtlMs: 600000 })
+    browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS, owner: 'occ-ab-r270', leaseWaitMs: numeric('lease-wait', '150000'), leaseTtlMs: 600000 })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE })
     const query = BACKEND === 'webgpu' ? `${PARAMS}&webgpu=1` : (BACKEND === 'webgl' ? `${PARAMS}&legacygl=1` : PARAMS)
