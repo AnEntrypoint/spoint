@@ -372,12 +372,15 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     }
     return out.length ? out : [tcfg.center || [0, 0]]
   }
-  let gridRes = tphys.resolution
-  if (gpuPatch && Number.isFinite(gpuPatch.spacing)) {
-    gridRes = Math.min(tphys.resolution || gpuPatch.spacing, gpuPatch.spacing)
-    if (gridRes !== tphys.resolution) console.log(`[terrain] collider grid resolution -> ${gridRes.toFixed(2)}m (clamped to finest display LOD spacing; was ${tphys.resolution})`)
-  }
-  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, maxFields: tphys.maxFields, getEpoch: () => frame.chartEpoch })
+  // The lattice follows the collider source, not the preset: over a field a frozen source answers
+  // in full, a lattice coarser than that source is a pure decimation and is the whole of the
+  // collider's disagreement with the ground, while over a field it has to re-solve terrain the
+  // sample is the cost and the configured spacing stands.
+  const followSource = tphys.followSource !== false
+  const frozenOriginM = followSource && baked ? baked.center : null
+  const frozenSpacingM = followSource ? (gpuPatch ? gpuPatch.spacing : (baked ? bakedSpacingM : 0)) : 0
+  if (frozenSpacingM > 0) console.log(`[terrain] collider lattice: ${tphys.resolution || '(default)'}m configured, down to ${frozenSpacingM.toFixed(2)}m wherever the ${colliderSource.kind} source is cheap enough to sample that finely, ${tphys.resolution || '(default)'}m where it is not`)
+  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: tphys.resolution, maxFields: tphys.maxFields, getEpoch: () => frame.chartEpoch, frozenSpacing: frozenSpacingM, frozenOrigin: frozenOriginM, isFrozenAt: groundFrozenAt })
   physics._terrainStreamer = streamer
   try {
     await streamer.start(tcfg.center || [0, 0])
