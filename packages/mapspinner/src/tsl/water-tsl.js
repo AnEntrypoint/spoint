@@ -28,6 +28,7 @@ const DEFAULT_OCEAN = { amplitude: 1.0, choppiness: 0.5, foam: 0.5 }
 const acesDisplay = (c) => pow(clamp(c.mul(c.mul(2.51).add(0.03)).div(c.mul(c.mul(2.43).add(0.59)).add(0.14)), 0.0, 1.0), vec3(1.0 / 2.2))
 
 const LAND_KEY_QUANT_M = 1.0
+const LAND_MEMO_MAX_POINTS = 100000
 
 function landProbeOrder(n) {
   const mid = n >> 1
@@ -224,6 +225,7 @@ export function createWaterTSL({ spec, terrainUniforms: tu, faceU, faceV, faceC,
       const m = Math.hypot(dx, dy, dz) || 1
       _dir[0] = dx / m; _dir[1] = dy / m; _dir[2] = dz / m
       h = heightAt(_dir)
+      if (landMemo.size >= LAND_MEMO_MAX_POINTS) landMemo.clear()
       landMemo.set(key, h)
       landStats.evaluations++
     }
