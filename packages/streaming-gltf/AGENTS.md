@@ -82,7 +82,14 @@ LOD mismatch); zero is a pass. It once reported 164 disagreements over a 12-fram
 sweep because `CULL_LOD_WGSL` did not compile at all (`operator >> (i32, i32)`
 in `selectHzbLevel`), so the pipeline was invalid and the cull emitted ZERO
 indirect draws while the CPU drew every cluster -- a shader that fails to compile
-is a silent no-op, not a visible error. So the cull reads the CPU's own inputs
+is a silent no-op, not a visible error. It no longer is: `createPipelineScoped`
+wraps every creation in `device.pushErrorScope('validation')`/`popErrorScope()`
+and `_settlePipelines` raises `WebGPUPipelineError` (`reasonCode:
+webgpu-pipeline-invalid`) instead of letting a dispatch happen, after which
+`supported()` answers false so the tier is never used with a dead pipeline.
+Await `ensurePipelinesValidated()` at init to refuse before the first frame.
+`scripts/webgpu-pipeline-validation-refusal-witness.mjs` pins it, including the
+mutation that removes the scope. So the cull reads the CPU's own inputs
 (screen height from the drawing buffer, `tanHalf` from the camera fov, hysteresis
 and thresholds from the mesh, and the pre-frame LOD index `_pickLod` read,
 published as `ClusterLodMesh._lodStateIn`) rather than keeping a second copy that

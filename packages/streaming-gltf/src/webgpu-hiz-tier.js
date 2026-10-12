@@ -12,6 +12,38 @@ const HZB_WORKGROUP_DIM = 8;
 const CULL_WORKGROUP_SIZE = 64;
 const FRAME_PARAMS_FLOATS = 52;
 const MAX_THRESHOLD_SLOTS = 2;
+const PIPELINE_ERROR_SCOPE = 'validation';
+
+export class WebGPUPipelineError extends Error {
+  constructor(label, message) {
+    super(`[webgpu-pipeline] "${label}" is invalid: ${message}`);
+    this.name = 'WebGPUPipelineError';
+    this.reasonCode = 'webgpu-pipeline-invalid';
+    this.pipelineLabel = label;
+  }
+}
+
+// WebGPU does NOT throw when a descriptor is bad or a shader fails to compile: it
+// hands back an INVALID pipeline object whose every dispatch writes nothing, which
+// reads as a threshold-tuning bug rather than a build failure. A validation error
+// scope around the creation is the only way to learn the truth.
+export function createPipelineScoped(device, kind, desc) {
+  const label = (desc && desc.label) || kind;
+  const scoped = typeof device.pushErrorScope === 'function' && typeof device.popErrorScope === 'function';
+  if (scoped) device.pushErrorScope(PIPELINE_ERROR_SCOPE);
+  let pipeline = null;
+  let thrown = null;
+  let popped = null;
+  try {
+    pipeline = kind === 'render' ? device.createRenderPipeline(desc) : device.createComputePipeline(desc);
+    popped = scoped ? device.popErrorScope() : null;
+  } catch (err) {
+    thrown = err;
+    if (scoped && popped === null) popped = device.popErrorScope();
+  }
+  const verdict = Promise.resolve(popped).then((err) => err || null);
+  return { label, kind, pipeline, thrown, scoped, verdict };
+}
 
 function _drawingBufferHeight(renderer) {
   if (!renderer || typeof renderer.getDrawingBufferSize !== 'function') return 0;
@@ -32,6 +64,8 @@ export class WebGpuHizTier {
     this._seedPipeline = null;
     this._reducePipeline = null;
     this._cullPipeline = null;
+    this._pipelineInit = null;
+    this._pipelineError = null;
     this._hzbMips = [];
     this._hzbTex = null;
     this._hzbView = null;
@@ -39,10 +73,14 @@ export class WebGpuHizTier {
     this._hzbW = 0;
     this._hzbH = 0;
     this._meshBuffers = new Map();
-    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0 };
+    this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0 };
   }
 
   supported() {
+    // Once a pipeline has been refused this tier is dead: dispatching on an invalid
+    // pipeline writes zero indirect draws, which is indistinguishable from "everything
+    // was culled", so `false` here is the refusal, not a probe that failed.
+    if (this._pipelineError) { this.stats.supported = false; return false; }
     const r = this.renderer;
     if (!r || !r.isWebGPURenderer) return false;
     const backend = r.backend;
@@ -51,37 +89,71 @@ export class WebGpuHizTier {
     if (!device || typeof device.createComputePipeline !== 'function') return false;
     this._device = device;
     this.stats.supported = true;
+    // Build at the first probe rather than at the first dispatch, so a shader that
+    // does not compile is known before anything is asked to draw.
+    this._ensurePipelines();
     return true;
   }
 
+  _refuseInvalidPipelines() {
+    if (!this._pipelineError) return;
+    this.stats.pipelineRefusals++;
+    throw this._pipelineError;
+  }
+
+  // Awaitable form of `_ensurePipelines`: resolves once every pipeline is known
+  // valid, throws WebGPUPipelineError on the first one that is not. Callers that
+  // build the tier at init await this and never install a dead tier.
+  async ensurePipelinesValidated() {
+    if (!this._device) throw new WebGPUPipelineError('device', 'no WebGPU device; supported() was never true');
+    this._ensurePipelines();
+    await this._pipelineInit;
+    this._refuseInvalidPipelines();
+    return this.stats.pipelinesValidated;
+  }
+
+  _settlePipelines(results) {
+    let valid = 0;
+    for (const r of results) if (!r.error && !r.thrown && r.pipeline) valid++;
+    this.stats.pipelinesValidated = valid;
+    if (valid === results.length) {
+      this._pipelinesReady = true;
+      return true;
+    }
+    const bad = results.find((r) => r.error || r.thrown || !r.pipeline);
+    const detail = bad.thrown
+      ? (bad.thrown.message || String(bad.thrown))
+      : ((bad.error && (bad.error.message || String(bad.error))) || 'no pipeline object returned');
+    this._pipelineError = new WebGPUPipelineError(bad.label, detail);
+    this._pipelinesReady = false;
+    this.stats.supported = false;
+    if (typeof console !== 'undefined' && typeof console.error === 'function') {
+      console.error(`[webgpu-pipeline] "${bad.label}" failed validation (${valid}/${results.length} valid) -- the HiZ cull refuses to dispatch: ${detail}`);
+    }
+    return false;
+  }
+
   _ensurePipelines() {
-    if (this._pipelinesReady) return;
+    this._refuseInvalidPipelines();
+    if (this._pipelineInit) return;
     const device = this._device;
     const seedMod = compileShaderModule(device, 'hzb-seed', HZB_SEED_WGSL);
     const reduceMod = compileShaderModule(device, 'hzb-reduce', HZB_REDUCE_WGSL);
     const cullMod = compileShaderModule(device, 'cluster-cull-lod', CULL_LOD_WGSL);
 
-    this._seedPipeline = device.createComputePipeline({
-      label: 'hzb-seed-pipeline',
-      layout: 'auto',
-      compute: { module: seedMod, entryPoint: 'main' },
-    });
-    this._reducePipeline = device.createComputePipeline({
-      label: 'hzb-reduce-pipeline',
-      layout: 'auto',
-      compute: { module: reduceMod, entryPoint: 'main' },
-    });
-    this._cullPipeline = device.createComputePipeline({
-      label: 'cluster-cull-lod-pipeline',
-      layout: 'auto',
-      compute: { module: cullMod, entryPoint: 'main' },
-    });
-    this._fallbackPipeline = device.createComputePipeline({
-      label: 'cluster-cull-fallback-pipeline',
-      layout: 'auto',
-      compute: { module: cullMod, entryPoint: 'fallbackMain' },
-    });
-    this._pipelinesReady = true;
+    const built = [
+      createPipelineScoped(device, 'compute', { label: 'hzb-seed-pipeline', layout: 'auto', compute: { module: seedMod, entryPoint: 'main' } }),
+      createPipelineScoped(device, 'compute', { label: 'hzb-reduce-pipeline', layout: 'auto', compute: { module: reduceMod, entryPoint: 'main' } }),
+      createPipelineScoped(device, 'compute', { label: 'cluster-cull-lod-pipeline', layout: 'auto', compute: { module: cullMod, entryPoint: 'main' } }),
+      createPipelineScoped(device, 'compute', { label: 'cluster-cull-fallback-pipeline', layout: 'auto', compute: { module: cullMod, entryPoint: 'fallbackMain' } }),
+    ];
+    this._seedPipeline = built[0].pipeline;
+    this._reducePipeline = built[1].pipeline;
+    this._cullPipeline = built[2].pipeline;
+    this._fallbackPipeline = built[3].pipeline;
+    this.stats.pipelinesValidated = 0;
+    this._pipelineInit = Promise.all(built.map((b) => b.verdict.then((error) => ({ label: b.label, pipeline: b.pipeline, thrown: b.thrown, error }))))
+      .then((results) => this._settlePipelines(results));
   }
 
   static async validateWGSL(device, code) {
