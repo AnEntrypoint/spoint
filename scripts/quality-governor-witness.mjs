@@ -43,7 +43,7 @@ const SETTLE_MS = Number(flag('settle', '3000'))
 const POLL_MS = Number(flag('poll', '500'))
 const MAX_SAMPLES = Number(flag('max-samples', '60'))
 const MIN_TIER = Number(flag('min-tier', '1'))
-const CONTROL_FRAMES = Number(flag('control-frames', '2000'))
+const CONTROL_FRAMES = Number(flag('control-frames', '2010'))
 const ARM = flag('arm', 'unlabelled')
 const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -199,6 +199,12 @@ function resetScratch() {
   mkdirSync(SCRATCH, { recursive: true })
 }
 
+const PIN_GOVERNOR_OFF = `(() => {
+  const rc = window.__renderControls
+  if (!rc || typeof rc.set !== 'function') return false
+  return rc.set('qualityGovernorOff', true) === true && rc.get('qualityGovernorOff') === true
+})()`
+
 const PLAYABLE_EXPR = 'window.__app && window.__app.revealedAt != null'
 
 const PROBE = `(() => {
@@ -263,6 +269,15 @@ async function browserArm() {
     const gpu = await witnessGpu(page, GPU_MODE)
     gpuName = gpu.renderer || gpu.adapter || null
 
+    const tPin = Date.now()
+    let pinned = false
+    while (Date.now() - tPin < TIMEOUT_MS) {
+      const ok = await page.evaluate(PIN_GOVERNOR_OFF).catch(() => false)
+      if (ok === true) { pinned = true; break }
+      await new Promise(r => setTimeout(r, 100))
+    }
+    if (!pinned) fail(`browser: the governor opt-out never landed within ${TIMEOUT_MS}ms (window.__renderControls never appeared)`)
+
     const t0 = Date.now()
     let playable = false
     while (Date.now() - t0 < TIMEOUT_MS) {
@@ -296,7 +311,7 @@ async function browserArm() {
 
     const enabledAt = Date.now()
     enableFrames = bootProbe.frames
-    await page.evaluate(`window.__renderControls.set('qualityGovernor', true)`)
+    await page.evaluate(`window.__renderControls.set('qualityGovernorOff', false)`)
 
     while (Date.now() - enabledAt < TIMEOUT_MS && samples.length < MAX_SAMPLES) {
       await page.waitForTimeout(POLL_MS)

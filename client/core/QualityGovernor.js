@@ -8,6 +8,10 @@ export const RAISE_BELOW_MS = FRAME_BUDGET_MS - DEAD_BAND_LOWER_MS
 const FRAMES_PER_WINDOW = 30
 const WINDOWS_BEFORE_STEP = 2
 export const MIN_STEP_INTERVAL_MS = 1000
+export const HITCH_ABOVE_MS = 2 * FRAME_BUDGET_MS
+export const HITCH_STEP_INTERVAL_MS = 200
+export const HITCH_RESPONSE_BOUND_FRAMES = 1
+const WINDOW_P95_Q = 0.95
 
 export const RESOLUTION_KEYS = new Set([
   'dprAuto', 'dprOff', 'dpr', 'vdrsAuto', 'vdrsOff', 'vdrs', 'vdrsScale',
@@ -51,6 +55,12 @@ const EFFECT_KEYS = ['ssao', 'bloom', 'ssr']
 
 function _num(v, fallback) { return Number.isFinite(v) ? v : fallback }
 
+function _windowPct(buf, n, q) {
+  const view = buf.subarray(0, n)
+  view.sort()
+  return view[Math.min(n - 1, Math.max(0, Math.ceil(q * n) - 1))]
+}
+
 const _declared = k => RenderControls.controls.find(c => c.key === k) || {}
 const _declaredDefault = k => { const d = _declared(k).default; return typeof d === 'number' ? d : 0 }
 function _inDeclaredRange(k, v) {
@@ -77,10 +87,16 @@ export function createQualityGovernor(opts = {}) {
   let base = null
   let tier = 0
   let acc = 0, n = 0
+  const windowMs = new Float64Array(FRAMES_PER_WINDOW)
   let slowStreak = 0, fastStreak = 0
-  let lastStepMs = clock()
+  let lastStepMs = clock() - MIN_STEP_INTERVAL_MS
   let steps = 0
   let avgMs = 0
+  let winMaxMs = 0
+  let winOverruns = 0
+  let lastWinMaxMs = 0, lastWinP95Ms = 0
+  let overrunMs = 0
+  let framesSinceOverrun = HITCH_RESPONSE_BOUND_FRAMES
   const applied = {}
 
   function captureBase() {
@@ -118,14 +134,17 @@ export function createQualityGovernor(opts = {}) {
     return want
   }
 
-  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, knobs: null }
+  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, knobs: null }
 
   function publish() {
     state.tier = tier
     state.avgMs = +avgMs.toFixed(3)
+    state.winMaxMs = +lastWinMaxMs.toFixed(3)
+    state.winP95Ms = +lastWinP95Ms.toFixed(3)
+    state.overrunMs = +overrunMs.toFixed(3)
     state.steps = steps
     state.lastStepMs = lastStepMs
-    state.inBand = n === 0 && avgMs > 0 ? avgMs >= RAISE_BELOW_MS && avgMs <= LOWER_ABOVE_MS : false
+    state.inBand = n === 0 && avgMs > 0 ? avgMs >= RAISE_BELOW_MS && avgMs <= LOWER_ABOVE_MS && lastWinP95Ms <= LOWER_ABOVE_MS : false
     state.atCeiling = tier === 0
     state.atFloor = tier === MAX_TIER
     state.knobs = { ...applied }
@@ -147,12 +166,32 @@ export function createQualityGovernor(opts = {}) {
     if (!enabled()) return tier
     if (!Number.isFinite(ms) || ms < 0) return tier
     if (!base) { captureBase(); apply(0) }
-    acc += ms; n++
-    if (n < FRAMES_PER_WINDOW) return tier
-    avgMs = acc / n; acc = 0; n = 0
     const nowMs = clock()
-    if (avgMs > LOWER_ABOVE_MS) { slowStreak++; fastStreak = 0 }
-    else if (avgMs < RAISE_BELOW_MS) { fastStreak++; slowStreak = 0 }
+
+    if (ms > HITCH_ABOVE_MS) { overrunMs = ms; winOverruns++; framesSinceOverrun = 0 }
+    else if (framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES) {
+      framesSinceOverrun++
+      if (framesSinceOverrun >= HITCH_RESPONSE_BOUND_FRAMES) overrunMs = 0
+    }
+    windowMs[n] = ms
+    if (ms > winMaxMs) winMaxMs = ms
+    acc += ms; n++
+
+    if (framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES && nowMs - lastStepMs >= HITCH_STEP_INTERVAL_MS && step(+1, nowMs)) {
+      overrunMs = 0
+      slowStreak = 0
+      fastStreak = 0
+    }
+
+    if (n < FRAMES_PER_WINDOW) return tier
+    avgMs = acc / n
+    lastWinMaxMs = winMaxMs
+    lastWinP95Ms = _windowPct(windowMs, n, WINDOW_P95_Q)
+    const overruns = winOverruns
+    acc = 0; n = 0; winMaxMs = 0; winOverruns = 0
+
+    if (avgMs > LOWER_ABOVE_MS || lastWinP95Ms > LOWER_ABOVE_MS) { slowStreak++; fastStreak = 0 }
+    else if (avgMs < RAISE_BELOW_MS && lastWinP95Ms < RAISE_BELOW_MS && overruns === 0) { fastStreak++; slowStreak = 0 }
     else { slowStreak = 0; fastStreak = 0 }
     if (slowStreak >= WINDOWS_BEFORE_STEP) {
       if (nowMs - lastStepMs >= MIN_STEP_INTERVAL_MS && step(+1, nowMs)) slowStreak = 0
@@ -164,7 +203,13 @@ export function createQualityGovernor(opts = {}) {
   }
 
   function setTier(i) { if (base) apply(Math.max(0, Math.min(MAX_TIER, i | 0))); publish(); return tier }
-  function reset() { base = null; tier = 0; acc = 0; n = 0; slowStreak = 0; fastStreak = 0; steps = 0; avgMs = 0; lastStepMs = clock() }
+  function reset() {
+    base = null; tier = 0; acc = 0; n = 0
+    slowStreak = 0; fastStreak = 0; steps = 0; avgMs = 0
+    winMaxMs = 0; winOverruns = 0; lastWinMaxMs = 0; lastWinP95Ms = 0
+    overrunMs = 0; framesSinceOverrun = HITCH_RESPONSE_BOUND_FRAMES
+    lastStepMs = clock() - MIN_STEP_INTERVAL_MS
+  }
   function snapshot() { return publish() }
 
   const api = { tick, setTier, reset, state: snapshot, base: () => (base ? { ...base } : null), get tier() { return tier } }
