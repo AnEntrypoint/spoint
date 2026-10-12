@@ -4,6 +4,7 @@ export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
 const _reportedSolveFailures = new Set()
 const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
 const _solveStats = { solves: 0, evaluations: 0 }
+const _memoStats = { hits: 0, misses: 0, evictions: 0, epochStale: 0, cellCollisions: 0 }
 const BRACKET_HALVING_WINDOW = 6
 const GROUND_MEMO_SLOTS = 4096
 const GROUND_MEMO_CELLS_PER_M = 4
@@ -15,6 +16,13 @@ export function surfaceSolveStepDiscontinuities() { return { ..._stepDiscontinui
 export function surfaceSolveStats() { return { ..._solveStats } }
 
 export function resetSurfaceSolveStats() { _solveStats.solves = 0; _solveStats.evaluations = 0 }
+
+export function groundMemoStats() { return { ..._memoStats } }
+
+export function resetGroundMemoStats() {
+  _memoStats.hits = 0; _memoStats.misses = 0; _memoStats.evictions = 0
+  _memoStats.epochStale = 0; _memoStats.cellCollisions = 0
+}
 
 export class SurfaceSolveError extends RangeError {
   constructor(x, z, toleranceM, evaluations, residualM) {
@@ -185,10 +193,19 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   const memoFailure = new Array(GROUND_MEMO_SLOTS).fill(null)
   const sampleHeightAtDir = (d) => sampler.heightAt(d)
   function groundHeightLocal(x, z, yGuess) {
-    const slot = (Math.imul(Math.floor(x * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_X) ^ Math.imul(Math.floor(z * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_Z)) & (GROUND_MEMO_SLOTS - 1)
+    const cellX = Math.floor(x * GROUND_MEMO_CELLS_PER_M)
+    const cellZ = Math.floor(z * GROUND_MEMO_CELLS_PER_M)
+    const slot = (Math.imul(cellX, GROUND_MEMO_HASH_X) ^ Math.imul(cellZ, GROUND_MEMO_HASH_Z)) & (GROUND_MEMO_SLOTS - 1)
     if (memoX[slot] === x && memoZ[slot] === z && memoEpoch[slot] === frame.chartEpoch) {
+      _memoStats.hits++
       if (memoFailure[slot] !== null) throw memoFailure[slot]
       return memoHeight[slot]
+    }
+    _memoStats.misses++
+    if (memoEpoch[slot] !== -1) {
+      _memoStats.evictions++
+      if (memoX[slot] === x && memoZ[slot] === z) _memoStats.epochStale++
+      else if (Math.floor(memoX[slot] * GROUND_MEMO_CELLS_PER_M) === cellX && Math.floor(memoZ[slot] * GROUND_MEMO_CELLS_PER_M) === cellZ) _memoStats.cellCollisions++
     }
     let guess = Number.isFinite(yGuess) && Number.isFinite(offsetY) ? yGuess - offsetY : NaN
     memoX[slot] = x; memoZ[slot] = z; memoEpoch[slot] = frame.chartEpoch; memoFailure[slot] = null
