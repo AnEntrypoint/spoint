@@ -8,7 +8,8 @@ const LABEL = 'governor-hitch-response-witness'
 const LF = String.fromCharCode(10)
 
 function finish(verdict, detail) {
-  console.log(`RESULT: ${verdict} label=${LABEL} -- ${String(detail).split(LF).join(' ')}`)
+  console.log(`[${LABEL}] ${String(detail).split(LF).join(' ')}`)
+  console.log(`RESULT: ${verdict} label=${LABEL}`)
   process.exit(verdict === 'PASS' ? 0 : 1)
 }
 const fail = (detail) => finish('FAIL', detail)
