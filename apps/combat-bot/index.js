@@ -1,6 +1,7 @@
 const WANDER_RADIUS = 25
 const WANDER_ARRIVE = 2
 const ENGAGE_RANGE = 60
+export const WEAPON_RANGE_DEFAULT_M = 80
 const RETARGET_INTERVAL_S = 0.5
 const EYE_HEIGHT = 0.9
 
@@ -13,7 +14,7 @@ export default {
       { key: 'speed', label: 'Move speed', type: 'range', min: 1, max: 10, step: 0.5, default: 3.5 },
       { key: 'damage', label: 'Weapon damage', type: 'range', min: 5, max: 60, step: 5, default: 20 },
       { key: 'fireRateMs', label: 'Fire rate (ms)', type: 'range', min: 60, max: 2000, step: 20, default: 250 },
-      { key: 'range', label: 'Weapon range (m)', type: 'range', min: 10, max: 200, step: 10, default: 80 },
+      { key: 'range', label: 'Weapon range (m)', type: 'range', min: 10, max: 200, step: 10, default: WEAPON_RANGE_DEFAULT_M },
       { key: 'aggro', label: 'Aggro radius (m)', type: 'range', min: 10, max: 300, step: 10, default: 100 },
       { key: 'color', label: 'Color', type: 'color', default: '#dd3344' },
     ],
@@ -23,8 +24,8 @@ export default {
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'capsule', color: c.color ?? '#dd3344', sx: 0.5, sy: 1.7, sz: 0.5, _isBot: true }
       ctx.state.health = ctx.defineHealth({ max: c.health ?? 100, invulnMs: 300, onDeath: () => _onDeath(ctx) })
       ctx.state.steering = ctx.defineSteering({ speed: c.speed ?? 3.5, arriveRadius: 1, clampToTerrain: true, yOffset: 0.9, useNavCost: true })
-      ctx.state.weapon = ctx.defineWeapon({ damage: c.damage ?? 20, range: c.range ?? 80, fireRateMs: c.fireRateMs ?? 250, magazine: 0 })
-      ctx.state.weaponRange = c.range ?? 80
+      ctx.state.weapon = ctx.defineWeapon({ damage: c.damage ?? 20, range: c.range ?? WEAPON_RANGE_DEFAULT_M, fireRateMs: c.fireRateMs ?? 250, magazine: 0 })
+      ctx.state.weaponRange = c.range ?? WEAPON_RANGE_DEFAULT_M
       ctx.state.home = home
       ctx.state.wanderTarget = null
       ctx.state.targetId = null
