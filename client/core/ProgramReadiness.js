@@ -56,14 +56,50 @@ export function whenProgramsReady(renderer, maxWaitMs) {
 //   - Renderer._renderObjectDirect only draws when this._pipelines.isReady( renderObject );
 //   - Pipelines.isReady() is false exactly while a pipeline is still compiling asynchronously;
 //   - a pipeline only compiles asynchronously when getForRender() is handed a non-null `promises`
-//     array, which selects device.createRenderPipelineAsync() over device.createRenderPipeline(),
-//     and Renderer.compileAsync() is the only caller that hands one over.
+//     array, which selects device.createRenderPipelineAsync() over device.createRenderPipeline().
+//     Before this file, Renderer.compileAsync() was the only caller that handed one over; the draw
+//     path now does too, so both callers are in play and both need the escort below.
 //
 // So the fix is to hand the render path a promises sink too: creation leaves the main thread's
 // critical path and the object is simply not drawn for the frames until its pipeline resolves. This
 // sheds no quality and widens no distance band -- the same objects draw, a frame or two later.
+//
+// THE PROPERTY THAT HAS TO HOLD AS WELL. An async creation that never produces a pipeline is not
+// "a frame or two later", it is never: three assigns the backend's pipeline from the awaited
+// creation and from nowhere else, so a creation that yields no pipeline leaves `isReady()` false
+// for the life of the process and `_renderObjectDirect` skips that render object on every frame
+// after it. The synchronous path cannot do that -- `device.createRenderPipeline` always returns a
+// pipeline object -- so the async path is the only one that can strand an object. Every request
+// therefore gets a bounded escort, and if the object is STILL not ready when it fires the pipeline
+// is created synchronously. That keeps both properties: the compile stays off the draw path for
+// every pipeline that resolves on its own, and no object can be left permanently undrawn by one
+// that does not.
+//
+// Two details that decide whether the escort is a fix or a second copy of the stall:
+//
+//   * it covers BOTH callers, not just the draw path. `Renderer.compileAsync()` is the other
+//     caller that hands getForRender() a promises array, and client/app.js warms the whole scene
+//     through it; escorting only the draw path leaves every warmed-up object strippable.
+//   * a rescue is a synchronous `device.createRenderPipeline`, and N of those in one frame is
+//     exactly the stall this file exists to remove (measured: 17-35 pipelines and 0.24-1.08s of
+//     main thread inside a single render:scene-color frame). Rescues are therefore drained ONE
+//     PER FRAME, so the stranding is bounded -- one frame per stranded object -- without ever
+//     putting a batch of compiles back on the draw path.
 // ---------------------------------------------------------------------------
-const asyncPipelineState = { installed: false, requested: 0, resolved: 0, rejected: 0, pending: 0 }
+const ASYNC_PIPELINE_ESCORT_MS = 1500
+
+const asyncPipelineState = {
+  installed: false, requested: 0, resolved: 0, rejected: 0, pending: 0,
+  escorted: 0, rescued: 0, rescueFailed: 0,
+}
+
+// Reproduction switch, not a tuning knob: `window.__spointAsyncPipelineEscort = false` turns the
+// escort off, which is exactly the behaviour this file had before the escort existed. It is what
+// lets a witness show the stranding against shipped bytes instead of against a rebuilt bundle --
+// a fix whose failure mode cannot be reproduced is a fix that cannot be shown to be the fix.
+function escortEnabled() {
+  return typeof window === 'undefined' || window.__spointAsyncPipelineEscort !== false
+}
 
 export function installAsyncRenderPipelines(renderer) {
   const pipelines = renderer && renderer._pipelines
@@ -73,20 +109,77 @@ export function installAsyncRenderPipelines(renderer) {
   if (!desc || typeof desc.value !== 'function') return false
   if (desc.value.__spointAsyncRenderPipelines === true) { asyncPipelineState.installed = true; return true }
   const orig = desc.value
-  const sink = {
-    push: (p) => {
-      asyncPipelineState.requested++
-      asyncPipelineState.pending++
-      const settle = (failed) => {
-        asyncPipelineState.pending--
-        if (failed) asyncPipelineState.rejected++
-        else asyncPipelineState.resolved++
-      }
-      Promise.resolve(p).then(() => settle(false), () => settle(true))
-    },
+
+  const rescueNow = (renderObject) => {
+    asyncPipelineState.escorted++
+    try {
+      pipelines.backend.createRenderPipeline(renderObject, null)
+    } catch (e) {
+      asyncPipelineState.rescueFailed++
+      return
+    }
+    if (pipelines.isReady(renderObject)) asyncPipelineState.rescued++
+    else asyncPipelineState.rescueFailed++
   }
+
+  const nextFrame = (fn) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(fn)
+    else setTimeout(fn, 16)
+  }
+  const rescueQueue = []
+  const queued = new Set()
+  let draining = false
+  const drain = () => {
+    const renderObject = rescueQueue.shift()
+    if (renderObject) {
+      queued.delete(renderObject)
+      if (!pipelines.isReady(renderObject)) rescueNow(renderObject)
+    }
+    if (rescueQueue.length > 0) nextFrame(drain)
+    else draining = false
+  }
+
+  const rescue = (renderObject) => {
+    if (!escortEnabled()) return
+    if (pipelines.isReady(renderObject)) return
+    if (queued.has(renderObject)) return
+    queued.add(renderObject)
+    rescueQueue.push(renderObject)
+    if (draining) return
+    draining = true
+    nextFrame(drain)
+  }
+
+  const escort = (promise, renderObject) => {
+    asyncPipelineState.requested++
+    asyncPipelineState.pending++
+    let settled = false
+    let timer = 0
+    const done = (failed) => {
+      settled = true
+      clearTimeout(timer)
+      asyncPipelineState.pending--
+      if (failed) asyncPipelineState.rejected++
+      else asyncPipelineState.resolved++
+      // The promise is not the thing that can strand the object: three's own promise always
+      // resolves, even when the creation it escorted rejected. isReady() is.
+      rescue(renderObject)
+    }
+    timer = setTimeout(() => { if (!settled) rescue(renderObject) }, ASYNC_PIPELINE_ESCORT_MS)
+    Promise.resolve(promise).then(() => done(false), () => done(true))
+  }
+
   const wrapped = function (renderObject, promises) {
-    return orig.call(this, renderObject, promises == null ? sink : promises)
+    // `compileAsync` brings its own array and awaits it; the draw path brings none. Either way
+    // three assigns the backend's pipeline from the awaited creation and from nowhere else, so an
+    // unescorted async creation leaves isReady() false forever -- on the draw path OR in the
+    // whole-scene compileAsync warm-up client/app.js runs. So both are escorted, and only the
+    // promises this call added are: a caller's array already holds the earlier ones.
+    const sink = promises == null ? [] : promises
+    const from = sink.length
+    const out = orig.call(this, renderObject, sink)
+    for (let i = from; i < sink.length; i++) escort(sink[i], renderObject)
+    return out
   }
   wrapped.__spointAsyncRenderPipelines = true
   // Kept so a witness can restore the un-wrapped original and re-measure the stall this removes.
