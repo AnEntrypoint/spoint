@@ -296,6 +296,7 @@ function metrics(r) {
 const failures = []
 const table = []
 const decisions = []
+if (!(RADIUS > 0)) failures.push(`relevance radius ${RADIUS} m: the harness applies --relevance only when it is > 0, so both arms would run the same world and the off/on comparison would measure nothing`)
 
 for (const count of COUNTS) {
   const bots = Math.max(0, count - 2)
@@ -320,10 +321,20 @@ for (const count of COUNTS) {
       remotePops: median(kept.map(m => m.remotePops)),
     }
     if (kept.length === 0) failures.push(`${count} player(s), relevance ${arm}: no rep landed within ${TICK}+-${TICK_WINDOW_HZ} Hz, so this arm is unmeasured`)
+    const a = rows[arm]
+    if (!(Number.isFinite(a.snapshotBytesAvg) && a.snapshotBytesAvg > 0)) failures.push(`${count} player(s), relevance ${arm}: snapshot bytes/snapshot is ${a.snapshotBytesAvg}, so the byte cut has no denominator`)
+    if (!(Number.isFinite(a.downKBps) && a.downKBps > 0)) failures.push(`${count} player(s), relevance ${arm}: downstream ${a.downKBps} KB/s at the mover, so the bandwidth cut has no denominator`)
+    if (!(Number.isFinite(a.snapHz) && a.snapHz > 0)) failures.push(`${count} player(s), relevance ${arm}: snapshot rate ${a.snapHz} Hz, so no snapshot was measured`)
+    if (!(a.shotCount > 0)) failures.push(`${count} player(s), relevance ${arm}: hitReg fired ${a.shotCount} shot(s), so the hit rate below is not a measurement`)
+    if (!Number.isFinite(a.hitRate)) failures.push(`${count} player(s), relevance ${arm}: hit rate ${a.hitRate} over ${a.shotCount} shot(s), so a hit-reg comparison is unmeasured`)
+    if (!Number.isFinite(a.remotePops)) failures.push(`${count} player(s), relevance ${arm}: remote pops ${a.remotePops}, so culling visibility is unmeasured`)
   }
   const off = rows.off, on = rows.on
   const bytePct = (off.snapshotBytesAvg > 0 && Number.isFinite(on.snapshotBytesAvg)) ? (1 - on.snapshotBytesAvg / off.snapshotBytesAvg) * 100 : NaN
   const downPct = (off.downKBps > 0 && Number.isFinite(on.downKBps)) ? (1 - on.downKBps / off.downKBps) * 100 : NaN
+  if (!Number.isFinite(bytePct)) failures.push(`${count} player(s): the snapshot byte cut is NaN (off ${off.snapshotBytesAvg}, on ${on.snapshotBytesAvg} byte(s)/snapshot), so "not worth enabling" is a missing denominator and not a measurement`)
+  if (!Number.isFinite(downPct)) failures.push(`${count} player(s): the downstream cut is NaN (off ${off.downKBps}, on ${on.downKBps} KB/s), so the bandwidth decision is unmeasured`)
+  if (Number.isFinite(bytePct) && bytePct >= WORTH_PCT && !(Number.isFinite(off.hitRate) && Number.isFinite(on.hitRate))) failures.push(`${count} player(s): the byte cut reaches ${fmt(bytePct, 1)}% but the hit rate is ${fmt(off.hitRate, 3)} -> ${fmt(on.hitRate, 3)}, so the "worth enabling" verdict rests on an unmeasured hit-reg cost`)
   const worthIt = Number.isFinite(bytePct) && bytePct >= WORTH_PCT && (on.hitRate >= off.hitRate - 0.01)
   decisions.push({ count, bytePct, downPct, worthIt, off, on })
   for (const arm of ['off', 'on']) {
@@ -338,12 +349,13 @@ console.log('|' + '---|'.repeat(9))
 for (const line of table) console.log(line)
 console.log('\nper-count decision (counted units: bytes per snapshot at the mover, downstream KB/s at the mover):')
 for (const d of decisions) {
-  console.log(`  ${d.count} player(s): snapshot bytes ${fmt(d.off.snapshotBytesAvg, 0)} -> ${fmt(d.on.snapshotBytesAvg, 0)} (${fmt(d.bytePct, 1)}% cut), downstream ${fmt(d.off.downKBps, 2)} -> ${fmt(d.on.downKBps, 2)} KB/s (${fmt(d.downPct, 1)}% cut), hit rate ${fmt(d.off.hitRate, 3)} -> ${fmt(d.on.hitRate, 3)} -- ${d.worthIt ? `WORTH ENABLING at >=${WORTH_PCT}%` : `NOT worth enabling at >=${WORTH_PCT}%`}`)
+  console.log(`  ${d.count} player(s): snapshot bytes ${fmt(d.off.snapshotBytesAvg, 0)} -> ${fmt(d.on.snapshotBytesAvg, 0)} (${fmt(d.bytePct, 1)}% cut), downstream ${fmt(d.off.downKBps, 2)} -> ${fmt(d.on.downKBps, 2)} KB/s (${fmt(d.downPct, 1)}% cut), hit rate ${fmt(d.off.hitRate, 3)} -> ${fmt(d.on.hitRate, 3)} over ${d.off.shotCount}/${d.on.shotCount} shot(s), remote pops ${fmt(d.off.remotePops, 1)} -> ${fmt(d.on.remotePops, 1)} -- ${d.worthIt ? `WORTH ENABLING at >=${WORTH_PCT}%` : `NOT worth enabling at >=${WORTH_PCT}%`}`)
 }
 const anyWorth = decisions.filter(d => d.worthIt)
 console.log(`\nDECISION: interest management ${anyWorth.length ? `earns its complexity at ${anyWorth.map(d => d.count).join(', ')} player(s)` : `does not reach the ${WORTH_PCT}% byte cut at any measured count (${COUNTS.join(', ')}), so leaving relevanceRadius off by default is the honest default at these world sizes`}`)
 
 const aoiArm = await runAoiRingArm()
+let aoiMeasured = 'AOI ring arm did not run, so no ring work unit was measured'
 if (aoiArm) {
   const { rows, probes, baseChecks, baseMismatch, mismatchSamples, maxCellBaseCache } = aoiArm
   console.log(`\nAOI ring cell-neighbour capture (counted work units, world "tps-game", ${aoiArm.players} real client(s), ${aoiArm.stageEntities} stage entities, relevance ${aoiArm.relevanceRadius} m, LRU cap ${AOI_CELL_BASE_MAX})`)
@@ -360,6 +372,8 @@ if (aoiArm) {
   console.log(`| probe | radius-restored | - | ${probes.restoreRadius.ticks} | ${probes.restoreRadius.centreSolves} | - | - | - | ${probes.restoreRadius.mismatch} |`)
   console.log(`| probe | entity-restored | - | ${probes.restoreMove.ticks} | ${probes.restoreMove.centreSolves} | - | - | - | ${probes.restoreMove.mismatch} |`)
   if (aoiArm.relevanceRadius <= 0) failures.push(`aoi ring arm: relevance radius is 0 in "tps-game", so the AOI path never ran and every work count below is vacuous`)
+  if (aoiArm.players !== AOI_PLAYERS) failures.push(`aoi ring arm: ${aoiArm.players} of ${AOI_PLAYERS} real client(s) joined, so every per-tick work count below was measured on fewer viewers than the arm claims`)
+  if (aoiArm.players < 2) failures.push(`aoi ring arm: ${aoiArm.players} player(s) joined, so per-player ring divergence cannot be measured`)
   if (aoiArm.stageEntities <= 0) failures.push(`aoi ring arm: stage spatial holds 0 entities, so a cached empty set is indistinguishable from a correct one`)
   if (baseChecks <= 0) failures.push(`aoi ring arm: the per-tick equivalence check never fired (baseChecks 0), so cached base sets were never compared against a fresh recompute`)
   if (baseMismatch > 0) {
@@ -383,6 +397,7 @@ if (aoiArm) {
     if (perTick(row.off, 'statefulQueries') !== perTick(row.warm, 'statefulQueries')) failures.push(`aoi ring arm rep ${row.rep}: stateful hysteresis/starvation queries moved ${perTick(row.off, 'statefulQueries')} -> ${perTick(row.warm, 'statefulQueries')} per tick, so the cache changed how often those stateful methods advance`)
   }
   if (controlSpread !== 0) failures.push(`aoi ring arm: control arm rep-to-rep spread is ${controlSpread} cell-centre solves/tick, so the measured reduction is inside the control's own noise`)
+  if (probes.steady && probes.steady.ticks < 20) failures.push(`aoi ring arm: the steady-state probe only saw ${probes.steady.ticks} tick(s), so "nothing settled" is unmeasured`)
   if (probes.steady && probes.steady.centreSolves !== 0) failures.push(`aoi ring arm: steady state still solved ${probes.steady.centreSolves} cell centre(s) over ${probes.steady.ticks} tick(s), so nothing settled`)
   if (!probes.radius) failures.push('aoi ring arm: relevance-radius invalidation probe did not run')
   else if (probes.radius.centreSolves < 8 || probes.radius.epochDrops < 8) failures.push(`aoi ring arm: after relevanceRadius changed, only ${probes.radius.centreSolves} cell centre(s) were re-solved and ${probes.radius.epochDrops} cache entr(y/ies) dropped (need >= 8 each), so a radius change is served stale base sets`)
@@ -408,7 +423,12 @@ if (aoiArm) {
   const dv = probes.divergence
   console.log(`per-player ring: ${aoiArm.distinctPlayerCells} player cell(s) -> ${dv ? dv.distinctRings : '-'} distinct relevant id set(s) [${dv ? dv.perPlayerRings.map(r => `${r.cell}=${r.ringSize === null ? 'none' : r.ringSize}`).join(' ') : '-'}], own-cell entities served ${dv ? dv.ownCellChecked - dv.ownCellMissing : '-'}/${dv ? dv.ownCellChecked : '-'}, ids beyond 3.5r of their player ${dv ? dv.farLeaks : '-'}`)
   console.log(`OBSERVATION: ${aoiArm.players} player(s) occupy ${aoiArm.distinctPlayerCells} distinct relevance cell(s), spread ${AOI_SPREAD_M} m against relevance ${aoiArm.relevanceRadius} m`)
+  const dvNow = probes.divergence
+  aoiMeasured = `${aoiArm.players}/${AOI_PLAYERS} real client(s) over ${aoiArm.stageEntities} stage entit(y/ies) at relevance ${aoiArm.relevanceRadius} m, cell-centre solves/tick ${fmt(perTick(rows[0].off, 'cellCentreSolves'), 2)} -> ${fmt(perTick(rows[0].warm, 'cellCentreSolves'), 2)} (${fmt(cut, 1)}% cut) with base hits/tick ${fmt(perTick(rows[0].warm, 'cellBaseHits'), 2)}, ${baseChecks - baseMismatch}/${baseChecks} cached base set(s) matched a fresh recompute over ${rows.length} rep(s), invalidation re-solved ${probes.radius ? probes.radius.centreSolves : '-'}/${probes.move ? probes.move.centreSolves : '-'} centre(s) and dropped ${probes.radius ? probes.radius.epochDrops : '-'}/${probes.move ? probes.move.epochDrops : '-'} entr(y/ies) on a radius change / an entity move, ${aoiArm.distinctPlayerCells} player cell(s) -> ${dvNow ? dvNow.distinctRings : '-'} distinct ring(s) with ${dvNow ? dvNow.ownCellChecked - dvNow.ownCellMissing : '-'}/${dvNow ? dvNow.ownCellChecked : '-'} own-cell entit(y/ies) served and ${dvNow ? dvNow.farLeaks : '-'} id(s) beyond 3.5r`
 }
+
+const harnessShots = decisions.reduce((s, d) => s + d.off.shotCount + d.on.shotCount, 0)
+console.log(`\nMEASURED relevance-radius: ${decisions.length} count(s) x ${REPS} rep(s) of ${DURATION} ms on "${WORLD}" at tick ${TICK} Hz, relevance off -> ${RADIUS} m -- snapshot byte(s)/snapshot ${decisions.map(d => `${d.count}:${fmt(d.off.snapshotBytesAvg, 0)}->${fmt(d.on.snapshotBytesAvg, 0)} (${fmt(d.bytePct, 1)}%)`).join(' ')}, downstream KB/s ${decisions.map(d => `${d.count}:${fmt(d.off.downKBps, 2)}->${fmt(d.on.downKBps, 2)} (${fmt(d.downPct, 1)}%)`).join(' ')}, ${harnessShots} shot(s) at hit rate ${decisions.map(d => `${d.count}:${fmt(d.off.hitRate, 3)}->${fmt(d.on.hitRate, 3)}`).join(' ')}, remote pops ${decisions.map(d => `${d.count}:${fmt(d.off.remotePops, 1)}->${fmt(d.on.remotePops, 1)}`).join(' ')}; ${aoiMeasured}`)
 
 for (const f of outFiles) await rm(f, { force: true })
 if (failures.length) {

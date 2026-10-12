@@ -40,7 +40,9 @@ const WALK_STEP_M = numericFlag(args, 'walkStepM', 0)
 const WALK_EVERY_MS = numericFlag(args, 'walkEveryMs', 100)
 const SPREAD_M = numericFlag(args, 'spreadM', 0)
 const BUTTONS = numericFlag(args, 'buttons', 0)
-const BOXES = numericFlag(args, 'boxes', 0)
+const BOXES = numericFlag(args, 'boxes', 144)
+const OVERLAPS = numericFlag(args, 'overlaps', 16)
+const CONTROL_TICKS = numericFlag(args, 'controlTicks', 60)
 const COL_COUNT_MAP = args.colCountMap !== '0'
 
 const failures = []
@@ -663,6 +665,22 @@ async function runServer() {
     await sleep(2500)
   }
 
+  let overlapPairs = 0
+  const overlapHomes = []
+  if (OVERLAPS > 0) {
+    const col = runtime._collisionEntities
+    for (let i = 0; i + 1 < col.length && overlapPairs < OVERLAPS; i += 2) {
+      const a = col[i], b = col[i + 1]
+      if (!a || !b || !Array.isArray(a.position) || !Array.isArray(b.position)) continue
+      overlapHomes.push([b, [b.position[0], b.position[1], b.position[2]]])
+      b.position[0] = a.position[0] + 0.01
+      b.position[1] = a.position[1]
+      b.position[2] = a.position[2] + 0.01
+      overlapPairs++
+    }
+    await sleep(600)
+  }
+
   let tilesEnabled = true
   const tTiles = Date.now()
   while (!physics._staticTiles && Date.now() - tTiles < 30000) await sleep(50)
@@ -752,6 +770,23 @@ async function runServer() {
   while (sampledTicks - startTicks < TICKS && Date.now() - runStart < 240000) await sleep(50)
   const measuredTicks = Math.max(1, sampledTicks - startTicks)
   if (march) clearInterval(march)
+  const mainWindowEvents = collisionEvents
+  const mainWindowSamples = eventHashParts.length
+  const mainWindowMapGet = colMetrics.mapGet
+
+  let controlEventsPerTick = null
+  if (overlapPairs > 0 && CONTROL_TICKS > 0) {
+    const ctrlEventsBefore = collisionEvents
+    const ctrlTicksBefore = sampledTicks
+    for (const [b, home] of overlapHomes) {
+      b.position[0] = home[0]; b.position[1] = home[1]; b.position[2] = home[2]
+    }
+    const ctrlStart = Date.now()
+    while (sampledTicks - ctrlTicksBefore < CONTROL_TICKS && Date.now() - ctrlStart < 60000) await sleep(50)
+    const ctrlTicks = Math.max(1, sampledTicks - ctrlTicksBefore)
+    controlEventsPerTick = Number(((collisionEvents - ctrlEventsBefore) / ctrlTicks).toFixed(3))
+  }
+
   const servedPlayers = server.playerManager.getConnectedPlayers().length
   const snapshotPasses = servedPlayers > 0 ? servedCalls / servedPlayers : 0
 
@@ -800,7 +835,8 @@ async function runServer() {
     mode: 'server',
     players: expect('players', server.playerManager.getConnectedPlayers().length, v => v === PLAYERS),
     entities: expect('entities', runtime.entities.size, v => v > 0),
-    collisionEntities: expect('collisionEntities', runtime._collisionEntities.length, v => v >= BOXES),
+    collisionEntities: expect('collisionEntities', runtime._collisionEntities.length, v => v >= Math.max(100, BOXES)),
+    colPath: expect('colPath', runtime._collisionEntities.length === 0 ? 'none' : runtime._collisionEntities.length < 100 ? 'brute' : 'grid', v => v === 'grid'),
     ticks: expect('ticks', measuredTicks, v => v >= TICKS),
     tilesEnabled: expect('tilesEnabled', tilesEnabled, v => v === true),
     tileUpdateCallsPerTick: expect('tileUpdateCallsPerTick', Number((tileMetrics.updateCalls / measuredTicks).toFixed(3)), finite),
@@ -814,19 +850,21 @@ async function runServer() {
     tileAABoxPerTick: Number((tileMetrics.aabox / measuredTicks).toFixed(3)),
     tileShapeGetTrianglesPerTick: Number((tileMetrics.tris / measuredTicks).toFixed(3)),
     tileAABoxPerBuild: Number((tileMetrics.aabox / Math.max(1, tileBuilds)).toFixed(2)),
-    colMapGetPerTick: Number((colMetrics.mapGet / measuredTicks).toFixed(2)),
+    colMapGetPerTick: expect('colMapGetPerTick', Number((mainWindowMapGet / measuredTicks).toFixed(2)), v => v > 0),
     colMapSetPerTick: Number((colMetrics.mapSet / measuredTicks).toFixed(2)),
     colNewArraysPerTick: Number((colMetrics.newArrays / measuredTicks).toFixed(2)),
     colRebucketsPerTick: expect('colRebucketsPerTick', Number((rebucketSum / measuredTicks).toFixed(3)), finite),
-    colMsPerTick: expect('colMsPerTick', Number((colMs / measuredTicks).toFixed(5)), finite),
+    colMsPerTick: expect('colMsPerTick', Number((colMs / measuredTicks).toFixed(5)), v => Number.isFinite(v) && v > 0),
     syncMsPerTick: expect('syncMsPerTick', Number((syncMs / measuredTicks).toFixed(5)), finite),
     spatialMsPerTick: expect('spatialMsPerTick', Number((spatialMs / measuredTicks).toFixed(5)), finite),
     interactMsPerTick: expect('interactMsPerTick', Number((interactMs / measuredTicks).toFixed(5)), finite),
     respawnMsPerTick: expect('respawnMsPerTick', Number((respawnMs / measuredTicks).toFixed(5)), finite),
     tickMsPerTick: expect('tickMsPerTick', Number(((Date.now() - runStart) / measuredTicks).toFixed(5)), v => Number.isFinite(v) && v > 0),
-    colEventsPerTick: Number((collisionEvents / measuredTicks).toFixed(3)),
+    colOverlapPairs: expect('colOverlapPairs', overlapPairs, v => v > 0),
+    colEventsPerTick: expect('colEventsPerTick', Number((mainWindowEvents / measuredTicks).toFixed(3)), v => v > 0),
     colEventStreamHash: hashFloats(eventHashParts.slice(0, 20000)),
-    colEventStreamSamples: eventHashParts.length,
+    colEventStreamSamples: expect('colEventStreamSamples', mainWindowSamples, v => v > 0),
+    colControlEventsPerTick: expect('colControlEventsPerTick', controlEventsPerTick, v => v === 0),
     aoiRingCellsPerPass: Number(aoiCellsPerPass.toFixed(3)),
     aoiSpatialCellsPerPass: Number((aoiPasses ? aoiSpatialPerPass / aoiPasses : 0).toFixed(3)),
     aoiRingComputesPerTick: expect('aoiRingComputesPerTick', Number((ringComputes / measuredTicks).toFixed(3)), v => v >= PLAYERS),
@@ -845,6 +883,8 @@ async function runServer() {
     aoiRingCostMsPerTick: Number(((ringComputes / measuredTicks) * (neighSamples[0] + 8 * centerSamples[0]) / 1000).toFixed(6)),
     tileCount: expect('tileCount', index ? index.tileCount : 0, v => v > 0),
   }
+
+  console.log(`MEASURED static-collision-cpu: ${measuredTicks} tick(s) over ${out.collisionEntities} collision entit(y/ies) on the ${out.colPath} path, ${overlapPairs} forced overlap pair(s) producing ${mainWindowEvents} collision event(s) (${out.colEventsPerTick}/tick, ${mainWindowSamples} stream sample(s)) over ${colMetrics.mapGet} grid lookup(s), ${out.colMsPerTick} ms/tick, ${out.colControlEventsPerTick} event(s)/tick after the overlaps were removed, ${tileMetrics.updateLive} live static-tile update(s) over ${out.tileCount} tile(s)`)
 
   for (const c of clients) { try { c.close?.() } catch {} }
   try { await server.stop?.() } catch {}
