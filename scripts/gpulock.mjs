@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, renameSync, rmSync, readdirSync, unlinkSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -40,16 +40,104 @@ function readOwner() {
   try { return JSON.parse(text) } catch { return null }
 }
 
+// Waiters live BESIDE the lock directory, never inside it: the existence of
+// LOCK_DIR *is* the lock, so anything written into it by a non-holder would
+// either be lost on release or make the directory un-claimable.
+const WAITERS_DIR = `${LOCK_DIR}-waiters`
+const TICKET_MAX_AGE_MS = 3600000
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 function writeOwner(record) {
   const tmp = `${OWNER_FILE}.${process.pid}.tmp`
   writeFileSync(tmp, `${JSON.stringify(record)}\n`, 'utf8')
-  renameSync(tmp, OWNER_FILE)
+  // Windows denies a rename while another process has the destination open (EPERM)
+  // or the file is briefly busy; that is transient, and losing the race outright
+  // kills the whole arm, so retry a few times before giving up.
+  let lastErr
+  for (let i = 0; i < 4; i++) {
+    try {
+      renameSync(tmp, OWNER_FILE)
+      return true
+    } catch (e) {
+      lastErr = e
+      if (e?.code !== 'EPERM' && e?.code !== 'EBUSY' && e?.code !== 'EACCES') throw e
+      sleepSync(50 * (i + 1))
+    }
+  }
+  throw lastErr
 }
 
 function claim(owner, nonce) {
   try { mkdirSync(LOCK_DIR) } catch { return false }
-  writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs() })
+  try {
+    writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs() })
+  } catch {
+    // The directory is ours but the owner record never landed, so hand the
+    // directory back rather than leaving a lock nobody can read the holder of.
+    try { rmSync(LOCK_DIR, { recursive: true, force: true }) } catch {}
+    return false
+  }
   return true
+}
+
+// --- fair waiting ---------------------------------------------------------
+// Without a queue, the next holder is whichever poller reaches mkdirSync first,
+// so a lane can be overtaken indefinitely by newer arrivals and time out with no
+// measurement. A ticket records that a lane is waiting, and a ticket defers to
+// any older live one. This is additive: a holder or waiter that knows nothing
+// about tickets (an older gpulock, or a directory where waiters/ is unreadable)
+// is never waited on, because oldestLiveTicket() then answers null.
+function ticketPath(nonce) {
+  return join(WAITERS_DIR, `${nowMs()}.${nonce}.json`)
+}
+
+function addTicket(owner, nonce) {
+  try {
+    mkdirSync(WAITERS_DIR, { recursive: true })
+    writeFileSync(ticketPath(nonce), `${JSON.stringify({ owner, nonce, pid: process.pid, ts: nowMs() })}\n`, 'utf8')
+  } catch {}
+}
+
+function dropTicket(nonce) {
+  try {
+    for (const name of readdirSync(WAITERS_DIR)) {
+      if (!name.endsWith('.json')) continue
+      let t = null
+      try { t = JSON.parse(readFileSync(join(WAITERS_DIR, name), 'utf8')) } catch {}
+      if (t && t.nonce === nonce) { try { unlinkSync(join(WAITERS_DIR, name)) } catch {} }
+    }
+  } catch {}
+}
+
+function oldestLiveTicket() {
+  let list
+  try { list = readdirSync(WAITERS_DIR) } catch { return null }
+  let oldest = null
+  for (const name of list) {
+    if (!name.endsWith('.json')) continue
+    let t = null
+    try { t = JSON.parse(readFileSync(join(WAITERS_DIR, name), 'utf8')) } catch { continue }
+    if (!t || !Number.isFinite(Number(t.ts))) continue
+    if (!pidAlive(t.pid) || nowMs() - Number(t.ts) > TICKET_MAX_AGE_MS) {
+      // A ticket whose process is gone or that outlived any possible wait is
+      // garbage: remove it rather than letting it block the queue forever.
+      try { unlinkSync(join(WAITERS_DIR, name)) } catch {}
+      continue
+    }
+    if (!oldest || Number(t.ts) < Number(oldest.ts) || (Number(t.ts) === Number(oldest.ts) && String(name) < String(oldest.name))) {
+      oldest = { ...t, name }
+    }
+  }
+  return oldest
+}
+
+function waitingOn(owner, nonce, holder) {
+  const oldest = oldestLiveTicket()
+  if (!oldest || oldest.nonce === nonce) return null
+  return `gpulock: ${owner} is waiting behind ${oldest.owner} pid ${oldest.pid}, which has been waiting longer${holder ? ` (the lock is held by ${holder.owner} pid ${holder.pid})` : ''}`
 }
 
 function takeOver(owner, nonce, reason) {
@@ -102,13 +190,25 @@ async function tryAcquire(owner, nonce) {
 
 async function acquire(owner, nonce, waitMs) {
   const deadline = nowMs() + waitMs
-  for (;;) {
-    const attempt = await tryAcquire(owner, nonce)
-    if (attempt.held) return attempt
-    if (nowMs() >= deadline) {
-      throw new Error(`gpulock: ${owner} waited ${waitMs} ms for the GPU lock held by ${attempt.holder.owner} pid ${attempt.holder.pid} (holding since ${new Date(attempt.holder.startedAt).toISOString()}), so no measurement was taken`)
+  addTicket(owner, nonce)
+  let announced = false
+  try {
+    for (;;) {
+      const deferral = nowMs() < deadline ? waitingOn(owner, nonce, readOwner()) : null
+      if (deferral) {
+        if (!announced) { announced = true; console.log(deferral) }
+        await sleep(POLL_MS)
+        continue
+      }
+      const attempt = await tryAcquire(owner, nonce)
+      if (attempt.held) return attempt
+      if (nowMs() >= deadline) {
+        throw new Error(`gpulock: ${owner} waited ${waitMs} ms for the GPU lock held by ${attempt.holder.owner} pid ${attempt.holder.pid} (holding since ${new Date(attempt.holder.startedAt).toISOString()}), so no measurement was taken`)
+      }
+      await sleep(POLL_MS)
     }
-    await sleep(POLL_MS)
+  } finally {
+    dropTicket(nonce)
   }
 }
 
@@ -239,6 +339,20 @@ function statusMode() {
   const live = holderIsLive(record)
   const arm = Number(record.childPid ?? 0) > 0 ? `, arm pid ${record.childPid}` : ''
   console.log(`gpulock: ${live ? 'HELD' : 'STALE'} by ${record.owner} pid ${record.pid}${arm}${live ? '' : ' (dead or past ttl, so the next acquirer takes over)'}, holding since ${new Date(record.startedAt).toISOString()}, heartbeat ${nowMs() - Number(record.heartbeatAt ?? 0)} ms ago`)
+  let list = []
+  try { list = readdirSync(WAITERS_DIR).filter(n => n.endsWith('.json')) } catch {}
+  let queued = 0
+  let oldest = null
+  for (const name of list) {
+    let t = null
+    try { t = JSON.parse(readFileSync(join(WAITERS_DIR, name), 'utf8')) } catch { continue }
+    if (!t || !pidAlive(t.pid)) continue
+    queued++
+    if (!oldest || Number(t.ts) < Number(oldest.ts)) oldest = t
+  }
+  if (queued > 0) {
+    console.log(`gpulock: ${queued} lane(s) waiting; longest-waiting is ${oldest.owner} pid ${oldest.pid}, waiting ${nowMs() - Number(oldest.ts)} ms -- it is served next`)
+  }
   return 0
 }
 
@@ -251,6 +365,14 @@ function releaseMode(argv) {
   }
   if (owner && record.owner !== owner) {
     console.error(`gpulock: refusing to release a lock held by ${record.owner}, not ${owner}`)
+    return 1
+  }
+  // A bare `release` used to remove ANY holder's lock with no check at all, so one
+  // lane could silently void another lane's running arm. Releasing your own hold
+  // (this process is the holder) still works; releasing someone else's now has to
+  // name them, which is what the call was always supposed to mean.
+  if (!owner && Number(record.pid) !== process.pid) {
+    console.error(`gpulock: refusing to release a lock this process does not hold (held by ${record.owner} pid ${record.pid}); name the owner to release it on purpose: gpulock.mjs release ${record.owner}`)
     return 1
   }
   try { rmSync(OWNER_FILE, { force: true }) } catch {}
