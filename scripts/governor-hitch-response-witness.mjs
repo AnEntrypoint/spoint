@@ -223,8 +223,9 @@ function main() {
   const failed = checks.filter(c => !c.pass)
   for (const c of failed) console.log(`[${LABEL}] FAILED ${c.label}: got ${JSON.stringify(c.got)} ${c.op} ${JSON.stringify(c.want)}`)
   console.log(`[${LABEL}] checks ${checks.length - failed.length}/${checks.length} passed`)
+  console.log(`[${LABEL}] summary qualityGovernor registry default ${enableBit.bootDefault} (opt-out default ${enableBit.bootDefaultOff}): a 40ms load moved the governor at frame ${enableBit.shippedMovedAt} and took ${enableBit.shippedSteps} step(s); pinned by qualityGovernorOff it took ${enableBit.optedOutSteps}. single 100ms hitch answered after ${control.hitch100.frames} frames, min trigger ${control.minBurstFrames} frame(s), 100ms hitch train ${control.train100.steps} step(s) (mean reads ${control.train100.avgMs}ms < raiseBelow ${RAISE_BELOW_MS}ms, window max ${control.train100.winMaxMs}ms), smallest visible hitch ${control.minVisibleHitchMs}ms answered after ${control.trainVisible.firstFrames} frames, smallest single hitch ${control.singleMinHitchMs}ms, ${resolutionWrites.length} resolution key(s) written`)
   finish(failed.length === 0 ? 'PASS' : 'FAIL', failed.length === 0
-    ? `qualityGovernor registry default ${enableBit.bootDefault} (opt-out default ${enableBit.bootDefaultOff}): a 40ms load moved the governor at frame ${enableBit.shippedMovedAt} and took ${enableBit.shippedSteps} step(s); pinned by qualityGovernorOff it took ${enableBit.optedOutSteps}. single 100ms hitch answered after ${control.hitch100.frames} frames, min trigger ${control.minBurstFrames} frame(s), 100ms hitch train ${control.train100.steps} step(s) (mean reads ${control.train100.avgMs}ms < raiseBelow ${RAISE_BELOW_MS}ms, window max ${control.train100.winMaxMs}ms), smallest visible hitch ${control.minVisibleHitchMs}ms answered after ${control.trainVisible.firstFrames} frames, smallest single hitch ${control.singleMinHitchMs}ms, 0 resolution key(s) written`
+    ? `${checks.length - failed.length}/${checks.length} check(s) passed`
     : `${failed.length} check(s) failed`)
 }
 
