@@ -182,7 +182,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       // both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the lattice
       // also draws), at every quality tier.
       let drop = null, tiles = null
-      if (face === nearFace && near) {
+      if (face === nearFace && near && lc && Number.isFinite(lc[0]) && Number.isFinite(lc[1])) {
         const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE)
         lastNear = { tiles: p.tiles.length, dropped: p.coveredLeafCount, stepM: p.stepM, leafM: p.leafM, c: p.c, refused: p.refused || null }
         if (p.tiles.length) { drop = new Set(p.drop); tiles = p.tiles }
