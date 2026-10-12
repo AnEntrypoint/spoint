@@ -169,7 +169,7 @@ try {
   const page = await browser.newPage({ viewport: VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
-  await page._send('Performance.enable').catch(() => {})
+  await page._send('Performance.enable').catch((e) => console.log('[grass-perframe] Performance.enable refused, so no ThreadTime will be readable: ' + e.message))
   const url = `http://localhost:${port}/?singleplayer&world=tps-game&at=${encodeURIComponent(AT)}&v=${Date.now()}`
   console.log('[grass-perframe] ' + url)
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
@@ -299,7 +299,7 @@ try {
   }
   console.log(`RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} submitted=${finalUnits.submitted} live=${finalUnits.live} degenerate=${finalUnits.degenerate} tris=${finalUnits.trisPerFrame} verts=${finalUnits.vertsPerFrame} cpuMsPerFrame=${still.cpuMsPerFrame}${walked ? ` walkCpuMsPerFrame=${walked.cpuMsPerFrame}` : ''} gpu=${gpu.renderer}`)
 } finally {
-  if (browser) await browser.close().catch(() => {})
-  if (server && typeof server.stop === 'function') { try { await server.stop() } catch (_) {} }
+  if (browser) await browser.close().catch((e) => console.log('[grass-perframe] browser.close failed, so the lease may need sweeping: ' + e.message))
+  if (server && typeof server.stop === 'function') { try { await server.stop() } catch (e) { console.log('[grass-perframe] server.stop failed: ' + e.message) } }
 }
 process.exit(failed === 0 ? 0 : 1)
