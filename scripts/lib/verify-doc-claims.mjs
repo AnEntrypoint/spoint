@@ -85,7 +85,7 @@ const LINE_TOKEN = {
   'src/sdk/server.js#80': 'getRelevanceRadius',
   'scripts/frame-time-gate.mjs#36': 'UNLOCK_RAF',
   'scripts/perf-run.mjs#277': 'abPhaseMs',
-  'scripts/lib/gpu-eval.mjs#102': 'probeHeights',
+  'scripts/lib/gpu-eval.mjs#175': 'probeHeights',
 };
 
 const KNOB_KEYS = [

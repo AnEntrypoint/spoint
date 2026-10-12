@@ -2,8 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const SPOOL_IN = 'in/browser'
+const VERB = 'crawl'
+const SPOOL_IN = 'in/crawl'
 const SPOOL_OUT = 'out'
+const ENGINE_CDP = 'engine=cdp'
+const DEFAULT_SCREENSHOT = 'gpu-eval-shot.png'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -15,7 +18,7 @@ function spoolRoot() {
 
 function sessionId() {
   const s = process.env.SESSION_ID || process.env.GM_SESSION_ID
-  if (!s) throw new Error('SESSION_ID is required: the browser verb rejects an empty session. Export SESSION_ID=<id> before running this script.')
+  if (!s) throw new Error('SESSION_ID is required: the crawl verb rejects an empty session. Export SESSION_ID=<id> before running this script.')
   return s
 }
 
@@ -33,60 +36,150 @@ export async function serverUp(port) {
   } catch { return false }
 }
 
-export function buildBody({ url, timeoutMs, screenshot, script }) {
-  const lines = []
-  if (timeoutMs) lines.push(`timeout=${timeoutMs}`)
+function stripLineComment(line) {
+  let out = ''
+  let quote = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      out += c
+      if (c === '\\') { out += line[i + 1] || ''; i++; continue }
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue }
+    if (c === '/' && line[i + 1] === '/') break
+    out += c
+  }
+  return out
+}
+
+export function flattenScript(script) {
+  return String(script == null ? '' : script)
+    .split(/\r?\n/)
+    .map(stripLineComment)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const VALUELESS_STATEMENT = /^(return|const|let|var|async|function|class|if|for|while|do|switch|try|catch|finally|else|throw|break|continue|import|export|with|debugger|case|default)\b/
+
+function splitStatements(src) {
+  const out = []
+  let depth = 0
+  let quote = null
+  let cur = ''
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (quote) {
+      cur += c
+      if (c === '\\') { cur += src[i + 1] || ''; i++; continue }
+      if (c === quote) quote = null
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue }
+    if (c === '(' || c === '[' || c === '{') depth++
+    if (c === ')' || c === ']' || c === '}') depth--
+    if (c === ';' && depth === 0) { out.push(cur); cur = ''; continue }
+    cur += c
+  }
+  if (cur.trim()) out.push(cur)
+  return out.map(s => s.trim()).filter(Boolean)
+}
+
+function peelTrailingExpression(src) {
+  let depth = 0
+  let quote = null
+  let cut = -1
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = null; continue }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue }
+    if (c === ')' || c === ']') { depth--; continue }
+    if (c === '}' && --depth === 0) cut = i + 1
+  }
+  if (cut < 0) return [src, '']
+  const tail = src.slice(cut).trim()
+  return tail ? [src.slice(0, cut).trim(), tail] : [src, '']
+}
+
+export function evalStep(script) {
+  const src = flattenScript(script).replace(/;+\s*$/, '')
+  if (!src) return null
+  let stmts = splitStatements(src)
+  let last = stmts[stmts.length - 1]
+  const [head, tail] = peelTrailingExpression(last)
+  if (tail) { stmts = [...stmts.slice(0, -1), head, tail]; last = tail }
+  const isValue = !VALUELESS_STATEMENT.test(last) && (!!tail || !last.startsWith('{'))
+  const valued = isValue ? [...stmts.slice(0, -1), `return (${last})`] : stmts
+  return `(async () => { ${valued.join('; ')} })()`
+}
+
+export function buildBody({ url, screenshot, script }) {
+  const lines = [ENGINE_CDP]
   if (url) lines.push(`url=${url}`)
-  if (screenshot) lines.push(screenshot === true ? 'screenshot' : `screenshot=${screenshot}`)
-  lines.push(script)
-  return lines.join('\n')
+  if (screenshot) lines.push(`screenshot=${screenshot === true ? DEFAULT_SCREENSHOT : screenshot}`)
+  const expr = evalStep(script)
+  if (expr) lines.push(`eval=${expr}`)
+  return lines.join('\n') + '\n'
 }
 
 export async function dispatchBrowser(body, opts = {}) {
   const attempts = Number(opts.attempts || process.env.GM_BROWSER_ATTEMPTS || 3)
   let lastErr
   for (let i = 0; i < attempts; i++) {
-    try { return await dispatchBrowserOnce(body, opts) }
+    try { return await dispatchCrawlOnce(body, opts) }
     catch (e) {
       lastErr = e
       if (!/orphaned|poisoned Store|wasm_aborted|websocket error|navigated or closed/.test(e.message)) throw e
-      process.stderr.write(`[browser] transient daemon failure, retry ${i + 1}/${attempts - 1}: ${e.message.slice(0, 90)}\n`)
+      process.stderr.write(`[crawl] transient daemon failure, retry ${i + 1}/${attempts - 1}: ${e.message.slice(0, 90)}\n`)
       await wait(5000)
     }
   }
   throw lastErr
 }
 
-async function dispatchBrowserOnce(body, { pollMs = 2000, deadlineMs = 600000 } = {}) {
+async function dispatchCrawlOnce(body, { pollMs = 2000, deadlineMs = 600000, timeoutMs = 0 } = {}) {
   const root = spoolRoot()
   const inDir = path.join(root, SPOOL_IN)
   const outDir = path.join(root, SPOOL_OUT)
-  if (!fs.existsSync(inDir)) throw new Error(`browser spool inbox missing at ${inDir} -- is the gm daemon running for this project?`)
+  try { fs.mkdirSync(inDir, { recursive: true }) }
+  catch (e) { throw new Error(`crawl spool inbox unusable at ${inDir} -- is the gm daemon running for this project? (${e.message})`) }
 
+  const session = sessionId()
   let id = nextTaskId()
-  while (fs.existsSync(path.join(outDir, `browser-${id}.json`)) || fs.existsSync(path.join(inDir, `${id}.txt`))) id++
+  const inName = () => `${session}-${id}.txt`
+  const outName = () => `${VERB}-${session}-${id}.json`
+  while (fs.existsSync(path.join(outDir, outName())) || fs.existsSync(path.join(inDir, inName()))) id++
 
-  sessionId()
-  fs.writeFileSync(path.join(inDir, `${id}.txt`), body)
+  const tmp = path.join(inDir, `${inName()}.tmp`)
+  fs.writeFileSync(tmp, body)
+  fs.renameSync(tmp, path.join(inDir, inName()))
 
-  const outFile = path.join(outDir, `browser-${id}.json`)
+  const outFile = path.join(outDir, outName())
+  const wallDeadline = Date.now() + (Number(timeoutMs) > 0 ? Number(timeoutMs) : deadlineMs)
   const t0 = Date.now()
-  while (Date.now() - t0 < deadlineMs) {
+  while (Date.now() - t0 < deadlineMs && Date.now() < wallDeadline) {
     if (fs.existsSync(outFile)) {
       let parsed
       try { parsed = JSON.parse(fs.readFileSync(outFile, 'utf8')) }
       catch { await wait(250); continue }
-      if (parsed.error_code === 'dispatch_orphaned') throw new Error(`browser verb orphaned (task ${id}): the daemon died mid-call. Re-run.`)
-      if (parsed.gate_denied) throw new Error(`browser verb gate-denied: ${parsed.reason || 'unknown'}`)
-      if (parsed.ok === false && parsed.error) throw new Error(`browser verb error (task ${id}): ${parsed.error}`)
-      const d = parsed.data || parsed
-      if (d.timed_out) throw new Error(`browser verb timed out (task ${id}) after ${d.duration_ms}ms`)
-      if (d.exit_code !== 0) throw new Error(`browser verb failed (task ${id}): ${d.stderr || 'no stderr'}${d.debug && d.debug.hint ? ` [hint: ${d.debug.hint}]` : ''}`)
-      return { taskId: id, result: d.result, durationMs: d.duration_ms, debug: d.debug || null }
+      if (parsed.error_code === 'dispatch_orphaned') throw new Error(`${VERB} verb orphaned (task ${id}): the daemon died mid-call. Re-run.`)
+      if (parsed.error_code === 'unknown_verb') throw new Error(`${VERB} verb is not registered by this runner build: ${parsed.error}`)
+      if (parsed.gate_denied) throw new Error(`${VERB} verb gate-denied: ${parsed.reason || 'unknown'}`)
+      if (parsed.ok === false && parsed.error) throw new Error(`${VERB} verb error (task ${id}): ${parsed.error}`)
+      if (parsed.timed_out) throw new Error(`${VERB} verb timed out (task ${id}) after ${parsed.duration_ms}ms`)
+      if (typeof parsed.exit_code === 'number' && parsed.exit_code !== 0) throw new Error(`${VERB} verb failed (task ${id}): ${parsed.stderr || 'no stderr'}`)
+      const evals = (parsed.pages || []).filter(p => p && p.op === 'eval')
+      if (!evals.length && /\neval=/.test(`\n${body}`)) throw new Error(`${VERB} verb returned no eval result (task ${id}); pages=${JSON.stringify(parsed.pages || []).slice(0, 300)}`)
+      const result = evals.length ? evals[evals.length - 1].value : null
+      return { taskId: id, result, durationMs: parsed.duration_ms, debug: parsed.stderr ? { stderr: parsed.stderr } : null }
     }
     await wait(pollMs)
   }
-  throw new Error(`browser verb produced no response for task ${id} within ${deadlineMs}ms`)
+  throw new Error(`${VERB} verb produced no response for task ${id} within ${Math.min(deadlineMs, Number(timeoutMs) > 0 ? Number(timeoutMs) : deadlineMs)}ms`)
 }
 
 export const TERRAIN_READY_SNIPPET = `
@@ -133,7 +226,7 @@ const __haystack = [__renderer, __vendor].filter(Boolean).join(' | ');
 return { renderer: __renderer, vendor: __vendor, haystack: __haystack, accelerated: __haystack.length > 0 && !/swiftshader|llvmpipe|softwarerasterizer|basic render|mesa offscreen|subzero/i.test(__haystack) };
 `.trim()
 
-export const GPU_ARGS_UNSUPPORTED = 'the gm browser verb takes no launch args, so a rasterizer cannot be selected here; drive scripts/lib/gpu-probe.mjs (CDP, real Chrome) when the rasterizer class must be pinned'
+export const GPU_ARGS_UNSUPPORTED = 'the gm crawl verb takes no launch args, so a rasterizer cannot be selected here; drive scripts/lib/gpu-probe.mjs (CDP, real Chrome) when the rasterizer class must be pinned'
 
 export function drainedSampleGroundMExpr(expr) {
   const evaluated = `await (${expr})`
@@ -164,13 +257,13 @@ export async function withGpuPage(opts, fn) {
 
   const run = async (script, extra = {}) => {
     const useProbe = extra.probe === undefined ? requireProbe : extra.probe
+    const budgetMs = extra.timeoutMs || timeoutMs
     const body = buildBody({
       url: extra.url === undefined ? url : extra.url,
-      timeoutMs: extra.timeoutMs || timeoutMs,
       screenshot: extra.screenshot,
       script: useProbe ? terrainScript(script, { readyMs }) : script,
     })
-    const r = await dispatchBrowser(body, { deadlineMs: (extra.timeoutMs || timeoutMs) + 120000 })
+    const r = await dispatchBrowser(body, { deadlineMs: budgetMs + 120000, timeoutMs: budgetMs })
     if (r.result && r.result.__error) throw new Error(`${r.result.__error} (app=${r.result.app}, terrain=${r.result.terrain})`)
     return r.result
   }
