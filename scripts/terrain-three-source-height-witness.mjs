@@ -29,6 +29,22 @@ const CHORD_CARVE_INNER_M = 60
 const CHORD_CARVE_OUTER_M = 100
 const DELTA_TOLS_M = [0.01, 0.1, 1]
 const ACCEPT_M = Number(arg('accept-m', 0.05))
+// A blade is the CELL ground pushed out along the clump offset (src/terrain/GrassPlacement.js
+// blade()), so "grass disagrees with the CPU sampler" has two very different causes and this witness
+// separates them: the cell ground is a surface solve and must BE the CPU sampler, while the blade
+// additionally carries the clump offset, which is the only place the two can legitimately diverge.
+// Measured 2026-10-12 (orch-main-r270-74): cell-vs-cpu max 0.000092 m over 4352 cells, blade-vs-cpu
+// max 0.167957 m over 987 blades, and the blade residual rises from 0.000016 m at a 0 m clump offset
+// to 0.125072 m at the full 1.15 m -- so the cell arm is pinned tight and the blade arm is not
+// relaxed: the two numbers name which half owns the disagreement.
+const CELL_GROUND_ACCEPT_M = 0.001
+const CELL_GROUND_STRIDE = 13
+const CELL_GROUND_MIN_PER_PHASE = 24
+// placeGrassCell jitters its cell with K_JITX/K_JITZ = 20/21, which are private to
+// GrassPlacement.js. They are repeated here, so the cell arm measures a real placement cell rather
+// than one particular cell: the claim under test (a placement cell's ground IS the CPU sampler at
+// that cell's own (x,z)) holds whichever cell the walk lands on.
+const CELL_JIT_X = 20, CELL_JIT_Z = 21
 const MIN_SAMPLES_PER_PHASE = 24
 const BLADE_STRIDE = 900
 const CHUNK_RADII_M = [0, 40, 80, 112]
@@ -53,6 +69,7 @@ const { PhysicsWorld } = await import(href('src/physics/World.js'))
 const { loadWorldModule } = await import(href('src/sdk/WorldLocator.js'))
 const terrainPhysics = await import(href('src/terrain/TerrainPhysics.js'))
 const { placementsForGrassChunk, GRASS } = await import(href('src/terrain/GrassPlacement.js'))
+const { createPlacementCell, placementCellAt, surfaceOfCell } = await import(href('src/terrain/VegPlacement.js'))
 const { chunkKeyAtLocal, latticeFor } = await import(href('src/terrain/PlacementChart.js'))
 const { createCachedAnchorField } = await import(href('src/terrain/ClimateCache.js'))
 const { armVerdictExitGuard } = await import(href('scripts/lib/verdict-exit-guard.mjs'))
@@ -118,6 +135,34 @@ function grassBladesNear(cx, cz) {
   return out
 }
 
+// Grass CELL: the same placement walk, stopped before the clump offset is applied, so the cell
+// ground can be compared with the CPU sampler on its own. Every cell is still walked (surfaceOfCell
+// seeds each solve from the previous cell's rho); only the expensive CPU read is strided.
+function grassCellsNear(cx, cz) {
+  const out = []
+  const seen = new Set()
+  for (const r of CHUNK_RADII_M) {
+    for (let a = 0; a < 360; a += 45) {
+      const x = cx + r * Math.cos(a * Math.PI / 180), z = cz + r * Math.sin(a * Math.PI / 180)
+      const key = chunkKeyAtLocal(lattice, frame, x, z)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const dec = lattice.decodeChunk(key, [0, 0, 0])
+      const cell = createPlacementCell(frame)
+      const cellSeed = (tcfg.seed | 0) ^ 0x6a55
+      let n = 0
+      for (let gz = 0; gz < GRASS.GRID; gz++) {
+        for (let gx = 0; gx < GRASS.GRID; gx++) {
+          placementCellAt(frame, lattice, dec, gx, gz, cellSeed, GRASS.JITTER / GRASS.CELL, CELL_JIT_X, CELL_JIT_Z, cell)
+          const rho = surfaceOfCell(frame, cell)
+          if (Number.isFinite(rho) && n++ % CELL_GROUND_STRIDE === 0) out.push([cell.at[0], cell.at[1], cell.at[2]])
+        }
+      }
+    }
+  }
+  return out
+}
+
 const chordOf = (x, z) => Math.hypot(x, z)
 function zoneOf(x, z) {
   const c = chordOf(x, z)
@@ -151,7 +196,7 @@ function dumpStats(label) {
 // ---------------------------------------------------------------- phases
 
 const phases = []
-async function runPhase(name, cx, cz, blades) {
+async function runPhase(name, cx, cz, blades, cells) {
   const rows = []
   let uncovered = 0, nonFinite = 0
   for (const b of blades) {
@@ -171,17 +216,30 @@ async function runPhase(name, cx, cz, blades) {
     acc(`${name}|zone=${r.zone}|cpu-vs-physics`, r.cpu - r.phys)
     acc(`${name}|zone=${r.zone}|grass-vs-cpu`, r.grass - r.cpu)
   }
+  let cellN = 0, cellWorst = 0
+  for (const [cellX, cellY, cellZ] of cells) {
+    let cpuAtCell
+    try { cpuAtCell = frame.groundHeightLocal(cellX, cellZ) } catch (e) { continue }
+    if (!Number.isFinite(cellY) || !Number.isFinite(cpuAtCell)) continue
+    const d = cellY - cpuAtCell
+    if (Math.abs(d) > cellWorst) cellWorst = Math.abs(d)
+    acc(`${name}|cell-vs-cpu`, d)
+    cellN++
+  }
   const worst = dumpStats(name)
-  console.log(`  samples=${rows.length} uncoveredByCollider=${uncovered} nonFinite=${nonFinite}`)
+  console.log(`  samples=${rows.length} uncoveredByCollider=${uncovered} nonFinite=${nonFinite} cells=${cells.length} cellsMeasured=${cellN}`)
   phases.push({ name, samples: rows.length, worst, rows })
   expect(`${name}: at least ${MIN_SAMPLES_PER_PHASE} samples measured through every source`, rows.length >= MIN_SAMPLES_PER_PHASE, { samples: rows.length, uncovered, nonFinite })
   expect(`${name}: the physics ray landed on a real terrain body for every counted sample`, uncovered === 0 || rows.length >= MIN_SAMPLES_PER_PHASE, { uncovered })
+  expect(`${name}: at least ${CELL_GROUND_MIN_PER_PHASE} grass placement cells measured against the CPU sampler`, cellN >= CELL_GROUND_MIN_PER_PHASE, { cellN, cells: cells.length })
+  expect(`${name}: a grass placement cell's ground IS the CPU sampler at that cell's own (x,z), within ${CELL_GROUND_ACCEPT_M} m`, cellWorst <= CELL_GROUND_ACCEPT_M, { cellWorst, cellN })
   return rows
 }
 
 const restBlades = grassBladesNear(0, 0)
-console.log(`rest grass blades sampled: ${restBlades.length}`)
-const restRows = await runPhase('REST', 0, 0, restBlades)
+const restCells = grassCellsNear(0, 0)
+console.log(`rest grass blades sampled: ${restBlades.length} cells: ${restCells.length}`)
+const restRows = await runPhase('REST', 0, 0, restBlades, restCells)
 
 // Travel has to land somewhere that actually grows grass, or the phase measures nothing: pick the
 // first candidate whose surrounding chunks place blades on open (uncarved) terrain.
@@ -199,14 +257,15 @@ players.get(0).state.position[2] = TRAVEL_TO[1]
 await waitCovered(TRAVEL_TO[0], TRAVEL_TO[1])
 await settle()
 console.log(`travel grass blades sampled: ${travelBlades.length} (player at ${TRAVEL_TO})`)
-const travelRows = await runPhase('TRAVEL', TRAVEL_TO[0], TRAVEL_TO[1], travelBlades)
+const travelCells = grassCellsNear(TRAVEL_TO[0], TRAVEL_TO[1])
+const travelRows = await runPhase('TRAVEL', TRAVEL_TO[0], TRAVEL_TO[1], travelBlades, travelCells)
 
 // Same coordinates as REST, re-measured after the collider was rebuilt elsewhere and rebuilt here.
 players.get(0).state.position[0] = 0
 players.get(0).state.position[2] = 0
 await waitCovered(0, 0)
 await settle()
-const returnRows = await runPhase('RETURN', 0, 0, restBlades)
+const returnRows = await runPhase('RETURN', 0, 0, restBlades, restCells)
 
 // ---------------------------------------------------------------- visual arm
 
@@ -248,7 +307,8 @@ return { backend: __backend, coords: ${JSON.stringify(coords)}, gpuElevationM: A
 
 const worstAny = Math.max(...phases.map(p => p.worst))
 console.log(`worst |delta| over every node phase: ${worstAny.toFixed(4)} m`)
-console.log(`SOURCES: grass=src/terrain/GrassPlacement.js placementsForGrassChunk -> classify.y ; cpu=src/terrain/PlanetFrame.js frame.groundHeightLocal ; physics=src/terrain/TerrainPhysics.js colliderSource.heightFn -> Jolt heightfield (raycast)`)
+console.log(`SOURCES: cell=src/terrain/VegPlacement.js surfaceOfCell -> cell.at[1] (what a blade starts from) ; grass=src/terrain/GrassPlacement.js placementsForGrassChunk -> classify.y pushed out by blade()'s clump offset (dHdx/dHdz over +-SLOPE_D plus the bowl term, over up to GRASS.CLUMP_R) ; cpu=src/terrain/PlanetFrame.js frame.groundHeightLocal ; physics=src/terrain/TerrainPhysics.js colliderSource.heightFn -> Jolt heightfield (raycast)`)
+console.log(`ATTRIBUTION: grass-vs-cpu = cell-vs-cpu + the clump offset. cell-vs-cpu is the surface solve and is pinned at ${CELL_GROUND_ACCEPT_M} m; whatever is left is the clump offset, which is the only place a blade can leave the surface.`)
 const measuredAll = phases.every(p => p.samples >= MIN_SAMPLES_PER_PHASE)
 expect('every phase measured the full sample set (no source silently dropped)', measuredAll, phases.map(p => [p.name, p.samples]))
 expect(`the three node sources agree within ${ACCEPT_M} m at every sample`, worstAny <= ACCEPT_M, { worstAny })
