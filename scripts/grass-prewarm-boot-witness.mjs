@@ -33,6 +33,32 @@ const MAX_GRASS_WAIT_MS = flagNumber(flag, 'max-grass-wait-ms', 1500, process.ar
 const MIN_GRASS_INSTANCES = flagNumber(flag, 'min-grass-instances', 0, process.argv.slice(2)) || null
 const SETTLE_MS = flagNumber(flag, 'settle', 0, process.argv.slice(2))
 const ARM = flag('arm', 'unlabelled')
+function parseKnobs(raw) {
+  if (!raw) return []
+  return raw.split(',').map((pair) => {
+    const i = pair.indexOf('=')
+    if (i <= 0 || i === pair.length - 1) fail(`--knob=${raw} refused: expected --knob=<key>=<value>[,<key>=<value>...]`)
+    const key = pair.slice(0, i)
+    const v = pair.slice(i + 1)
+    const value = v === 'true' ? true : v === 'false' ? false : (Number.isFinite(+v) ? +v : v)
+    return { key, type: typeof value, value }
+  })
+}
+const knobApplySrc = (knobs) => `(() => {
+  const W = window
+  const want = ${JSON.stringify(knobs)}
+  let registry = null
+  const apply = () => {
+    const applied = []
+    for (const k of want) applied.push({ key: k.key, value: k.value, setReturned: registry.set(k.key, k.value), readback: registry.get(k.key) })
+    W.__prewarmKnobs = applied
+  }
+  Object.defineProperty(W, '__renderControls', {
+    configurable: true,
+    get: () => registry,
+    set: (v) => { registry = v; if (registry && typeof registry.set === 'function') apply() },
+  })
+})()`
 const [VIEW_W, VIEW_H] = flagListNumber(flag, 'viewport', [1280, 720], 'x', process.argv.slice(2))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-grass-prewarm-witness')))
@@ -43,6 +69,7 @@ function finish(verdict, detail) {
 }
 
 const fail = (detail) => finish('FAIL', detail)
+const KNOBS = parseKnobs(flag('knob', ''))
 
 const num = (x) => typeof x === 'number' && Number.isFinite(x)
 const OPS = {
@@ -126,10 +153,25 @@ ${PROBE_FRAMES ? RAF_PROBE : ''}  const nativeSetTimeout = window.setTimeout
 const PROBE = `(() => {
   const marks = {}
   for (const m of performance.getEntriesByType('mark')) marks[m.name] = m.startTime
+  const measures = {}
+  for (const m of performance.getEntriesByType('measure')) {
+    const step = m.name.slice(m.name.lastIndexOf(':') + 1)
+    measures[step] = (measures[step] || 0) + m.duration
+  }
   const snap = (api) => api ? { totalInstances: api.totalInstances, profile: { ...api.profile } } : null
+  const g = window.__qualityGovernorState || null
+  const api = window.__qualityGovernorApi || null
   return {
     revealedAt: (window.__app && window.__app.revealedAt) || null,
     marks,
+    measures,
+    governor: {
+      published: !!g,
+      tier: api ? api.tier : null,
+      steps: g ? g.steps : null,
+      knobs: g ? g.knobs : null,
+      applied: window.__prewarmKnobs || null,
+    },
     grass: snap(window.__grass),
     rocks: snap(window.__rocks),
     veg: snap(window.__veg),
@@ -211,6 +253,7 @@ function summarizeRep(run) {
     },
     longtasksInWindow: { n: longIn.length, sumMs: round(longIn.reduce((a, t) => a + t.duration, 0)), maxMs: round(longIn.length ? Math.max(...longIn.map(t => t.duration)) : null) },
     pageErrors: run.pageErrors.length,
+    governor: run.governor || null,
   }
 }
 
@@ -251,6 +294,7 @@ async function main() {
         if (p?.type === 'error' || p?.type === 'warning') consoleErrors.push(`[${p.type}] ${(p.args || []).map(a => a?.description || String(a?.value ?? '')).join(' ')}`.slice(0, 300))
       })
       await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE_INIT })
+      if (KNOBS.length) await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
       await page.goto(`${base}/?${PARAMS}`, { waitUntil: 'domcontentloaded' })
 
       const root = await assertServedClientRoot(page, { want, label: LABEL }).catch(e => e)
@@ -341,8 +385,20 @@ async function main() {
     yieldLatencySumMs: summaries.map(s => s.yieldLatency.sumMs),
     longtasksInWindow: summaries.map(s => s.longtasksInWindow),
     playableMs: summaries.map(s => s.playableMs),
+    knobs: KNOBS,
+    governor: summaries.map(s => s.governor),
+    frameCallbacksN: summaries.map(s => s.frameCallbacksInWindow.n),
+    frameCallbacksMaxMs: summaries.map(s => s.frameCallbacksInWindow.maxMs),
   }
   console.log(`[${LABEL}] measurements ${jsonLine(out)}`)
+
+  const spanSteps = [...new Set(runs.flatMap(r => Object.keys(r.measures || {})))]
+  const spanMedians = {}
+  for (const s of spanSteps) {
+    const xs = runs.map(r => (r.measures || {})[s]).filter(Number.isFinite)
+    spanMedians[s] = { medianMs: round(median(xs)), n: xs.length }
+  }
+  console.log(`[${LABEL}] species spans ${jsonLine(Object.entries(spanMedians).sort((a, b) => (b[1].medianMs ?? -1) - (a[1].medianMs ?? -1)))}`)
 
   const stageDeltas = runs.map((run) => {
     const tl = Object.entries(run.marks)
@@ -384,6 +440,17 @@ async function main() {
     expect(`rep${i} zero-delay yields observed in prewarm window`, run.probe?.yieldLatencyMs?.length, '>', 0)
     expect(`rep${i} uncaught page errors`, run.pageErrors.length, '==', 0)
   })
+  for (let i = 0; i < runs.length; i++) {
+    const g = runs[i].governor || {}
+    if (KNOBS.length) {
+      expect(`rep${i} every --knob landed through RenderControls.set`, (g.applied || []).length === KNOBS.length && (g.applied || []).every(k => k.setReturned === true && Object.is(k.readback, k.value)), '==', true)
+    }
+    if (KNOBS.some(k => k.key === 'qualityGovernorOff' && k.value === true)) {
+      expect(`rep${i} quality governor never published a stepped tier`, g.steps ?? 0, '==', 0)
+      expect(`rep${i} quality governor stayed at tier 0`, g.tier ?? 0, '==', 0)
+    }
+    if (PROBE_FRAMES) expect(`rep${i} rAF callbacks observed in the prewarm window`, (runs[i].probe?.frameMs || []).length, '>', 0)
+  }
   if (MAX_PLAYABLE_MS !== null) expect('median boot-to-playable ms', out.playableMedianMs, '<=', MAX_PLAYABLE_MS)
   if (MAX_PREWARM_MS !== null) expect('median prewarm stage ms', out.prewarmStageMedianMs, '<=', MAX_PREWARM_MS)
   if (MIN_GRASS_INSTANCES !== null) expect('min grass instances after prewarm', Math.min(...out.grassInstances.map(v => v ?? NaN)), '>=', MIN_GRASS_INSTANCES)
