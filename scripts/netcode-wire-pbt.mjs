@@ -20,14 +20,13 @@ import {
   encodeControlFrame,
   parseControlFrame,
 } from '../src/netcode/controlFrame.js'
-import { flagNumber } from './lib/witness-args.mjs'
 
 const flag = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith('--' + name + '='))
   return hit ? hit.slice(name.length + 3) : dflt
 }
-const SEED = flagNumber(flag, 'seed', 20261011, process.argv.slice(2)) || 20261011
-const CASES = Math.max(1, flagNumber(flag, 'cases', 400, process.argv.slice(2)) || 400)
+const SEED = Number(flag('seed', '20261011')) || 20261011
+const CASES = Math.max(1, Number(flag('cases', '400')) || 400)
 
 function mulberry32(a) {
   return function () {
