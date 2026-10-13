@@ -90,7 +90,7 @@ const ASYNC_PIPELINE_ESCORT_MS = 1500
 
 const asyncPipelineState = {
   installed: false, requested: 0, resolved: 0, rejected: 0, pending: 0,
-  escorted: 0, rescued: 0, rescueFailed: 0,
+  escorted: 0, rescued: 0, rescueFailed: 0, dropped: 0,
 }
 
 // Reproduction switch, not a tuning knob: `window.__spointAsyncPipelineEscort = false` turns the
@@ -112,8 +112,21 @@ export function installAsyncRenderPipelines(renderer) {
 
   const rescueNow = (renderObject) => {
     asyncPipelineState.escorted++
+    const pipeline = pipelines.get(renderObject).pipeline
+    // three drops a render object's DataMap entry when the object goes away, and isReady() then
+    // reads false forever. Those objects are not in the draw set at all, so there is nothing to
+    // rescue; creating a pipeline for one is a wasted compile.
+    if (pipeline === undefined) { asyncPipelineState.dropped++; return }
+    // WebGPUBackend.draw() returns early, for the life of the process, once pipelineData.error is
+    // true -- and the failed creation this rescue is answering is exactly what set it. So
+    // assigning a pipeline is not enough on its own: the latch has to come off too, or the object
+    // is ready and still never drawn. (A shader that fails validation for real re-latches it in
+    // the popErrorScope callback, which is correct: an invalid shader cannot draw.)
+    const pipelineData = pipelines.backend.get(pipeline)
     try {
+      pipelineData.error = false
       pipelines.backend.createRenderPipeline(renderObject, null)
+      pipelineData.error = false
     } catch (e) {
       asyncPipelineState.rescueFailed++
       return
@@ -141,6 +154,9 @@ export function installAsyncRenderPipelines(renderer) {
 
   const rescue = (renderObject) => {
     if (!escortEnabled()) return
+    // A render object three has dropped is not one three would draw, so it is not one that is
+    // stranded -- isReady() reads false for it and there is nothing to put right.
+    if (pipelines.get(renderObject).pipeline === undefined) return
     if (pipelines.isReady(renderObject)) return
     if (queued.has(renderObject)) return
     queued.add(renderObject)
