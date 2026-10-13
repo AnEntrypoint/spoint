@@ -119,6 +119,18 @@ const NO_GPU_WITNESSES = [
   // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
   // is a browser arm this CI does not run.
   { file: 'program-readiness-witness.mjs', must: /MEASURED common arm: info\.programs=undefined \(as-shipped count 0\) with 4 outstanding, fixed count 4, 0 after settle[\s\S]*MEASURED wait: 3 outstanding at entry, polled max [1-9]\d*, resolved pending=0 after [1-9][\d.]*ms, work finished at [1-9][\d.]*ms[\s\S]*RESULT: PASS/ },
+  // PERF-programreadiness-prewarm-slice-1013: the same ACCUMULATED-budget defect the grass/rock row
+  // killed, on the first-use prewarm that row's fix made load-bearing. `FIRST_USE_PREWARM_SLICE_MS`
+  // 96 was accumulated ACROSS first uses and read only BETWEEN them, so the block it bounded was the
+  // budget plus one more first use and a prologue longer than the budget was never cut at all; the
+  // budget is gone and the slice IS one first use. The `must` is the second half of the witness: the
+  // accumulated arm has to overshoot one first use by the budget it accumulated, the shipped slice
+  // has to carry one first use and nothing else, both arms have to build the whole queue so the win
+  // cannot have been bought by shedding scenery, and pendingProgramCount / whenProgramsReady have to
+  // be unchanged -- those are what made the prewarm load-bearing at all, so a run that moved the count
+  // or the wait, or that printed no before/after pair, must read as a failure rather than as silence
+  // that passes.
+  { file: 'firstuse-prewarm-slice-witness.mjs', must: /\[PASS\] the accumulated shape overshot one first use by the budget it accumulated, which is the defect[\s\S]*\[PASS\] a shipped slice carries one first use and nothing else[\s\S]*\[PASS\] the slice change shed no first use: both shapes built the whole queue[\s\S]*\[PASS\] pendingProgramCount still reads 4 outstanding of 4[\s\S]*\[PASS\] whenProgramsReady still does not return before the work it was waiting for finished[\s\S]*\[PASS\] the budget arm still bounds a creation that never settles[\s\S]*\[PASS\] the legacy GL arm is unchanged[\s\S]*slice constants=0 deferral drain body [1-9]\d* char\(s\), queue\.shift 1, while loop\(s\) 0[\s\S]*RESULT: PASS -- worst synchronous block of the first-use prewarm [1-9][\d.]*ms -> [1-9][\d.]*ms/ },
   // The near-field density pin: the rendered near band must sit at the COLLIDER's lattice -- equal to
   // it, not merely not coarser -- at every quality tier, measured against the grass placement lattice
   // too, with the vegetation the same ground carries counted so a trees-missing regression cannot
