@@ -114,12 +114,48 @@ function isOurHold(record, dir) {
   return adopt > 0 && Number(record.pid) === adopt && pidAlive(adopt)
 }
 
+// A heartbeat proves a WRITER is running, not that the browser it leases exists. A lease whose
+// browser died still heartbeats forever, so the TTL never expires and every other lane queues
+// behind a browser that is not there -- four hours of GPU work was lost to exactly that.
+function portHasListenerSync(port) {
+  const p = Number(port)
+  if (!Number.isInteger(p) || p <= 0) return null
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' })
+      if (r.status !== 0 || !r.stdout) return null
+      for (const line of String(r.stdout).split('\n')) {
+        const f = line.trim().split(/\s+/)
+        if (f.length < 4 || !/^tcp/i.test(f[0])) continue
+        if (!/LISTENING/i.test(f[3])) continue
+        const m = /[:.](\d+)$/.exec(f[1] ?? '')
+        if (m && Number(m[1]) === p) return true
+      }
+      return false
+    }
+    const r = spawnSync('lsof', ['-nP', `-iTCP:${p}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' })
+    if (r.error) return null
+    return Number.parseInt(String(r.stdout || '').trim().split('\n')[0] ?? '', 10) > 0
+  } catch {
+    return null
+  }
+}
+
+function browserIsLive(record) {
+  const browserPid = Number(record?.browserPid ?? 0)
+  if (browserPid > 0 && !pidAlive(browserPid)) return false
+  const port = Number(record?.port ?? 0)
+  if (port > 0 && portHasListenerSync(port) === false) return false
+  return true
+}
+
 function holderIsLive(record, dir, ttlMs) {
   if (!record) return false
   if (record.pid === process.pid) return held.has(dir)
   if (!pidAlive(record.pid)) return false
   const age = nowMs() - Number(record.heartbeatAt ?? 0)
-  return Number.isFinite(age) && age < ttlMs
+  if (!(Number.isFinite(age) && age < ttlMs)) return false
+  return browserIsLive(record)
 }
 
 function claim(dir, owner, fingerprint, ttlMs) {
@@ -136,7 +172,9 @@ function claim(dir, owner, fingerprint, ttlMs) {
       return true
     }
     if (holderIsLive(record, dir, ttlMs)) return false
-    killTree(Number(record?.pid ?? 0))
+    // Only a holder that is itself dead may be killed. A live holder whose BROWSER died is a
+    // leak, not a rival: taking its lease is right, killing its lane is not.
+    if (!pidAlive(Number(record?.pid ?? 0))) killTree(Number(record?.pid ?? 0))
     killTree(Number(record?.browserPid ?? 0))
     reapProfileOwners(profileDir(dir))
     try { fs.unlinkSync(lock) } catch {}
