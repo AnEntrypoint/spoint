@@ -895,9 +895,38 @@ window.__debugDepthAt = function (px, py) {
     }
   } catch (e) { return { error: e && e.message, stack: e && e.stack } }
 }
+// Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
+// shipped `gateCompile` below, so one witness can measure both arms against the same bytes.
+const _warmGateEnabled = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
 const gateCompile = m => {
   try {
     const ud = m.userData || (m.userData = {})
+    if (_warmGateEnabled()) {
+      // three's `_projectObject` returns at the first object whose `visible` is false, so a mesh
+      // hidden BEFORE its compile is compiled as nothing at all: `compileAsync` projects an empty
+      // render list, resolves on the next microtask, and this gate then reveals a mesh whose node
+      // graph has never been built. The build therefore lands on the draw path instead --
+      // synchronously, inside `_renderObjectDirect`, in the first frame the mesh is drawn.
+      //
+      // So the compile has to SEE the mesh visible. It only needs `visible` long enough to be
+      // projected, which happens before compileAsync's first await; the mesh is taken back out of
+      // the draw path immediately afterwards so the draw path cannot reach it and build the same
+      // graph a second time, and it is restored when the compile settles. The 4s timer is
+      // unchanged and still the thing that keeps a warm that never settles from becoming an object
+      // that never draws.
+      const wasVisible = m.visible
+      m.visible = true
+      ud._compileHidden = true
+      const show = () => { if (ud._compileHidden) { ud._compileHidden = false; m.visible = wasVisible && !ud._dotHidden } }
+      const t = setTimeout(show, 4000)
+      const done = () => { clearTimeout(t); show() }
+      let p = null
+      try { p = renderer.compileAsync(m, camera, scene) } catch (_) { p = null }
+      m.visible = false
+      if (p && typeof p.then === 'function') p.then(done, done)
+      else done()
+      return
+    }
     if (m.visible) { m.visible = false; ud._compileHidden = true }
     const show = () => { if (ud._compileHidden) { ud._compileHidden = false; if (!ud._dotHidden) m.visible = true } }
     const t = setTimeout(show, 4000)

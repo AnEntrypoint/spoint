@@ -53,7 +53,14 @@ const _cullMat = new THREE.Matrix4(), _cullShift = new THREE.Matrix4(), _cullFru
 
 export async function createVegetation(opts = {}) {
   const { renderer, scene, frame } = opts
+  // Tier-mesh TSL node-graph warm state. Declared here and not beside the functions that use it
+  // because the species build loop calls them from above: a `const` placed next to its functions
+  // would still be in its temporal dead zone at the call site. See warmTierMeshes below.
+  // `pendingTierWarm` is the shipped queue, kept only so the reproduction switch can select it.
   const pendingTierWarm = []
+  const warmedTierMeshes = new WeakSet()
+  const tierWarmPromises = []
+  const warmCamera = new THREE.PerspectiveCamera()
   const biomeOverride = createBiomeOverride()
   const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
   const cfg = opts.cfg || {}
@@ -269,6 +276,10 @@ export async function createVegetation(opts = {}) {
       _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
   }
+  // Every tier mesh of every species has had its warm started and awaited before anything can be
+  // streamed into it: instances arrive through `update()`, and the caller only reaches `update()`
+  // once `createVegetation` has resolved.
+  await awaitTierNodeWarm()
   performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
   if (typeof window !== 'undefined') window.__vegTexBudget = { budget: TEX_BUDGET, stats: treeTextureStats(), refusals: treeTextureHalveRefusals() }
   const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
@@ -566,10 +577,80 @@ export async function createVegetation(opts = {}) {
     return n
   }
 
+  // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
+  // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
+  // compile's promise), so a single witness can measure both arms against the same bytes.
+  const warmOnceRetained = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
+
   function queueTierNodeWarm(instancer) {
+    if (warmOnceRetained()) { warmTierMeshes(instancer); return }
     const tierCount = instancer.tierMeshes.length
     for (let k = 0; k < tierCount; k++) pendingTierWarm.push([instancer, k])
     if (instancer.shadowMesh) pendingTierWarm.push([instancer, -1])
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // A WebGPU tier mesh carries a TSL material, and three builds its node graph -- NodeBuilder
+  // setup/analyze/generate -- the first time the mesh is drawn: synchronously, inside
+  // `_renderObjectDirect -> needsRefresh -> Nodes.getForRender -> nodeBuilder.build()`, in whatever
+  // frame that first draw lands in. Measured while walking tps-game on an accelerated walk: three
+  // long tasks of 1041/683/644 ms, 979/636/615 ms of them main-thread CPU, dominated by `build`.
+  //
+  // So the graph is built here instead, while the species is being built: an instancer created in
+  // this loop has no instances yet, and a tier mesh with no instances is `visible === false` to the
+  // pool that owns it, so none of them can be drawn. That ordering is what makes this a fix rather
+  // than a race -- there is no draw to lose to.
+  //
+  // Two properties make a repeat impossible rather than rarer:
+  //   * a mesh is warmed at most once for the life of the object (warmedTierMeshes), so no second
+  //     request -- from a rebuild, a hot reload or a second queueing -- can build a graph that
+  //     already exists;
+  //   * `createVegetation` does not resolve until every warm it started has settled. The caller
+  //     assigns the module from that resolution and the placement tick only reaches `update()`
+  //     afterwards, so the interval is not what warms any more: nothing can be streamed into a
+  //     tier mesh before its graph exists, and there is no queue left to re-fill.
+  //
+  // The camera is a stand-in because there is no camera here. That is sound for two reasons three
+  // itself gives: a render object's identity is (object, material, renderContext, lightsNode) with
+  // no camera in it, so this builds the same render object the first real draw will use; and every
+  // tier mesh is created with `frustumCulled = false`, so `_projectObject` pushes it for any camera
+  // and the compile produces the same graph. Hiding a mesh before compiling it, by contrast,
+  // compiles nothing at all -- `_projectObject` returns at the first object whose `visible` is
+  // false -- which is why the mesh is forced visible for the call and restored afterwards.
+  // ---------------------------------------------------------------------------------------------
+  function warmTierMeshes(instancer) {
+    const tierCount = instancer.tierMeshes.length
+    for (let k = 0; k < tierCount; k++) warmTierMesh(instancer.tierMeshes[k])
+    if (instancer.shadowMesh) warmTierMesh(instancer.shadowMesh)
+  }
+
+  function warmTierMesh(mesh) {
+    if (!mesh || warmedTierMeshes.has(mesh)) return
+    warmedTierMeshes.add(mesh)
+    const { count, visible } = mesh
+    mesh.count = 1
+    mesh.visible = true
+    let settled = null
+    try {
+      // `renderer.compile` is a getter returning `compileAsync`, whose node build yields between
+      // build stages, so this returns a promise rather than blocking the caller. Its projection
+      // runs before the first await, so the mesh's visibility is only needed until it returns.
+      settled = Promise.resolve(renderer.compile(mesh, warmCamera, scene))
+    } catch (_) {
+      settled = Promise.resolve()
+    }
+    mesh.count = count
+    mesh.visible = visible
+    // Retained: the warm is awaited before this module resolves, and a rejection must not be able
+    // to strand the build loop.
+    tierWarmPromises.push(settled.then(() => {}, () => {}))
+  }
+
+  async function awaitTierNodeWarm() {
+    while (tierWarmPromises.length > 0) {
+      const batch = tierWarmPromises.splice(0, tierWarmPromises.length)
+      await Promise.all(batch)
+    }
   }
 
   function warmOneTierMesh(camera) {
@@ -680,6 +761,8 @@ export async function createVegetation(opts = {}) {
 
   function update(dt, camera, playerPos, shadowStill) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    // Only the shipped queue reaches this: a warm-once build fills `pendingTierWarm` never, so the
+    // placement tick carries no node-graph work at all.
     if (isWebGPU && pendingTierWarm.length > 0 && camera) warmOneTierMesh(camera)
     let px, pz
     if (playerPos && Array.isArray(playerPos.position)) { px = playerPos.position[0]; pz = playerPos.position[2] }

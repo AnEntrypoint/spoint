@@ -54,6 +54,10 @@ const LEASE_WAIT_MS = num('lease-wait-ms', 600000)
 const METRICS_INTERVAL_MS = num('metrics-interval-ms', 250)
 const MIN_FRAMES = num('min-frames', 200)
 const MODE = flag('mode', 'report')
+const ARM = flag('arm', 'default')
+// Reproduction switch for the node-graph warm fixes: `off` selects the shipped behaviour, so a
+// single browser under a single GPU hold can measure both arms of the change.
+const WARM_SWITCH = flag('switch', 'on')
 const CAPTURE_TIMEOUT_MS = CAPTURE_MS * 4 + 120000
 const VENDOR_ARGS = vendorGpuArgs(VENDOR)
 
@@ -241,6 +245,101 @@ function bucketOf(prof, nodeId) {
   return 'js'
 }
 
+// --- TSL node-graph build probe ------------------------------------------------------------------
+//
+// A longtask entry and a CPU profile can name the frame a node graph was built in, but they cannot
+// say whether that build was the synchronous one the draw path uses (`Nodes.getForRender(ro)` with
+// no async flag -> `nodeBuilder.build()`) or the yielding one `Renderer.compileAsync()` uses
+// (`getForRenderAsync` -> `nodeBuilder.buildAsync()`). Those are two different callers with two
+// different stalls behind them, and telling them apart is what decides where the fix belongs.
+//
+// So the probe wraps the one function both reach -- `renderer._nodes.getForRender` -- and records,
+// per arm, how many builds each path ran and how long the longest one blocked the calling thread.
+// For the async path the synchronous prologue is only its first chunk (it stops at the first
+// `await yieldToMain()`), so the promise's settle time is recorded alongside it as wall duration.
+//
+// `renderer.compileAsync` is wrapped too, because `renderer.compile` is a GETTER returning it, and
+// Vegetation.warmOneTierMesh reaches it as `renderer.compile(...)`. Counting per target object is
+// what turns "the warm repeats" into a number: a target compiled more than once was warmed twice.
+const GRAPH_PROBE_SRC = [
+  'function () {',
+  '  const W = window',
+  '  if (W.__grProbe) return true',
+  '  const r = W.__app && W.__app.renderer',
+  '  const nodes = r && r._nodes',
+  '  if (!nodes || typeof nodes.getForRender !== "function") return false',
+  '  const rig = { installed: true, installedAt: performance.now(),',
+  '    sync: { n: 0, ms: 0, max: 0, over50: 0, over200: 0, worst: [] },',
+  '    async: { n: 0, ms: 0, max: 0, wallMs: 0, wallMax: 0, over200: 0, worst: [] },',
+  '    warm: { n: 0, distinct: 0, repeats: 0, maxRepeat: 0 } }',
+  // A long task is a window; the counters are cumulative from install. snap() is what lets the
+  // report attribute the capture window instead of the whole page life, boot and settle included.
+  '  rig.snap = function () {',
+  '    const s = { sync: { n: rig.sync.n, ms: Math.round(rig.sync.ms * 100) / 100 },',
+  '      async: { n: rig.async.n, ms: Math.round(rig.async.ms * 100) / 100, wallMs: Math.round(rig.async.wallMs * 100) / 100 },',
+  '      warm: { n: rig.warm.n, distinct: rig.warm.distinct, repeats: rig.warm.repeats } }',
+  // Reset, so max/worst/over-* are maxima and worst cases OF THE WINDOW the snapshot opens, not of
+  // the whole page life. A max carried over from boot is not a claim about the capture.
+  '    rig.sync.max = 0; rig.sync.over50 = 0; rig.sync.over200 = 0; rig.sync.worst = []',
+  '    rig.async.max = 0; rig.async.wallMax = 0; rig.async.over200 = 0; rig.async.worst = []',
+  '    return s',
+  '  }',
+  '  W.__grProbe = rig',
+  '  const seen = new WeakMap()',
+  '  const origNodes = nodes.getForRender.bind(nodes)',
+  '  nodes.getForRender = function (renderObject, useAsync) {',
+  '    const t0 = performance.now()',
+  '    let out',
+  '    try { out = origNodes(renderObject, useAsync) } finally {',
+  '      const d = performance.now() - t0',
+  '      const s = useAsync ? rig.async : rig.sync',
+  '      s.n += 1; s.ms += d',
+  '      if (d > s.max) s.max = d',
+  '      if (!useAsync) { if (d >= 50) s.over50 += 1; if (d >= 200) s.over200 += 1 }',
+  '      else if (d >= 200) s.over200 += 1',
+  // Which object was built is the whole attribution: "a node graph was built" is a measurement,
+  // "this mesh's node graph was built" is a finding.
+  '      if (d >= 25 && renderObject && renderObject.object) {',
+  '        s.worst.push({ ms: Math.round(d * 100) / 100, name: renderObject.object.name || null, type: renderObject.object.type || null, mat: (renderObject.material && renderObject.material.type) || null })',
+  '        s.worst.sort(function (a, b) { return b.ms - a.ms })',
+  '        if (s.worst.length > 8) s.worst.length = 8',
+  '      }',
+  '    }',
+  '    if (useAsync && out && typeof out.then === "function") {',
+  '      Promise.resolve(out).then(function () {',
+  '        const w = performance.now() - t0',
+  '        rig.async.wallMs += w',
+  '        if (w > rig.async.wallMax) rig.async.wallMax = w',
+  '      })',
+  '    }',
+  '    return out',
+  '  }',
+  '  if (typeof r.compileAsync === "function") {',
+  '    const origCompile = r.compileAsync.bind(r)',
+  '    r.compileAsync = function (target, camera, targetScene) {',
+  '      rig.warm.n += 1',
+  '      if (target && typeof target === "object") {',
+  '        const n = (seen.get(target) || 0) + 1',
+  '        seen.set(target, n)',
+  '        if (n === 1) rig.warm.distinct += 1',
+  '        else { rig.warm.repeats += 1; if (n > rig.warm.maxRepeat) rig.warm.maxRepeat = n }',
+  '      }',
+  '      return origCompile(target, camera, targetScene)',
+  '    }',
+  '  }',
+  '  return true',
+  '}',
+].join('\n')
+
+// Appended to PAGE_INSTRUMENT at use time rather than baked into its array: the array is built at
+// module load, and GRAPH_PROBE_SRC is declared below it.
+const GRAPH_PROBE_TAIL = [
+  '; (function () {',
+  '  const installGraphProbe = ' + GRAPH_PROBE_SRC,
+  '  const gpTimer = setInterval(function () { if (installGraphProbe()) clearInterval(gpTimer) }, 1)',
+  '})()',
+].join('\n')
+
 async function main() {
   process.env.WORLD = WORLD
   process.env.PORT = PORT
@@ -263,7 +362,8 @@ async function main() {
       args: [...gpuArgs({ accelerated: true }), ...VENDOR_ARGS],
     })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
-    await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_INSTRUMENT })
+    await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_INSTRUMENT + GRAPH_PROBE_TAIL })
+    await page._send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.__spointNodeGraphWarm = ' + (WARM_SWITCH === 'off' ? 'false' : 'true') })
     await page._send('Profiler.enable')
     await page._send('Performance.enable')
 
@@ -311,7 +411,7 @@ async function main() {
     await page._send('Profiler.start')
     const pageT0 = await evaluateWithDeadline(page, () => window.__ltProbe.mark(), 30000)
     const nodeT0 = Date.now()
-    const mark = await evaluateWithDeadline(page, () => ({ lt: window.__ltProbe.longtasks.length, raf: window.__ltProbe.raf.length, fr: window.__ltProbe.frames.length }), 30000)
+    const mark = await evaluateWithDeadline(page, () => ({ lt: window.__ltProbe.longtasks.length, raf: window.__ltProbe.raf.length, fr: window.__ltProbe.frames.length, gr: window.__grProbe ? window.__grProbe.snap() : null }), 30000)
     console.log('[longtask-stack] capture start: ' + mark.lt + ' long task(s), ' + mark.fr + ' frame(s) already recorded at boot')
 
     const metrics = []
@@ -355,13 +455,40 @@ async function main() {
     const captureWatchdog = new Promise((_, reject) => setTimeout(() => reject(new Error('the capture did not finish within ' + CAPTURE_TIMEOUT_MS + 'ms')), CAPTURE_TIMEOUT_MS))
     await Promise.race([Promise.all([sampleLoop(), walkLoop()]), captureWatchdog])
 
+    // A frame-time report cannot say whether anything is still on screen. One frame is captured
+    // here so a hitch fix can be checked against a picture of what the arm actually rendered.
+    try {
+      const shot = await page._send('Page.captureScreenshot', { format: 'png' })
+      if (shot && shot.data) {
+        mkdirSync(OUT_DIR, { recursive: true })
+        const shotFile = resolve(OUT_DIR, 'longtask-stack-' + ARM + '-' + Date.now() + '.png')
+        writeFileSync(shotFile, Buffer.from(shot.data, 'base64'))
+        console.log('[longtask-stack] captured one frame to ' + shotFile)
+      }
+    } catch (e) {
+      console.log('[longtask-stack] WARN screenshot unavailable: ' + (e && e.message ? e.message : e))
+    }
+
     const pageT1 = await evaluateWithDeadline(page, () => window.__ltProbe.mark(), 60000)
     const nodeT1 = Date.now()
     const cpu1 = sampleHostCpu()
-    const { profile } = await Promise.race([
-      page._send('Profiler.stop'),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Profiler.stop did not answer within 120000ms')), 120000)),
-    ])
+    // The profile is what NAMES a stall; the long-task list, the ThreadTime discriminator and the
+    // counted work units are what MEASURE it and none of them come from the profiler. A Profiler
+    // .stop that does not answer used to take the whole measurement with it, so a run that had
+    // already captured every window reported nothing at all. The profile is now optional: a run
+    // that loses it still reports the windows, flagged as measured-but-not-named.
+    let profile = null
+    let profileError = null
+    try {
+      const stopped = await Promise.race([
+        page._send('Profiler.stop'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Profiler.stop did not answer within 120000ms')), 120000)),
+      ])
+      profile = (stopped && stopped.profile) || null
+    } catch (e) {
+      profileError = e && e.message ? e.message : String(e)
+      console.log('[longtask-stack] WARN Profiler.stop: ' + profileError + ' -- reporting the long-task windows without stack attribution')
+    }
     const final = await evaluateWithDeadline(page, () => {
       const pick = (fn) => { try { return fn() } catch (_) { return null } }
       const W = window
@@ -382,6 +509,7 @@ async function main() {
           webgpuCullingProbe: pick(() => (W.__webgpuCullingProbe && typeof W.__webgpuCullingProbe.stats === 'function' ? W.__webgpuCullingProbe.stats() : null)),
           rendererInfo: W.__rendererInfo || null,
           shadowCascades: W.__shadowCascades || null,
+          graphProbe: W.__grProbe || null,
         },
       }
     }, 120000)
@@ -393,9 +521,9 @@ async function main() {
     const spinRatio = Math.round((spinPeak / cleanSpin) * 100) / 100
 
     // --- window the profile -------------------------------------------------------------------
-    const prof = buildProfile(profile)
-    const profSpanMs = prof.spanUs / 1000
-    const clockErrorPct = Math.round((Math.abs(profSpanMs - nodeSpanMs) / nodeSpanMs) * 1000) / 10
+    const prof = profile ? buildProfile(profile) : null
+    const profSpanMs = prof ? prof.spanUs / 1000 : 0
+    const clockErrorPct = prof ? Math.round((Math.abs(profSpanMs - nodeSpanMs) / nodeSpanMs) * 1000) / 10 : 0
     const mark0 = mark.lt
     const tasks = final.longtasks.slice(mark0).filter((t) => t.duration >= LONG_TASK_MS)
     const frames = final.frames.filter((f) => f.at >= pageT0 && f.at <= pageT1)
@@ -444,7 +572,7 @@ async function main() {
 
     const toProfUs = (pageMs) => ((pageMs - pageT0) / (pageT1 - pageT0)) * prof.spanUs
 
-    console.log('[longtask-stack] profile: ' + prof.timeline.length + ' sample(s) over ' + profSpanMs.toFixed(0) + 'ms, node-side span ' + nodeSpanMs + 'ms (clock skew ' + clockErrorPct + '%)')
+    console.log('[longtask-stack] profile: ' + (prof ? prof.timeline.length + ' sample(s) over ' + profSpanMs.toFixed(0) + 'ms, ' : 'UNAVAILABLE, ') + 'node-side span ' + nodeSpanMs + 'ms' + (prof ? ' (clock skew ' + clockErrorPct + '%)' : ''))
     console.log('[longtask-stack] host: cpu ' + cpuPct + '% busy, spin ' + cleanSpin + ' -> peak ' + spinPeak + 'ms (x' + spinRatio + ')')
     console.log('[longtask-stack] frames: n=' + frames.length + ' p50=' + percentile(frameSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(frameSorted, 0.95).toFixed(2) + 'ms max=' + (frameSorted[frameSorted.length - 1] || 0).toFixed(2) + 'ms')
     console.log('[longtask-stack] frame-loop callbacks: n=' + rafIn.length + ' p50=' + percentile(rafSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(rafSorted, 0.95).toFixed(2) + 'ms max=' + (rafSorted[rafSorted.length - 1] || 0).toFixed(2) + 'ms')
@@ -453,6 +581,7 @@ async function main() {
     if (drawCalls.length > 0) console.log('[longtask-stack] counted units per frame: draws p50=' + percentile(drawCalls, 0.5) + ' p95=' + percentile(drawCalls, 0.95) + ' max=' + drawCalls[drawCalls.length - 1] + ' (n=' + drawCalls.length + ')')
     if (tris.length > 0) console.log('[longtask-stack] counted units per frame: triangles p50=' + percentile(tris, 0.5) + ' p95=' + percentile(tris, 0.95) + ' max=' + tris[tris.length - 1])
     const u = final.units || {}
+    let windowedGraphBuilds = null
     if (u.vegProfile) console.log('[longtask-stack] veg: ' + JSON.stringify({ totalInstances: u.vegProfile.totalInstances, species: u.vegProfile.species, meshTierInstances: u.vegProfile.meshTierInstances, leafTierInstances: u.vegProfile.leafTierInstances, vegDrawCalls: u.vegProfile.vegDrawCalls, bvhRebuilds: u.vegProfile.bvhRebuilds, impostors: u.vegProfile.impostors }))
     if (u.grassProfile) console.log('[longtask-stack] grass: ' + JSON.stringify({ instances: u.grassProfile.instances, draws: u.grassProfile.draws, tiles: u.grassProfile.tiles, loadChunkMs: u.grassProfile.loadChunkMs }))
     if (u.rocksProfile) console.log('[longtask-stack] rocks: ' + JSON.stringify({ instances: u.rocksProfile.instances, draws: u.rocksProfile.draws, tiles: u.rocksProfile.tiles }))
@@ -460,6 +589,18 @@ async function main() {
     if (u.shadowPipeline) console.log('[longtask-stack] shadow pipeline: ' + JSON.stringify(u.shadowPipeline).slice(0, 600))
     if (u.shadowCascades) console.log('[longtask-stack] shadow cascades: ' + JSON.stringify(u.shadowCascades).slice(0, 400))
     if (u.contactOcclusionDrive) console.log('[longtask-stack] contact occlusion: ' + JSON.stringify(u.contactOcclusionDrive))
+    if (u.graphProbe) console.log('[longtask-stack] node-graph builds (whole page life): ' + JSON.stringify({ installed: u.graphProbe.installed, installedAt: u.graphProbe.installedAt, warm: u.graphProbe.warm }))
+    const gr0 = mark && mark.gr ? mark.gr : null
+    if (gr0 && u.graphProbe) {
+      const g1 = u.graphProbe
+      const win = {
+        sync: { n: g1.sync.n - gr0.sync.n, ms: Math.round((g1.sync.ms - gr0.sync.ms) * 100) / 100, max: g1.sync.max, over50: g1.sync.over50, over200: g1.sync.over200, worst: g1.sync.worst },
+        async: { n: g1.async.n - gr0.async.n, ms: Math.round((g1.async.ms - gr0.async.ms) * 100) / 100, wallMs: Math.round((g1.async.wallMs - gr0.async.wallMs) * 100) / 100, max: g1.async.max, worst: g1.async.worst },
+        warm: { n: g1.warm.n - gr0.warm.n, distinct: g1.warm.distinct - gr0.warm.distinct, repeats: g1.warm.repeats - gr0.warm.repeats },
+      }
+      console.log('[longtask-stack] node-graph builds inside the capture window: ' + JSON.stringify(win))
+      windowedGraphBuilds = win
+    }
     if (u.camRayCasts) console.log('[longtask-stack] camera ray casts: ' + JSON.stringify(u.camRayCasts).slice(0, 300))
     console.log('[longtask-stack] long tasks >= ' + LONG_TASK_MS + 'ms during capture: ' + tasks.length)
 
@@ -467,8 +608,8 @@ async function main() {
     for (const t of tasks.slice().sort((a, b) => b.duration - a.duration).slice(0, 8)) {
       const fromUs = toProfUs(t.start)
       const toUs = toProfUs(t.start + t.duration)
-      const slice = sliceWindow(prof, fromUs, toUs)
-      const agg = aggregate(prof, slice)
+      const slice = prof ? sliceWindow(prof, fromUs, toUs) : []
+      const agg = prof ? aggregate(prof, slice) : { self: new Map(), incl: new Map() }
       const sampledUs = slice.reduce((s, x) => s + x.dt, 0)
       const buckets = {}
       for (const s of slice) {
@@ -491,24 +632,32 @@ async function main() {
       const bucketRank = Object.entries(buckets).sort((a, b) => b[1] - a[1])
       const jsMs = Math.round(((buckets.js || 0) / 1000) * 100) / 100
       const gcMs = Math.round(((buckets['garbage collector'] || 0) / 1000) * 100) / 100
+      // Computed before the verdict so the verdict string can quote them: `row` used to be read
+      // from inside the branch that builds it, which is a TDZ ReferenceError in the one branch
+      // (WALL-DOMINATED) that quoted it, so the instrument died on exactly the finding that
+      // matters most instead of reporting it.
+      const durationMs = Math.round(t.duration * 100) / 100
+      const sampledMs = Math.round((sampledUs / 1000) * 100) / 100
       let verdict
-      if (threadMs !== null && threadMs < t.duration * 0.35) {
-        verdict = 'WALL-DOMINATED: the main thread executed ~' + threadMs + 'ms of the ' + row.durationMs + 'ms, so ' + Math.round(t.duration - threadMs) + 'ms is time the thread did not run (descheduled or blocked) -- this is what host contention looks like, and it is not a named stall'
+      if (!prof) {
+        verdict = 'MEASURED, NOT NAMED: ' + durationMs + 'ms wall with ' + threadMs + 'ms of main-thread CPU inside; the CPU profile is unavailable (' + profileError + ') so no stack was captured for this window'
+      } else if (threadMs !== null && threadMs < t.duration * 0.35) {
+        verdict = 'WALL-DOMINATED: the main thread executed ~' + threadMs + 'ms of the ' + durationMs + 'ms, so ' + Math.round(t.duration - threadMs) + 'ms is time the thread did not run (descheduled or blocked) -- this is what host contention looks like, and it is not a named stall'
       } else if (gcMs > jsMs && gcMs > t.duration * 0.35) {
         verdict = 'CPU-BOUND IN GC: ' + gcMs + 'ms of garbage collector against ' + jsMs + 'ms of JS'
       } else if (top.length > 0 && jsMs > t.duration * 0.35) {
         verdict = 'CPU-BOUND IN JS: ' + jsMs + 'ms of JS, hottest frame ' + (top[0].stack.split(' <- ').pop() || 'unknown')
       } else {
-        verdict = 'UNRESOLVED: ' + row.sampledMs + 'ms accounted of ' + row.durationMs + 'ms wall; the profile did not see enough of the window to name it'
+        verdict = 'UNRESOLVED: ' + sampledMs + 'ms accounted of ' + durationMs + 'ms wall; the profile did not see enough of the window to name it'
       }
       const row = {
         verdict,
-        durationMs: Math.round(t.duration * 100) / 100,
+        durationMs,
         startMs: Math.round(t.start),
         container: t.containerName || t.containerType || null,
         scriptUrl: t.scriptUrl || null,
         samples: slice.length,
-        sampledMs: Math.round((sampledUs / 1000) * 100) / 100,
+        sampledMs,
         bucketMs: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, Math.round((v / 1000) * 100) / 100])),
         rafMsInside: Math.round(rafMs * 100) / 100,
         threadMsInside: threadMs,
@@ -523,11 +672,14 @@ async function main() {
     }
 
     mkdirSync(OUT_DIR, { recursive: true })
-    const outFile = resolve(OUT_DIR, 'longtask-stack-' + Date.now() + '.json')
+    const outFile = resolve(OUT_DIR, 'longtask-stack-' + ARM + '-' + Date.now() + '.json')
     writeFileSync(outFile, JSON.stringify({
+      arm: ARM,
+      warmSwitch: WARM_SWITCH,
+      windowedGraphBuilds,
       vendor: VENDOR, world: WORLD, port: PORT, captureMs: CAPTURE_MS, sampleUs: SAMPLE_US,
       gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, backend: gpu.backend },
-      profSpanMs, nodeSpanMs, clockErrorPct,
+      profSpanMs, nodeSpanMs, clockErrorPct, profileError,
       host: { cpuPct, cleanSpin, spinPeak, spinRatio },
       frames: { n: frames.length, p50: percentile(frameSorted, 0.5), p95: percentile(frameSorted, 0.95), max: frameSorted[frameSorted.length - 1] || 0 },
       raf: { n: rafIn.length, p50: percentile(rafSorted, 0.5), p95: percentile(rafSorted, 0.95), max: rafSorted[rafSorted.length - 1] || 0 },
@@ -540,7 +692,7 @@ async function main() {
     console.log('[longtask-stack] wrote ' + outFile)
 
     const failures = []
-    if (clockErrorPct > 5) failures.push('the profile span and the node-side capture span disagree by ' + clockErrorPct + '%, so the long-task windows cannot be placed on the sample timeline')
+    if (prof && clockErrorPct > 5) failures.push('the profile span and the node-side capture span disagree by ' + clockErrorPct + '%, so the long-task windows cannot be placed on the sample timeline')
     if (frames.length < MIN_FRAMES) failures.push('only ' + frames.length + ' frame(s) presented, under the ' + MIN_FRAMES + ' a frame verdict needs')
     if (MODE === 'gate' && tasks.length > 0) failures.push(tasks.length + ' long task(s) >= ' + LONG_TASK_MS + 'ms remain unattributed by name')
     if (failures.length) {
