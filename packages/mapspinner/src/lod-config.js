@@ -1,6 +1,18 @@
 import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js'
 
-export const LOD_STEP = 3.6
+// ONE STEP OF TESSELLATION, not a tuning constant. Quadtree._recurse splits a node while
+// `dist < l * effSplit`, so the leaf side that survives at a given camera distance is
+// `l = dist / effSplit`: splitDist is the only quantity that sets the tessellation at every
+// distance at which the tree is not already pinned at maxLevel, and halving a leaf's side is
+// exactly one more subdivision level -- four leaves where there was one. splitDist is
+// `splitFactor * LOD_STEP * (viewport / fov term)`, so LOD_STEP IS the step: doubling it doubles
+// splitDist and puts the terrain one level finer at every such distance, and nothing else moves --
+// nearProtectRadius, farCoarsenFloor, distFactor, maxLevel and the height sampler are all derived
+// elsewhere, and the near band cannot follow because the leaf the camera stands in is already at
+// maxLevel (or at the near-field leaf floor) and the lattice that replaces it carries the
+// collider's spacing. scripts/farfield-tessellation-step-witness.mjs measures the leaf side per
+// distance band and pins the near band as identical arm to arm.
+export const LOD_STEP = 7.2
 export const LOD_LEAN = 0.35
 export const LOD_POP_ALTITUDE_MUL = 8.0
 
