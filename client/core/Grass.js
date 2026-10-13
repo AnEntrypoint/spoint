@@ -18,6 +18,7 @@ import { positionWorld, vec4, mix, float, uniform } from 'three/tsl'
 import { contactOcclusionFactorAt } from '/node_modules/mapspinner/src/tsl/contact-occlusion-tsl.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
 import { runWarmPasses } from './ProgramReadiness.js'
+import { macrotaskYield } from './macrotaskYield.js'
 
 const GRASS_ATTRIBUTE_SCHEMA = { windShadow: 'vec2', groundTint: 'vec4' }
 const _windShadowArr = [0, 0], _groundTintArr = [0, 0, 0, 0]
@@ -520,28 +521,39 @@ export async function createGrass(opts = {}) {
   }
 
   const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
-  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
-  const PREWARM_SLICE_MS = 96
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = _nowMs()
     const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
     let workMs = 0
-    let sliceMs = 0
+    let yieldMs = 0
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+      // The slice is one LOAD_BUDGET step of the chunk's own placement cursor -- the same
+      // incremental loader the streaming path already uses -- neither the whole chunk nor a
+      // millisecond budget accumulated across chunks. A grass chunk is itself about a frame of
+      // placement, so a chunk-sized unit could not bound the block either; one step can, and a
+      // frame runs after every step.
       const _c0 = _nowMs()
-      loadChunk(key, px, pz); if (!deferredChunks.has(key)) n++
-      const _c1 = _nowMs()
-      workMs += _c1 - _c0
-      sliceMs += _c1 - _c0
-      if (sliceMs >= PREWARM_SLICE_MS) { sliceMs = 0; await _yieldSlice() }
+      startInflight(key, px, pz)
+      workMs += _nowMs() - _c0
+      while (_inflight && _inflight.key === key) {
+        await macrotaskYield()
+        const _s0 = _nowMs()
+        if (stepInflight()) finishInflight()
+        workMs += _nowMs() - _s0
+      }
+      if (!deferredChunks.has(key)) n++
+      const _y0 = _nowMs()
+      await macrotaskYield()
+      yieldMs += _nowMs() - _y0
     }
     profile.prewarmChunks = n
     profile.prewarmWorkMs = workMs
+    profile.prewarmYieldMs = yieldMs
     profile.prewarmMs = _nowMs() - t0
     return n
   }

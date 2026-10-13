@@ -39,6 +39,7 @@ const NO_GPU_WITNESSES = [
   { file: 'cpu-skip-witness.mjs', must: /"ticks": [1-9]\d*[\s\S]*"row2_encodePerSnapshotCall": [1-9][\d.]*[\s\S]*"row2_snapshotStaleTotal": 0[\s\S]*"row2_snapshotChecks": [1-9]\d*[\s\S]*"row3_colEntitiesPerTick": [1-9]\d*[\s\S]*"row4_interactPairsPerTick": [1-9]\d*[\s\S]*"clientErrors": 0[\s\S]*RESULT: PASS/ },
   { file: 'snapshot-perplayer-encode-witness.mjs', must: /RESULT: PASS -- [1-9]\d* recipient\(s\), 0 re-encode\(s\) with a warm cache, 0 byte mismatch\(es\) over [1-9]\d* wire record\(s\)/ },
   { file: 'tick-snapshot-send-cost-witness.mjs', args: ['--ticks=128', '--rounds=2', '--players=64', '--entities=3000', '--spread=120', '--cluster=60', '--ctrlPlayers=8', '--ctrlEntities=300'], must: /per_snapshot_tick_ms relevance=[\d.]+ plan=[\d.]+ encode=[\d.]+ send=[\d.]+[\s\S]*recipients_per_snap_tick mean=[1-9][\d.]* max=[1-9]\d*[\s\S]*crowded recipients=[1-9]\d*\/[1-9]\d*[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* claim\(s\)/ },
+  { file: 'tick-snapshot-send-cost-witness.mjs', args: ['--ticks=128', '--rounds=2', '--players=64', '--entities=3000', '--spread=120', '--cluster=60', '--ctrlPlayers=8', '--ctrlEntities=300'], must: /per_snapshot_tick_ms relevance=[\d.]+ plan=[\d.]+ encode=[\d.]+ send=[\d.]+[\s\S]*recipients_per_snap_tick mean=[1-9][\d.]* max=[1-9]\d*[\s\S]*crowded recipients=[1-9]\d*\/[1-9]\d*[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* claim\(s\)/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /RESULT: PASS -- MSG\.WORLD_DEF carries netcode\.profile "lockstep" to a client that never saw the world file/ },
   { file: 'agents-md-facts-witness.mjs', must: /checked [1-9]\d* path claim\(s\), \d+ line claim\(s\) and \d+ sha-like token\(s\)[\s\S]*RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=[1-9]\d* failed=0/ },
@@ -57,6 +58,14 @@ const NO_GPU_WITNESSES = [
   // nothing), the warm arm has to fit in one, the warm chain has to place the same tree count, and
   // every LOD level has to come back vertex-identical.
   { file: 'veg-build-slice-witness.mjs', must: /\[veg-build-slice\] species LOD chain WARM \(a rebuild clones\): \{"n":[1-9]\d*,[\s\S]*trees placed [1-9]\d*[\s\S]*slice constants=0[\s\S]*\[veg-build-slice\] RESULT: PASS -- species rebuild cold [\d.]+ms -> warm [\d.]+ms worst per species \(total [\d.]+ -> [\d.]+ms over [1-9]\d* species, every LOD level vertex-identical\), prewarm slice [\d.]+ms worst chunk over [1-9]\d* chunk\(s\) placing [1-9]\d* tree\(s\), [1-9]\d* macrotask yield\(s\) and 0 slice constant\(s\), frame budget [\d.]+ms/ },
+  // PERF-grass-rock-prewarm-slice-96ms-1013: the same defect on the other two members of the
+  // Promise.all client/app.js runs the prewarm in. The unit differs because the work does: a rock
+  // chunk is about a millisecond of placement, so its slice is the chunk, while a grass chunk is
+  // itself about a frame, so its slice is one step of the chunk placement cursor the streaming path
+  // already used. The `must` is the second half of the witness: the before arm has to block for more
+  // than a frame, the after arm has to fit in one and to have fallen by at least 4x, and both arms
+  // have to place the same counts, so a run that bought the win by shedding grass -- least of all
+  // underfoot -- reads as a failure rather than as silence that passes.
   { file: 'grass-rock-prewarm-slice-witness.mjs', must: /grass slice unit: one [\d.]+ms step of the chunk placement cursor[\s\S]*worst block Promise\.all: accumulated [\d.]+ms -> sliced [\d.]+ms[\s\S]*\[PASS\] the worst block across the whole Promise\.all now fits inside one frame[\s\S]*\[PASS\] the worst block across the whole Promise\.all fell by at least 4x[\s\S]*RESULT: PASS -- worst block over the whole Promise\.all [\d.]+ms -> [\d.]+ms \(grass [\d.]+ -> [\d.]+, rock [\d.]+ -> [\d.]+, veg [\d.]+ -> [\d.]+\); grass unit [\d.]+ms cursor step[\s\S]*0\/0 slice constant\(s\), frame budget 16\.67ms/ },
   { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
   { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
@@ -113,6 +122,14 @@ const NO_GPU_WITNESSES = [
   // noise-floor checks, so a stencil that moves the normal past the mesh's own vertex-to-vertex
   // normal turn fails it too.
   { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
+  // ORCH-workspace-link-stale-copy-1013: `npm run links` used to answer "does this specifier resolve"
+  // when the question it appears to ask is "is this a link into packages/*". A real directory holding
+  // an INSTALLED COPY resolves perfectly, so it printed "3 already resolved" while the dev server
+  // served published mapspinner bytes and browser-side arms measured unmodified code. The `must` is
+  // the second half of the witness: a run that never saw the stale copy reported as a repair, never
+  // kept it aside, never refused a missing target by name, or never proved the misdirected link's
+  // target survives, must read as a failure rather than as silence that passes.
+  { file: 'workspace-link-stale-copy-witness.mjs', must: /\[PASS\] the stale copy is reported as a repair, not as already resolved[\s\S]*\[PASS\] the stale copy was MOVED ASIDE, not deleted, and the report names where it went[\s\S]*\[PASS\] a link pointing anywhere other than the workspace is repaired[\s\S]*\[PASS\] an unrelated installed package is NOT touched[\s\S]*\[PASS\] a missing workspace target is REFUSED with a named error[\s\S]*\[PASS\] every install path of this tree resolves INTO its workspace package[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -206,9 +223,15 @@ async function main() {
 
   const failures = []
 
+  // ORCH-workspace-link-stale-copy-1013: the report names the install path, not just the specifier,
+  // because one workspace package occupies several (packages/mapspinner declares the UNSCOPED name
+  // "mapspinner", so both node_modules/mapspinner and node_modules/@spoint/mapspinner are its).
   const links = ensureWorkspaceLinks()
-  for (const name of links.created) console.log(`check: workspace link node_modules/${name} was missing and is now restored`)
-  for (const name of links.repaired) console.log(`check: workspace link node_modules/${name} pointed elsewhere and is now restored`)
+  for (const c of links.created) console.log(`check: workspace link node_modules/${c.name} was missing and is now created -> packages/${c.dir}`)
+  for (const r of links.repaired) {
+    const kept = r.movedTo === null ? '' : ` -- the install it displaced is kept at ${r.movedTo}`
+    console.log(`check: workspace link node_modules/${r.name} was ${r.kind} (not a link into packages/) and is now relinked -> packages/${r.dir}${kept}`)
+  }
   for (const detail of links.failed) failures.push(`workspace link ${detail} -- run: node scripts/ensure-workspace-links.mjs`)
 
   const MAX_PARALLEL_CHECKS = 16

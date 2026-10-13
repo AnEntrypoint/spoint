@@ -10,6 +10,7 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { makeRocksMaterialTSL } from './RocksTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
+import { macrotaskYield } from './macrotaskYield.js'
 import { contactOcclusionField, contactFieldLoadChunk, contactFieldUnloadChunk, rockContactStamps } from '/src/terrain/ContactOcclusionField.js'
 
 const _dbgRocks = dbg('rocks')
@@ -268,29 +269,33 @@ export async function createRocks(opts = {}) {
     if (typeof window !== 'undefined' && window.__rocks && window.__rocks._bm === bm) delete window.__rocks
   }
 
-  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
-  const PREWARM_SLICE_MS = 96
+  const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
-    const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    const t0 = _nowMs()
     const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
     let workMs = 0
-    let sliceMs = 0
+    let yieldMs = 0
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
-      const _c0 = (typeof performance !== 'undefined') ? performance.now() : 0
+      const _c0 = _nowMs()
       if (loadChunk(key)) n++
-      const _c1 = (typeof performance !== 'undefined') ? performance.now() : 0
+      const _c1 = _nowMs()
       workMs += _c1 - _c0
-      sliceMs += _c1 - _c0
-      if (sliceMs >= PREWARM_SLICE_MS) { sliceMs = 0; await _yieldSlice() }
+      // One chunk per macrotask: the slice IS the chunk. A millisecond budget accumulated across
+      // chunks was checked only BETWEEN them, so it could never cut a long chunk and let the main
+      // thread run that many milliseconds of placement with no frame in it.
+      const _y0 = _nowMs()
+      await macrotaskYield()
+      yieldMs += _nowMs() - _y0
     }
     profile.prewarmChunks = n
     profile.prewarmWorkMs = workMs
-    profile.prewarmMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
+    profile.prewarmYieldMs = yieldMs
+    profile.prewarmMs = _nowMs() - t0
     return n
   }
 
