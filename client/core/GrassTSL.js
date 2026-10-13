@@ -4,12 +4,13 @@ import {
   Fn, Loop, If, Break, int, float, vec2, vec3, vec4,
   uniform, uniformArray, attribute, varying,
   positionGeometry, normalGeometry, modelWorldMatrix,
-  clamp, mix, smoothstep, dot, normalize, max, sin, cos, texture, uv, fract, floor, pow,
+  clamp, mix, smoothstep, dot, normalize, max, min, sin, cos, texture, uv, fract, floor, pow,
   cameraPosition, positionWorld
 } from 'three/tsl'
 
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, GRASS_ALPHA_CUTOFF, GRASS_GROUND_TINT, GRASS_TIP_GROUND_MIX, GRASS_TIP_GROUND_GAIN, GRASS_BLADE_VARIATION, GRASS_LOCAL_VARIATION, GRASS_LOOK_SAT, GRASS_LUMA, makeWind } from './GrassMaterial.js'
 import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
+import { GRASS_DENSITY } from '/src/terrain/GrassPlacement.js'
 import { displayReferredToSceneLinear } from '/node_modules/mapspinner/src/tsl/display-referred-tsl.js'
 import { ACES_FILMIC, DISPLAY_GAMMA_INV, LUMA } from '/node_modules/mapspinner/src/tsl/terrain-ambient-shared.js'
 
@@ -28,7 +29,8 @@ const grassNoise = Fn(([p]) => {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y)
 })
 
-export function makeGrassMaterialTSL(wind) {
+export function makeGrassMaterialTSL(wind, density) {
+  const d = density || GRASS_DENSITY
   const uGrassTime = uniform(wind.uGrassTime.value)
   const uGrassWind = uniform(wind.uGrassWind.value)
   const uGrassWindDir = uniform(wind.uGrassWindDir.value)
@@ -48,6 +50,13 @@ export function makeGrassMaterialTSL(wind) {
   const uGrassAmbAdd = uniform(wind.uGrassAmbAdd.value)
   const uGrassNightFill = uniform(wind.uGrassNightFill.value)
   const uGrassGrade = uniform(wind.uGrassGrade.value)
+  // The shared gust field. Sampling it is the whole wind term now: one bilinear fetch at level 0
+  // (the vertex stage has no implicit derivatives, so the level is stated) returning the lateral
+  // displacement of every blade in this neighbourhood, per unit of the card-height envelope gw.
+  const uFieldOrigin = uniform(wind.grassWindField.uniforms.uFieldOrigin.value)
+  const uFieldInvExtent = uniform(wind.grassWindField.uniforms.uFieldInvExtent.value)
+  const uGrassWindField = wind.grassWindField.texture
+  const gustField = (instWorldXZ) => texture(uGrassWindField, instWorldXZ.sub(uFieldOrigin).mul(uFieldInvExtent), float(0))
   const uGrassBase = uniform(wind.uGrassBase.value)
   const uGrassTip1 = uniform(wind.uGrassTip1.value)
   const uGrassTip2 = uniform(wind.uGrassTip2.value)
@@ -63,7 +72,7 @@ export function makeGrassMaterialTSL(wind) {
 
   const windShadow = attribute('windShadow', 'vec2')
   const groundTintAttr = attribute('groundTint', 'vec4')
-  const windPhase = windShadow.x
+  const clumpRank = attribute('clumpRank', 'float')
 
   const vUv = varying(uv(), 'vUv')
   let vFieldXZ = null
@@ -112,14 +121,9 @@ export function makeGrassMaterialTSL(wind) {
     const transformed = positionGeometry.toVar()
     const gv = clamp(transformed.y, 0.0, 1.0)
     const gw = gv.mul(gv).mul(0.45)
-    const gGust = grassNoise(instWorldXZ.mul(0.11).add(uGrassWindDir.mul(uGrassTime).mul(0.35)))
-    const gFlow = sin(dot(instWorldXZ, vec2(0.06, 0.045)).add(gGust.mul(5.5)).add(uGrassTime.mul(1.4)))
-      .add(sin(dot(instWorldXZ, vec2(-0.11, 0.09)).add(uGrassTime.mul(2.3))).mul(0.5))
-    const gAmp = float(0.2).add(gFlow.mul(0.25)).mul(gw).mul(uGrassWind)
-    const gph = uGrassTime.mul(2.2).add(windPhase)
-    const gWdir = normalize(uGrassWindDir.add(1e-4))
-    transformed.x.addAssign(gWdir.x.mul(gAmp).add(sin(gph).mul(gw).mul(0.25).mul(uGrassWind)))
-    transformed.z.addAssign(gWdir.y.mul(gAmp).add(cos(gph.mul(0.7)).mul(gw).mul(0.25).mul(uGrassWind)))
+    const gGust = gustField(instWorldXZ)
+    transformed.x.addAssign(gGust.x.mul(gw))
+    transformed.z.addAssign(gGust.y.mul(gw))
 
     const bendXZ = bendField(instWorldXZ)
     transformed.x.addAssign(bendXZ.x.mul(gw))
@@ -131,10 +135,27 @@ export function makeGrassMaterialTSL(wind) {
     transformed.mulAssign(scorchScale)
 
     const gDist = instWorldXZ.sub(uCamPosXZ).length()
-    const gFade = float(1.0).sub(smoothstep(uGrassRing.mul(0.55), uGrassRing, gDist))
-    transformed.y.mulAssign(gFade)
-    transformed.x.mulAssign(mix(0.5, 1.0, gFade))
-    transformed.z.mulAssign(mix(0.5, 1.0, gFade))
+    // The distance-density law, in the vertex stage where it costs nothing per frame: a blade
+    // carries its own rank, so it owns the radius at which it stops being drawn, and it grows
+    // from nothing across FADE_M metres of the approach instead of arriving whole. The far blades
+    // are also grown a little and turned to face the camera, which is what pays for the density
+    // they no longer have.
+    const gEdge = min(float(d.fullR).div(max(clumpRank, float(1e-4)).pow(float(1 / d.p))).add(float(d.fadeM)), uGrassRing)
+    const gIn = clamp(gEdge.sub(gDist).div(float(d.fadeM)), 0.0, 1.0)
+    const gGrow = min(float(d.growMax), float(1.0).add(float(d.growK).mul(max(gDist.sub(float(d.fullR)), 0.0))))
+    transformed.mulAssign(gIn.mul(gGrow))
+    const gFace = smoothstep(float(d.faceStart), float(d.faceEnd), gDist)
+    const gAxis = normalize(instanceMatrixNode.mul(vec4(1.0, 0.0, 0.0, 0.0)).xz)
+    const gToCam = normalize(uCamPosXZ.sub(instWorldXZ))
+    // The clump is drawn double-sided, so either sign of the camera direction faces it; picking
+    // the nearer sign keeps the blend away from the antipode where a normalised lerp has no
+    // length to normalise.
+    const gTarget = gToCam.mul(dot(gAxis, gToCam).greaterThanEqual(0.0).select(float(1.0), float(-1.0)))
+    const gDir = normalize(mix(gAxis, gTarget, gFace))
+    const gCos = dot(gAxis, gDir), gSin = gAxis.x.mul(gDir.y).sub(gAxis.y.mul(gDir.x))
+    const gRx = transformed.x.mul(gCos).sub(transformed.z.mul(gSin))
+    transformed.z.assign(transformed.x.mul(gSin).add(transformed.z.mul(gCos)))
+    transformed.x.assign(gRx)
 
     vScorch = varying(scorch, 'vScorch')
     vLocalNoise = varying(grassNoise(instWorldXZ.mul(1.0)), 'vLocalNoise')
@@ -188,6 +209,7 @@ export function makeGrassMaterialTSL(wind) {
       uSunDir, uSunColor, uAmbient, uGrassBendRadius, uGrassBendStrength,
       uGrassBase, uGrassTip1, uGrassTip2,
       uBenderCount, uDecalCount, uGrassScorchShrink, uGrassScorchColor,
+      uFieldOrigin, uFieldInvExtent,
       benderSlots, decalSlots
     }
   }
@@ -203,6 +225,8 @@ export function syncGrassMaterialTSL(nodes, wind) {
   nodes.uBenderCount.value = wind.uBenderCount.value
   nodes.uDecalCount.value = wind.uDecalCount.value
   nodes.uGrassScorchShrink.value = wind.uGrassScorchShrink.value
+  nodes.uFieldOrigin.value.copy(wind.grassWindField.uniforms.uFieldOrigin.value)
+  nodes.uFieldInvExtent.value = wind.grassWindField.uniforms.uFieldInvExtent.value
   const benderArr = wind.uBenderPosXZ.value
   for (let i = 0; i < MAX_BENDERS; i++) nodes.benderSlots[i].set(benderArr[i * 2], benderArr[i * 2 + 1])
   const decalArr = wind.uDecalPosXZRS.value

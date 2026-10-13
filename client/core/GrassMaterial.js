@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import { makeClumpAlphaTexture } from './GrassClump.js'
+import { GRASS_DENSITY } from '/src/terrain/GrassPlacement.js'
+
+const glslFloat = (v) => Number(v).toFixed(6)
+import { createGrassWindField, GRASS_WIND_FIELD_DROP_MARGIN_M } from './GrassWindField.js'
 import { TERRAIN_DEFAULTS as TD } from '/node_modules/mapspinner/src/terrain-defaults.js'
 import { ATM_RAYLEIGH } from '/node_modules/mapspinner/src/atmosphere-transmittance-lut.js'
 import { ATM_SOLAR_IRRADIANCE } from '/node_modules/mapspinner/src/tsl/sky-tsl.js'
@@ -40,12 +44,13 @@ export const GRASS_NOISE_GLSL = `
 `
 
 export function makeWind() {
-  return {
+  const grassWindField = createGrassWindField()
+  const wind = {
     uClumpTex: { value: makeClumpAlphaTexture() },
     uGrassBase: { value: new THREE.Color(0.19, 0.25, 0.11) },
     uGrassTip1: { value: new THREE.Color(0.61, 0.83, 0.55) },
     uGrassTip2: { value: new THREE.Color(0.12, 0.21, 0.16) },
-    uGrassTime: { value: 0 }, uGrassWind: { value: 0.25 }, uGrassWindDir: { value: new THREE.Vector2(0.8, 0.6) },
+    uGrassTime: { value: 0, _t: 0 }, uGrassWind: { value: 0.25 }, uGrassWindDir: { value: new THREE.Vector2(0.8, 0.6) },
     uCamPosXZ: { value: new THREE.Vector2(0, 0) }, uGrassRing: { value: 61.6 }, uGrassSat: { value: 1.0 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() }, uSunColor: { value: new THREE.Color(1, 1, 0.96) },
     uAmbient: { value: new THREE.Color(0.32, 0.36, 0.4) },
@@ -62,6 +67,26 @@ export function makeWind() {
     uGrassNightFill: { value: new THREE.Vector3(0, 0, 0) },
     uGrassGrade: { value: new THREE.Vector4(1, TD.exposure, TD.lookSat, TD.lookContrast) },
   }
+  const advanceField = (t) => grassWindField.update(
+    t, wind.uCamPosXZ.value.x, wind.uCamPosXZ.value.y,
+    wind.uGrassWind.value, wind.uGrassWindDir.value.x, wind.uGrassWindDir.value.y,
+    wind.uGrassRing.value + GRASS_WIND_FIELD_DROP_MARGIN_M)
+  // uGrassTime is a property, not a plain field. Advancing the clock is what advances the shared
+  // gust field, and it happens once per frame here instead of once per vertex inside the shader --
+  // the join is only real if something drives it, and nothing outside this module has to know.
+  Object.defineProperty(wind.uGrassTime, 'value', {
+    enumerable: true,
+    get() { return this._t },
+    set(v) {
+      const t = Number(v)
+      if (!Number.isFinite(t)) { grassWindField.stats.rejectedWrites++; return }
+      this._t = t
+      advanceField(t)
+    },
+  })
+  advanceField(0)
+  wind.grassWindField = grassWindField
+  return wind
 }
 
 const GRASS_SUN_REF_INTENSITY = 1.5
@@ -134,7 +159,8 @@ export function setGrassSun(wind, sun) {
   wind.uGrassSat.value = GRASS_LOOK_SAT
 }
 
-export function makeGrassMaterial(wind) {
+export function makeGrassMaterial(wind, density) {
+  const d = density || GRASS_DENSITY
   const material = new THREE.ShaderMaterial({
     fog: true,
     transparent: true,
@@ -165,7 +191,8 @@ export function makeGrassMaterial(wind) {
       uGrassAmbMul: wind.uGrassAmbMul,
       uGrassAmbAdd: wind.uGrassAmbAdd,
       uGrassNightFill: wind.uGrassNightFill,
-      uGrassGrade: wind.uGrassGrade
+      uGrassGrade: wind.uGrassGrade,
+      ...wind.grassWindField.uniforms
     },
     vertexShader: `
       uniform float uGrassTime, uGrassWind, uGrassRing;
@@ -177,6 +204,9 @@ export function makeGrassMaterial(wind) {
       uniform int uDecalCount;
       uniform float uGrassScorchShrink;
       uniform vec3 uGrassScorchColor;
+      uniform sampler2D uGrassWindField;
+      uniform vec2 uFieldOrigin;
+      uniform float uFieldInvExtent;
       varying float vGrassY, vTint, vInstShadow, vScorch, vLocalNoise;
       varying vec3 vWorldNormal, vToCamera, vGround;
       varying vec2 vUv, vFieldXZ;
@@ -198,14 +228,12 @@ export function makeGrassMaterial(wind) {
         vLocalNoise = grassNoise(gWXZ * 1.0);
         float gv = clamp(position.y, 0.0, 1.0);
         float gw = gv * gv * 0.45;
-        float gGust = grassNoise(gWXZ * 0.11 + uGrassWindDir * uGrassTime * 0.35);
-        float gFlow = sin(dot(gWXZ, vec2(0.06, 0.045)) + gGust * 5.5 + uGrassTime * 1.4)
-                    + 0.5 * sin(dot(gWXZ, vec2(-0.11, 0.09)) + uGrassTime * 2.3);
-        float gAmp = (0.2 + 0.25 * gFlow) * gw * uGrassWind;
-        float gph = uGrassTime * 2.2 + windShadow.x;
-        vec2 gWdir = normalize(uGrassWindDir + 1e-4);
-        transformed.x += (gWdir.x * gAmp) + sin(gph) * gw * 0.25 * uGrassWind;
-        transformed.z += (gWdir.y * gAmp) + cos(gph * 0.7) * gw * 0.25 * uGrassWind;
+        // The gust is one bilinear fetch: the whole neighbourhood rides it, so neighbours move
+        // together and the turbulence reads as a wave crossing the field instead of as per-blade
+        // noise. gw is the only part of the wind that varies within a blade, so it stays here.
+        vec2 gGust = texture2D(uGrassWindField, (gWXZ - uFieldOrigin) * uFieldInvExtent).xy;
+        transformed.x += gGust.x * gw;
+        transformed.z += gGust.y * gw;
         vec2 bendXZ = vec2(0.0);
         for (int bi = 0; bi < ${MAX_BENDERS}; bi++) {
           if (bi >= uBenderCount) break;
@@ -234,8 +262,19 @@ export function makeGrassMaterial(wind) {
         float scorchScale = mix(1.0, uGrassScorchShrink, scorch);
         transformed.y *= scorchScale; transformed.x *= scorchScale; transformed.z *= scorchScale;
         float gDist = length(gWXZ - uCamPosXZ);
-        float gFade = 1.0 - smoothstep(uGrassRing * 0.55, uGrassRing, gDist);
-        transformed.y *= gFade; transformed.x *= mix(0.5, 1.0, gFade); transformed.z *= mix(0.5, 1.0, gFade);
+        float gEdge = min(${glslFloat(d.fullR)} / pow(max(clumpRank, 1e-4), ${glslFloat(1 / d.p)}) + ${glslFloat(d.fadeM)}, uGrassRing);
+        float gIn = clamp((gEdge - gDist) / ${glslFloat(d.fadeM)}, 0.0, 1.0);
+        float gGrow = min(${glslFloat(d.growMax)}, 1.0 + ${glslFloat(d.growK)} * max(gDist - ${glslFloat(d.fullR)}, 0.0));
+        transformed *= gIn * gGrow;
+        float gFace = smoothstep(${glslFloat(d.faceStart)}, ${glslFloat(d.faceEnd)}, gDist);
+        vec2 gAxis = normalize(instanceMatrix[0].xz + vec2(1e-5, 0.0));
+        vec2 gToCam = normalize(uCamPosXZ - gWXZ + vec2(1e-5, 0.0));
+        vec2 gTarget = gToCam * (dot(gAxis, gToCam) >= 0.0 ? 1.0 : -1.0);
+        vec2 gDir = normalize(mix(gAxis, gTarget, gFace));
+        float gCos = dot(gAxis, gDir), gSin = gAxis.x * gDir.y - gAxis.y * gDir.x;
+        float gRx = transformed.x * gCos - transformed.z * gSin;
+        transformed.z = transformed.x * gSin + transformed.z * gCos;
+        transformed.x = gRx;
         vWorldNormal = normalize(mat3(modelMatrix) * normalize(instanceMatrix[1].xyz));
         vec4 instPos = instanceMatrix * vec4(transformed, 1.0);
         vFieldXZ = instPos.xz;

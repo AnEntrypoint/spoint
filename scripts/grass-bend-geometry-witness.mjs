@@ -21,6 +21,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+// The wind term itself now lives in client/core/GrassWindField.js, which evaluates it once per cell
+// of a lattice instead of once per vertex. Its coefficients are that module's, so they are read
+// there rather than parsed out of a shader expression that no longer exists.
+import {
+  GRASS_SWAY_BASE, GRASS_SWAY_FLOW, GRASS_FLUTTER_X, GRASS_FLUTTER_Z, GRASS_WAVE2_GAIN,
+} from '../client/core/GrassWindField.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (p) => readFileSync(resolve(ROOT, p), 'utf8').replace(/\r\n/g, '\n')
@@ -48,15 +54,10 @@ const MID_ROWS = midCall ? Number(midCall[1]) : NaN
 
 // The bend itself: gw = gv*gv*0.45, and both displacement terms are proportional to it.
 const gwM = must(tsl, /const gw = gv\.mul\(gv\)\.mul\(([0-9.]+)\)/, 'gw is quadratic in the card height coordinate')
-const ampM = must(tsl, /const gAmp = float\(([0-9.]+)\)\.add\(gFlow\.mul\(([0-9.]+)\)\)\.mul\(gw\)\.mul\(uGrassWind\)/, 'the flow-driven bend term is proportional to gw')
-const wobX = must(tsl, /sin\(gph\)\.mul\(gw\)\.mul\(([0-9.]+)\)\.mul\(uGrassWind\)/, 'the per-instance wobble term (x) is proportional to gw')
-const wobZ = must(tsl, /cos\(gph\.mul\([0-9.]+\)\)\.mul\(gw\)\.mul\(([0-9.]+)\)\.mul\(uGrassWind\)/, 'the per-instance wobble term (z) is proportional to gw')
-// gFlow is two sines, the second scaled by a coefficient; its envelope is 1 + that coefficient.
-// The coefficient is the LAST .mul() of the statement -- a lazy match grabs gGust.mul(5.5) instead.
-const flowStmt = /const gFlow = ([\s\S]*?)\n\s*const gAmp/.exec(tsl)
-// The coefficient is the trailing `.mul(<n>))` that closes the statement -- any earlier .mul() in
-// it is a noise scale or a time factor (gGust.mul(5.5), uGrassTime.mul(1.4)), not this envelope.
-const envCoef = flowStmt ? Number((/\.mul\(([0-9.]+)\)\)\s*$/.exec(flowStmt[1].trimEnd()) || [])[1]) : NaN
+// The wiring contract for the wind: the joined gust still enters the position as a vector TIMES gw
+// on both axes, so every displacement in the shader is still proportional to the card-height
+// envelope this witness is about.
+const swayM = must(tsl, /transformed\.x\.addAssign\(gGust\.x\.mul\(gw\)\)\s*\n\s*transformed\.z\.addAssign\(gGust\.y\.mul\(gw\)\)/, 'the gust is still applied through gw on both axes')
 const windM = must(mat, /uGrassWind: \{ value: ([0-9.]+) \}/, 'the shipped default wind is readable')
 // The bender field displaces by gw too, and is NOT scaled by wind: bendXZ.mul(gw) on x and z.
 const bendM = must(mat, /uGrassBendStrength: \{ value: ([0-9.]+) \}/, 'the bender strength is readable')
@@ -67,14 +68,15 @@ if (failed.length) {
 }
 
 const GW_K = Number(gwM[1])
-const AMP_BASE = Number(ampM[1])
-const AMP_FLOW = Number(ampM[2])
-const WOBBLE = Number(wobX[1])
-const WOBBLE_Z = Number(wobZ[1])
-if (!Number.isFinite(envCoef)) { failed.push('gFlow envelope coefficient'); console.log('  [FAIL] gFlow envelope coefficient (second sine scale not readable -- re-read client/core/GrassTSL.js)') }
-const FLOW_ENV = 1 + envCoef // |sin| <= 1, plus a second sine scaled by that coefficient
+const AMP_BASE = GRASS_SWAY_BASE
+const AMP_FLOW = GRASS_SWAY_FLOW
+const WOBBLE = GRASS_FLUTTER_X
+const WOBBLE_Z = GRASS_FLUTTER_Z
+// gFlow is two sines, the second scaled by GRASS_WAVE2_GAIN; its envelope is 1 + that coefficient.
+const FLOW_ENV = 1 + GRASS_WAVE2_GAIN
 const DEFAULT_WIND = Number(windM[1])
 const BEND_STRENGTH = Number(bendM[1])
+void swayM
 
 check('near LOD is the 2-row card this change landed', NEAR_ROWS === 2, `geoNear=makeClumpGeo(${NEAR_ROWS}, ${nearCall[2]})`)
 check('mid LOD is untouched by this change', MID_ROWS === 1, `geoMid=makeClumpGeo(${MID_ROWS}, ${midCall[2]})`)

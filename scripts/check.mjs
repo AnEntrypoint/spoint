@@ -77,9 +77,19 @@ const NO_GPU_WITNESSES = [
   { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
   { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
   { file: 'grass-near-lod-revisit-witness.mjs', must: /\[PASS\] at rest the near LOD is exactly the near disc[\s\S]*\[PASS\] at rest the triangle count fell[\s\S]*\[PASS\] after a walk the near LOD is still exactly the near disc[\s\S]*\[PASS\] the decision was re-taken as the player moved[\s\S]*RESULT: PASS -- grass near LOD population=[1-9][\d]* clump\(s\)/ },
+  { file: 'grass-distance-density-fade-witness.mjs', must: /\[PASS\] the law really removed clumps[\s\S]*\[PASS\] the triangle count fell[\s\S]*\[PASS\] the draw distance grew[\s\S]*\[PASS\] the nearest density is unchanged[\s\S]*\[PASS\] every blade inside the full-density radius is present and fully faded in[\s\S]*\[PASS\] no blade is absent while it should be visible[\s\S]*\[PASS\] no blade is held past its own edge plus the lead[\s\S]*RESULT: PASS -- grass distance-density: [1-9][\d]* -> [1-9][\d]* clump\(s\)/ },
   // gpu-free: it measures the bend the shader computes, not pixels. Whether that much bend is VISIBLE
   // still needs a real frame, and that arm is a browser arm this CI does not run.
   { file: 'grass-bend-geometry-witness.mjs', must: /\[PASS\] the bend is quadratic in the card height coordinate[\s\S]*\[PASS\] the change is under 8% of the card height at the wind that ships[\s\S]*RESULT: PASS/ },
+  // PERF-grass-coherent-wind-1013. The wind used to give every blade its own oscillator phase, so
+  // neighbours pulled in unrelated directions and half the sway cancelled; it is now one gust field
+  // evaluated once per cell of a lattice, so they move together and the turbulence reads as a wave.
+  // The `must` is the second half: the before arm has to be measurably incoherent at half a metre
+  // (or the claim is vacuous), the after arm has to be coherent there, the turbulence a 4m block of
+  // blades carries has to RISE (a run that bought coherence by lowering an amplitude must fail),
+  // and the joined term has to be rebuilt as a fraction of the lattice rather than whole -- without
+  // them a run that printed a coherence number but joined nothing still reads as a pass.
+  { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
@@ -180,6 +190,18 @@ const NO_GPU_WITNESSES = [
   // a publish carrying check.mjs and this file together must be accepted, one carrying check.mjs
   // with this witness still absent must be refused.
   { file: 'publish-gate-witness.mjs', must: /\[publish-gate\] RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
+  // PERF-terrain-far-tessellation-step-1013. "One step better tessellation at a distance" names one
+  // step on the split-distance ladder: mapspinner/lod-config.js LOD_STEP 3.6 -> 7.2, which is the
+  // codebase's own step constant. Quadtree._recurse splits a node while `dist < l * effSplit`, so
+  // the split distance is the only thing setting the leaf side that survives at a given distance,
+  // and it is not maxLevel (a display-wide ceiling the governor sheds), not the splitFactor knob
+  // (the same quantity under another name) and not the near-field lattice (the collider's spacing).
+  // The `must` is the second half of the witness: the step that ships has to be the doubled one and
+  // the split distance has to have doubled with it, and the near band -- the leaf the camera stands
+  // in, its level, the near-field lattice step and the lattice-covered extent -- has to be identical
+  // arm to arm. A run that printed no band, or one whose near band moved, must read as a failure
+  // rather than as silence that passes.
+  { file: 'farfield-tessellation-step-witness.mjs', must: /\[far-tess-step\] RESULT: PASS arm=far-tessellation-step[\s\S]*lodStep 3\.6->7\.2 splitDist 1\.1375->2\.275[\s\S]*distanceBand\(s\)=5[\s\S]*nearLeaf=23\.0322m==23\.0322m latticeStep=1m/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -565,12 +587,13 @@ async function main() {
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
   // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
   // counters never moved, must read as a failure rather than as silence that passes.
-  // PERF-rocks-batch-draw-attribution-1013: the `must` also demands the rocks line, because a rocks
-  // band of 0 used to be printed with the reason "the instrument cannot tell these two apart". A run
-  // that still cannot tell -- or that leaves that line out -- now reads as a failure: the reason must
-  // be `measured`, `proven-empty` or `proven-zero-batch-count`, and the two mutation arms must have
-  // moved the number (off zero when the batch is made to want draws, back to zero when it is removed).
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-zero-batch-count)"[\s\S]*RESULT: PASS arm=draw-instrument/
+  // PERF-rocks-multidrawcount-stale-1013: the `must` no longer accepts a rocks band of 0. `measured`
+  // plus a non-zero `rocksDrawsPerFrame` is the only passing shape now: `proven-zero-batch-count` was
+  // the measured name of the defect (a populated batch that drew nothing), not a verdict, and this
+  // arm runs the default world, which places rocks, so `proven-empty` is the same defect wearing a
+  // different reason. A band that disagrees with the batch's own `_multiDrawCount` still fails as
+  // `instrument-gap`, and the two mutation arms must still have moved the number in both directions.
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"rocksDrawsPerFrame":[1-9][\d.]*[\s\S]*"reason":"measured"[\s\S]*RESULT: PASS arm=draw-instrument/
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {
