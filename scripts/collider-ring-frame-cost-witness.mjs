@@ -35,7 +35,13 @@ const GRADE_STEPS = 12
 // quota or the farthest-first eviction sort moves one of these and reds the witness. The two-replay
 // check below is the diagnostic that separates "grading changed" from "grading became
 // nondeterministic": if the replays disagree with each other, the pin is not the thing that broke.
-const GRADE_PIN = { elected: 2950386805, order: 2229741571, electedCount: 390, removed: 1382 }
+// This pin is a property of the COMMITTED tree and of no particular host: CI run 38390175048 on
+// ubuntu and a replay of the remote main blobs on windows both grade the same 18667 examined cells
+// into these figures, to the last digit. Re-take it from a tree built out of the remote main blobs
+// and never from the shared working tree: another lane's uncommitted edit moved 30 of the examined
+// cells, which elects different rings while still electing 390 of them, so neither the ring count
+// nor a same-host replay can tell a contaminated pin from a sound one.
+const GRADE_PIN = { elected: 223559220, order: 3050248622, electedCount: 390, removed: 1379 }
 const FNV_PRIME = 16777619
 
 const DIRS = [
