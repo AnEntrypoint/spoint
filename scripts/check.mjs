@@ -222,6 +222,21 @@ const NO_GPU_WITNESSES = [
   // arm to arm. A run that printed no band, or one whose near band moved, must read as a failure
   // rather than as silence that passes.
   { file: 'farfield-tessellation-step-witness.mjs', must: /\[far-tess-step\] RESULT: PASS arm=far-tessellation-step[\s\S]*lodStep 3\.6->7\.2 splitDist 1\.1375->2\.275[\s\S]*distanceBand\(s\)=5[\s\S]*nearLeaf=23\.0322m==23\.0322m latticeStep=1m/ },
+  // ORCH-serverless-static-hosting-guard-1013. OWNER RULING, verbatim: "this is a serverless/self
+  // hosting game no cloud services, must be able to run everything that self hosted can do from the
+  // simple github pages setup polymorphically for rtc games as well as for singleplayer". This is the
+  // ruling made mechanical: it boots the shipped client out of a PLAIN STATIC FILE SERVER -- raw
+  // bytes, no dev server, no bundler, no rebuild -- and walks the real module graph the browser
+  // walks, resolving every specifier the way the page's own import map tells it to. The `must` is
+  // the second half of the witness: a run that resolved no module, one whose singleplayer and RTC
+  // paths are not both reachable from the one static output, or one that never printed the module
+  // count, must read as a failure rather than as silence that passes. It also refuses any remote
+  // URL outside the pinned design CDN, so cloud or edge rendering, remote lighting or server-side
+  // frame work cannot be introduced by a later row without reddening this arm. gpu-free: it reads
+  // bytes and resolves specifiers; whether the frame is the right frame is a browser arm CI does
+  // not run. It serves the entry out of the worktree, so a stale dist/client/app.js is not
+  // something a boot from here can be measuring.
+  { file: 'static-host-boot-witness.mjs', must: /MEASURED static-host-boot: [1-9]\d* module\(s\) resolved out of the static tree[\s\S]*\[PASS\] singleplayer and RTC are both reachable from this one static output -- 5\/5 boot path\(s\)[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
