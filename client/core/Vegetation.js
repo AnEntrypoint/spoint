@@ -14,7 +14,7 @@ import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { leafGateM, LEAF_OFF_UNLIMITED_M } from './QualityGovernor.js'
 import { resolveTreeTextureBudget } from './TreeTextureBudget.js'
-import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, speciesLodChain, makeEmptyGeo, TARGET_H, halveTreeMaterialTextures, treeTextureStats, treeTextureHalveRefusals } from './VegetationBuild.js'
+import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H, halveTreeMaterialTextures, treeTextureStats, treeTextureHalveRefusals } from './VegetationBuild.js'
 import { contactOcclusionField, treeContactStamps, contactFieldLoadChunk, contactFieldUnloadChunk } from '/src/terrain/ContactOcclusionField.js'
 import { createWebGPULodInstancer, LOD_REEVAL_MOVE_M } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
@@ -28,6 +28,7 @@ const _occBoxMat = new THREE.MeshBasicMaterial()
 const DROP_HYSTERESIS_MARGIN_M = 64
 const VEG_MESH_OPAQUE_DRAW_ORDER = 3
 const VEG_SHARED_IMPOSTOR_OPAQUE_DRAW_ORDER = 4
+const BUILD_SLICE_BUDGET_MS = 8
 const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const _tintUniform = new THREE.Vector3()
 const bootSpan = (step, label, t0) => { try { performance.measure('boot:vegetation:' + label + ':' + step, { start: t0, end: performance.now() }) } catch (_) {} }
@@ -148,29 +149,30 @@ export async function createVegetation(opts = {}) {
   const meshes = []
 
   let buildErr = 0
+  let _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
   for (let i = 0; i < buildList.length; i++) {
     const { name, variant } = buildList[i]
     try {
       const label = name + '#' + variant
       let _t = performance.now()
-      // speciesLodChain both builds (or clones) the species and returns its finished LOD chain, so
-      // this phase is one call and one macrotask.
-      const sp = await speciesLodChain(name, variant, Tree, TreePreset, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 6000, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
-      bootSpan('generate', label, _t)
-      // Every phase is its own macrotask: a millisecond budget checked between species could not
-      // cut a species that costs more than a frame, so the longest block the main thread takes
-      // here is one phase and a frame runs after each one.
-      await macrotaskYield()
-      _t = performance.now()
-      const branchGeo0 = sp.branchGeo0, leafGeo0 = sp.leafGeo0
-      const _treeBox = sp.treeBox, _treeSph = sp.treeSph
-      const b1 = sp.b1, b2 = sp.b2, l1 = sp.l1, l2 = sp.l2, b2shadow = sp.b2shadow
+      const sp = buildSpecies(name, Tree, variant, TreePreset)
+      bootSpan('generate', label, _t); _t = performance.now()
+      const branchGeo0 = await capGeo(sp.branchGeo, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 6000)
+      const leafGeo0 = await capGeo(sp.leafGeo, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
+      branchGeo0.computeBoundingBox(); leafGeo0.computeBoundingBox()
+      const _treeBox = branchGeo0.boundingBox.clone().union(leafGeo0.boundingBox)
+      const _treeSph = _treeBox.getBoundingSphere(new THREE.Sphere())
+      branchGeo0.boundingBox = _treeBox.clone(); leafGeo0.boundingBox = _treeBox.clone()
+      branchGeo0.boundingSphere = _treeSph.clone(); leafGeo0.boundingSphere = _treeSph.clone()
       let branch, leaf, impostor = false, impMatRef = null, impDims = null
+      const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
+      const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
+      const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
+      for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
+      bootSpan('simplify', label, _t); _t = performance.now()
       await awaitMatTextures([sp.branchMat, sp.leafMat])
       halveTreeMaterialTextures(sp.branchMat, TEX_BUDGET.barkMaxPx, 'bark')
       halveTreeMaterialTextures(sp.leafMat, TEX_BUDGET.leafMaxPx, 'leaf')
-      await macrotaskYield()
-      _t = performance.now()
       if (isWebGPU) {
         applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
         applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
@@ -266,10 +268,12 @@ export async function createVegetation(opts = {}) {
       meshes.push({ name, variant, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
     } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
     if (opts.onProgress) opts.onProgress(i + 1, buildList.length)
-    const _yieldT = (typeof performance !== 'undefined') ? performance.now() : 0
-    {
+    const _now = (typeof performance !== 'undefined') ? performance.now() : 0
+    if (_now - _buildT0 > BUILD_SLICE_BUDGET_MS) {
+      const _yieldT = performance.now()
       await macrotaskYield()
       bootSpan('yield', name + '#' + buildList[i].variant, _yieldT)
+      _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
   }
   // Every tier mesh of every species has had its warm started and awaited before anything can be
@@ -537,6 +541,7 @@ export async function createVegetation(opts = {}) {
     return didLoad || didDrop
   }
 
+  const PREWARM_SLICE_MS = 96
   async function prewarm(px, pz, minChunks = 64, budgetMs = 4000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = _nowMs()
@@ -545,6 +550,7 @@ export async function createVegetation(opts = {}) {
     let yieldMs = 0
     let deferred = 0
     let workMs = 0
+    let sliceMs = 0
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (n >= minChunks && workMs >= budgetMs) break
@@ -554,13 +560,13 @@ export async function createVegetation(opts = {}) {
       else deferred++
       const _c1 = _nowMs()
       workMs += _c1 - _c0
-      // One chunk per macrotask: the slice IS the chunk. A millisecond budget accumulated across
-      // chunks let the main thread run that many milliseconds of placement with no frame in it;
-      // slicing at the chunk bounds the block to one chunk's worth of work and lets a frame run
-      // after every chunk.
-      const _y0 = _nowMs()
-      await macrotaskYield()
-      yieldMs += _nowMs() - _y0
+      sliceMs += _c1 - _c0
+      if (sliceMs >= PREWARM_SLICE_MS) {
+        sliceMs = 0
+        const _y0 = _nowMs()
+        await macrotaskYield()
+        yieldMs += _nowMs() - _y0
+      }
     }
     if (totalInstances > 0 && !bvhBuilt) ensureBVH()
     profile.prewarmMs = _nowMs() - t0
@@ -574,7 +580,16 @@ export async function createVegetation(opts = {}) {
   // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
   // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
   // compile's promise), so a single witness can measure both arms against the same bytes.
-  const warmOnceRetained = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
+  //
+  // It is a hoisted function declaration, not a `const` arrow, because the species build loop above
+  // reaches `queueTierNodeWarm` before control ever arrives at this line: a `const` here is still in
+  // its temporal dead zone at that call site, so every species build threw "Cannot access '<name>'
+  // before initialization", the build loop logged one failure per species and the world came up with
+  // zero tree species and therefore no trees at all. A declaration is initialized on scope entry, so
+  // no call site anywhere in `createVegetation` can reach it uninitialized.
+  function warmOnceRetained() {
+    return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
+  }
 
   function queueTierNodeWarm(instancer) {
     if (warmOnceRetained()) { warmTierMeshes(instancer); return }

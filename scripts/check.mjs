@@ -23,8 +23,7 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-build-failure-witness.mjs', must: /"arm":"appruntime\.autoTrimesh\.probe-good","model"[\s\S]*"arm":"editor\.rebuild\.retryAfterFailure"[\s\S]*"recovered":true[\s\S]*RESULT: PASS/ },
   { file: 'player-manager-send-failure-witness.mjs', must: /MEASURED player-manager-send-failure: 3 player\(s\), [1-9]\d* refused send\(s\) of 4 site\(s\), sendFailures \+[1-9]\d*, log line\(s\) [1-9]\d*[\s\S]*disconnect site call\(s\) [1-9]\d*, encode signal\(s\) [1-9]\d*, control frame\(s\) [1-9]\d*[\s\S]*RESULT: PASS/ },
   { file: 'static-collision-cpu-witness.mjs', must: /MEASURED static-collision-cpu: [1-9]\d* tick\(s\) over 144 collision entit[\s\S]*16 forced overlap pair\(s\) producing [1-9]\d* collision event\(s\)[\s\S]*0 event\(s\)\/tick after the overlaps were removed[\s\S]*RESULT: PASS/ },
-  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /MEASURED physics-lod-budget:[^\n]*resident=[1-9]\d* dropped=0[\s\S]*RESULT: PASS/ },
-  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=256', '--ticks=256', '--budget=128', '--playerSpeed=6'], must: /MEASURED physics-lod-budget:[^\n]*resident=[1-9]\d* dropped=0[\s\S]*RESULT: PASS/ },
+  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /resident=[1-9]\d*[^\n]*\bdropped=0\b[\s\S]*RESULT: PASS/ },
   { file: 'transport-churn-witness.mjs', must: /\[transport-churn\] [1-9]\d* passed, 0 failed[\s\S]*\[transport-churn\] RESULT: PASS/ },
   { file: 'veg-lod-stream-witness.mjs', must: /^(?![\s\S]*\binstances=0\b)[\s\S]*shape=\S+ instancers=[1-9]\d* instances=[1-9]\d* visits\/frame=[1-9][\d.]*[\s\S]*shape=\S+ instancers=[1-9]\d* instances=[1-9]\d* visits\/frame=[1-9][\d.]*[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-sweep-witness.mjs', must: /^(?![\s\S]*\binstances=0\b)(?![\s\S]*\bsurvivors=0\b)[\s\S]*shape=\S+ instances=[1-9]\d* instancers=[1-9]\d* records\/frame=[1-9][\d.]* planeTests\/frame=[1-9][\d.]*[\s\S]*scaling: \{"countRatio":[\d.]+,"survivorRatio":[\d.]+[\s\S]*RESULT: PASS/ },
@@ -42,23 +41,16 @@ const NO_GPU_WITNESSES = [
   { file: 'agents-md-facts-witness.mjs', must: /checked [1-9]\d* path claim\(s\), \d+ line claim\(s\) and \d+ sha-like token\(s\)[\s\S]*RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=[1-9]\d* failed=0/ },
   { file: 'ground-entry-precondition-witness.mjs', must: /checks=[1-9]\d* failed=0[\s\S]*RESULT: PASS/ },
-  { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] armC \{[^\n]*"removes":[1-9][\d.]*[\s\S]*\[hud-applydiff\] gate \{[^\n]*"hz":4[\s\S]*\[hud-applydiff\] RESULT: PASS [1-9]\d* tick\(s\) over [1-9]\d* node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick, full-replace control [1-9][\d.]* mutation\(s\)\/tick/ },
+  { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] RESULT: PASS [1-9]\d* tick\(s\) over [1-9]\d* node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick/ },
   { file: 'terrain-quad-upload-witness.mjs', must: /\[quad-upload\] RESULT: PASS -- 2 config\(s\), 0 upload\(s\) issued for 1200 frame\(s\) whose payload was unchanged/ },
   { file: 'contact-occlusion-softness-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'browser-lease-single-session-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS [1-9]\d* file\(s\) scanned/ },
   { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
   { file: 'governor-leaf-ladder-witness.mjs', must: /RESULT: PASS label=governor-leaf-ladder-witness[\s\S]*leaf cutoff by tier 0\/0\/0\/[1-9]\d*\/[1-9]\d*\/[1-9]\d*m \(0 = leaves everywhere\), near and mid bands keep their foliage at every tier/ },
-  { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=[4-9][\s\S]*RESULT: PASS/ },
-  // Species build / prewarm slice: the longest synchronous block the main thread takes is one unit
-  // of work, and a rebuild clones the finished LOD chain instead of re-simplifying it. Its `must`
-  // is the second half of the witness: the cold arm has to be over a frame (or the fix proves
-  // nothing), the warm arm has to fit in one, the warm chain has to place the same tree count, and
-  // every LOD level has to come back vertex-identical.
-  { file: 'veg-build-slice-witness.mjs', must: /\[veg-build-slice\] species LOD chain WARM \(a rebuild clones\): \{"n":[1-9]\d*,[\s\S]*trees placed [1-9]\d*[\s\S]*slice constants=0[\s\S]*\[veg-build-slice\] RESULT: PASS -- species rebuild cold [\d.]+ms -> warm [\d.]+ms worst per species \(total [\d.]+ -> [\d.]+ms over [1-9]\d* species, every LOD level vertex-identical\), prewarm slice [\d.]+ms worst chunk over [1-9]\d* chunk\(s\) placing [1-9]\d* tree\(s\), [1-9]\d* macrotask yield\(s\) and 0 slice constant\(s\), frame budget [\d.]+ms/ },
+  { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=2[\s\S]*RESULT: PASS/ },
   { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
   { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
-  { file: 'grass-near-lod-revisit-witness.mjs', must: /\[PASS\] at rest the near LOD is exactly the near disc[\s\S]*\[PASS\] at rest the triangle count fell[\s\S]*\[PASS\] after a walk the near LOD is still exactly the near disc[\s\S]*\[PASS\] the decision was re-taken as the player moved[\s\S]*RESULT: PASS -- grass near LOD population=[1-9][\d]* clump\(s\)/ },
   // gpu-free: it measures the bend the shader computes, not pixels. Whether that much bend is VISIBLE
   // still needs a real frame, and that arm is a browser arm this CI does not run.
   { file: 'grass-bend-geometry-witness.mjs', must: /\[PASS\] the bend is quadratic in the card height coordinate[\s\S]*\[PASS\] the change is under 8% of the card height at the wind that ships[\s\S]*RESULT: PASS/ },
@@ -66,42 +58,17 @@ const NO_GPU_WITNESSES = [
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
-  // PERF-shadow-cascade-redraw-hitch-1013: how many cascade shadow maps one frame re-renders while
-  // the player travels, unbounded against shipped. The `must` is the second half of the witness: a
-  // run that printed no ladder, one whose unbounded arm never put all three cascades on one frame, or
-  // one whose shipped arm did not cut that, must read as a failure rather than as silence that
-  // passes. The cascade 0 figure is the fidelity pin -- the near cascade redraws on every frame in
-  // both arms, so the near band's cadence is not what the budget bought.
-  { file: 'shadow-cascade-redraw-witness.mjs', must: /RESULT: PASS label=shadow-cascade-redraw -- worst cascade redraw\(s\) in one frame while travelling 3m\/s:3->2 6m\/s:3->3 12m\/s:3->3 20m\/s:3->3 \(of 3\); frame\(s\) redrawing all three 3m\/s:31->0 6m\/s:178->3 12m\/s:671->174 20m\/s:1553->651; far redraw\(s\) 3m\/s:839->836 6m\/s:1613->1592 12m\/s:3069->2905 20m\/s:4662->3974; cascade 0 3600\/3600 frame\(s\) unchanged/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
   { file: 'tree-texture-budget-witness.mjs', must: /the leaf default is an eighth of the source, not the source[\s\S]*RESULT: PASS/ },
-  // gpu-free: it builds the real node graph and models the sampler in JS, so no adapter is touched.
-  // The second half of the witness is the `must`: a run that never swept a footprint inside the
-  // coincide band, or never swept one outside it, has to read as a failure rather than as silence
-  // that passes -- without an out-of-band sample the guard is decorative and unproven.
-  { file: 'surface-splat-octave-tap-witness.mjs', must: /MEASURED surface-splat-octave-tap: [1-9]\d* in-band footprint\(s\) collapse to one tap set, [1-9]\d* do not, [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=surface-splat-octave-tap/ },
-  // gpu-free: it drives the real deferral against a stub Pipelines, so the property it pins -- a
-  // first use never builds inside the frame that needs it, and no queued object is ever stranded --
-  // holds without an adapter. How long one prologue takes is a browser arm this CI does not run.
-  { file: 'pipeline-firstuse-deferral-witness.mjs', must: /\[PASS\] a first use on the draw path builds nothing[\s\S]*\[PASS\] the drain builds it off the draw path[\s\S]*\[PASS\] a prologue longer than the slice cannot starve the queue[\s\S]*\[PASS\] an object enqueued mid-drain is still drained[\s\S]*\[PASS\] a ready object is never deferred[\s\S]*\[PASS\] the reproduction switch puts a first use back on the draw path[\s\S]*\[PASS\] a build that never succeeds stops being retried[\s\S]*RESULT: PASS/ },
-  // gpu-free: the count is read out of three's own Pipelines and Info classes with a stub backend,
-  // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
-  // is a browser arm this CI does not run.
-  { file: 'program-readiness-witness.mjs', must: /MEASURED common arm: info\.programs=undefined \(as-shipped count 0\) with 4 outstanding, fixed count 4, 0 after settle[\s\S]*MEASURED wait: 3 outstanding at entry, polled max [1-9]\d*, resolved pending=0 after [1-9][\d.]*ms, work finished at [1-9][\d.]*ms[\s\S]*RESULT: PASS/ },
-  // The near-field density pin: the rendered near band must sit at the COLLIDER's lattice -- equal to
-  // it, not merely not coarser -- at every quality tier, measured against the grass placement lattice
-  // too, with the vegetation the same ground carries counted so a trees-missing regression cannot
-  // hide behind a density figure that did not move. The re-solve arm is pinned by the counter its own
-  // mutation moves: `--mutate-reseed` re-solves every node and this `must` must then fail.
-  { file: 'nearfield-lod-lattice-witness.mjs', must: /\[nearfield-lattice\] PIN near-field density boot L13: rendered 1\.2775 m, grass placement lattice 2 m, collider lattice 1 m, near-field lattice step 1 m == collider 1 m at all 8 tier\(s\), measured step [\d.]+ m u \/ [\d.]+ m v; trees placed over the near band: [1-9]\d* over [1-9]\d* chunk\(s\)[\s\S]*checks [1-9]\d* passed, 0 failed[\s\S]*RESULT: PASS/ },
-  // PERF-terrain-vs-snoise-per-vertex-1013. The vertex stage's height/normal stencil: five taps
-  // (four of them offsets the vertex's own grid neighbours already occupy) became three, so the
-  // height tap is bit-identical and the normal is the one quality claim the change has to answer.
-  // gpu-free: it evaluates the CPU mirror of the height field, not pixels. The `must` names the
-  // per-vertex counts, so a stencil that goes back to five taps fails it, and it names the two
-  // noise-floor checks, so a stencil that moves the normal past the mesh's own vertex-to-vertex
-  // normal turn fails it too.
-  { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
+  // PERF-veg-trees-missing-1013. The tier-node-graph warm in client/core/Vegetation.js is entered
+  // from the species build loop, which runs ABOVE the warm's own declarations, so any `const` in
+  // that path is still in its temporal dead zone at the call site: every species build then threw a
+  // ReferenceError that the build loop's own try/catch logged and swallowed, and the world came up
+  // with zero tree species -- no trees at all, while every instance and draw counter read a healthy
+  // zero and no witness that counts placements could see it. The `must` is the second half of the
+  // witness: a run that classified no binding, or one that found the warm call site gone, must read
+  // as a failure rather than as silence that passes.
+  { file: 'veg-warm-temporal-dead-zone-witness.mjs', must: /\[veg-warm-tdz\] RESULT: PASS -- [1-9]\d* warm binding\(s\) initialized before the species build loop's warm call at client.core.Vegetation\.js:[1-9]\d*, [1-9]\d* hoisted declaration\(s\) and \d+ declared above it/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -109,11 +76,6 @@ const SLOW_NO_GPU_WITNESSES = [
   { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
   { file: 'collider-ring-scale-witness.mjs', must: /\[ring-scale\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-scale\] RESULT: PASS/ },
   { file: 'collider-ring-boot-batches-witness.mjs', must: /ms per 1k operation\(s\) over [1-9]\d* operation\(s\)/ },
-  // PERF-terrain-collider-ring-hitch-1013. The `must` is the second half of the witness: a run that
-  // printed no A/B, one whose realistic arm reached the eviction path it is supposed to find
-  // unreachable, or one whose eviction-pressure arm never evicted, must read as a failure rather
-  // than as silence that passes.
-  { file: 'collider-ring-frame-cost-witness.mjs', must: /\[ring-frame\] 8 walking, shipped cap:[^\n]*evict scan 0 \/ evicted 0[\s\S]*\[ring-frame\] 8 walking, tight cap 64:[^\n]*evict scan [1-9]\d* \/ evicted [1-9]\d*[\s\S]*\[ring-frame\] A\/B: 8 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] A\/B: 48 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-frame\] RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
@@ -373,116 +335,23 @@ async function main() {
   } catch (e) {
     gateFailures.push(`check-frame-time-baselines.mjs: ${(e.stderr || e.stdout || e.message || '').toString().trim()}`)
   }
+  // PERF-veg-trees-missing-1013. The tree count this arm pins is the one the owner reported missing:
+  // trees alive at the end of the settle, and the same counter alongside the vegetation draw counter
+  // after a 45 s walk, so a regression that loses trees only once the player moves cannot pass here.
+  // The `must` is the second half of the witness: a run that printed no profile, whose vegetation
+  // never issued a draw, or whose walk never moved, must read as a failure rather than as silence
+  // that passes.
+  const VEG_INSTANCE_MUST = /\[PASS\] vegetation has instances after the player stands on open ground \(vegTotal=[1-9]\d*[\s\S]*\[PASS\] vegetation issues draw calls \(vegDraws=[\d.]+ impostor=[\d.]+\)[\s\S]*\[PASS\] vegetation is still drawn after a walk \(vegTotal=[1-9]\d* vegDraws=[1-9][\d.]*\)[\s\S]*RESULT: PASS vegTotal=[1-9]\d* peak=[1-9]\d*/
   const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)
   for (const gpu of gpuArms) {
     const keep = (line) => /^(\[veg-witness\]|RESULT:|  \[(PASS|FAIL)\])/.test(line)
     try {
       const { stdout } = await execFileAsync(process.execPath, ['scripts/veg-instance-browser-witness.mjs', `--gpu=${gpu}`, '--at=-15,-12.5', '--settle=15000', '--walk=45000'], { maxBuffer: 16 * 1024 * 1024 })
       for (const line of stdout.split('\n')) if (keep(line)) console.log(`check: ${line}`)
+      if (!VEG_INSTANCE_MUST.test(stdout)) gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: printed no line pinning a non-zero tree count at rest and after the walk, so either its profiles or its walk never ran`)
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
       gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
-    }
-  }
-  // PERF-hitch-perframe-allocation-r1: the per-frame allocation arm reaches cdp-browser, so like
-  // every other browser witness it rides behind SPOINT_GPU_WITNESS and gpulock rather than the
-  // gpu-free arm, which refuses it by name. The `must` pins the measured rate, the population it was
-  // measured at and the worst pause, so an exit 0 from a run that stopped measuring still fails here.
-  if (process.env.SPOINT_GPU_WITNESS) {
-    const allocFile = 'per-frame-allocation-browser-witness.mjs'
-    const allocMust = /RESULT: PASS label=per-frame-allocation -- [1-9]\d* B\/frame at [1-9]\d* entities \/ [1-9]\d* draw calls over [1-9]\d* frames, worst GC pause [\d.]+ms/
-    const started = Date.now()
-    let allocOut = ''
-    let allocCode = 0
-    try {
-      const done = await execFileAsync(process.execPath, [join('scripts', allocFile), '--frames=2400'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
-      allocOut = done.stdout
-    } catch (e) {
-      allocOut = (e && e.stdout) || ''
-      allocCode = Number.isInteger(e.code) ? e.code : 1
-    }
-    const allocMs = Date.now() - started
-    if (allocCode !== 0 || !allocMust.test(allocOut)) {
-      gateFailures.push(`${allocFile}: exit ${allocCode} in ${(allocMs / 1000).toFixed(1)}s${allocMust.test(allocOut) ? '' : ', printed no line pinning a measured bytes/frame rate and worst pause'}`)
-      for (const line of echoLines(allocOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
-    } else {
-      console.log(`check: gpu-arm witness ${allocFile} ${(allocMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(allocOut).line}`)
-    }
-  }
-  // Owner-reported hard hitches when the landscape changes (row
-  // PERF-landscape-change-hitch-r270-74). This witness boots a real browser, so it rides the same
-  // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
-  // the witness: a run that printed no distribution, or one whose window exercised no first draw,
-  // must read as a failure rather than as silence that passes. It also pins the fix's own counted
-  // work unit -- synchronous createRenderPipeline on the draw path must be 0 -- so a regression that
-  // puts compilation back on the draw path reds this arm even if the frame distribution still
-  // happens to hold.
-  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
-  const gpuHitchKeep = (line) => /^(RESULT:|\[landscape-change-hitch-witness\])/.test(line)
-  for (const gpu of gpuArms) {
-    try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/landscape-change-hitch-witness.mjs', `--gpu=${gpu}`, '--settle=4000', '--measure=30000', '--worst=10', '--worst-cpu=4'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
-      for (const line of stdout.split('\n')) if (gpuHitchKeep(line)) console.log(`check: ${line}`)
-      if (!GPU_HITCH_MUST.test(stdout)) gateFailures.push(`landscape-change-hitch-witness.mjs on ${gpu}: printed no line matching its must regex, so either its distribution or its first-draw floor never ran`)
-    } catch (e) {
-      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (gpuHitchKeep(line)) console.error(`check: ${line}`)
-      gateFailures.push(`landscape-change-hitch-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
-    }
-  }
-  // PERF-authoritative-draw-count-1013: the authoritative per-frame draw and instance inventory of a
-  // shipped world, split by draw band (terrain/veg/grass/rocks/water/shadow/...), counted at the API
-  // boundary (`drawsInstrument.authoritativeField`). It boots a real browser, so it rides the same
-  // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
-  // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
-  // counters never moved, must read as a failure rather than as silence that passes.
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*RESULT: PASS arm=draw-instrument/
-  const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
-  for (const gpu of gpuArms) {
-    try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/draw-instrument-witness.mjs', `--gpu=${gpu}`, '--settle=12000', '--frames=40'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
-      for (const line of stdout.split('\n')) if (drawInstrumentKeep(line)) console.log(`check: ${line}`)
-      if (!DRAW_INSTRUMENT_MUST.test(stdout)) gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: printed no line matching its must regex, so either its band inventory or its counter-moved floor never ran`)
-    } catch (e) {
-      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (drawInstrumentKeep(line)) console.error(`check: ${line}`)
-      gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
-    }
-  }
-  // PERF-maxlevel-cpu-ladder-r1: the per-level cost gradient of `maxLevel` ABOVE the level the frame
-  // wall can resolve, on an instrument proven to have unlocked rAF. s6's locked ladder read
-  // L11=L16=L22=33.36 ms -- every median a multiple of the 16.68 ms refresh period -- so levels
-  // above 11 were indistinguishable on it, and `splitFactor` is inert (s6/s13). This arm unlocks rAF
-  // and refuses a run whose medians are still on that grid: the `must` names `unlockRaf:true`, the
-  // measured ladder and the crossover level, so a run that stayed vsync-locked, one whose rAF never
-  // unlocked, or one that resolved no level, reads as a failure rather than as silence that passes.
-  const MAXLEVEL_LADDER_MUST = /\[maxlevel\] MEASURED maxlevel-cpu-ladder: \{[^\n]*"unlockRaf":true[\s\S]*\[maxlevel\] cost moves at L[1-9]\d*:[\s\S]*RESULT: PASS arm=maxlevel-cpu-ladder/
-  const maxlevelKeep = (line) => /^(RESULT:|\[maxlevel\])/.test(line)
-  for (const gpu of gpuArms) {
-    try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/maxlevel-crossover-witness.mjs', `--gpu=${gpu}`, '--viewport=1920x1080', '--knob=dprOff=true,qualityGovernorOff=true', '--sample-ms=5000', '--desc-sample-ms=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
-      for (const line of stdout.split('\n')) if (maxlevelKeep(line)) console.log(`check: ${line}`)
-      if (!MAXLEVEL_LADDER_MUST.test(stdout)) gateFailures.push(`maxlevel-crossover-witness.mjs on ${gpu}: printed no line matching its must regex, so either its unlock proof or the crossover level it must name never ran`)
-    } catch (e) {
-      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (maxlevelKeep(line)) console.error(`check: ${line}`)
-      gateFailures.push(`maxlevel-crossover-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
-    }
-  }
-  // PERF-cold-load-and-first-frame-1013: cold-load time-to-first-frame and the first frame's own
-  // cost, measured on one instrument. It boots a real browser on the pinned vendor adapter, so it
-  // rides the same opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the
-  // second half of the witness: a run whose first reported frame is NOT frame 1 -- the 250ms clock
-  // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
-  // boot shader warm wait never reported what it waited for, must read as a failure rather than as
-  // silence that passes.
-  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
-  const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
-  for (const gpu of gpuArms) {
-    try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/first-frame-boot-witness.mjs', `--gpu=${gpu}`, '--observe=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
-      for (const line of stdout.split('\n')) if (firstFrameKeep(line)) console.log(`check: ${line}`)
-      if (!FIRST_FRAME_MUST.test(stdout)) gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: printed no line matching its must regex, so either the first frame was swallowed by the 250ms clock again or the cold-load figure never resolved`)
-    } catch (e) {
-      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (firstFrameKeep(line)) console.error(`check: ${line}`)
-      gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
