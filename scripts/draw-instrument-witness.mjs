@@ -60,7 +60,7 @@ const PROBE = `(() => {
   const W = window
   if (W.__drawProbe) return
   const BANDS = ['terrain','veg','veg-impostor','grass','rocks','water','weather','players','shadow','post','decal-blend','veg-or-players','other','offhook']
-  const probe = { samples: [], hooked: false, rendererKind: null, bands: BANDS.slice(), hookKind: null, ident: null, shadowCams: 0, hookError: null }
+  const probe = { samples: [], hooked: false, rendererKind: null, bands: BANDS.slice(), hookKind: null, ident: null, shadowCams: 0, hookError: null, rocksMainMultiDraw: null, rocksPassMultiDraw: null, rocksHook: null }
   W.__drawProbe = probe
   const zero = () => { const o = {}; for (const b of BANDS) o[b] = 0; return o }
   const tot = { draws: zero(), instances: zero(), objects: zero(), renderObjects: 0, apiDraws: 0, glDraws: 0, wgpuDraws: 0 }
@@ -163,6 +163,57 @@ const PROBE = `(() => {
     return probe.ident
   }
 
+  // PERF-rocks-batch-draw-attribution-1013: a BatchedMesh draw is issued by three's WebGPU backend
+  // as one passEncoderGPU.drawIndexed call per entry of object._multiDrawCount, inside
+  // Renderer.renderObject (node_modules/three/src/renderers/webgpu/WebGPUBackend.js:1806, reached
+  // from Renderer.renderObject -> object.onBeforeRender -> _renderObjectDirect). So the band's own
+  // count and the batch's own _multiDrawCount are the same work unit, and a zero in one without a
+  // zero in the other is an instrument gap rather than an empty batch. Reading the batch's own count
+  // is what turns a 0-draw band from a shrug into a fact.
+  W.__dpRocksBatch = function () {
+    const bm = W.__rocks && W.__rocks._bm
+    if (!bm) return null
+    let active = 0, visible = 0, activeVisible = 0
+    const inf = bm._instanceInfo
+    if (Array.isArray(inf)) for (const i of inf) { if (!i) continue; if (i.active) active++; if (i.visible) visible++; if (i.active && i.visible) activeVisible++ }
+    return {
+      multiDrawCount: bm._multiDrawCount === undefined ? null : bm._multiDrawCount,
+      instanceCount: bm.instanceCount === undefined ? null : bm.instanceCount,
+      instanceInfoLen: Array.isArray(inf) ? inf.length : null,
+      active, visible, activeVisible,
+      geometries: Array.isArray(bm._geometryInfo) ? bm._geometryInfo.length : null,
+      visibilityChanged: bm._visibilityChanged === undefined ? null : bm._visibilityChanged,
+      perObjectFrustumCulled: bm.perObjectFrustumCulled === undefined ? null : bm.perObjectFrustumCulled,
+      sortObjects: bm.sortObjects === undefined ? null : bm.sortObjects,
+      frustumCulled: bm.frustumCulled === undefined ? null : bm.frustumCulled,
+      objectVisible: bm.visible === undefined ? null : bm.visible,
+      renderOrder: bm.renderOrder === undefined ? null : bm.renderOrder,
+      parented: !!bm.parent,
+      castShadow: bm.castShadow === undefined ? null : bm.castShadow,
+    }
+  }
+  // _multiDrawCount is recomputed per pass, so the value left standing after a frame is the LAST
+  // pass's. Capture the main pass and the last non-main (shadow) pass separately.
+  W.__dpRocksHook = function () {
+    const bm = W.__rocks && W.__rocks._bm
+    if (!bm) { probe.rocksHook = 'no window.__rocks._bm'; return false }
+    if (bm.__dpObr) return probe.rocksHook
+    const orig = bm.onBeforeRender
+    if (typeof orig !== 'function') { probe.rocksHook = 'bm.onBeforeRender is not a function'; return false }
+    bm.__dpObr = true
+    bm.onBeforeRender = function (renderer, scene, camera, geometry, material, group) {
+      const r = orig.call(this, renderer, scene, camera, geometry, material, group)
+      try {
+        const n = this._multiDrawCount
+        if (camera && camera === W.__camera) probe.rocksMainMultiDraw = n
+        else probe.rocksPassMultiDraw = n
+      } catch (_) {}
+      return r
+    }
+    probe.rocksHook = 'hooked'
+    return true
+  }
+
   function classify(object, camera) {
     if (camera) {
       if (shadowSet.has(camera)) return 'shadow'
@@ -244,6 +295,7 @@ const PROBE = `(() => {
       infoCalls: info ? (info.render.calls === undefined ? null : info.render.calls) : null,
       infoDrawCalls: info ? (info.render.drawCalls === undefined ? null : info.render.drawCalls) : null,
       infoTriangles: info ? (info.render.triangles === undefined ? null : info.render.triangles) : null,
+      rocksMainMultiDraw: probe.rocksMainMultiDraw, rocksPassMultiDraw: probe.rocksPassMultiDraw,
     }
   }
   // window.__renderer is the handle client/app.js publishes; window.__app.renderer is not set.
@@ -340,6 +392,10 @@ async function main() {
     const ident = await page.evaluate(`window.__dpBuildIdent()`)
     console.log(`[draw-instrument] settled ${SETTLE_MS}ms; band identity ${JSON.stringify(ident)}`)
 
+    const rocksHook = await page.evaluate(`window.__dpRocksHook()`)
+    const rocksBatch = await page.evaluate(`window.__dpRocksBatch()`)
+    console.log(`[draw-instrument] rocks batch at settle: hook=${JSON.stringify(rocksHook)} ${JSON.stringify(rocksBatch)}`)
+
     // The governor is live by default and sheds a tier on a hitch, which would move the very
     // numbers this row is measuring (and would move them differently on a contended box). Pin it
     // off for the window and publish the tier the inventory belongs to.
@@ -356,12 +412,13 @@ async function main() {
 
     const wanted = FRAMES + 1
 
-    async function sampleWindow(label, w, h) {
+    async function sampleWindow(label, w, h, nFrames = FRAMES) {
+      const need = nFrames + 1
       await page.evaluate(`(() => { window.__drawProbe.samples.length = 0; return true })()`)
       const t1 = Date.now()
       while (Date.now() - t1 < TIMEOUT_MS) {
         const n = await page.evaluate(`window.__drawProbe.samples.length`).catch(() => 0)
-        if (n >= wanted) break
+        if (n >= need) break
         await new Promise(r => setTimeout(r, 50))
       }
       const out = await page.evaluate(`(() => {
@@ -377,6 +434,7 @@ async function main() {
           populationPlayers: (window.__pm && window.__pm.playerMeshes) ? window.__pm.playerMeshes.size : null,
           governorTier: window.__qualityGovernorApi ? window.__qualityGovernorApi.tier : null,
           samples: p.samples.slice(0, ${wanted}),
+          rocksMainMultiDraw: p.rocksMainMultiDraw, rocksPassMultiDraw: p.rocksPassMultiDraw,
         }
       })()`)
       const s = out.samples
@@ -461,6 +519,60 @@ async function main() {
       }
     }
 
+    // PERF-rocks-batch-draw-attribution-1013: an ambiguous zero is not acceptable, so the rocks
+    // number is made non-vacuous by moving it in both directions. Arm 1 puts rocks where they must
+    // render (per-instance culling off, and a rock placed 8 m along the camera forward if the batch
+    // holds no active instance at all) so the band MUST leave zero; arm 2 removes the batch
+    // (bm.visible = false) so the number MUST return to zero. A number that survives both is a real
+    // count; one that moves in neither is an instrument gap and fails.
+    const ROCKS_MUT_FRAMES = 12
+    async function rocksAttributionMutation() {
+      const prep = await page.evaluate(`(() => {
+        const bm = window.__rocks && window.__rocks._bm
+        if (!bm) return { ok: false, why: 'window.__rocks._bm is absent' }
+        let activeVisible = 0
+        const inf = bm._instanceInfo
+        if (Array.isArray(inf)) for (const i of inf) if (i && i.active && i.visible) activeVisible++
+        bm.perObjectFrustumCulled = false
+        bm._visibilityChanged = true
+        let added = -1
+        if (activeVisible === 0) {
+          const cam = window.__camera
+          if (!cam) return { ok: false, why: 'no window.__camera to place a rock in front of' }
+          if (!Array.isArray(bm._geometryInfo) || bm._geometryInfo.length === 0) return { ok: false, why: 'the batch holds no geometry to instance' }
+          cam.updateWorldMatrix(true, false)
+          const e = cam.matrixWorld.elements
+          let fx = -e[8], fy = -e[9], fz = -e[10]
+          const len = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1
+          fx /= len; fy /= len; fz /= len
+          const m4 = cam.matrixWorld.clone()
+          const m = m4.elements
+          const s = 2
+          m[0] = s; m[1] = 0; m[2] = 0; m[3] = 0
+          m[4] = 0; m[5] = s; m[6] = 0; m[7] = 0
+          m[8] = 0; m[9] = 0; m[10] = s; m[11] = 0
+          m[12] = e[12] + fx * 8; m[13] = e[13] + fy * 8; m[14] = e[14] + fz * 8; m[15] = 1
+          try {
+            const id = bm.addInstance(0)
+            if (id < 0) return { ok: false, why: 'bm.addInstance(0) returned ' + id }
+            bm.setMatrixAt(id, m4)
+            bm.setVisibleAt(id, true)
+            added = id
+          } catch (err) { return { ok: false, why: 'place-a-rock failed: ' + (err && err.message) } }
+        }
+        return { ok: true, added, activeVisible }
+      })()`)
+      if (!prep || prep.ok !== true) return { ok: false, why: prep && prep.why }
+      const onWin = await sampleWindow('rocks-placed-in-view', VIEW_W, VIEW_H, ROCKS_MUT_FRAMES)
+      if (onWin.empty) return { ok: false, why: 'the rocks-placed-in-view window produced no samples' }
+      const onBatch = await page.evaluate(`window.__dpRocksBatch()`)
+      await page.evaluate(`(() => { const bm = window.__rocks && window.__rocks._bm; if (bm) bm.visible = false; return true })()`)
+      const offWin = await sampleWindow('rocks-batch-removed', VIEW_W, VIEW_H, ROCKS_MUT_FRAMES)
+      if (offWin.empty) return { ok: false, why: 'the rocks-batch-removed window produced no samples' }
+      return { ok: true, prep, onWin, offWin, onBatch }
+    }
+    const rocksMut = await rocksAttributionMutation()
+
     const s = winA.s
     const perBand = winA.perBand
     const dApi = winA.dApi
@@ -482,17 +594,57 @@ async function main() {
     if (perBand.terrain.draws <= 0) failures.push('terrain drew 0 draws/frame: the terrain band is not being rendered')
     if (BAND_ORDER.every((b) => perBand[b].draws <= 0)) failures.push('no band drew anything, so the instrument saw no work at all')
 
+    // PERF-rocks-batch-draw-attribution-1013: the rocks band is the one band whose object count and
+    // draw count disagreed, and "either empty or unattributed" is not a verdict. The batch's own
+    // `_multiDrawCount` IS the number of draws three will issue for it, so the two can no longer be
+    // told apart only when they disagree with each other.
+    const rocksBase = perBand.rocks.draws
+    const rocksBatchMdc = rocksBatch ? rocksBatch.multiDrawCount : null
+    const rocksActiveVisible = rocksBatch ? rocksBatch.activeVisible : null
+    const rocksMainMdc = out.rocksMainMultiDraw === undefined ? null : out.rocksMainMultiDraw
+    const rocksPlacedDraws = rocksMut.ok ? rocksMut.onWin.perBand.rocks.draws : null
+    const rocksRemovedDraws = rocksMut.ok ? rocksMut.offWin.perBand.rocks.draws : null
+    const rocksReason = rocksBase > 0
+      ? 'measured'
+      : (rocksActiveVisible === 0 && rocksBatchMdc === 0 ? 'proven-empty'
+        : (rocksActiveVisible > 0 && rocksBatchMdc === 0 ? 'proven-zero-batch-count' : 'instrument-gap'))
+    if (rocksReason === 'instrument-gap') failures.push(`rocks: ${ident.rocksInstances} placed, ${rocksActiveVisible} active/visible in the batch, the batch's own _multiDrawCount=${rocksBatchMdc}, yet the band recorded ${r2(rocksBase)} draw(s)/frame -- the BatchedMesh draw escapes the renderObject attribution, so this IS an instrument gap`)
+    else if (!rocksMut.ok) failures.push(`rocks attribution mutation could not run: ${rocksMut.why}`)
+    else {
+      if (rocksPlacedDraws <= 0) failures.push(`rocks: with per-instance culling off${rocksMut.prep.added >= 0 ? ' and a rock placed 8 m in front of the camera' : ''} the band still recorded ${r2(rocksPlacedDraws)} draw(s)/frame, so the instrument cannot see the BatchedMesh draw at all -- an instrument gap, not an empty batch`)
+      if (rocksRemovedDraws > 0) failures.push(`rocks: removing the batch (bm.visible=false) left ${r2(rocksRemovedDraws)} draw(s)/frame in the band, so the number is not the rocks batch's`)
+    }
+
     // A band whose placement knows instances but which drew nothing is a fact about the frame, not a
     // silent pass: it is named here, in the RESULT line and in the row, never rounded to a zero.
     const zeroBands = []
     if (ident.vegInstances > 0 && perBand.veg.draws <= 0 && perBand['veg-impostor'].draws <= 0) zeroBands.push(`veg(${ident.vegInstances} placed, 0 draw(s))`)
     if (ident.grassInstances > 0 && perBand.grass.draws <= 0) zeroBands.push(`grass(${ident.grassInstances} placed, 0 draw(s))`)
-    if (ident.rocksInstances > 0 && perBand.rocks.draws <= 0) zeroBands.push(`rocks(${ident.rocksInstances} placed, ${r2(perBand.rocks.objects)} object(s)/frame submitted to the renderer and 0 draw(s) recorded for it -- either the batch is empty at this spawn or the BatchedMesh path records its draw outside renderObject; the instrument cannot tell these two apart)`)
+    if (ident.rocksInstances > 0 && perBand.rocks.draws <= 0) {
+      zeroBands.push(rocksReason === 'proven-empty'
+        ? `rocks(${ident.rocksInstances} placed, 0 active/visible instance(s) in the BatchedMesh and its own _multiDrawCount=0, so three issues no draw for it -- proven empty, not an instrument gap)`
+        : rocksReason === 'proven-zero-batch-count'
+          ? `rocks(${ident.rocksInstances} placed, ${rocksActiveVisible} active/visible in the batch (so it is NOT empty), and three's own _multiDrawCount for it is ${rocksBatchMdc} -- with perObjectFrustumCulled=${rocksBatch ? rocksBatch.perObjectFrustumCulled : null}, sortObjects=${rocksBatch ? rocksBatch.sortObjects : null} and _visibilityChanged=${rocksBatch ? rocksBatch.visibilityChanged : null}, BatchedMesh.onBeforeRender returns early and never recomputes that count, so three issues no draw at this pose -- a measured zero, not an instrument gap: forcing one recompute moves the band to ${rocksPlacedDraws === null ? 'n/a' : r2(rocksPlacedDraws)} draw(s)/frame)`
+          : `rocks(${ident.rocksInstances} placed, ${rocksActiveVisible} active/visible, _multiDrawCount=${rocksBatchMdc}, ${r2(perBand.rocks.draws)} draw(s)/frame -- INSTRUMENT GAP, the batch wants draws the band does not record)`)
+    }
     if (ident.vegInstances === 0 && perBand.veg.draws <= 0) zeroBands.push('veg(0 placed: no species built, so the band is empty rather than unmeasured)')
     if (perBand.players.draws <= 0) zeroBands.push('players(0 -- singleplayer draws the local player through the entity/other path at this spawn)')
     if (perBand.water.draws <= 0) zeroBands.push('water(0)')
     if (perBand['decal-blend'].draws <= 0) zeroBands.push('decal-blend(0 -- no decals in this world)')
     if (zeroBands.length) console.log(`[draw-instrument] zero-with-reason band(s): ${zeroBands.join('; ')}`)
+    console.log(`[draw-instrument] MEASURED rocks-batch-attribution: ${JSON.stringify({
+      placed: ident.rocksInstances, activeVisible: rocksActiveVisible,
+      batchMultiDrawCount: rocksBatchMdc, mainPassMultiDrawCount: rocksMainMdc,
+      perObjectFrustumCulled: rocksBatch ? rocksBatch.perObjectFrustumCulled : null,
+      sortObjects: rocksBatch ? rocksBatch.sortObjects : null,
+      visibilityChanged: rocksBatch ? rocksBatch.visibilityChanged : null,
+      rocksDrawsPerFrame: r2(rocksBase),
+      placedInViewDrawsPerFrame: rocksPlacedDraws === null ? null : r2(rocksPlacedDraws),
+      placedInViewMultiDrawCount: rocksMut.ok && rocksMut.onBatch ? rocksMut.onBatch.multiDrawCount : null,
+      batchRemovedDrawsPerFrame: rocksRemovedDraws === null ? null : r2(rocksRemovedDraws),
+      rockPlacedInFrontOfCamera: rocksMut.ok ? rocksMut.prep.added >= 0 : null,
+      reason: rocksReason,
+    })}`)
     const consoleErrorEntries = consoleEntries.filter((e) => e.level === 'error' || e.level === 'exception')
     const unallowedConsoleErrors = consoleErrorEntries.filter((e) => !ALLOWED_CONSOLE_ERROR_TEXTS.some((t) => e.text.includes(t)))
     const consoleLevelCounts = consoleEntries.reduce((acc, e) => { acc[e.level] = (acc[e.level] || 0) + 1; return acc }, {})
@@ -507,7 +659,7 @@ async function main() {
       console.error(`[draw-instrument] RESULT: FAIL -- ${failures.join('; ')}`)
       process.exit(1)
     }
-    console.log(`[draw-instrument] RESULT: PASS arm=draw-instrument world=${WORLD} population=${out.populationPlayers === null ? 1 : out.populationPlayers} viewport=${VIEW_W}x${VIEW_H} rasterizer=${gpu.rasterizer} governorTier=${out.governorTier} authoritative=${authoritative} draws/frame=${r2(authoritativeValue)} instances/frame=${Math.round(sumBandInstances)} bands=${BAND_ORDER.filter((b) => perBand[b].draws > 0).length}/${BAND_ORDER.length} zero-with-reason=${zeroBands.length} frames=${frames}`)
+    console.log(`[draw-instrument] RESULT: PASS arm=draw-instrument world=${WORLD} population=${out.populationPlayers === null ? 1 : out.populationPlayers} viewport=${VIEW_W}x${VIEW_H} rasterizer=${gpu.rasterizer} governorTier=${out.governorTier} authoritative=${authoritative} draws/frame=${r2(authoritativeValue)} instances/frame=${Math.round(sumBandInstances)} bands=${BAND_ORDER.filter((b) => perBand[b].draws > 0).length}/${BAND_ORDER.length} zero-with-reason=${zeroBands.length} rocksAttribution=${rocksReason} frames=${frames}`)
     process.exit(0)
   } catch (e) {
     console.error('[draw-instrument] FAILED: ' + (e.stack || e.message))

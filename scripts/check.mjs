@@ -561,8 +561,9 @@ async function main() {
   // PERF-rocks-batch-draw-attribution-1013: the `must` also demands the rocks line, because a rocks
   // band of 0 used to be printed with the reason "the instrument cannot tell these two apart". A run
   // that still cannot tell -- or that leaves that line out -- now reads as a failure: the reason must
-  // be `measured`, `proven-empty` or `proven-culled`, and the two mutation arms must have moved it.
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-culled)"[\s\S]*RESULT: PASS arm=draw-instrument/
+  // be `measured`, `proven-empty` or `proven-zero-batch-count`, and the two mutation arms must have
+  // moved the number (off zero when the batch is made to want draws, back to zero when it is removed).
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-zero-batch-count)"[\s\S]*RESULT: PASS arm=draw-instrument/
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {
@@ -609,7 +610,7 @@ async function main() {
   // and refuses a run whose medians are still on that grid: the `must` names `unlockRaf:true`, the
   // measured ladder and the crossover level, so a run that stayed vsync-locked, one whose rAF never
   // unlocked, or one that resolved no level, reads as a failure rather than as silence that passes.
-  const MAXLEVEL_LADDER_MUST = /\[maxlevel\] MEASURED maxlevel-cpu-ladder: \{[^\n]*"unlockRaf":true[\s\S]*\[maxlevel\] cost moves at L[1-9]\d*:[\s\S]*RESULT: PASS arm=maxlevel-cpu-ladder/
+  const MAXLEVEL_LADDER_MUST = /\[maxlevel\] cost moves at L[1-9]\d*:[\s\S]*\[maxlevel\] MEASURED maxlevel-cpu-ladder: \{[^\n]*"unlockRaf":true[\s\S]*RESULT: PASS arm=maxlevel-cpu-ladder/
   const maxlevelKeep = (line) => /^(RESULT:|\[maxlevel\])/.test(line)
   for (const gpu of gpuArms) {
     try {
