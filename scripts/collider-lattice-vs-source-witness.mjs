@@ -73,6 +73,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const { PhysicsWorld } = await import(href('src/physics/World.js'))
 const { loadWorldModule } = await import(href('src/sdk/WorldLocator.js'))
 const terrainPhysics = await import(href('src/terrain/TerrainPhysics.js'))
+const { nodeBakedSource } = await import(href('src/terrain/BakedSourceAdapter.js'))
 const { armVerdictExitGuard } = await import(href('scripts/lib/verdict-exit-guard.mjs'))
 armVerdictExitGuard({ label: 'collider-lattice-vs-source' })
 
@@ -120,7 +121,7 @@ const lagTimer = setInterval(() => {
 function resetLag() { lag.max = 0; lag.samples = 0; lag.over = LAG_THRESHOLDS_MS.map(() => 0); lag.last = performance.now() }
 
 const streamer = await terrainPhysics.setupTerrainStreaming({
-  physics, playerManager: { players }, terrain: tcfg,
+  physics, playerManager: { players }, terrain: tcfg, bakedSource: nodeBakedSource(),
 })
 if (!streamer || !frame) throw new Error('setupTerrainStreaming produced no streamer or frame')
 const servedHeight = physics.getTerrainHeightFn()
@@ -132,7 +133,7 @@ const waitCovered = async (x, z) => { for (let i = 0; i < 900 && !streamer.cover
 await settle()
 
 // ------------------------------------------------------------------ the 1 m source, read directly
-const baked = await terrainPhysics.loadBakedHeightField(tcfg.bakedHeightfield, tcfg.hashVersion ?? 2, tcfg, frame)
+const baked = await terrainPhysics.loadBakedHeightField(tcfg.bakedHeightfield, tcfg.hashVersion ?? 2, tcfg, frame, nodeBakedSource())
 console.log(`reference: ${baked ? `baked N=${baked.N} extent=${baked.extent} spacing=${(baked.extent / (baked.N - 1)).toFixed(4)}m covers=+-${(baked.extent / 2).toFixed(0)}m` : 'NO BAKE (cpu)'}`)
 
 // ------------------------------------------------------------------ sources at one (x,z)

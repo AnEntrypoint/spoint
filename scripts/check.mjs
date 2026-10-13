@@ -16,6 +16,12 @@ const NO_GPU_WITNESSES = [
   { file: 'physics-body-pool-witness.mjs', must: /RESULT: PASS \([1-9]\d*\/[1-9]\d*\)/ },
   { file: 'physics-motion-recreate-witness.mjs', must: /RESULT: PASS \([1-9]\d*\/[1-9]\d*\)/ },
   { file: 'terrain-reseed-failure-witness.mjs', must: /\[reseed-witness\] [1-9]\d* passed, 0 failed[\s\S]*\[reseed-witness\] RESULT: PASS/ },
+  // ACCEPTPORT-orch-main-w1-30-1: the baked-artifact port. The `must` is the second half of the
+  // witness: the fail-loud arms (absent -> null with no warning, truncated / bad-magic / stale-code
+  // -> [baked-heightfield], hashVersion / terrainKey / chartEpoch -> warn and fall back) have to
+  // have run, and so do the two the port adds -- the loader refuses a caller that supplies no
+  // baked source, and the same artifact loads identically through an in-memory readBytes port.
+  { file: 'terrain-baked-heightfield-fail-loud-witness.mjs', must: /pass [1-9]\d* fail 0[\s\S]*RESULT: PASS/ },
   { file: 'terrain-residency-seam-witness.mjs', must: /RESULT: PASS -- [1-9]\d* seam check\(s\) held over [1-9]\d* heightfield accessor read\(s\)/ },
   { file: 'spawn-clearance-witness.mjs', must: /RESULT: PASS -- [1-9]\d* intersecting candidate\(s\) across [1-9]\d* blocker height\(s\), 0 called clear/ },
   { file: 'prediction-wedge-witness.mjs', must: /\[wedge\] \{[^\n]*"arm":"kinematic-headon"[^\n]*"heldMaxPenetrationM":0,[^\n]*"wallPlaneTicks":0,[^\n]*\n[\s\S]*RESULT: PASS/ },

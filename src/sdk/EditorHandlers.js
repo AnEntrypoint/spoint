@@ -499,6 +499,8 @@ export function createEditorHandlers(ctx) {
       ;(async () => {
         try {
           const { setupTerrainStreaming, stopTerrainStreaming } = await import('../terrain/TerrainPhysics.js')
+          const { nodeBakedSource, browserBakedSource } = await import('../terrain/BakedSourceAdapter.js')
+          const bakedSource = isNode ? nodeBakedSource() : browserBakedSource()
           const terrainEnt = [...appRuntime.entities.values()].find(e => e._appName === 'terrain' || e.app === 'terrain')
           const wd = ctx.currentWorldDef
           const previousCfg = resolveTerrainConfig(wd) || null
@@ -526,7 +528,7 @@ export function createEditorHandlers(ctx) {
             splineCarveJSON: previous.splineCarve?.toJSON?.() ?? null,
             caveCarveJSON: previous.caveCarve?.toJSON?.() ?? null,
           } : {}
-          const build = cfg => setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: cfg, ...carriedEdits })
+          const build = cfg => setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: cfg, bakedSource, ...carriedEdits })
           const replace = async cfg => {
             stopTerrainStreaming(ctx.physics, ctx._terrainStreamer || ctx.physics?._terrainStreamer)
             ctx._terrainStreamer = null

@@ -68,6 +68,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const { PhysicsWorld } = await import(href('src/physics/World.js'))
 const { loadWorldModule } = await import(href('src/sdk/WorldLocator.js'))
 const terrainPhysics = await import(href('src/terrain/TerrainPhysics.js'))
+const { nodeBakedSource } = await import(href('src/terrain/BakedSourceAdapter.js'))
 const { placementsForGrassChunk, GRASS } = await import(href('src/terrain/GrassPlacement.js'))
 const { createPlacementCell, placementCellAt, surfaceOfCell } = await import(href('src/terrain/VegPlacement.js'))
 const { chunkKeyAtLocal, latticeFor } = await import(href('src/terrain/PlacementChart.js'))
@@ -95,7 +96,7 @@ physics.addHeightField = (samples, N, scale, origin) => {
   return id
 }
 
-const streamer = await terrainPhysics.setupTerrainStreaming({ physics, playerManager: { players }, terrain: tcfg })
+const streamer = await terrainPhysics.setupTerrainStreaming({ physics, playerManager: { players }, terrain: tcfg, bakedSource: nodeBakedSource() })
 if (!streamer || !frame) throw new Error('setupTerrainStreaming produced no streamer or frame')
 const servedHeight = physics.getTerrainHeightFn()
 console.log(`groundSource=${frame.groundSource} anchorHeight=${frame.anchorHeight.toFixed(3)} physicsFields=${builtFields.length} N=${builtFields.map(f => f.N).join('/')} spacing=${builtFields.map(f => f.spacing.toFixed(3)).join('/')}m`)

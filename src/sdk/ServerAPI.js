@@ -6,6 +6,7 @@ import { WebSocketTransport } from '../transport/WebSocketTransport.js'
 import { WebTransportServer } from '../transport/WebTransportServer.js'
 import { createUploadHandler } from './UploadHandler.js'
 import { setupTerrainStreaming, stopTerrainStreaming } from '../terrain/TerrainPhysics.js'
+import { nodeBakedSource } from '../terrain/BakedSourceAdapter.js'
 import { attachServerChartMigrators } from './chartState/index.js'
 import { restoreWorldSnapshot, saveWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import {
@@ -83,7 +84,7 @@ export function createServerAPI(ctx) {
       const _tcfg = resolveTerrainConfig(worldDef)
       try {
         if (_tcfg && _tcfg.enabled !== false) {
-          ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
+          ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: nodeBakedSource() })
           if (ctx._terrainStreamer?.chartReanchor) attachServerChartMigrators(ctx, ctx._terrainStreamer.chartReanchor)
         }
       } catch (e) { throw new Error(`[terrain] world "${String(_worldId || worldDef.name || (Number.isFinite(worldDef.terrain?.seed) ? `terrain seed ${worldDef.terrain.seed}` : '(unnamed)')).replace(/\s+/g, ' ')}" has no terrain: ${e?.message || e}`, { cause: e }) }

@@ -508,7 +508,10 @@ export class AppContext {
         const physics = runtime._physics, playerManager = runtime._playerManager
         if (!physics || !playerManager) return null
         const { setupTerrainStreaming } = await import('../terrain/TerrainPhysics.js')
-        return setupTerrainStreaming({ physics, playerManager, terrain: tcfg })
+        // A computed specifier: the adapter carries node:fs, and both the client bundle and the
+        // src/apps/AppContext.js import closure must stay blind to it.
+        const { nodeBakedSource } = await import(['..', 'terrain', 'BakedSourceAdapter.js'].join('/'))
+        return setupTerrainStreaming({ physics, playerManager, terrain: tcfg, bakedSource: nodeBakedSource() })
       }
     }
   }

@@ -23,6 +23,7 @@ import { createConnectionHandlers } from './ServerHandlers.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { createPeerSimSession } from '../netcode/PeerSimSession.js'
 import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
+import { nodeBakedSource } from '../terrain/BakedSourceAdapter.js'
 import { guardedGroundHeight } from '../terrain/PlanetFrame.js'
 import { attachServerChartMigrators } from './chartState/index.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
@@ -109,7 +110,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   const _minimap = minimapDescriptor(knownWorldName, _tcfg)
   if (_minimap) worldDef._minimap = _minimap
   if (_tcfg && _tcfg.enabled !== false) {
-    setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
+    setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: nodeBakedSource() })
       .then(s => {
         _terrainStreamer = s; ctx._terrainStreamer = s
         if (s?.chartReanchor) attachServerChartMigrators(ctx, s.chartReanchor)

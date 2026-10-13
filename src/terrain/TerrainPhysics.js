@@ -29,25 +29,39 @@ export function loadPlanetSampler(opts = {}) {
   return _latestSampler.promise
 }
 
-const _bakeCodeVersionSpec = ['..', 'static', 'BakeCodeVersion.js'].join('/')
-
-async function heightfieldBakeCodeVersion() {
-  const _isNode = typeof process !== 'undefined' && process.versions?.node
-  if (!_isNode) return null
-  const { HEIGHTFIELD_BAKE_CODE_VERSION } = await import(_bakeCodeVersionSpec)
-  return HEIGHTFIELD_BAKE_CODE_VERSION
+// A baked artifact is read through a port, not through a platform: the caller supplies the source
+// that owns readBytes, heightfieldCodec and bakeCodeVersion, and this loader asks it for them. What
+// reads bytes is a fact about the runtime, so a caller that supplies no source is refused instead of
+// being guessed at -- a guessed platform turns an unreadable bake into a silent CPU fallback.
+export class BakedSourceMissingError extends Error {
+  constructor(url, missing) {
+    super(`[baked-heightfield] ${url}: no baked artifact source supplies ${missing}(), so this loader refuses to guess which platform reads the bytes -- pass nodeBakedSource() or browserBakedSource() from src/terrain/BakedSourceAdapter.js`)
+    this.name = 'BakedSourceMissingError'
+    this.code = 'baked-source-missing'
+    this.missing = missing
+  }
 }
 
-export async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
+const BAKED_SOURCE_FNS = ['readBytes', 'heightfieldCodec', 'bakeCodeVersion']
+
+function requireBakedSource(url, source) {
+  for (const fn of BAKED_SOURCE_FNS) {
+    if (!source || typeof source[fn] !== 'function') throw new BakedSourceMissingError(url, fn)
+  }
+  return source
+}
+
+export async function loadBakedHeightField(url, hashVersion, tcfg, frame, bakedSource) {
   if (!url) return null
-  const artifact = await readBakedHeightField(url)
+  const source = requireBakedSource(url, bakedSource)
+  const artifact = await readBakedHeightField(url, source)
   if (!artifact) return null
   const bakedVersion = bakedHashVersionOf(artifact)
   if (bakedVersion !== hashVersion) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: baked with terrain hashVersion ${bakedVersion}, world uses ${hashVersion} -> exact CPU height`)
     return null
   }
-  const bakeCode = await heightfieldBakeCodeVersion()
+  const bakeCode = await source.bakeCodeVersion()
   if (bakeCode !== null && artifact.codeVersion !== bakeCode) {
     throw bakedFieldError(url, `stale bake: stamped with height code version ${JSON.stringify(artifact.codeVersion ?? null)}, this tree bakes ${bakeCode}: the height-generating code changed under the artifact, re-bake it`)
   }
@@ -73,29 +87,8 @@ const HF_MAGIC = 0x48464d31
 const HF_HEADER_BYTES = 8
 const HF_SUPPORTED_BITS = [8, 16]
 
-function bakedFieldError(url, why, cause) {
+export function bakedFieldError(url, why, cause) {
   return new Error(`[baked-heightfield] ${url}: ${why}`, cause ? { cause } : undefined)
-}
-
-async function readBakedBytes(url, isNode) {
-  if (isNode) {
-    const fs = await import('node:fs')
-    let raw
-    try { raw = fs.readFileSync(url.replace(/^\//, '')) }
-    catch (e) {
-      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null
-      throw bakedFieldError(url, `cannot be read: ${e?.message || e}`, e)
-    }
-    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
-  }
-  let res
-  try { res = await fetch(url) }
-  catch (e) { throw bakedFieldError(url, `cannot be read: ${e?.message || e}`, e) }
-  if (!res.ok) {
-    if (res.status === 404) return null
-    throw bakedFieldError(url, `cannot be read: HTTP ${res.status}${res.statusText ? ' ' + res.statusText : ''}`)
-  }
-  return res.arrayBuffer()
 }
 
 function decodedHeightfieldOrThrow(url, buf, decodeHeightfield) {
@@ -136,13 +129,11 @@ function bakedJsonOrThrow(url, json) {
   return json
 }
 
-async function readBakedHeightField(url) {
-  const isNode = typeof process !== 'undefined' && process.versions?.node
-  const bytes = await readBakedBytes(url, isNode)
+async function readBakedHeightField(url, source) {
+  const bytes = await source.readBytes(url)
   if (bytes === null) return null
   if (/\.hf$/i.test(url)) {
-    const hfSpec = isNode ? 'mapspinner/heightfield-codec' : ('/node_modules/' + 'mapspinner/src/heightfield-codec.js')
-    const { decodeHeightfield } = await import(hfSpec)
+    const { decodeHeightfield } = await source.heightfieldCodec()
     return decodedHeightfieldOrThrow(url, bytes, decodeHeightfield)
   }
   let json
@@ -271,7 +262,7 @@ export function stopTerrainStreaming(physics, streamer) {
   if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, '[terrain] stopping terrain streaming failed')
 }
 
-export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null }) {
+export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null, bakedSource = null }) {
   const tcfg = terrain || (worldDef && worldDef.terrain) || null
   if (!tcfg || tcfg.enabled === false || !physics || typeof physics.addHeightField !== 'function') return null
   const tphys = tcfg.physics || {}
@@ -293,7 +284,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     : gpuPatchLegacyOnly
       ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
       : (gpuPatch ? null : 'the GPU patch bake produced no height function')
-  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame)
+  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame, bakedSource)
   // Placement reads the collider's own buffer through the frame, so trees, rocks and grass sit on
   // the surface the collider simulates instead of paying the CPU sampler to solve it again
   // (src/terrain/PlacementChart.js surfaceAlongDir). Absent a bake there is no lattice and placement
