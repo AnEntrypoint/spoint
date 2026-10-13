@@ -135,11 +135,9 @@ export function makeGrassMaterialTSL(wind, density) {
     transformed.mulAssign(scorchScale)
 
     const gDist = instWorldXZ.sub(uCamPosXZ).length()
-    // The distance-density law, in the vertex stage where it costs nothing per frame: a blade
-    // carries its own rank, so it owns the radius at which it stops being drawn, and it grows
-    // from nothing across FADE_M metres of the approach instead of arriving whole. The far blades
-    // are also grown a little and turned to face the camera, which is what pays for the density
-    // they no longer have.
+    // The law in the vertex stage, where it costs nothing per frame: a blade owns the radius at
+    // which it stops being drawn and grows across FADE_M metres of the approach. Far blades are
+    // also grown and turned to face the camera, which pays for the density they no longer have.
     const gEdge = min(float(d.fullR).div(max(clumpRank, float(1e-4)).pow(float(1 / d.p))).add(float(d.fadeM)), uGrassRing)
     const gIn = clamp(gEdge.sub(gDist).div(float(d.fadeM)), 0.0, 1.0)
     const gGrow = min(float(d.growMax), float(1.0).add(float(d.growK).mul(max(gDist.sub(float(d.fullR)), 0.0))))

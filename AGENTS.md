@@ -126,6 +126,15 @@ Skills encode environment-specific constraints that override general knowledge.
 - `VegPlacement.js`/`RockPlacement.js` read climate before `surfaceOfCell` only when `climateUsesLocalXZ !== true`. Veg density must gate on painted snow, else surviving grass weight roots trees. Slope caps differ between `VegPlacement` and `GrassPlacement` (`SLOPE_MAX` 0.6 vs 0.9).
 - REFUTED: `PlacementChart.js radialSlopeAt`'s 2-tap forward difference — the gradient crosses `SLOPE_MAX`, flipping gate decisions. Skipping a three.js attribute upload is safe only because a buffer is seeded from the whole CPU array on creation.
 
+## Grass distance-density
+
+- `GRASS_DENSITY` + `grassBladeEdgeM` (`src/terrain/GrassPlacement.js`) are the single source of the law: `client/core/Grass.js` selects on it and BOTH `GrassTSL.js` and `GrassMaterial.js` mirror it in the vertex stage. Editing one side alone desynchronises the fade from the instance set with no error.
+- A blade's rank `q` is the coin that decided whether it exists, divided by the cell density it was drawn against: uniform on [0,1) and stable for the blade's life, so `q >= f(d)` removes exactly the fraction `f(d)` and which blades are removed is never re-chosen as the player moves. It costs no extra hash, which is why it is that draw and not a new one.
+- `f(d) = (FULL_R / d) ** P` is what makes the surviving population grow as R ** (2 - P) instead of R ** 2; P = 1 would make every extra metre of draw distance cost the same blades as the metre before it. Inside FULL_R the keep fraction is 1 and the fade is exactly 1, so the near band is untouched by construction, not by tuning.
+- The fade has to be shader-side: the CPU re-decides only every `LOD_REVISIT_STEP_M` (4 m) of travel, so a CPU scale fade steps by a large fraction of a blade's height per step. The CPU therefore holds each blade from `LEAD_M` before its own edge — `LEAD_M` must exceed `LOD_REVISIT_STEP_M`, or a blade arrives already visible and pops — and the shader grows it over `FADE_M` metres of the approach.
+- `wind.uGrassRing` no longer carries the ring radius; it carries `EDGE_CAP_M = ringRadius - EDGE_M`, the distance at which the outermost blades' fade reaches zero. The old `1 - smoothstep(0.55 * R, R, d)` height squash is gone, so grass is now full size out to `EDGE_CAP_M - FADE_M` rather than to `0.55 * R`.
+- Placement is chunk-granular and the law is not, so a bigger ring places about twice the blades it keeps; `scripts/grass-distance-density-fade-witness.mjs` measured `updateMsPerQuietFrame` 1.03 -> 1.71 ms. Judge a ring change on that number, not on the instance count alone.
+
 ## Netcode and wire
 
 - Prediction suppresses only the blocked DIRECTION: `_reconcile` (`PredictionEngine.js`) derives `wedgeNormal` from commanded-vs-achieved motion, else `-velocity` when stopped while commanding; `characterStep.js` projects out that component alone.

@@ -143,7 +143,7 @@ const auditCells = (h, px, pz, slackM) => {
       }
     }
   }
-  return { missingVisible, presentPastReach, nearNotFull, nearAbsent, maxVisibleM, maxPresentM, maxFullM, present, placed }
+  return { missingVisible, presentPastReach, nearNotFull, nearAbsent, maxVisibleM, maxPresentM, maxFullM, maxOverreachM, present, placed }
 }
 
 async function arm(cfg, label) {
@@ -155,7 +155,7 @@ async function arm(cfg, label) {
   const settled = { near: h.grass.nearInstances, total: h.grass.totalInstances, tris: trisOf() }
   const steps = Math.round(WALK_M / FRAME_M)
   let quietMs = 0, quietFrames = 0
-  let worstMissing = 0, worstOverreach = 0, worstNear = 0
+  let worstMissing = 0, worstOverreach = 0, worstNear = 0, worstOverreachM = -Infinity
   let nextAudit = AUDIT_EVERY_M
   for (let i = 0; i < steps; i++) {
     const before = h.grass.profile.loads
@@ -164,11 +164,13 @@ async function arm(cfg, label) {
     if (h.grass.profile.loads === before) { quietMs += h.grass.profile.updateMs; quietFrames++ }
     if (Math.abs(pz) >= nextAudit) {
       nextAudit += AUDIT_EVERY_M
-      // Between two re-evaluations the player travels up to LOD_REVISIT_STEP_M, so a blade that
-      // has just fallen out of reach can still be held for that much longer than the lead.
-      const a = auditCells(h, px, pz, LOD_REVISIT_STEP_M)
+      // Between two re-evaluations the player travels up to one LOD_REVISIT_STEP_M, and one
+      // scan's worth of decisions then drains at LOD_REVISIT_BUDGET per frame, so a blade that
+      // has just fallen out of reach can still be held for a second step on top of the lead.
+      const a = auditCells(h, px, pz, 2 * LOD_REVISIT_STEP_M)
       if (a.missingVisible > worstMissing) worstMissing = a.missingVisible
       if (a.presentPastReach > worstOverreach) worstOverreach = a.presentPastReach
+      if (a.maxOverreachM > worstOverreachM) worstOverreachM = a.maxOverreachM
       if (a.nearNotFull + a.nearAbsent > worstNear) worstNear = a.nearNotFull + a.nearAbsent
     }
   }
@@ -187,7 +189,7 @@ async function arm(cfg, label) {
   h.grass.dispose()
   return {
     ...h, label, settled, walked, oracle, audit1, churn, drained,
-    worstMissing, worstOverreach, worstNear,
+    worstMissing, worstOverreach, worstOverreachM, worstNear,
     ringM: h.grass.renderDistance, fullR: h.grass.densityFullR, edgeM: h.grass.densityEdgeM,
     updateMsPerQuietFrame: quietFrames ? quietMs / quietFrames : null,
   }
@@ -234,7 +236,7 @@ check('every blade inside the full-density radius is present and fully faded in'
 check('no blade is absent while it should be visible', after.worstMissing === 0 && after.audit1.missingVisible === 0,
   `walking=${after.worstMissing} at rest=${after.audit1.missingVisible}`)
 check('no blade is held past its own edge plus the lead', after.audit1.presentPastReach === 0 && after.worstOverreach === 0,
-  `at rest=${after.audit1.presentPastReach} walking (one re-evaluation step of slack)=${after.worstOverreach}`)
+  `at rest=${after.audit1.presentPastReach} walking=${after.worstOverreach}, worst overshoot ${after.worstOverreachM.toFixed(2)}m of ${GRASS_DENSITY.LEAD_M}m lead plus ${2 * LOD_REVISIT_STEP_M}m of re-evaluation slack`)
 check('the uniform arm holds everything it places', before.audit1.present === before.audit1.placed,
   `${before.audit1.present} of ${before.audit1.placed}`)
 check('the law really re-decided as the player moved', after.churn > 0, `adds+removes=${after.churn} over ${WALK_M}m`)

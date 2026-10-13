@@ -67,7 +67,10 @@ const makeHarness = async () => {
   const frame = createPlanetFrame({ sampler, anchorDir, offsetY: tcfg.offsetY || 0, reliefScale: tcfg.reliefScale })
   const scene = { children: [], add(o) { this.children.push(o) }, remove(o) { this.children = this.children.filter((c) => c !== o) } }
   const renderer = { [WEBGPU_RENDERER]: true }
-  const grass = await createGrass({ renderer, scene, frame, cfg: {}, worldSeed })
+  // The ring and the population are pinned, so this witness isolates the LOD decision it is
+  // about: with the distance-density law on, the chunk-latched arm would also latch the density
+  // decision and the two arms would no longer be carrying the same grass.
+  const grass = await createGrass({ renderer, scene, frame, cfg: { grassRenderDistance: LOD_RING_M, grassDensityFullR: 1e9 }, worldSeed })
   const ring = createPlacementRing(frame, GRASS, LOD_RING_M)
   const anchorField = createModelExclusionField(undefined).wrapClimateField(createBiomeOverride().wrapClimateField(createCachedAnchorField(undefined, frame)))
   const trisPerClump = (mesh) => {
