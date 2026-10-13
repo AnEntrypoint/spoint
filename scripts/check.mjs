@@ -23,7 +23,8 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-build-failure-witness.mjs', must: /"arm":"appruntime\.autoTrimesh\.probe-good","model"[\s\S]*"arm":"editor\.rebuild\.retryAfterFailure"[\s\S]*"recovered":true[\s\S]*RESULT: PASS/ },
   { file: 'player-manager-send-failure-witness.mjs', must: /MEASURED player-manager-send-failure: 3 player\(s\), [1-9]\d* refused send\(s\) of 4 site\(s\), sendFailures \+[1-9]\d*, log line\(s\) [1-9]\d*[\s\S]*disconnect site call\(s\) [1-9]\d*, encode signal\(s\) [1-9]\d*, control frame\(s\) [1-9]\d*[\s\S]*RESULT: PASS/ },
   { file: 'static-collision-cpu-witness.mjs', must: /MEASURED static-collision-cpu: [1-9]\d* tick\(s\) over 144 collision entit[\s\S]*16 forced overlap pair\(s\) producing [1-9]\d* collision event\(s\)[\s\S]*0 event\(s\)\/tick after the overlaps were removed[\s\S]*RESULT: PASS/ },
-  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /resident=[1-9]\d*[^\n]*\bdropped=0\b[\s\S]*RESULT: PASS/ },
+  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=0', '--ticks=256', '--budget=128'], must: /MEASURED physics-lod-budget:[^\n]*resident=[1-9]\d* dropped=0[\s\S]*RESULT: PASS/ },
+  { file: 'physics-lod-budget-cpu-witness.mjs', args: ['--warm=256', '--ticks=256', '--budget=128', '--playerSpeed=6'], must: /MEASURED physics-lod-budget:[^\n]*resident=[1-9]\d* dropped=0[\s\S]*RESULT: PASS/ },
   { file: 'transport-churn-witness.mjs', must: /\[transport-churn\] [1-9]\d* passed, 0 failed[\s\S]*\[transport-churn\] RESULT: PASS/ },
   { file: 'veg-lod-stream-witness.mjs', must: /^(?![\s\S]*\binstances=0\b)[\s\S]*shape=\S+ instancers=[1-9]\d* instances=[1-9]\d* visits\/frame=[1-9][\d.]*[\s\S]*shape=\S+ instancers=[1-9]\d* instances=[1-9]\d* visits\/frame=[1-9][\d.]*[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-sweep-witness.mjs', must: /^(?![\s\S]*\binstances=0\b)(?![\s\S]*\bsurvivors=0\b)[\s\S]*shape=\S+ instances=[1-9]\d* instancers=[1-9]\d* records\/frame=[1-9][\d.]* planeTests\/frame=[1-9][\d.]*[\s\S]*scaling: \{"countRatio":[\d.]+,"survivorRatio":[\d.]+[\s\S]*RESULT: PASS/ },
@@ -41,7 +42,7 @@ const NO_GPU_WITNESSES = [
   { file: 'agents-md-facts-witness.mjs', must: /checked [1-9]\d* path claim\(s\), \d+ line claim\(s\) and \d+ sha-like token\(s\)[\s\S]*RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=[1-9]\d* failed=0/ },
   { file: 'ground-entry-precondition-witness.mjs', must: /checks=[1-9]\d* failed=0[\s\S]*RESULT: PASS/ },
-  { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] RESULT: PASS [1-9]\d* tick\(s\) over [1-9]\d* node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick/ },
+  { file: 'hud-applydiff-witness.mjs', args: ['--frames=200'], must: /\[hud-applydiff\] armC \{[^\n]*"removes":[1-9][\d.]*[\s\S]*\[hud-applydiff\] gate \{[^\n]*"hz":4[\s\S]*\[hud-applydiff\] RESULT: PASS [1-9]\d* tick\(s\) over [1-9]\d* node\(s\): [01] mutation\(s\)\/tick, \d+\.\d+ ms diff\/tick, full-replace control [1-9][\d.]* mutation\(s\)\/tick/ },
   { file: 'terrain-quad-upload-witness.mjs', must: /\[quad-upload\] RESULT: PASS -- 2 config\(s\), 0 upload\(s\) issued for 1200 frame\(s\) whose payload was unchanged/ },
   { file: 'contact-occlusion-softness-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'browser-lease-single-session-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
@@ -335,6 +336,26 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
       gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // Owner-reported hard hitches when the landscape changes (row
+  // PERF-landscape-change-hitch-r270-74). This witness boots a real browser, so it rides the same
+  // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
+  // the witness: a run that printed no distribution, or one whose window exercised no first draw,
+  // must read as a failure rather than as silence that passes. It also pins the fix's own counted
+  // work unit -- synchronous createRenderPipeline on the draw path must be 0 -- so a regression that
+  // puts compilation back on the draw path reds this arm even if the frame distribution still
+  // happens to hold.
+  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
+  const gpuHitchKeep = (line) => /^(RESULT:|\[landscape-change-hitch-witness\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/landscape-change-hitch-witness.mjs', `--gpu=${gpu}`, '--settle=4000', '--measure=30000', '--worst=10', '--worst-cpu=4'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (gpuHitchKeep(line)) console.log(`check: ${line}`)
+      if (!GPU_HITCH_MUST.test(stdout)) gateFailures.push(`landscape-change-hitch-witness.mjs on ${gpu}: printed no line matching its must regex, so either its distribution or its first-draw floor never ran`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (gpuHitchKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`landscape-change-hitch-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)

@@ -199,6 +199,7 @@ for (let tick = 1; tick <= totalTicks; tick++) {
 var lodAdds = lodAdds || 0
 var lodRemoves = lodRemoves || 0
 var lodRebinds = lodRebinds || 0
+const droppedTotal = budgetRemoved + lodRemoves
 
 const stepStat = stats(stepSamples)
 const syncStat = stats(syncSamples)
@@ -238,6 +239,7 @@ expect('stateHash', stateHash, v => EXPECT_HASH === null || String(v) === String
 if (REQUIRE_ENGAGED) expect('budgetSweeps', budgetSweeps, v => v >= 1)
 
 emit(TAG + ' population=' + POPULATION + ' players=' + PLAYER_COUNT + ' playerSpeed=' + PLAYER_SPEED + ' radius=' + RADIUS + ' budget=' + BUDGET + ' lodInterval=' + LOD_INTERVAL + ' warm=' + WARM_TICKS + ' ticks=' + MEASURE_TICKS + ' dt=' + DT)
+emit('MEASURED physics-lod-budget: ' + POPULATION + ' dynamic body(ies) + ' + PLAYER_COUNT + ' player(s) over ' + MEASURE_TICKS + ' measured tick(s) after ' + WARM_TICKS + ' warm, step=' + fmt(stepStat.mean) + ' ms/frame median=' + fmt(stepStat.median) + ', sync=' + fmt(syncStat.mean) + ' ms/frame, lodSweep=' + fmt(amort(lodStat)) + ' ms/frame (' + fmt(lodStat.mean) + ' ms/call x ' + lodStat.n + '), budget=' + fmt(amort(budgetStat)) + ' ms/frame (' + fmt(budgetStat.mean) + ' ms/call, engaged ' + budgetSweeps + '/' + budgetCallsTotal + '), resident=' + resident + ' dropped=' + droppedTotal)
 emit(TAG + ' step   ms/frame    min=' + fmt(stepStat.min) + ' median=' + fmt(stepStat.median) + ' p95=' + fmt(stepStat.p95) + ' mean=' + fmt(stepStat.mean) + ' max=' + fmt(stepStat.max) + ' n=' + stepStat.n + ' over' + OUTLIER_MS + 'ms=' + stepOutliers)
 emit(TAG + ' sync   ms/frame    min=' + fmt(syncStat.min) + ' median=' + fmt(syncStat.median) + ' p95=' + fmt(syncStat.p95) + ' mean=' + fmt(syncStat.mean) + ' max=' + fmt(syncStat.max) + ' n=' + syncStat.n)
 emit(TAG + ' lod    ms/call     min=' + fmt(lodStat.min) + ' median=' + fmt(lodStat.median) + ' p95=' + fmt(lodStat.p95) + ' mean=' + fmt(lodStat.mean) + ' max=' + fmt(lodStat.max) + ' n=' + lodStat.n + ' amortizedMsPerFrame=' + fmt(amort(lodStat)))
@@ -245,7 +247,7 @@ emit(TAG + ' lod    bodyOps ms  mean=' + fmt(lodOpStat.mean) + ' max=' + fmt(lod
 emit(TAG + ' budget ms/call     min=' + fmt(budgetStat.min) + ' median=' + fmt(budgetStat.median) + ' p95=' + fmt(budgetStat.p95) + ' mean=' + fmt(budgetStat.mean) + ' max=' + fmt(budgetStat.max) + ' n=' + budgetStat.n + ' amortizedMsPerFrame=' + fmt(amort(budgetStat)))
 emit(TAG + ' budget engagedCalls=' + budgetSweeps + '/' + budgetCallsTotal + ' activeIdsPeak=' + budgetActivePeak + ' deactivated=' + budgetDeactivated + ' removed=' + budgetRemoved)
 emit(TAG + ' lodScanMeanMsPerCall=' + fmt(lodStat.mean - budgetStat.mean - lodOpStat.mean) + ' frameTotalMeanMs=' + fmt(frameTotal))
-emit(TAG + ' resident=' + resident + ' activeIds=' + runtime._activeDynamicIds.size + ' sleepingIds=' + runtime._sleepingDynamicIds.size + ' worldBodies=' + world.physicsSystem.GetNumBodies() + ' joltActive=' + world.physicsSystem.GetNumActiveBodies() + ' dropped=0')
+emit(TAG + ' resident=' + resident + ' activeIds=' + runtime._activeDynamicIds.size + ' sleepingIds=' + runtime._sleepingDynamicIds.size + ' worldBodies=' + world.physicsSystem.GetNumBodies() + ' joltActive=' + world.physicsSystem.GetNumActiveBodies() + ' dropped=' + droppedTotal)
 emit(TAG + ' stateHash=' + stateHash)
 emit(TAG + ' RESULT: ' + (failures.length === 0 ? 'PASS' : 'FAIL ' + failures.join(', ')))
 
