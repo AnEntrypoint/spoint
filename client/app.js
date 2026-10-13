@@ -80,7 +80,7 @@ import { createPauseMenu } from './hud/PauseMenu.js'
 import { createEmoteWheel } from './hud/EmoteWheel.js'
 import { createChatQuickWheel } from './hud/ChatQuickWheel.js'
 import { dbg } from './core/debug-log.js'
-import { createShadowPipeline, createShadowCasterTracker } from './core/ShadowPipeline.js'
+import { createShadowPipeline, createShadowCasterTracker, requestShadowRedraw } from './core/ShadowPipeline.js'
 import { createTimeOfDay } from './core/TimeOfDay.js'
 import { createWeather } from './core/Weather.js'
 import { setWetness as _setWetnessTint } from './core/WetnessTint.js'
@@ -939,7 +939,7 @@ const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoad
 if (typeof window !== 'undefined') window.__staticInstanceStore = el.staticInstanceStore
 if(window.__app){window.__app.el=el;window.__app.modelPool=modelPool}
 el.onTrimeshReady=(id,v,i)=>{if(client)client.send(MSG.TRIMESH_DATA,{entityId:id,vertices:v,indices:i})}
-const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;renderer.shadowMap.needsUpdate=true;try{shadowPipeline&&shadowPipeline.forceUpdate()}catch(_){}},200) }
+const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;requestShadowRedraw(renderer);try{shadowPipeline&&shadowPipeline.forceUpdate()}catch(_){}},200) }
 let _anyEntityDone = false
 const _envEntityIds = new Set()
 const onFirstEntityLoaded=id=>{ const isEnv = _envEntityIds.has(id); if (isEnv || (!_envEntityIds.size && !_anyEntityDone)) loadingMachine.send('ENVIRONMENT_DONE'); _anyEntityDone = true; if (firstSnapshotEntityPending.has(id)) firstSnapshotEntityPending.delete(id); loadingMachine.send('SET_PENDING', { count: firstSnapshotEntityPending.size }) }
@@ -2796,7 +2796,7 @@ function buildFrameSectionNodes() {
         const _playerCasterMoved = shadowPlayerCasters.sync(pm.playerMeshes.values(), _shadowMovers)
         const _entityCasterMoved = shadowEntityCasters.sync(el.entityMeshes.values(), _shadowMovers)
         const _casterMoved = _playerCasterMoved || _entityCasterMoved
-        if (_shadowMoved || _casterMoved) renderer.shadowMap.needsUpdate = true
+        if (_shadowMoved || _casterMoved) requestShadowRedraw(renderer)
         // A caster that only moved near the camera cannot change what the far cascades show, so
         // hand the movers over and let the pipeline dirty the cascades their band actually covers.
         if (_casterMoved && shadowPipeline) {
@@ -2917,7 +2917,7 @@ function animate(ts) {
   _graphCtx.modelPool = modelPool; _graphCtx.sceneOcclusion = sceneOcclusion
   occlusionQueryBudget.reportFrameTime(_perf.lastMs)
   renderGraph.run(_graphCtx)
-  if (takeDeferredDraws(renderer) > 0) { renderer.shadowMap.needsUpdate = true; shadowPipeline?.forceUpdate() }
+  if (takeDeferredDraws(renderer) > 0) { requestShadowRedraw(renderer); shadowPipeline?.forceUpdate() }
   multiViewport.render(camera)
   minimapHUD.update()
   _perf.sample(performance.now() - now, renderer, pm.playerMeshes.size, el.entityMeshes.size)

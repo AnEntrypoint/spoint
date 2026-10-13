@@ -224,6 +224,19 @@ export function createShadowPipeline(sun, opts = {}) {
   return pipeline
 }
 
+// Asking for a shadow redraw is a two-backend question and only one of the two answers is a
+// renderer-level write. three's WebGPU Renderer.shadowMap is { enabled, transmitted, type } and
+// ShadowNode.updateBefore gates on the PER-LIGHT light.shadow.needsUpdate, which forceUpdate()
+// already writes; three's WebGLShadowMap.render gates the whole pass on renderer.shadowMap
+// .needsUpdate because autoUpdate is off. So the renderer-level write is load-bearing on the legacy
+// renderer and unreadable on the WebGPU one, and this is the one place that decides.
+export function requestShadowRedraw(renderer) {
+  const sm = renderer && renderer.shadowMap
+  if (!sm || typeof sm.render !== 'function') return false
+  sm.needsUpdate = true
+  return true
+}
+
 const POSE_CHILDREN = 7, POSE_VISIBLE = 8, POSE_CASTING = 9, POSE_SLOTS = 10
 
 function castsShadow(obj) {
