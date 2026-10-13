@@ -2,6 +2,7 @@
 import {
   createQualityGovernor, FRAME_BUDGET_MS, LOWER_ABOVE_MS, RAISE_BELOW_MS, MIN_STEP_INTERVAL_MS,
   RESOLUTION_KEYS, MAX_TIER, HITCH_ABOVE_MS, HITCH_STEP_INTERVAL_MS, HITCH_RESPONSE_BOUND_FRAMES,
+  EXCURSION_ABOVE_MS, EXCURSION_WINDOW_FRAMES, EXCURSION_TRIP_COUNT,
 } from '../client/core/QualityGovernor.js'
 import { RenderControls } from '../client/core/RenderControls.js'
 import { numericFlag, parseArgs } from './lib/witness-args.mjs'
@@ -18,6 +19,7 @@ const HITCH_MS = numericFlag(args, 'hitchMs', 100)
 const SUSTAIN_FRAMES = numericFlag(args, 'sustainFrames', 400)
 const BURST_CAP = numericFlag(args, 'burstCap', 80)
 const TRAIN_WINDOWS = numericFlag(args, 'trainWindows', 60)
+const WINDOW_FRAMES = 30
 
 function finish(verdict, detail) {
   console.log(`RESULT: ${verdict} label=${LABEL} -- ${String(detail).split(LF).join(' ')}`)
@@ -115,6 +117,54 @@ function enableBitArm() {
   return { bootDefault, bootDefaultOff, shippedMovedAt: shipped.movedAt, shippedSteps: shipped.steps, optedOutSteps: optedOut.steps }
 }
 
+// The band arm: one isolated run of over-budget frames, then the load goes back inside the budget.
+// The point of counting excursions instead of lowering hitchAboveMs to the budget is that one or
+// two over-budget frames are one or two excursions out of EXCURSION_WINDOW_FRAMES and can never
+// reach EXCURSION_TRIP_COUNT, so noise is not a shed. Run length EXCURSION_TRIP_COUNT is the first
+// run that sheds, and EXCURSION_TRIP_COUNT - 1 is the last that does not: that pair is what makes
+// both sides of the threshold non-vacuous.
+function bandArm() {
+  function isolatedRun(runMs, runFrames) {
+    const h = harness()
+    h.feed(BASELINE_MS, SETTLE_FRAMES)
+    const from = h.writes.length
+    h.feed(runMs, runFrames)
+    h.feed(BASELINE_MS, SETTLE_AFTER_FRAMES)
+    return h.pending(from).length
+  }
+  function sparseSpike(spikeMs, periodFrames, cycles) {
+    const h = harness()
+    h.feed(BASELINE_MS, SETTLE_FRAMES)
+    const from = h.writes.length
+    for (let i = 0; i < cycles; i++) { h.feed(spikeMs, 1); h.feed(BASELINE_MS, periodFrames - 1) }
+    return h.pending(from).length
+  }
+
+  const single = {}
+  for (const spikeMs of [17.7, 20, 25, 30, 33.34]) single[spikeMs] = isolatedRun(spikeMs, 1)
+  const pair = isolatedRun(25, 2)
+  const oneShort = isolatedRun(25, EXCURSION_TRIP_COUNT - 1)
+  const atCount = isolatedRun(25, EXCURSION_TRIP_COUNT)
+  const sustained = isolatedRun(25, SUSTAIN_FRAMES)
+  // One over-budget frame per 30-frame window: the window mean reads 8.83ms and the window p95
+  // reads 8ms, so neither the mean nor the p95 path can see it -- and it is one excursion per
+  // window, so the count cannot reach EXCURSION_TRIP_COUNT either. No path may shed on it.
+  const sparse = sparseSpike(25, WINDOW_FRAMES, 40)
+
+  console.log(`[${LABEL}] band ${jsonLine({ excursionAboveMs: EXCURSION_ABOVE_MS, excursionWindowFrames: EXCURSION_WINDOW_FRAMES, excursionTripCount: EXCURSION_TRIP_COUNT, single, pair, oneShort, atCount, sustained, sparse })}`)
+
+  for (const spikeMs of [17.7, 20, 25, 30, 33.34]) {
+    expect(`band: a single ${spikeMs}ms frame is over the budget`, spikeMs, '>', EXCURSION_ABOVE_MS)
+    expect(`band: a single ${spikeMs}ms frame does not shed a tier`, single[spikeMs], '==', 0)
+  }
+  expect('band: two consecutive over-budget frames do not shed a tier either', pair, '==', 0)
+  expect(`band: ${EXCURSION_TRIP_COUNT - 1} consecutive over-budget frames still do not shed`, oneShort, '==', 0)
+  expect(`band: ${EXCURSION_TRIP_COUNT} consecutive over-budget frames do shed`, atCount, '>', 0)
+  expect('band: a sustained 25ms load sheds', sustained, '>', 0)
+  expect(`band: one 25ms frame every ${WINDOW_FRAMES} frames never accumulates a count`, sparse, '==', 0)
+  return { single, pair, oneShort, atCount, sustained, sparse }
+}
+
 function responseArm() {
   const sustained = {}
   for (const spikeMs of [17.7, 25, 33.34, 50]) {
@@ -193,8 +243,9 @@ function responseArm() {
   console.log(`[${LABEL}] control ${jsonLine({ budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, sustained, hitch, hitch100, minBurstFrames, p95Arm, train100, minVisibleHitchMs, trainVisible, singleMinHitchMs })}`)
 
   for (const spikeMs of [17.7, 25, 33.34]) {
-    expect(`control: a ${spikeMs}ms sustained spike stays on the window path and takes 60 frames`, sustained[spikeMs] && sustained[spikeMs].frames, '==', 60)
-    expect(`control: that ${spikeMs}ms spike is answered after at least one second`, sustained[spikeMs] && sustained[spikeMs].ms, '>=', MIN_STEP_INTERVAL_MS)
+    expect(`band: a ${spikeMs}ms sustained overrun is caught by the excursion count, not the window`, sustained[spikeMs] && sustained[spikeMs].frames, '==', EXCURSION_TRIP_COUNT)
+    expect(`band: that ${spikeMs}ms overrun is answered well inside the window-driven one-second floor`, sustained[spikeMs] && sustained[spikeMs].ms, '<', MIN_STEP_INTERVAL_MS)
+    expect(`band: that ${spikeMs}ms overrun is not a latch hitch`, spikeMs, '<=', HITCH_ABOVE_MS)
   }
   expect('control: a 50ms sustained spike is above hitchAboveMs and is caught by the latch', sustained[50] && sustained[50].frames, '<=', HITCH_RESPONSE_BOUND_FRAMES)
   expect('control: the latch answer does not wait for the window-driven one-second floor', sustained[50] && sustained[50].ms, '<', MIN_STEP_INTERVAL_MS)
@@ -211,7 +262,7 @@ function responseArm() {
   expect('control: a load whose mean sits in the dead band but whose p95 is over budget is caught', p95Arm.steps, '>', 0)
   expect('control: that p95-only load reads as in-band on the mean', p95Arm.avgMs, '<', LOWER_ABOVE_MS)
   expect('control: the p95 that caught it is over the budget', p95Arm.winP95Ms, '>', LOWER_ABOVE_MS)
-  expect('control: a 20ms frame is below hitchAboveMs, so only the window path can see it', 20, '<', HITCH_ABOVE_MS)
+  expect('control: a 20ms frame is below hitchAboveMs, so only the excursion count can see it', 20, '<', HITCH_ABOVE_MS)
   expect('control: that hitch train still reads as headroom on the mean', train100.avgMs, '<', RAISE_BELOW_MS)
   expect('control: the window p95 does not hide the hitch either', train100.winP95Ms, '<', RAISE_BELOW_MS)
   expect('control: the window max records the hitch the mean hides', train100.winMaxMs, '>=', HITCH_MS)
@@ -226,11 +277,12 @@ function responseArm() {
 
 function main() {
   const enableBit = enableBitArm()
+  const band = bandArm()
   const control = responseArm()
   const failed = checks.filter(c => !c.pass)
   for (const c of failed) console.log(`[${LABEL}] FAILED ${c.label}: got ${JSON.stringify(c.got)} ${c.op} ${JSON.stringify(c.want)}`)
   console.log(`[${LABEL}] checks ${checks.length - failed.length}/${checks.length} passed`)
-  console.log(`[${LABEL}] summary qualityGovernor registry default ${enableBit.bootDefault} (opt-out default ${enableBit.bootDefaultOff}): a 40ms load moved the governor at frame ${enableBit.shippedMovedAt} and took ${enableBit.shippedSteps} step(s); pinned by qualityGovernorOff it took ${enableBit.optedOutSteps}. single 100ms hitch answered after ${control.hitch100.frames} frames, min trigger ${control.minBurstFrames} frame(s), 100ms hitch train ${control.train100.steps} step(s) (mean reads ${control.train100.avgMs}ms < raiseBelow ${RAISE_BELOW_MS}ms, window max ${control.train100.winMaxMs}ms), smallest visible hitch ${control.minVisibleHitchMs}ms answered after ${control.trainVisible.firstFrames} frames, smallest single hitch ${control.singleMinHitchMs}ms, ${resolutionWrites.length} resolution key(s) written`)
+  console.log(`[${LABEL}] summary qualityGovernor registry default ${enableBit.bootDefault} (opt-out default ${enableBit.bootDefaultOff}): a 40ms load moved the governor at frame ${enableBit.shippedMovedAt} and took ${enableBit.shippedSteps} step(s); pinned by qualityGovernorOff it took ${enableBit.optedOutSteps}. single 100ms hitch answered after ${control.hitch100.frames} frames, min trigger ${control.minBurstFrames} frame(s), 100ms hitch train ${control.train100.steps} step(s) (mean reads ${control.train100.avgMs}ms < raiseBelow ${RAISE_BELOW_MS}ms, window max ${control.train100.winMaxMs}ms), smallest visible hitch ${control.minVisibleHitchMs}ms answered after ${control.trainVisible.firstFrames} frames, smallest single hitch ${control.singleMinHitchMs}ms, sustained 25ms overrun answered after ${control.sustained[25].frames} frames / ${control.sustained[25].ms}ms where the window path alone took 60 frames / 1500ms, single-frame spike ${band.single[25]} step(s), ${resolutionWrites.length} resolution key(s) written`)
   finish(failed.length === 0 ? 'PASS' : 'FAIL', failed.length === 0
     ? `${checks.length - failed.length}/${checks.length} check(s) passed`
     : `${failed.length} check(s) failed`)

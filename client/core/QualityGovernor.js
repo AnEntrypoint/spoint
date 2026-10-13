@@ -20,6 +20,19 @@ export const HITCH_STEP_INTERVAL_MS = 500
 export const HITCH_RESPONSE_BOUND_FRAMES = 1
 const WINDOW_P95_Q = 0.95
 
+// The per-frame latch only sees a frame above HITCH_ABOVE_MS (2 x budget), so a SUSTAINED overrun
+// in the 17.67-33.34ms band -- the load a player feels as the game running badly rather than as one
+// discrete hitch -- was answered only by the 30-frame mean: 2 windows + MIN_STEP_INTERVAL_MS,
+// measured 60 frames / 1062-2000ms. Lowering hitchAboveMs to the budget instead would make every
+// frame marginally over budget trip the latch and the ladder would oscillate, so the band is
+// governed by a COUNT: a frame over EXCURSION_ABOVE_MS is one excursion, and EXCURSION_TRIP_COUNT
+// of the last EXCURSION_WINDOW_FRAMES frames must be excursions before a tier is shed. One
+// over-budget frame is one excursion out of 12 and can never reach the count, so a spike does not
+// shed; a sustained overrun reaches it inside EXCURSION_TRIP_COUNT frames.
+export const EXCURSION_ABOVE_MS = LOWER_ABOVE_MS
+export const EXCURSION_WINDOW_FRAMES = 12
+export const EXCURSION_TRIP_COUNT = 8
+
 // vegLeafOff is a DISTANCE, not a boolean: leaf meshes are dropped at or beyond it, so the near
 // range (including 0m) keeps its foliage at every tier. 0 means "no cutoff".
 export const LEAF_OFF_UNLIMITED_M = 0
@@ -146,6 +159,13 @@ export function createQualityGovernor(opts = {}) {
   let lastWinMaxMs = 0, lastWinP95Ms = 0
   let overrunMs = 0
   let framesSinceOverrun = HITCH_RESPONSE_BOUND_FRAMES
+  const excursionRing = new Uint8Array(EXCURSION_WINDOW_FRAMES)
+  let excursionAt = 0
+  let excursions = 0
+  // Which path took the last step, so the debug panel can name it. Without this a shed in the
+  // 17.67-33.34ms band reads as "the 30-frame window", which is the one path that did NOT act.
+  let shedCause = 'none'
+  let shedExcursions = 0
   const applied = {}
 
   function captureBase() {
@@ -183,7 +203,7 @@ export function createQualityGovernor(opts = {}) {
     return want
   }
 
-  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, recoverStepIntervalMs: RECOVER_STEP_INTERVAL_MS, minStepIntervalMs: MIN_STEP_INTERVAL_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, leafOffM: 0, knobs: null }
+  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, excursions: 0, excursionWindowFrames: EXCURSION_WINDOW_FRAMES, excursionTripCount: EXCURSION_TRIP_COUNT, excursionAboveMs: EXCURSION_ABOVE_MS, shedCause: 'none', shedExcursions: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, recoverStepIntervalMs: RECOVER_STEP_INTERVAL_MS, minStepIntervalMs: MIN_STEP_INTERVAL_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, leafOffM: 0, knobs: null }
 
   function publish() {
     state.tier = tier
@@ -191,6 +211,9 @@ export function createQualityGovernor(opts = {}) {
     state.winMaxMs = +lastWinMaxMs.toFixed(3)
     state.winP95Ms = +lastWinP95Ms.toFixed(3)
     state.overrunMs = +overrunMs.toFixed(3)
+    state.excursions = excursions
+    state.shedCause = shedCause
+    state.shedExcursions = shedExcursions
     state.steps = steps
     state.lastStepMs = lastStepMs
     state.inBand = n === 0 && avgMs > 0 ? avgMs >= RAISE_BELOW_MS && avgMs <= LOWER_ABOVE_MS && lastWinP95Ms <= LOWER_ABOVE_MS : false
@@ -218,6 +241,11 @@ export function createQualityGovernor(opts = {}) {
     if (!base) { captureBase(); apply(0) }
     const nowMs = clock()
 
+    const excursion = ms > EXCURSION_ABOVE_MS ? 1 : 0
+    excursions += excursion - excursionRing[excursionAt]
+    excursionRing[excursionAt] = excursion
+    excursionAt = (excursionAt + 1) % EXCURSION_WINDOW_FRAMES
+
     if (ms > HITCH_ABOVE_MS) { overrunMs = ms; winOverruns++; framesSinceOverrun = 0 }
     else if (framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES) {
       framesSinceOverrun++
@@ -227,10 +255,20 @@ export function createQualityGovernor(opts = {}) {
     if (ms > winMaxMs) winMaxMs = ms
     acc += ms; n++
 
-    if (framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES && nowMs - lastStepMs >= HITCH_STEP_INTERVAL_MS && step(+1, nowMs)) {
-      overrunMs = 0
-      slowStreak = 0
-      fastStreak = 0
+    if ((framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES || excursions >= EXCURSION_TRIP_COUNT)
+      && nowMs - lastStepMs >= HITCH_STEP_INTERVAL_MS) {
+      const byHitch = framesSinceOverrun < HITCH_RESPONSE_BOUND_FRAMES
+      if (step(+1, nowMs)) {
+        shedCause = byHitch ? 'hitch' : 'excursion'
+        shedExcursions = byHitch ? 0 : excursions
+        overrunMs = 0
+        framesSinceOverrun = HITCH_RESPONSE_BOUND_FRAMES
+        excursionRing.fill(0)
+        excursionAt = 0
+        excursions = 0
+        slowStreak = 0
+        fastStreak = 0
+      }
     }
 
     if (n < FRAMES_PER_WINDOW) return tier
@@ -244,9 +282,9 @@ export function createQualityGovernor(opts = {}) {
     else if (avgMs < RAISE_BELOW_MS && lastWinP95Ms < RAISE_BELOW_MS && overruns === 0) { fastStreak++; slowStreak = 0 }
     else { slowStreak = 0; fastStreak = 0 }
     if (slowStreak >= WINDOWS_BEFORE_STEP) {
-      if (nowMs - lastStepMs >= MIN_STEP_INTERVAL_MS && step(+1, nowMs)) slowStreak = 0
+      if (nowMs - lastStepMs >= MIN_STEP_INTERVAL_MS && step(+1, nowMs)) { shedCause = 'window'; shedExcursions = 0; slowStreak = 0 }
     } else if (fastStreak >= WINDOWS_BEFORE_STEP) {
-      if (nowMs - lastStepMs >= RECOVER_STEP_INTERVAL_MS && step(-1, nowMs)) fastStreak = 0
+      if (nowMs - lastStepMs >= RECOVER_STEP_INTERVAL_MS && step(-1, nowMs)) { shedCause = 'none'; shedExcursions = 0; fastStreak = 0 }
     }
     publish()
     return tier
@@ -258,6 +296,8 @@ export function createQualityGovernor(opts = {}) {
     slowStreak = 0; fastStreak = 0; steps = 0; avgMs = 0
     winMaxMs = 0; winOverruns = 0; lastWinMaxMs = 0; lastWinP95Ms = 0
     overrunMs = 0; framesSinceOverrun = HITCH_RESPONSE_BOUND_FRAMES
+    excursionRing.fill(0); excursionAt = 0; excursions = 0
+    shedCause = 'none'; shedExcursions = 0
     lastStepMs = clock() - MIN_STEP_INTERVAL_MS
   }
   function snapshot() { return publish() }

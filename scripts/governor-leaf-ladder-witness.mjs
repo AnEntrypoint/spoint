@@ -21,6 +21,7 @@ import {
   createQualityGovernor, QUALITY_TIERS, MAX_TIER, leafCutoffM, leafGateM, LEAF_OFF_UNLIMITED_M,
   LEAF_OFF_MID_BAND_EDGE_M,
   HITCH_STEP_INTERVAL_MS, RECOVER_STEP_INTERVAL_MS, MIN_STEP_INTERVAL_MS, FRAME_BUDGET_MS,
+  EXCURSION_ABOVE_MS, EXCURSION_WINDOW_FRAMES, EXCURSION_TRIP_COUNT,
 } from '../client/core/QualityGovernor.js'
 import { governorStatusLine, governorCauseLine, leafPhrase } from '../client/hud/RenderDebugPanel.js'
 
@@ -273,19 +274,34 @@ function panelArm() {
   const atFloor = {
     tier: 5, maxTier: 5, avgMs: 21.4, winP95Ms: 40, budgetMs: FRAME_BUDGET_MS,
     hitchAboveMs: 2 * FRAME_BUDGET_MS, overrunMs: 40, steps: 7, leafOffM: 40,
+    shedCause: 'hitch',
     knobs: { maxLevel: 7 },
+  }
+  // A shed taken below hitchAboveMs: no frame was ever over 33.34ms, so the window path did not act
+  // and the cause line must say the excursion count did. Without shedCause the panel blames the
+  // 30-frame window, whose avg is still 0 because no window has closed yet.
+  const byExcursion = {
+    tier: 3, maxTier: 5, avgMs: 0, winP95Ms: 0, budgetMs: FRAME_BUDGET_MS,
+    hitchAboveMs: 2 * FRAME_BUDGET_MS, overrunMs: 0, steps: 3, leafOffM: 45,
+    shedCause: 'excursion', shedExcursions: EXCURSION_TRIP_COUNT,
+    excursionWindowFrames: EXCURSION_WINDOW_FRAMES, excursionAboveMs: EXCURSION_ABOVE_MS,
+    knobs: { maxLevel: 9 },
   }
   const atRest = { tier: 0, maxTier: 5, avgMs: 12.1, winP95Ms: 14, budgetMs: FRAME_BUDGET_MS, hitchAboveMs: 2 * FRAME_BUDGET_MS, overrunMs: 0, steps: 0, leafOffM: 0, knobs: { maxLevel: 11 } }
   const status = governorStatusLine(atFloor)
   const cause = governorCauseLine(atFloor)
+  const excursionCause = governorCauseLine(byExcursion)
   const restCause = governorCauseLine(atRest)
-  console.log(`[${LABEL}] panel ${jsonLine({ status, cause, restCause })}`)
+  console.log(`[${LABEL}] panel ${jsonLine({ status, cause, excursionCause, restCause })}`)
 
   expect('panel: the status line names the tier', /tier 5\/5/.test(status), '==', true)
   expect('panel: the status line names the leaf cutoff in metres', /leaves off beyond 40m/.test(status), '==', true)
   expect('panel: the status line says the near and mid trees keep theirs', /near and mid trees keep theirs/.test(status), '==', true)
   expect('panel: the cause line names what tripped it', /40\.0ms frame tripped the 33\.34ms hitch latch/.test(cause), '==', true)
   expect('panel: the cause line names the leaf cutoff', /leaves off beyond 40m/.test(cause), '==', true)
+  expect('panel: a shed below hitchAboveMs names the excursion count',
+    new RegExp(`${EXCURSION_TRIP_COUNT} of the last ${EXCURSION_WINDOW_FRAMES} frame\\(s\\) ran over`).test(excursionCause), '==', true)
+  expect('panel: that cause line does not blame the 30-frame window, which did not act', /30-frame window/.test(excursionCause), '==', false)
   expect('panel: at rest it says leaves are everywhere', /leaves everywhere/.test(restCause), '==', true)
   expect('panel: with no governor state it says nothing is shedding', /nothing is shedding quality/.test(governorCauseLine(null)), '==', true)
   expect('panel: the leaf phrase for no cutoff is not a distance', leafPhrase(0), '==', 'leaves everywhere')

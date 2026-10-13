@@ -12,9 +12,9 @@
 // measures what the governor does with a frame time once it has one.
 //
 // Distinct from governor-hitch-response-witness.mjs, which pins the hitch latch: its response
-// bound, the smallest visible hitch, the p95 path and the enable bit. This witness pins the
-// sustained-load behaviour that witness does not reach: convergence and recovery, the dead band
-// held flat, resistance to an alternating slow/fast load, the one-step-per-second bound over the
+// bound, the smallest visible hitch, the p95 path, the excursion count and the enable bit. This
+// witness pins the sustained-load behaviour that witness does not reach: convergence and recovery,
+// the dead band held flat, the alternating slow/fast load, the one-step-per-second bound over the
 // whole overload, ladder clamps on every write, effects-before-geometry ordering and the refusal
 // to raise cost above the booted snapshot.
 import {
@@ -43,7 +43,7 @@ function flag(name, dflt) {
   return hit === undefined ? dflt : hit.slice(name.length + 3)
 }
 const MUTATE = flag('mutate', 'none')
-const KNOWN_MUTATIONS = new Set(['none', 'flat-load', 'band-outside', 'flip-sustained'])
+const KNOWN_MUTATIONS = new Set(['none', 'flat-load', 'band-outside', 'flip-sustained', 'flip-spike'])
 if (!KNOWN_MUTATIONS.has(MUTATE)) {
   console.log(`RESULT: FAIL ${LABEL} -- --mutate=${MUTATE} is not one of ${[...KNOWN_MUTATIONS].join(', ')}`)
   process.exit(1)
@@ -109,12 +109,17 @@ const stepsBeforeBand = governor.state().steps
 feed(MUTATE === 'band-outside' ? FLIP_SLOW_MS : BAND_MS, BAND_FRAMES)
 const bandSteps = governor.state().steps - stepsBeforeBand
 
-// phase 4: alternating slow and fast windows. 'flip-sustained' makes every window slow.
+// phase 4: alternating slow and fast windows. 'flip-sustained' makes every window slow;
+// 'flip-spike' replaces each slow window with ONE slow frame followed by fast ones, which is the
+// load the excursion count exists to refuse.
 const stepsBeforeFlip = governor.state().steps
 for (let w = 0; w < FLIP_WINDOWS; w++) {
-  feed(MUTATE === 'flip-sustained' ? FLIP_SLOW_MS : (w % 2 === 0 ? FLIP_SLOW_MS : FLIP_FAST_MS), FLIP_WINDOW_FRAMES)
+  const slow = MUTATE === 'flip-sustained' || w % 2 === 0
+  if (MUTATE === 'flip-spike') { feed(FLIP_SLOW_MS, 1); feed(FLIP_FAST_MS, FLIP_WINDOW_FRAMES - 1) }
+  else feed(slow ? FLIP_SLOW_MS : FLIP_FAST_MS, FLIP_WINDOW_FRAMES)
 }
 const flipSteps = governor.state().steps - stepsBeforeFlip
+const flipSpiked = MUTATE === 'flip-spike'
 
 const badKnob = writes.find((w) => !PERMITTED_KEYS.has(w.key))
 const maxLevels = writes.filter((w) => w.key === 'maxLevel').map((w) => w.value)
@@ -146,9 +151,15 @@ expect(afterRecover.tier === 0, `it rested at the booted snapshot: tier ${afterR
 expect(bandSteps === 0,
   `${BAND_FRAMES} frame(s) at ${MUTATE === 'band-outside' ? FLIP_SLOW_MS : BAND_MS}ms took ${bandSteps} step(s), ` +
   `inside [${RAISE_BELOW_MS.toFixed(2)}, ${LOWER_ABOVE_MS.toFixed(2)}] the governor must hold`)
-expect(flipSteps === 0,
-  `${FLIP_WINDOWS} alternating ${FLIP_SLOW_MS}/${FLIP_FAST_MS}ms window(s) took ${flipSteps} step(s); ` +
-  `no single window may accumulate a streak`)
+// A slow window is FLIP_WINDOW_FRAMES CONSECUTIVE over-budget frames -- a sustained overrun, the
+// thing the excursion count was added to see -- so it sheds. 'flip-spike' is the other side: one
+// over-budget frame per window is one excursion and must not shed. Without that mutation this
+// expectation would pass on a governor that shed on everything or on nothing at all.
+expect(flipSpiked ? flipSteps === 0 : flipSteps > 0,
+  `${FLIP_WINDOWS} ${flipSpiked ? 'spiked' : 'alternating'} window(s) of ${FLIP_WINDOW_FRAMES} frame(s) took ${flipSteps} step(s); ` +
+  (flipSpiked
+    ? `one ${FLIP_SLOW_MS}ms frame per window is one excursion and must not shed`
+    : `each slow window is ${FLIP_WINDOW_FRAMES} consecutive ${FLIP_SLOW_MS}ms frames, a sustained overrun the count must see`))
 expect(afterOverload.steps <= Math.ceil(overloadWallMs / MIN_STEP_INTERVAL_MS) + 1,
   `${afterOverload.steps} step(s) over ${overloadWallMs} ms of simulated clock, inside the 1/${MIN_STEP_INTERVAL_MS}ms bound`)
 expect(resolutionWrites.length === 0,

@@ -20,9 +20,11 @@ export function governorStatusLine(state) {
 export function governorCauseLine(state) {
   if (!state) return 'no governor state: nothing is shedding quality'
   if (state.tier === 0) return `no shed (step ${state.steps}): the booted snapshot is in force, ${leafPhrase(state.leafOffM)}`
-  const why = Number.isFinite(state.overrunMs) && state.overrunMs > 0
+  const why = state.shedCause === 'hitch' && Number.isFinite(state.overrunMs) && state.overrunMs > 0
     ? `a ${state.overrunMs.toFixed(1)}ms frame tripped the ${state.hitchAboveMs}ms hitch latch`
-    : `the 30-frame window read avg ${state.avgMs}ms / p95 ${state.winP95Ms}ms over a ${state.budgetMs}ms budget`
+    : state.shedCause === 'excursion'
+      ? `${Number.isFinite(state.shedExcursions) ? state.shedExcursions : state.excursionTripCount} of the last ${state.excursionWindowFrames} frame(s) ran over the ${state.excursionAboveMs}ms budget`
+      : `the 30-frame window read avg ${state.avgMs}ms / p95 ${state.winP95Ms}ms over a ${state.budgetMs}ms budget`
   return `shed ${state.steps} step(s) because ${why}; ${leafPhrase(state.leafOffM)}`
 }
 
