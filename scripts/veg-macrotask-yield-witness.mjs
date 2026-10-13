@@ -96,8 +96,11 @@ async function run() {
   macroCalls = (src.match(/macrotaskYield\(/g) || []).length
   check('client/core/Vegetation.js has no requestAnimationFrame', rafInVegetation === 0,
     'client/core/Vegetation.js still references requestAnimationFrame ' + rafInVegetation + ' time(s)')
-  check('client/core/Vegetation.js calls macrotaskYield at both slice yields', macroCalls === 2,
-    'client/core/Vegetation.js calls macrotaskYield ' + macroCalls + ' time(s), not 2')
+  // One yield per build phase boundary (generate, LOD chain, between species) and one per prewarm
+  // chunk: a millisecond budget checked between species could not cut a species costing more than
+  // a frame, so the yield sits at each phase boundary instead.
+  check('client/core/Vegetation.js yields at every build phase, not only between species', macroCalls >= 4,
+    'client/core/Vegetation.js calls macrotaskYield ' + macroCalls + ' time(s), fewer than the 4 phase boundaries')
 }
 
 try {

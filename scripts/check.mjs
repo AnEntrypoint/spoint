@@ -49,9 +49,16 @@ const NO_GPU_WITNESSES = [
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS [1-9]\d* file\(s\) scanned/ },
   { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
   { file: 'governor-leaf-ladder-witness.mjs', must: /RESULT: PASS label=governor-leaf-ladder-witness[\s\S]*leaf cutoff by tier 0\/0\/0\/[1-9]\d*\/[1-9]\d*\/[1-9]\d*m \(0 = leaves everywhere\), near and mid bands keep their foliage at every tier/ },
-  { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=2[\s\S]*RESULT: PASS/ },
+  { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=[4-9][\s\S]*RESULT: PASS/ },
+  // Species build / prewarm slice: the longest synchronous block the main thread takes is one unit
+  // of work, and a rebuild clones the finished LOD chain instead of re-simplifying it. Its `must`
+  // is the second half of the witness: the cold arm has to be over a frame (or the fix proves
+  // nothing), the warm arm has to fit in one, the warm chain has to place the same tree count, and
+  // every LOD level has to come back vertex-identical.
+  { file: 'veg-build-slice-witness.mjs', must: /\[veg-build-slice\] species LOD chain WARM \(a rebuild clones\): \{"n":[1-9]\d*,[\s\S]*trees placed [1-9]\d*[\s\S]*slice constants=0[\s\S]*\[veg-build-slice\] RESULT: PASS -- species rebuild cold [\d.]+ms -> warm [\d.]+ms worst per species \(total [\d.]+ -> [\d.]+ms over [1-9]\d* species, every LOD level vertex-identical\), prewarm slice [\d.]+ms worst chunk over [1-9]\d* chunk\(s\) placing [1-9]\d* tree\(s\), [1-9]\d* macrotask yield\(s\) and 0 slice constant\(s\), frame budget [\d.]+ms/ },
   { file: 'rain-over-grass-draw-order-witness.mjs', must: /\[rain-over-grass-draw-order\] \[PASS\] weather band is above the grass band[\s\S]*RESULT: PASS/ },
   { file: 'grass-lod-geometry-budget-witness.mjs', must: /\[PASS\] both grass LOD call sites read out of client\/core\/Grass\.js[\s\S]*RESULT: PASS/ },
+  { file: 'grass-near-lod-revisit-witness.mjs', must: /\[PASS\] at rest the near LOD is exactly the near disc[\s\S]*\[PASS\] at rest the triangle count fell[\s\S]*\[PASS\] after a walk the near LOD is still exactly the near disc[\s\S]*\[PASS\] the decision was re-taken as the player moved[\s\S]*RESULT: PASS -- grass near LOD population=[1-9][\d]* clump\(s\)/ },
   // gpu-free: it measures the bend the shader computes, not pixels. Whether that much bend is VISIBLE
   // still needs a real frame, and that arm is a browser arm this CI does not run.
   { file: 'grass-bend-geometry-witness.mjs', must: /\[PASS\] the bend is quadratic in the card height coordinate[\s\S]*\[PASS\] the change is under 8% of the card height at the wind that ships[\s\S]*RESULT: PASS/ },
@@ -64,7 +71,7 @@ const NO_GPU_WITNESSES = [
   // gpu-free: it drives the real deferral against a stub Pipelines, so the property it pins -- a
   // first use never builds inside the frame that needs it, and no queued object is ever stranded --
   // holds without an adapter. How long one prologue takes is a browser arm this CI does not run.
-  { file: 'pipeline-firstuse-deferral-witness.mjs', must: /\[PASS\] a first use on the draw path builds nothing[\s\S]*\[PASS\] the drain builds it off the draw path[\s\S]*\[PASS\] a prologue longer than the slice cannot starve the queue[\s\S]*\[PASS\] an object enqueued mid-drain is still drained[\s\S]*\[PASS\] a ready object is never deferred[\s\S]*\[PASS\] the reproduction switch puts a first use back on the draw path[\s\S]*RESULT: PASS/ },
+  { file: 'pipeline-firstuse-deferral-witness.mjs', must: /\[PASS\] a first use on the draw path builds nothing[\s\S]*\[PASS\] the drain builds it off the draw path[\s\S]*\[PASS\] a prologue longer than the slice cannot starve the queue[\s\S]*\[PASS\] an object enqueued mid-drain is still drained[\s\S]*\[PASS\] a ready object is never deferred[\s\S]*\[PASS\] the reproduction switch puts a first use back on the draw path[\s\S]*\[PASS\] a build that never succeeds stops being retried[\s\S]*RESULT: PASS/ },
   // gpu-free: the count is read out of three's own Pipelines and Info classes with a stub backend,
   // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
   // is a browser arm this CI does not run.
@@ -75,6 +82,14 @@ const NO_GPU_WITNESSES = [
   // hide behind a density figure that did not move. The re-solve arm is pinned by the counter its own
   // mutation moves: `--mutate-reseed` re-solves every node and this `must` must then fail.
   { file: 'nearfield-lod-lattice-witness.mjs', must: /\[nearfield-lattice\] PIN near-field density boot L13: rendered 1\.2775 m, grass placement lattice 2 m, collider lattice 1 m, near-field lattice step 1 m == collider 1 m at all 8 tier\(s\), measured step [\d.]+ m u \/ [\d.]+ m v; trees placed over the near band: [1-9]\d* over [1-9]\d* chunk\(s\)[\s\S]*checks [1-9]\d* passed, 0 failed[\s\S]*RESULT: PASS/ },
+  // PERF-terrain-vs-snoise-per-vertex-1013. The vertex stage's height/normal stencil: five taps
+  // (four of them offsets the vertex's own grid neighbours already occupy) became three, so the
+  // height tap is bit-identical and the normal is the one quality claim the change has to answer.
+  // gpu-free: it evaluates the CPU mirror of the height field, not pixels. The `must` names the
+  // per-vertex counts, so a stencil that goes back to five taps fails it, and it names the two
+  // noise-floor checks, so a stencil that moves the normal past the mesh's own vertex-to-vertex
+  // normal turn fails it too.
+  { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000

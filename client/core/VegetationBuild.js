@@ -546,6 +546,50 @@ function generateSpecies(name, Tree, variant, TreePreset) {
   return { branchGeo, leafGeo, branchMat, leafMat, tree, dims }
 }
 
+// A species' LOD chain is a pure function of (name, variant, branch cap, leaf cap): the same input
+// bytes produce the same geometry every time. A landscape change rebuilds every species, and the
+// rebuild used to pay the whole meshopt simplification again for identical input, which is the
+// main-thread block a landscape change is felt as. The finished chain is kept here, next to the
+// template cache it already shares a key shape with, so a rebuild clones it and the work stops
+// existing instead of being retimed. Materials are never cached: they are cloned per consumer
+// because a consumer mutates its own (wind, tint, texture budget).
+const _speciesLodCache = new Map()
+const LOD_CHAIN_KEYS = ['branchGeo0', 'leafGeo0', 'b1', 'b2', 'l1', 'l2', 'b2shadow']
+function _cloneLodChain(e) {
+  const out = { treeBox: e.treeBox.clone(), treeSph: e.treeSph.clone() }
+  for (const k of LOD_CHAIN_KEYS) out[k] = e[k].clone()
+  return out
+}
+async function _buildLodChain(sp, branchCap, leafCap) {
+  const branchGeo0 = await capGeo(sp.branchGeo, branchCap)
+  const leafGeo0 = await capGeo(sp.leafGeo, leafCap)
+  branchGeo0.computeBoundingBox(); leafGeo0.computeBoundingBox()
+  const treeBox = branchGeo0.boundingBox.clone().union(leafGeo0.boundingBox)
+  const treeSph = treeBox.getBoundingSphere(new THREE.Sphere())
+  branchGeo0.boundingBox = treeBox.clone(); leafGeo0.boundingBox = treeBox.clone()
+  branchGeo0.boundingSphere = treeSph.clone(); leafGeo0.boundingSphere = treeSph.clone()
+  const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
+  const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
+  const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
+  for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = treeBox.clone(); g.boundingSphere = treeSph.clone() }
+  return { branchGeo0, leafGeo0, b1, b2, l1, l2, b2shadow, treeBox, treeSph }
+}
+
+async function speciesLodChain(name, variant = 0, Tree = null, TreePreset = null, branchCap = 6000, leafCap = 1400) {
+  const sp = buildSpecies(name, Tree, variant, TreePreset)
+  const key = name + '#' + variant + '#' + branchCap + '#' + leafCap
+  const hit = _speciesLodCache.get(key)
+  if (!hit) {
+    const built = await _buildLodChain(sp, branchCap, leafCap)
+    _speciesLodCache.set(key, built)
+    return { ..._cloneLodChain(built), branchMat: sp.branchMat, leafMat: sp.leafMat, tree: sp.tree, dims: sp.dims }
+  }
+  const _c = _now()
+  const out = { ..._cloneLodChain(hit), branchMat: sp.branchMat, leafMat: sp.leafMat, tree: sp.tree, dims: sp.dims }
+  _span('clone-lod-chain', _c)
+  return out
+}
+
 function makeEmptyGeo() {
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3))
@@ -555,5 +599,5 @@ function makeEmptyGeo() {
 
 export {
   loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo,
-  buildSpecies, makeEmptyGeo, PRESET, TARGET_H
+  buildSpecies, speciesLodChain, makeEmptyGeo, PRESET, TARGET_H
 }
