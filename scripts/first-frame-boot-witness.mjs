@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
-  assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_RAW, CLIENT_ROOT_BUNDLE,
+  assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
 
 const TAG = '[first-frame]'
@@ -166,6 +166,20 @@ async function coldLoadArm(browser, base, vacuous) {
   say(`${tag}: navigating to ${url} (rAF ${UNLOCK_RAF ? 'unlocked' : 'vsync-locked'}) ...`)
   await page.goto(url, { waitUntil: 'domcontentloaded' })
 
+  // The bytes this arm measures must carry this row's source, and the server serves either the
+  // prebuilt bundle or raw ESM. Raw ESM is this checkout's own files; a bundle is only admissible
+  // when it was built from this checkout, so a bundle is rebuilt here and the page reloaded -- BEFORE
+  // the boot is waited on, because a re-navigation after the boot has settled throws away the very
+  // boot this arm measures and leaves every reading null.
+  let servedRoot = await assertServedClientRoot(page, { label: LABEL })
+  if (servedRoot.kind === CLIENT_ROOT_BUNDLE) {
+    say(`${tag}: the server served the prebuilt bundle -- rebuilding it from this checkout so the measured bytes carry this row's source, then re-navigating before the boot`)
+    rebuildClientBundle()
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: LABEL })
+  }
+  say(`${tag}: served ${clientRootTag(servedRoot)}`)
+
   const t0 = Date.now()
   let ready = false
   while (Date.now() - t0 < SETTLE_TIMEOUT_MS) {
@@ -188,18 +202,6 @@ async function coldLoadArm(browser, base, vacuous) {
   if (pageErrors.length) say(`${tag}: ${pageErrors.length} uncaught page error(s); first: ${pageErrors[0].slice(0, 240)}`)
 
   const gpu = await assertGpu(page, { requireAccelerated: !!GPU_VENDOR, expectVendor: GPU_VENDOR })
-  // The bytes this arm measures must carry this row's source. The server serves either the prebuilt
-  // bundle or raw ESM, and only raw ESM is the checkout's own files, so the arm is admitted on raw
-  // ESM alone; if the bundle has been rebuilt under us it is rebuilt from THIS checkout and the page
-  // is loaded again, so either way the measured bytes are this tree's.
-  let servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_RAW, label: LABEL }).catch((e) => e)
-  if (servedRoot instanceof Error) {
-    say(`${tag}: ${servedRoot.message} -- rebuilding the bundle from this checkout and re-navigating`)
-    rebuildClientBundle()
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
-    servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: LABEL })
-  }
-  say(`${tag}: served ${clientRootTag(servedRoot)}`)
   const observed = await page.evaluate(`(() => {
     const W = window
     const rec = W.__firstFrameRecorder || { raf: [] }
