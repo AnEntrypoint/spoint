@@ -18,6 +18,7 @@ import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simp
 import { contactOcclusionField, treeContactStamps, contactFieldLoadChunk, contactFieldUnloadChunk } from '/src/terrain/ContactOcclusionField.js'
 import { createWebGPULodInstancer, LOD_REEVAL_MOVE_M } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
+import { applyVegetationTerrainAmbientTSL, updateVegetationTerrainAmbient } from './VegetationAmbientTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
 import { macrotaskYield } from './macrotaskYield.js'
 
@@ -172,8 +173,8 @@ export async function createVegetation(opts = {}) {
       await macrotaskYield()
       _t = performance.now()
       if (isWebGPU) {
-        applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
-        applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
+        applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat); applyVegetationTerrainAmbientTSL(sp.branchMat)
+        applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat); applyVegetationTerrainAmbientTSL(sp.leafMat)
         bootSpan('materials', label, _t); _t = performance.now()
         branch = createWebGPULodInstancer(scene, [
           { geometry: branchGeo0, material: sp.branchMat, distance: 0 },
@@ -574,15 +575,7 @@ export async function createVegetation(opts = {}) {
   // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
   // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
   // compile's promise), so a single witness can measure both arms against the same bytes.
-  // It is a hoisted function declaration, not a `const` arrow, because the species build loop above
-  // reaches `queueTierNodeWarm` before control ever arrives at this line: a `const` here is still in
-  // its temporal dead zone at that call site, so every species build threw "Cannot access '<name>'
-  // before initialization", the build loop logged one failure per species and the world came up with
-  // zero tree species and therefore no trees at all. A declaration is initialized on scope entry, so
-  // no call site anywhere in `createVegetation` can reach it uninitialized.
-  function warmOnceRetained() {
-    return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
-  }
+  const warmOnceRetained = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
 
   function queueTierNodeWarm(instancer) {
     if (warmOnceRetained()) { warmTierMeshes(instancer); return }
@@ -756,7 +749,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function tickWind(dt) {
-    if (isWebGPU) { tickWindTSL(windTSL, dt); return }
+    if (isWebGPU) { tickWindTSL(windTSL, dt); if (typeof window !== 'undefined' && window.__timeOfDay) updateVegetationTerrainAmbient(window.__timeOfDay); return }
     wind.uVegTime.value += dt
     if (typeof window !== 'undefined' && window.__vegWind != null) wind.uVegWind.value = +window.__vegWind
   }

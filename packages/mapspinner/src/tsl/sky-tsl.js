@@ -10,7 +10,7 @@ import { displayReferredToSceneLinear } from './display-referred-tsl.js'
 
 const ATM_MIE_SCAT = 0.003996
 const ATM_MIE_G = 0.8
-const ATM_SOLAR_IRRADIANCE = [1.474, 1.8504, 1.91198]
+export const ATM_SOLAR_IRRADIANCE = [1.474, 1.8504, 1.91198]
 const ATM_SUN_ANGULAR_RADIUS = 0.004675
 const ATM_RHO_MAX = Math.sqrt(ATM_TOP * ATM_TOP - ATM_BOTTOM * ATM_BOTTOM)
 const ATM_SCAT_K = 1.4
