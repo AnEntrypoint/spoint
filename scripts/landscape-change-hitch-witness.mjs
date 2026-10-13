@@ -512,7 +512,11 @@ async function browserArm() {
     // every pipeline the warmup needs is already compiled asynchronously by the time the walk
     // starts, so a post-boot revert measures a window with no first draws in it at all.
     if (REVERT_ASYNC) {
-      await page.addInitScript(`(() => {
+      // scripts/lib/cdp-browser.mjs has no addInitScript -- the CDP verb is
+      // Page.addScriptToEvaluateOnNewDocument, which is what the other witnesses use. Calling a
+      // method that does not exist here threw TypeError and --revert-async never measured
+      // anything, so the arm that proves the instrument can see the stall was itself dead.
+      await page._send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
         let undone = 0
         setInterval(() => {
           const p = window.__app && window.__app.renderer && window.__app.renderer._pipelines
@@ -528,7 +532,7 @@ async function browserArm() {
           }
         }, 4)
         window.__revertAsyncEarly = () => ({ undone })
-      })()`)
+      })()` })
     }
     await page.goto(`${base}/?singleplayer&dprOff=true`, { waitUntil: 'domcontentloaded' })
     const root = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: LABEL }).catch(e => e)
