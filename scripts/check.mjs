@@ -171,6 +171,16 @@ const SLOW_NO_GPU_WITNESSES = [
   // unreachable, or one whose eviction-pressure arm never evicted, must read as a failure rather
   // than as silence that passes.
   { file: 'collider-ring-frame-cost-witness.mjs', must: /\[ring-frame\] 8 walking, shipped cap:[^\n]*evict scan 0 \/ evicted 0[\s\S]*\[ring-frame\] 8 walking, tight cap 64:[^\n]*evict scan [1-9]\d* \/ evicted [1-9]\d*[\s\S]*\[ring-frame\] A\/B: 8 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] A\/B: 48 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-frame\] RESULT: PASS/ },
+  // PERF-tick-player-fanout-1013: the PLAYER half of the snapshot tick, measured with the per-player
+  // stages broken out separately and A/B-ed inside one process through the surface's own
+  // reproduction switch (setPlayerFanoutWholeLobby), because this box runs sibling lanes and two
+  // separate runs measure the neighbours as much as the code. The `must` is the second half of the
+  // witness: a run that printed no per-player stage line for both arms, no encode-pass figure for
+  // both layouts (packed, where every player really is reachable so no pass can be smaller than what
+  // is delivered, and spread, where the union is a fraction of the lobby), or no player-walk
+  // before->after, must read as a failure rather than as silence that passes. Byte identity between
+  // the two arms and the fan-out not having moved are claims C4 and C9, so they are inside the count.
+  { file: 'tick-player-fanout-witness.mjs', args: ['--ticks=640', '--rounds=2'], must: /\[tick-player-fanout\] packed\/legacy per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+ tombstones=[\d.]+ prune=[\d.]+ trackedSweep=[\d.]+ playerWalk=[\d.]+[\s\S]*\[tick-player-fanout\] packed\/union per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+[\s\S]*\[tick-player-fanout\] spread\/union per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+[\s\S]*\[tick-player-fanout\] MEASURED packed: encode pass [\d.]+ -> [\d.]+ player\(s\) per tick of a [\d.]+ player lobby[\s\S]*\[tick-player-fanout\] MEASURED spread: encode pass [1-9][\d.]* -> [1-9][\d.]* player\(s\) per tick of a 64\.0000 player lobby[\s\S]*\[tick-player-fanout\] MEASURED player-walk ms per snapshot tick: packed [\d.]+ -> [\d.]+, spread [\d.]+ -> [\d.]+[\s\S]*RESULT: PASS -- 10 of 10 claim\(s\)/ },
 ]
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/

@@ -85,22 +85,37 @@ export function buildCrowdDots(players, viewerPos, dotCellM) {
   return out
 }
 
+// Module scratch, not a fresh object per nearby player per recipient: this runs once per recipient
+// per snapshot tick, so the old `{ id, p, d2 }` per neighbour was one allocation per (recipient,
+// nearby player) pair -- 512 of them a tick in a 64-player lobby serving 8. Sorting an index
+// permutation instead keeps the ORDER identical, because Array#sort is stable and the permutation
+// starts in the same order the old array was built in, so ties resolve the same way and the wire
+// bytes do not move.
+const _tierIds = []
+const _tierD2 = []
+const _tierOrder = []
+const _cmpTierD2 = (a, b) => _tierD2[a] - _tierD2[b]
+
 export function classifyPlayerTiers(playersById, nearbyIds, viewerPos, selfId) {
   const vx = viewerPos[0], vy = viewerPos[1], vz = viewerPos[2]
-  const near = []
+  const ids = _tierIds, d2 = _tierD2, order = _tierOrder
+  ids.length = 0; d2.length = 0; order.length = 0
   for (const id of nearbyIds) {
     if (id === selfId) continue
     const p = playersById.get(id)
     if (!p || !p.position) continue
-    near.push({ id, p, d2: dist2(p.position[0], p.position[1], p.position[2], vx, vy, vz) })
+    order.push(ids.length)
+    ids.push(id)
+    d2.push(dist2(p.position[0], p.position[1], p.position[2], vx, vy, vz))
   }
-  near.sort((a, b) => a.d2 - b.d2)
+  order.sort(_cmpTierD2)
   const full = [], reduced = [], dotPlayers = []
-  for (let i = 0; i < near.length; i++) {
-    const { id, p, d2 } = near[i]
+  for (let i = 0; i < order.length; i++) {
+    const k = order[i]
+    const id = ids[k]
     if (i < PLAYER_LOD_FULL_COUNT) full.push(id)
-    else if (d2 < PLAYER_LOD_REDUCED2) reduced.push(id)
-    else dotPlayers.push(p)
+    else if (d2[k] < PLAYER_LOD_REDUCED2) reduced.push(id)
+    else dotPlayers.push(playersById.get(id))
   }
   return { full, reduced, dotPlayers }
 }
@@ -374,10 +389,15 @@ export class SnapshotEncoder {
   static encodeCustomBySchema(schemaName, obj) { return encodeCustomBySchema(schemaName, obj) }
   static decodeCustomBySchema(schemaName, buf) { return decodeCustomBySchema(schemaName, buf) }
 
-  static encodePlayersOnce(players) {
+  // `needed` is the set of player ids any recipient this tick serves can actually receive. Without
+  // it the pass encodes the whole lobby, including players no recipient is within relevance of, so
+  // the per-tick player walk was a function of how many people connected rather than of what the
+  // group being served can see. Filtering it makes the pass a fact about where the players are.
+  static encodePlayersOnce(players, needed = null) {
     const m = _playerEncMap; m.clear()
     const gen = ++_playerEncGen
     for (const p of (players || [])) {
+      if (needed !== null && !needed.has(p.id)) continue
       let rec = _playerEncPool.get(p.id)
       if (!rec) { rec = { arr: new Array(PLAYER_RECORD_FIELDS), bins: [new Uint8Array(PLAYER_BIN_RECORD_BYTES), new Uint8Array(PLAYER_BIN_RECORD_BYTES)], flip: 0, gen }; _playerEncPool.set(p.id, rec) }
       rec.gen = gen
@@ -399,6 +419,18 @@ export class SnapshotEncoder {
   }
 
   static encodePlayers(players) { return (players || []).map(encodePlayer) }
+
+  // The per-recipient player LOD walk. It is a static as well as a named export because a frozen
+  // ESM namespace cannot be wrapped, so a witness could not otherwise time this stage or count
+  // what it walked -- the row that owns this surface has to break the player stages out separately.
+  static filterEncodedPlayersTiered(encodedMap, playersById, nearbyIds, selfId, viewerPos, tick, reducedTickMod) {
+    return filterEncodedPlayersTiered(encodedMap, playersById, nearbyIds, selfId, viewerPos, tick, reducedTickMod)
+  }
+
+  // Same reason: the tombstone-known-ids walk is one of the per-tick stages a witness has to time.
+  static updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, prevKnownIds) {
+    return updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, prevKnownIds)
+  }
 
   static encodeStaticEntities(entities, prevStaticMap) {
     const nextMap = new Map()

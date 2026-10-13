@@ -1,5 +1,5 @@
 import { MSG } from '../protocol/MessageTypes.js'
-import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered, encodeSelfBlock } from '../netcode/SnapshotEncoder.js'
+import { SnapshotEncoder, TombstoneLog, PLAYER_LOD_REDUCED_HZ, encodeSelfBlock } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
 import { currentChartEpoch, createChartReanchorMessage } from './chartWire.js'
 import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
@@ -210,6 +210,62 @@ const _cellShareCache = new Map()
 
 const _servedScratch = []
 
+// What one snapshot tick's player walk cost, in units of players and not of milliseconds: a
+// millisecond is this box's business, and a bound priced from a clock is a positive-feedback loop
+// (smaller fan-out measured a bigger cost per recipient, which shrank the fan-out). These counters
+// are the world-state quantities the walk is a function of, so a witness can pin them.
+const playerFanoutWork = { lobbyPlayers: 0, encodedPlayers: 0, nearbyVisits: 0, recipients: 0, snapshots: 0 }
+export function resetPlayerFanoutWork() {
+  playerFanoutWork.lobbyPlayers = 0; playerFanoutWork.encodedPlayers = 0
+  playerFanoutWork.nearbyVisits = 0; playerFanoutWork.recipients = 0; playerFanoutWork.snapshots = 0
+}
+export function playerFanoutWorkSnapshot() { return { ...playerFanoutWork } }
+
+const _fanoutNearby = []
+const _fanoutNeeded = new Set()
+
+// The per-tick player fan-out. It resolves what the group being served can actually reach BEFORE
+// anything is encoded: the encode pass and the id index are then built over that union, so a tick
+// that serves eight of sixty-four players in one corner of the world does not pack and index the
+// fifty-six nobody in this group can see. Both stages are therefore bounded by the served group's
+// relevance neighbourhoods -- a fact about where the players are -- and no longer by the lobby.
+// The recipient's own neighbourhood is still exactly what it was: nothing here decides who a
+// recipient hears about, only which player records this tick has to build to say it.
+let _fanoutWholeLobby = false
+// Witness switch, and the only one on this surface: with it on, a tick encodes and indexes the
+// whole lobby again instead of the union the served group can reach, which is the shape this row
+// was measured against. It exists so the before/after split is struck inside one process under one
+// load -- this box runs sibling lanes, so two separate runs measure the neighbours as much as the
+// code, and a cap read off such a number is the positive-feedback loop this row forbids.
+export function setPlayerFanoutWholeLobby(on) { _fanoutWholeLobby = !!on }
+
+function buildPlayerFanout(served, snapPlayers, relevanceRadius, appRuntime) {
+  const nearby = _fanoutNearby
+  nearby.length = served.length
+  const needed = _fanoutNeeded
+  needed.clear()
+  for (let i = 0; i < served.length; i++) {
+    const ids = appRuntime.nearbyPlayerIds(served[i].state.position, relevanceRadius)
+    nearby[i] = ids
+    needed.add(served[i].id)
+    for (let k = 0; k < ids.length; k++) needed.add(ids[k])
+  }
+  const wholeLobby = _fanoutWholeLobby
+  const encoded = SnapshotEncoder.encodePlayersOnce(snapPlayers, wholeLobby ? null : needed)
+  const byId = _playersByIdScratch
+  byId.clear()
+  for (let i = 0; i < snapPlayers.length; i++) {
+    const p = snapPlayers[i]
+    if (wholeLobby || needed.has(p.id)) byId.set(p.id, p)
+  }
+  playerFanoutWork.snapshots++
+  playerFanoutWork.lobbyPlayers += snapPlayers.length
+  playerFanoutWork.encodedPlayers += encoded.size
+  playerFanoutWork.nearbyVisits += nearby.reduce((a, ids) => a + ids.length, 0)
+  playerFanoutWork.recipients += served.length
+  return { nearby, encoded, byId }
+}
+
 function selectServedPlayers(players, snapGroups, curGroup, serveAll) {
   _servedScratch.length = 0
   for (let i = 0; i < players.length; i++) if (serveAll || i % snapGroups === curGroup) _servedScratch.push(players[i])
@@ -267,9 +323,6 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     }
     if (isKeyframe || curStaticVersion !== state.lastDynVersion) { state.prevDynCache = null; state.lastDynVersion = curStaticVersion }
     if (isKeyframe) { state.knownIds = null; state.playerLastTick.clear() }
-    const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
-    const playersById = _playersByIdScratch; playersById.clear()
-    for (const p of playerSnap.players) playersById.set(p.id, p)
     const snapshotHz = (deps.getSnapshotHz ? deps.getSnapshotHz() : 20) / snapGroups
     const reducedTickMod = Math.max(1, Math.round(snapshotHz / PLAYER_LOD_REDUCED_HZ))
     _spatialCache.clear()
@@ -280,26 +333,30 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     let unmanagedIds = null
     const served = selectServedPlayers(players, snapGroups, curGroup, false)
     groupPlayersByCell(served, planetRadius, relevanceRadius)
+    const fanout = buildPlayerFanout(served, playerSnap.players, relevanceRadius, appRuntime)
+    const allEncodedPlayers = fanout.encoded
+    const playersById = fanout.byId
     const recordMemo = newRecordMemo()
-    for (const player of served) {
+    for (let si = 0; si < served.length; si++) {
+      const player = served[si]
       if (dynCache === null) {
         const activeIds = appRuntime.getActiveDynamicIds()
         unmanagedIds = appRuntime.getUnmanagedDynamicIds()
         if (state.prevDynCache === null) { state.prevDynCache = SnapshotEncoder.buildDynamicCache(activeIds, appRuntime.getSleepingDynamicIds(), appRuntime.getSuspendedEntityIds(), appRuntime.entities, state.prevDynCache, unmanagedIds) }
         else { SnapshotEncoder.refreshDynamicCache(state.prevDynCache, activeIds, appRuntime.entities, appRuntime.getSleepingDynamicIds(), appRuntime.getSuspendedEntityIds(), unmanagedIds) }
         dynCache = state.prevDynCache
-        state.knownIds = updateTombstones(state.tombstoneLog, tick, dynCache, state.staticEntityIds, state.knownIds)
+        state.knownIds = SnapshotEncoder.updateTombstones(state.tombstoneLog, tick, dynCache, state.staticEntityIds, state.knownIds)
       }
       const isNewPlayer = !playerEntityMaps.has(player.id)
       const viewerPos = player.state.position
       const { cellKey, cellFace, cellCx, cellCy, cellsPerFace } = _playerCellScratch.get(player.id)
       let cached = _cellShareCache.get(cellKey)
       if (!cached) { cached = {}; _cellShareCache.set(cellKey, cached) }
-      const nearbyPlayerIds = appRuntime.nearbyPlayerIds(viewerPos, relevanceRadius)
+      const nearbyPlayerIds = fanout.nearby[si]
       let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
       if (nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
         isTiered = true
-        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, nearbyPlayerIds, player.id, viewerPos, clientSeq, reducedTickMod)
+        const tiered = SnapshotEncoder.filterEncodedPlayersTiered(allEncodedPlayers, playersById, nearbyPlayerIds, player.id, viewerPos, clientSeq, reducedTickMod)
         preEncodedPlayers = tiered.players; playerDots = tiered.dots.length ? tiered.dots : undefined
       } else {
         preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, nearbyPlayerIds, player.id)
@@ -526,6 +583,7 @@ export function createTickHandler(deps) {
       connections.broadcast(MSG.PEER_RTT_TABLE, { rtt: rttTable, pubkeys })
     }
     serverTimeOfDay.tick(dt)
+    serverWeather.tick(dt)
     if (players.length > 0 && serverTimeOfDay.shouldBroadcast()) {
       connections.broadcast(MSG.TIME_OF_DAY_SYNC, serverTimeOfDay.getSyncPayload())
     }
