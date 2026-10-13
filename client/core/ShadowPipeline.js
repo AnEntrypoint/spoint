@@ -8,6 +8,8 @@ const MAX_CASCADES = 3
 const SHADOW_REDRAW_CASTER_HEIGHT_M = 20
 const FAR_CASCADE_LATERAL_STEP_M = 1
 const DEPTH_STEP_DIVISOR = 16
+const FAR_CASCADE_REDRAWS_PER_FRAME = 1
+const FAR_CASCADE_MAX_DEFER_FRAMES = 2
 
 // A fragment samples cascade i only inside cascade i's camera-distance band, cross-fading over
 // CASCADE_BLEND_M at each split, and a caster's shadow lands within roughly one caster height of
@@ -26,6 +28,12 @@ export function createShadowPipeline(sun, opts = {}) {
   const _WORLD_UP = new THREE.Vector3(0, 1, 0)
   const _WORLD_FWD = new THREE.Vector3(0, 0, 1)
 
+  const rawFarBudget = opts.farRedrawBudget !== undefined
+    ? opts.farRedrawBudget
+    : (typeof window !== 'undefined' && window.__shadowFarRedrawBudget !== undefined
+      ? window.__shadowFarRedrawBudget
+      : FAR_CASCADE_REDRAWS_PER_FRAME)
+  const farRedrawBudget = Number.isFinite(rawFarBudget) ? Math.max(0, Math.round(rawFarBudget)) : Infinity
   const _cascades = []
   for (let i = 0; i < cascadeCount; i++) {
     const light = i === 0 ? sun : (() => {
@@ -48,6 +56,7 @@ export function createShadowPipeline(sun, opts = {}) {
       _extentApplied: -1,
       _lastSnapped: new THREE.Vector3(NaN, NaN, NaN),
       _target: new THREE.Vector3(),
+      _pendingFrames: 0,
     })
   }
 
@@ -115,9 +124,24 @@ export function createShadowPipeline(sun, opts = {}) {
     return moved
   }
 
+  // Cascade 0 is the only cascade whose texel is finer than one frame of walking, so it is the only
+  // one that has to follow the eye every frame, and it is never held. The far cascades time-share a
+  // redraw budget per frame instead of all of them landing on the same frame: a far map held one
+  // frame sits one frame of travel behind the eye, which is below its own snap step, and the defer
+  // ceiling means a far cascade cannot be starved by one that comes due more often.
   function update(target) {
     let anyMoved = false
-    for (const c of _cascades) { if (_updateCascade(c, target)) anyMoved = true }
+    let farIssued = 0
+    for (const c of _cascades) {
+      if (c.index > 0 && !(c._pendingFrames >= FAR_CASCADE_MAX_DEFER_FRAMES) && farIssued >= farRedrawBudget) {
+        c._pendingFrames++
+        continue
+      }
+      if (!_updateCascade(c, target)) { c._pendingFrames = 0; continue }
+      anyMoved = true
+      if (c.index > 0) farIssued++
+      c._pendingFrames = 0
+    }
     return anyMoved
   }
 
@@ -185,8 +209,10 @@ export function createShadowPipeline(sun, opts = {}) {
           index: i, extent: c.extent, snapped: c._lastSnapped.toArray(), texelWorld: texelWorld(i),
           mapSize: (c.light.shadow.mapSize && c.light.shadow.mapSize.x) || mapSize(),
           needsUpdate: c.light.shadow.needsUpdate,
+          pendingFrames: c._pendingFrames,
         })),
         offset: offset.toArray(),
+        farRedrawBudget,
         cascadeSelect: (typeof window !== 'undefined' && window.__cascadeShadowSelect) || null,
       }
     },

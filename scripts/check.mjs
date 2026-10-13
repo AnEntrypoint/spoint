@@ -66,8 +66,20 @@ const NO_GPU_WITNESSES = [
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
+  // PERF-shadow-cascade-redraw-hitch-1013: how many cascade shadow maps one frame re-renders while
+  // the player travels, unbounded against shipped. The `must` is the second half of the witness: a
+  // run that printed no ladder, one whose unbounded arm never put all three cascades on one frame, or
+  // one whose shipped arm did not cut that, must read as a failure rather than as silence that
+  // passes. The cascade 0 figure is the fidelity pin -- the near cascade redraws on every frame in
+  // both arms, so the near band's cadence is not what the budget bought.
+  { file: 'shadow-cascade-redraw-witness.mjs', must: /RESULT: PASS label=shadow-cascade-redraw -- worst cascade redraw\(s\) in one frame while travelling 3m\/s:3->2 6m\/s:3->3 12m\/s:3->3 20m\/s:3->3 \(of 3\); frame\(s\) redrawing all three 3m\/s:31->0 6m\/s:178->3 12m\/s:671->174 20m\/s:1553->651; far redraw\(s\) 3m\/s:839->836 6m\/s:1613->1592 12m\/s:3069->2905 20m\/s:4662->3974; cascade 0 3600\/3600 frame\(s\) unchanged/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
   { file: 'tree-texture-budget-witness.mjs', must: /the leaf default is an eighth of the source, not the source[\s\S]*RESULT: PASS/ },
+  // gpu-free: it builds the real node graph and models the sampler in JS, so no adapter is touched.
+  // The second half of the witness is the `must`: a run that never swept a footprint inside the
+  // coincide band, or never swept one outside it, has to read as a failure rather than as silence
+  // that passes -- without an out-of-band sample the guard is decorative and unproven.
+  { file: 'surface-splat-octave-tap-witness.mjs', must: /MEASURED surface-splat-octave-tap: [1-9]\d* in-band footprint\(s\) collapse to one tap set, [1-9]\d* do not, [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=surface-splat-octave-tap/ },
   // gpu-free: it drives the real deferral against a stub Pipelines, so the property it pins -- a
   // first use never builds inside the frame that needs it, and no queued object is ever stranded --
   // holds without an adapter. How long one prologue takes is a browser arm this CI does not run.
