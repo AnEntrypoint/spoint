@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, symlinkSync } from 
 import { execFileSync } from 'node:child_process'
 import { dirname } from 'node:path'
 import { SOURCE_REL, GENERATED_REL, MAX_BUFFER, catFileBatch, makeIndex, normalizeEol, recordedDigest } from './appcontext-closure.mjs'
+import { CHECK_REL, parseCheckPins, missingCheckPins, checkPinRefusal, emptyParseRefusal } from './check-pin-gate.mjs'
+import { planRebaseOnTip, contestedRefusal } from './tip-rebase.mjs'
 
 const REPO = 'AnEntrypoint/spoint'
 const ROOT = process.cwd()
@@ -149,27 +151,34 @@ async function main() {
     return await r.text()
   }
 
-  const prepared = []
-  for (const rel of args.paths) {
-    prepared.push({ rel, text: normalizeEol(readFileSync(ROOT + '/' + rel, 'utf8')), buffer: null })
+  // Read and hash on every attempt, never once before the loop: an attempt that lost refs/heads/main
+  // must build the blobs it writes against the tip it is about to POST against.
+  const readPrepared = () => {
+    const out = []
+    for (const rel of args.paths) {
+      out.push({ rel, text: normalizeEol(readFileSync(ROOT + '/' + rel, 'utf8')), buffer: null, sha: null })
+    }
+    for (const rel of args.binary) {
+      const buffer = readFileSync(ROOT + '/' + rel)
+      out.push({ rel, text: buffer.toString('utf8'), buffer, sha: null })
+    }
+    return out
   }
-  for (const rel of args.binary) {
-    const buffer = readFileSync(ROOT + '/' + rel)
-    prepared.push({ rel, text: buffer.toString('utf8'), buffer })
+  const hashPrepared = (list) => {
+    const out = {}
+    for (const p of list) {
+      out[p.rel] = p.sha !== null ? p.sha : execFileSync('git', ['hash-object', '--path=' + p.rel, p.rel], { cwd: ROOT, encoding: 'utf8' }).trim()
+    }
+    return out
   }
-  const local = {}
-  for (const p of prepared) {
-    local[p.rel] = execFileSync('git', ['hash-object', '--path=' + p.rel, p.rel], { cwd: ROOT, encoding: 'utf8' }).trim()
-  }
+  let prepared = readPrepared()
+  let local = hashPrepared(prepared)
 
-  const enforceClosureGate = async (tip) => {
+  const enforceClosureGate = async (tip, listing, atTip) => {
     const publishing = new Set(prepared.map(p => p.rel))
-    const listing = await gh('/repos/' + repo + '/git/trees/' + tip + '?recursive=1')
     if (listing.truncated) {
       throw new Error('closure gate: the tip tree ' + tip + ' came back truncated, so the ' + SOURCE_REL + ' import closure cannot be enumerated; refusing to publish unverified')
     }
-    const atTip = new Map()
-    for (const entry of listing.tree) if (entry.type === 'blob') atTip.set(entry.path, entry.sha)
     if (!atTip.has(SOURCE_REL)) {
       throw new Error('closure gate: ' + SOURCE_REL + ' is absent from tip tree ' + tip + '; this is not the spoint closure')
     }
@@ -306,11 +315,54 @@ async function main() {
     return text
   }
 
+  const catText = async (sha) => {
+    try {
+      return execFileSync('git', ['cat-file', 'blob', sha], { cwd: ROOT, encoding: 'utf8', maxBuffer: MAX_BUFFER })
+    } catch {
+      return await remoteBlobText(sha)
+    }
+  }
+
+  const enforceCheckPinGate = (atTip) => {
+    const check = prepared.find((p) => p.rel === CHECK_REL)
+    if (!check) return
+    const pins = parseCheckPins(check.text)
+    if (pins.length === 0) refuse(emptyParseRefusal())
+    const publishing = new Set(prepared.map((p) => p.rel))
+    const missing = missingCheckPins({ pins, publishing, remoteHas: (rel) => atTip.has(rel) })
+    if (missing.length) refuse(checkPinRefusal({ missing, publishingPaths: [...publishing] }))
+    console.log('[git-api-publish] check pin gate: ' + pins.length + ' pinned witness file(s) in ' + CHECK_REL + ' all resolve -- carried by this commit or already on the tip tree')
+  }
+
+  let prevAtTip = null
   const publishOnce = async () => {
     const tip = (await gh('/repos/' + repo + '/git/ref/heads/main')).object.sha
-    const regenerated = await enforceClosureGate(tip)
+    const listing = await gh('/repos/' + repo + '/git/trees/' + tip + '?recursive=1')
+    const atTip = new Map()
+    for (const entry of listing.tree) if (entry.type === 'blob') atTip.set(entry.path, entry.sha)
+    prepared = readPrepared()
+    local = hashPrepared(prepared)
+    // the tip moved under a previous attempt: rebuild what this commit writes against THIS tip.
+    if (prevAtTip !== null) {
+      const plan = planRebaseOnTip({
+        entries: prepared.map((p) => ({ rel: p.rel, blob: local[p.rel], binary: p.buffer !== null })),
+        prevAtTip,
+        atTip,
+      })
+      if (plan.contested.length) refuse(contestedRefusal({ contested: plan.contested, tip }))
+      for (const { rel, sha } of plan.adopt) {
+        const at = prepared.findIndex((p) => p.rel === rel)
+        prepared[at] = { rel, text: await catText(sha), buffer: null, sha }
+        local[rel] = sha
+        console.log('[git-api-publish] tip rebase: ' + rel + ' adopted the blob on the new tip (' + sha.slice(0, 12) + ') instead of the one this publish first read')
+      }
+    }
+    prevAtTip = atTip
+    // before anything is written: a pin for a witness this commit does not carry reddens CI.
+    enforceCheckPinGate(atTip)
+    const regenerated = await enforceClosureGate(tip, listing, atTip)
     if (regenerated !== null) {
-      const entry = { rel: GENERATED_REL, text: regenerated, buffer: null }
+      const entry = { rel: GENERATED_REL, text: regenerated, buffer: null, sha: null }
       const at = prepared.findIndex((p) => p.rel === GENERATED_REL)
       if (at >= 0) prepared[at] = entry
       else prepared.push(entry)
@@ -319,6 +371,10 @@ async function main() {
 
     const tree = []
     for (const p of prepared) {
+      if (p.sha !== null) {
+        tree.push({ path: p.rel, mode: '100644', type: 'blob', sha: p.sha })
+        continue
+      }
       const content = p.buffer === null ? Buffer.from(p.text, 'utf8') : p.buffer
       const blob = await gh('/repos/' + repo + '/git/blobs', {
         method: 'POST',
