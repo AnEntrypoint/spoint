@@ -61,6 +61,10 @@ const NO_GPU_WITNESSES = [
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
   { file: 'tree-texture-budget-witness.mjs', must: /the leaf default is an eighth of the source, not the source[\s\S]*RESULT: PASS/ },
+  // gpu-free: it drives the real deferral against a stub Pipelines, so the property it pins -- a
+  // first use never builds inside the frame that needs it, and no queued object is ever stranded --
+  // holds without an adapter. How long one prologue takes is a browser arm this CI does not run.
+  { file: 'pipeline-firstuse-deferral-witness.mjs', must: /\[PASS\] a first use on the draw path builds nothing[\s\S]*\[PASS\] the drain builds it off the draw path[\s\S]*\[PASS\] a prologue longer than the slice cannot starve the queue[\s\S]*\[PASS\] an object enqueued mid-drain is still drained[\s\S]*\[PASS\] a ready object is never deferred[\s\S]*\[PASS\] the reproduction switch puts a first use back on the draw path[\s\S]*RESULT: PASS/ },
   // gpu-free: the count is read out of three's own Pipelines and Info classes with a stub backend,
   // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
   // is a browser arm this CI does not run.
@@ -72,6 +76,11 @@ const SLOW_NO_GPU_WITNESSES = [
   { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
   { file: 'collider-ring-scale-witness.mjs', must: /\[ring-scale\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-scale\] RESULT: PASS/ },
   { file: 'collider-ring-boot-batches-witness.mjs', must: /ms per 1k operation\(s\) over [1-9]\d* operation\(s\)/ },
+  // PERF-terrain-collider-ring-hitch-1013. The `must` is the second half of the witness: a run that
+  // printed no A/B, one whose realistic arm reached the eviction path it is supposed to find
+  // unreachable, or one whose eviction-pressure arm never evicted, must read as a failure rather
+  // than as silence that passes.
+  { file: 'collider-ring-frame-cost-witness.mjs', must: /\[ring-frame\] 8 walking, shipped cap:[^\n]*evict scan 0 \/ evicted 0[\s\S]*\[ring-frame\] 8 walking, tight cap 64:[^\n]*evict scan [1-9]\d* \/ evicted [1-9]\d*[\s\S]*\[ring-frame\] A\/B: 8 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] A\/B: 48 player\(s\) frame wall max [\d.]+ ms walking vs [\d.]+ ms settled[\s\S]*\[ring-frame\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-frame\] RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
@@ -342,6 +351,31 @@ async function main() {
       gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
+  // PERF-hitch-perframe-allocation-r1: the per-frame allocation arm reaches cdp-browser, so like
+  // every other browser witness it rides behind SPOINT_GPU_WITNESS and gpulock rather than the
+  // gpu-free arm, which refuses it by name. The `must` pins the measured rate, the population it was
+  // measured at and the worst pause, so an exit 0 from a run that stopped measuring still fails here.
+  if (process.env.SPOINT_GPU_WITNESS) {
+    const allocFile = 'per-frame-allocation-browser-witness.mjs'
+    const allocMust = /RESULT: PASS label=per-frame-allocation -- [1-9]\d* B\/frame at [1-9]\d* entities \/ [1-9]\d* draw calls over [1-9]\d* frames, worst GC pause [\d.]+ms/
+    const started = Date.now()
+    let allocOut = ''
+    let allocCode = 0
+    try {
+      const done = await execFileAsync(process.execPath, [join('scripts', allocFile), '--frames=2400'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      allocOut = done.stdout
+    } catch (e) {
+      allocOut = (e && e.stdout) || ''
+      allocCode = Number.isInteger(e.code) ? e.code : 1
+    }
+    const allocMs = Date.now() - started
+    if (allocCode !== 0 || !allocMust.test(allocOut)) {
+      gateFailures.push(`${allocFile}: exit ${allocCode} in ${(allocMs / 1000).toFixed(1)}s${allocMust.test(allocOut) ? '' : ', printed no line pinning a measured bytes/frame rate and worst pause'}`)
+      for (const line of echoLines(allocOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
+    } else {
+      console.log(`check: gpu-arm witness ${allocFile} ${(allocMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(allocOut).line}`)
+    }
+  }
   // Owner-reported hard hitches when the landscape changes (row
   // PERF-landscape-change-hitch-r270-74). This witness boots a real browser, so it rides the same
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
@@ -350,7 +384,7 @@ async function main() {
   // work unit -- synchronous createRenderPipeline on the draw path must be 0 -- so a regression that
   // puts compilation back on the draw path reds this arm even if the frame distribution still
   // happens to hold.
-  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
+  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
   const gpuHitchKeep = (line) => /^(RESULT:|\[landscape-change-hitch-witness\])/.test(line)
   for (const gpu of gpuArms) {
     try {
@@ -360,6 +394,24 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (gpuHitchKeep(line)) console.error(`check: ${line}`)
       gateFailures.push(`landscape-change-hitch-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // PERF-authoritative-draw-count-1013: the authoritative per-frame draw and instance inventory of a
+  // shipped world, split by draw band (terrain/veg/grass/rocks/water/shadow/...), counted at the API
+  // boundary (`drawsInstrument.authoritativeField`). It boots a real browser, so it rides the same
+  // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
+  // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
+  // counters never moved, must read as a failure rather than as silence that passes.
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*RESULT: PASS arm=draw-instrument/
+  const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/draw-instrument-witness.mjs', `--gpu=${gpu}`, '--settle=12000', '--frames=40'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (drawInstrumentKeep(line)) console.log(`check: ${line}`)
+      if (!DRAW_INSTRUMENT_MUST.test(stdout)) gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: printed no line matching its must regex, so either its band inventory or its counter-moved floor never ran`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (drawInstrumentKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
