@@ -237,6 +237,14 @@ const NO_GPU_WITNESSES = [
   // not run. It serves the entry out of the worktree, so a stale dist/client/app.js is not
   // something a boot from here can be measuring.
   { file: 'static-host-boot-witness.mjs', must: /MEASURED static-host-boot: [1-9]\d* module\(s\) resolved out of the static tree[\s\S]*\[PASS\] singleplayer and RTC are both reachable from this one static output -- 5\/5 boot path\(s\)[\s\S]*RESULT: PASS/ },
+  // PERF-sky-aerial-perspective-share-1013. Counted work units for the sky background node: exp
+  // operations and atmosphere LUT taps per pixel, measured by building the real TSL node graph in
+  // node and walking it -- no adapter, no browser. The `must` is the second half of the witness: it
+  // pins BOTH numbers (80 exp / 16 taps before, 0 exp / 6 taps for the shared solve), and it is
+  // non-vacuous in both directions only because the witness also re-counts source variants with one
+  // march removed and with both removed and requires the count to fall to half and then to zero --
+  // a counter that printed 0 in every arm would fail here instead of reading as a measurement.
+  { file: 'sky-aerial-perspective-count-witness.mjs', must: /MEASURED before: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED one-march-removed: expNodes=24 expOps=40 lutFetches=8[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*MEASURED shared-solve: expNodes=0 expOps=0 lutFetches=6[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
