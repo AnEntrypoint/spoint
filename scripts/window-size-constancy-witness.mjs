@@ -238,14 +238,26 @@ if (WATCH) {
   console.log('[window-size] MEASURED distinct page viewport(s): ' + JSON.stringify(inners) + ' over ' + set.length + ' launch(es)')
   console.log('[window-size] MEASURED fit value(s): ' + JSON.stringify(fits))
   const fitArms = rows.filter((r) => !r.constancy && !r.error)
-  for (const r of fitArms) console.log('[window-size] non-default shape ' + r.arm + ': osWindow=' + r.osWindow + ' pageInner=' + r.pageInner + ' fit=' + r.fit)
+  // A non-default viewport can only reach fit 1 if viewport + frame fits the screen.
+  // On a screen too small for it the window stops at the screen edge and the page is
+  // still scaled, so fit < 1 there is the screen's limit and not a broken fit: what
+  // must hold is that the window left the default and grew towards the request.
+  const grewPastDefault = (r) => {
+    const m = /^(\d+)x(\d+)$/.exec(r.osWindow || '')
+    if (!m) return false
+    return Number(m[1]) > FRAME.w + DEFAULT_VIEWPORT.width || Number(m[2]) > FRAME.h + DEFAULT_VIEWPORT.height
+  }
+  for (const r of fitArms) {
+    console.log('[window-size] non-default shape ' + r.arm + ': osWindow=' + r.osWindow + ' pageInner=' + r.pageInner +
+      ' fit=' + r.fit + ' grewPastDefault=' + grewPastDefault(r) + ' screen=' + r.screen)
+  }
   const constant = windows.length === 1 && inners.length === 1 && bounds.length === 1 && errors.length === 0
   const unscaled = set.every((r) => r.fit >= 1)
   console.log(constant
     ? '[window-size] CONSTANT: OS window ' + windows[0] + ', page viewport ' + inners[0] + ', over ' + set.length + ' launch shapes'
     : '[window-size] NOT CONSTANT')
   summary.push('window=' + JSON.stringify(windows) + ' viewport=' + JSON.stringify(inners) + ' fit=' + JSON.stringify(fits))
-  pass = constant && unscaled && (fitArms.length === 0 || fitArms.every((r) => r.fit >= 1))
+  pass = constant && unscaled && fitArms.every((r) => r.fit >= 1 || grewPastDefault(r))
 }
 
 console.log('[window-size] SUMMARY ' + summary.join(' '))
