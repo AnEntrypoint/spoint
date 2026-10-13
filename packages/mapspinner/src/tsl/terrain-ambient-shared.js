@@ -24,10 +24,38 @@ export const RAYLEIGH_SKY_TINT = 0.4
 export const SKY_DAY_MU = [-0.10, 0.25]
 export const TERMINATOR_FADE_SIN = Math.sin(10 * Math.PI / 180)
 
-const LUMA = [0.2126, 0.7152, 0.0722]
+export const LUMA = [0.2126, 0.7152, 0.0722]
 
 export function luma(rgb) {
   return LUMA[0] * rgb[0] + LUMA[1] * rgb[1] + LUMA[2] * rgb[2]
+}
+
+// The ACES filmic curve and the display gamma the terrain grade ends in, as numbers a shader source
+// and a gpu-free witness can both read, so no path declares its own copy of the curve.
+export const ACES_FILMIC = [2.51, 0.03, 2.43, 0.59, 0.14]
+export const DISPLAY_GAMMA_INV = 1 / 2.2
+
+export function acesFilmicChannel(x) {
+  const c = Math.min(1, Math.max(0, x))
+  const mapped = c * (c * ACES_FILMIC[0] + ACES_FILMIC[1]) / (c * (c * ACES_FILMIC[2] + ACES_FILMIC[3]) + ACES_FILMIC[4])
+  return Math.min(1, Math.max(0, mapped))
+}
+
+// The grade terrain-lighting-tsl.js gradeOutput applies, in the same order, as scalars: dayShade and
+// the night fill, then exposure, the filmic curve, saturation, contrast and the display gamma. Both
+// vegetation paths and the grass run their lit colour through this, which is what makes an ambient
+// that agrees in radiance agree on screen too.
+export function terrainGrade(rgb, { dayShade = 1, nightFill = [0, 0, 0], exposure = 1, lookSat = 1, lookContrast = 1 } = {}) {
+  const c = [0, 0, 0]
+  for (let i = 0; i < 3; i++) c[i] = (rgb[i] * dayShade + nightFill[i]) * exposure
+  const mapped = [acesFilmicChannel(c[0]), acesFilmicChannel(c[1]), acesFilmicChannel(c[2])]
+  const grey = luma(mapped)
+  const graded = [0, 0, 0]
+  for (let i = 0; i < 3; i++) {
+    const sat = grey + (mapped[i] - grey) * lookSat
+    graded[i] = Math.pow(Math.min(1, Math.max(0, (sat - 0.5) * lookContrast + 0.5)), DISPLAY_GAMMA_INV)
+  }
+  return graded
 }
 
 function smoothstepUnit(edge0, edge1, x) {
