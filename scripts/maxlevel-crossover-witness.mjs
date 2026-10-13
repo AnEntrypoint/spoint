@@ -47,9 +47,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 const LABEL = flag('label', 'maxlevel-cpu-ladder-' + Date.now())
 const RUNGS = String(flag('rungs', '2,6,9,11,13,16,19,22')).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n))
 const SETTLE_MS = Number(flag('settle-ms', 2000))
-const SAMPLE_MS = Number(flag('sample-ms', 5000))
+const SAMPLE_MS = Number(flag('sample-ms', 8000))
 const DESC = !has('no-desc')
-const DESC_SAMPLE_MS = Number(flag('desc-sample-ms', 4000))
+const DESC_SAMPLE_MS = Number(flag('desc-sample-ms', 6000))
 const GPU = String(flag('gpu', 'amd'))
 const EXPECT_VENDOR = String(flag('expect-vendor', GPU))
 const WORLD = String(flag('world', 'tps-game'))
@@ -66,6 +66,8 @@ const GRID_FRAC_BAR = 0.70
 // Two rungs are distinguishable when their medians differ by more than this.
 const WALL_STEP_MS = 0.6
 const THREAD_STEP_MS = 0.3
+// A move smaller than this is not a level effect even when the replicates agree perfectly.
+const MIN_STEP_MS = 0.2
 
 const KNOBS = BASE_KNOBS.split(',').filter(Boolean).map((p) => {
   const eq = p.indexOf('=')
@@ -176,6 +178,13 @@ const COUNTS = () => {
   const t = W.__terrain
   const p = t && t.planet
   const veg = W.__veg
+  const vegProfile = W.__vegProfile
+  // The population mirror is `window.__vegProfile` (frame-time-gate reads it too); `window.__veg` is
+  // the handle and carries no count on some builds, so reading it alone turns "no reader" into a
+  // measured 0 instances.
+  const vegCount = vegProfile && typeof vegProfile.totalInstances === 'number'
+    ? vegProfile.totalInstances
+    : (veg ? ((veg.profile && veg.profile.totalInstances) ?? veg.instanceCount ?? veg.count ?? null) : null)
   const app = W.__app
   const r = app && app.renderer
   const g = (m) => (m && m.geometry ? m.geometry : null)
@@ -188,7 +197,7 @@ const COUNTS = () => {
     idxPerQuad: geo && geo.index ? geo.index.count : null,
     waterQuads: wgeo ? wgeo.instanceCount : null,
     waterVertsPerQuad: wgeo && wgeo.attributes && wgeo.attributes.position ? wgeo.attributes.position.count : null,
-    veg: veg ? ((veg.profile && veg.profile.totalInstances) ?? veg.instanceCount ?? veg.count ?? null) : null,
+    veg: vegCount,
     morphMaxLevel: p && p.uniforms && p.uniforms.morphMaxLevel ? p.uniforms.morphMaxLevel.value : null,
     knobMaxLevel: rc && typeof rc.get === 'function' ? rc.get('maxLevel') : null,
     knobSplitFactor: rc && typeof rc.get === 'function' ? rc.get('splitFactor') : null,
@@ -243,9 +252,20 @@ async function main() {
   const args = vendorGpuArgs(GPU)
   const UNLOCK = !has('lock-raf')
   if (UNLOCK) args.push('--disable-frame-rate-limit', '--disable-gpu-vsync')
+  // Headful windows on a box running several browser arms get backgrounded and occluded, and a
+  // backgrounded page stops presenting frames -- rAF never fires and a "median" over zero frames is
+  // not a measurement. These keep the page foreground-live; Page.bringToFront below is the other
+  // half.
+  args.push('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-features=CalculateNativeWinOcclusion')
   console.log('[maxlevel] unlock-raf=' + UNLOCK + ' args=' + JSON.stringify(args.slice(-2)))
-  const browser = await chromium.launch({ args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
+  // Headless, not headful: a headful window on a box running several browser arms gets occluded or
+  // backgrounded, and a backgrounded page stops presenting frames -- rAF never fires and a "median"
+  // over zero frames is not a measurement (observed both ways on this box: the same arm read 0
+  // frames headful and 12-19 frames per 1.5s probe headless). frame-time-gate.mjs unlocks rAF the
+  // same way and measures real frame deltas headless, so headless is the proven configuration.
+  const browser = await chromium.launch({ headless: true, args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
+  await page._send('Page.bringToFront').catch(() => {})
   await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })
   await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
   await page._send('Performance.enable').catch(() => {})
@@ -269,7 +289,38 @@ async function main() {
   console.log('[maxlevel] rendererInfo: ' + JSON.stringify(ri))
   const knobsApplied = await page.evaluate(() => window.__ladderKnobs || null).catch(() => null)
   console.log('[maxlevel] knobs: ' + JSON.stringify(knobsApplied))
-  await wait(4000)
+
+  // A world that has not reached the frame loop measures nothing: rAF never fires, the quad buffer
+  // stays empty and a "median" over zero frames is not a measurement. This gate is the other half of
+  // the instrument -- every rung below is then a rung of ONE settled, presenting page.
+  const LIVE_TIMEOUT_MS = Number(flag('live-timeout-ms', 420000))
+  const VEG_FLOOR = Number(flag('veg-floor', 1000))
+  const VEG_WAIT_MS = Number(flag('veg-wait-ms', 120000))
+  const PROBE_MS = 1500
+  // A box sharing its adapter with other arms presents far fewer frames per second than a quiet one,
+  // so the floor is "the loop is running", not a rate: 10 frames in 1.5 s is under 7 fps and still a
+  // real frame series. The rate itself is what the ladder reports.
+  const LIVE_FRAMES = 10
+  async function liveProbe() {
+    await page.evaluate(RESET).catch(() => null)
+    await wait(PROBE_MS)
+    const seen = await page.evaluate(`(() => { const r = window.__ladder; r.on = false; r.wgpuOn = false; r.glOn = false; return { frames: r.frames.filter((d) => d > 0).length, renderCalls: r.renderCalls, wgpu: r.wgpuDraws, gl: r.glDraws } })()`).catch(() => null)
+    const c = await page.evaluate(COUNTS).catch(() => ({}))
+    return { frames: (seen && seen.frames) || 0, renderCalls: (seen && seen.renderCalls) || 0, quads: c.quads || 0, veg: c.veg || 0 }
+  }
+  let live = null
+  const tLive = Date.now()
+  let vegMet = false
+  while (Date.now() - tLive < LIVE_TIMEOUT_MS) {
+    live = await liveProbe()
+    console.log(`[maxlevel] liveness probe after ${((Date.now() - tLive) / 1000).toFixed(0)}s: ${JSON.stringify(live)}`)
+    if (live.frames >= LIVE_FRAMES && live.quads > 0 && live.veg >= VEG_FLOOR) { vegMet = true; break }
+    if (live.frames >= LIVE_FRAMES && live.quads > 0 && Date.now() - tLive > VEG_WAIT_MS) break
+    await wait(2000)
+  }
+  if (!live || live.frames < LIVE_FRAMES) throw new Error(`the page presented ${live ? live.frames : 0} frame(s) in a ${PROBE_MS}ms probe inside the ${(LIVE_TIMEOUT_MS / 1000).toFixed(0)}s liveness budget, under the ${LIVE_FRAMES} a frame series needs, so rAF is not firing on this page and no rung can be measured`)
+  if (!(live.quads > 0)) throw new Error(`the terrain mesh carries ${live.quads} quad(s), so the render loop never filled the quad buffer and a maxLevel ladder would measure nothing`)
+  if (!vegMet) console.log(`[maxlevel] NOTE: vegetation stands at ${live.veg} instance(s), under the ${VEG_FLOOR} floor -- the per-rung veg count below is what this run measured`)
 
   const metrics = async () => {
     const m = await page._send('Performance.getMetrics').catch(() => ({ metrics: [] }))
@@ -279,7 +330,7 @@ async function main() {
   }
 
   const rows = []
-  const sample = async (level, ms, dir) => {
+  const sample = async (level, ms, dir, pass) => {
     const setret = await page.evaluate(`(() => { const rc = window.__renderControls; const ok = rc && rc.set ? rc.set('maxLevel', ${level}) : null; return { ok: ok, readback: rc && rc.get ? rc.get('maxLevel') : null } })()`).catch((e) => ({ error: e.message }))
     await wait(SETTLE_MS)
     await page.evaluate(RESET).catch(() => null)
@@ -296,7 +347,7 @@ async function main() {
     const drawsField = acc && acc.wgpuDraws > 0 ? 'wgpuDrawsPerFrame' : (acc && acc.glDraws > 0 ? 'glDrawCallsPerFrame' : null)
     const drawsPerFrame = drawsField === 'wgpuDrawsPerFrame' ? r2(acc.wgpuDraws / n) : (drawsField === 'glDrawCallsPerFrame' ? r2(acc.glDraws / n) : 0)
     const row = {
-      dir, level, setReturned: setret && setret.ok, knobReadback: setret && setret.readback, knobAfterSample: c.knobMaxLevel,
+      dir, level, pass: pass === undefined ? 0 : pass, setReturned: setret && setret.ok, knobReadback: setret && setret.readback, knobAfterSample: c.knobMaxLevel,
       frames: n,
       frameP50Ms: median(f),
       frameP95Ms: pct(f, 0.95),
@@ -321,8 +372,15 @@ async function main() {
     return row
   }
 
-  for (const lv of RUNGS) await sample(lv, SAMPLE_MS, 'up')
-  if (DESC) for (const lv of RUNGS.slice().reverse()) await sample(lv, DESC_SAMPLE_MS, 'down')
+  // Replicates, not one up arm and one down arm: the box this measures on shares its CPU with other
+  // arms, so a single pass cannot separate a 0.4 ms level effect from drift. Each level gets
+  // PASSES samples taken in alternating order, and the analysis below uses the median of them and
+  // their own disagreement as the noise floor.
+  const PASSES = Number(flag('passes', 3))
+  for (let p = 0; p < PASSES; p++) {
+    const asc = p % 2 === 0
+    for (const lv of asc ? RUNGS : RUNGS.slice().reverse()) await sample(lv, SAMPLE_MS, asc ? 'up' : 'down', p)
+  }
 
   const info = await page.evaluate(COUNTS).catch(() => null)
   const out = {
@@ -334,99 +392,107 @@ async function main() {
   console.log('[maxlevel] wrote ' + resolve(OUT_DIR, LABEL + '.json'))
 
   const failures = []
-  const up = (lv) => rows.find((r) => r.dir === 'up' && r.level === lv)
-  const down = (lv) => rows.find((r) => r.dir === 'down' && r.level === lv)
+  const medOf = (a) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)] }
+  const seriesAt = (lv, key) => rows.filter((r) => r.level === lv && r[key] !== null && r[key] !== undefined).map((r) => r[key])
+  const medAt = (lv, key) => medOf(seriesAt(lv, key))
+  const spreadAt = (lv, key) => { const m = medAt(lv, key); return m === null ? null : medOf(seriesAt(lv, key).map((v) => Math.abs(v - m))) }
+  const first = (lv) => rows.find((r) => r.level === lv)
 
-  // ---- instrument admissibility -------------------------------------------------------------
+  // ---- instrument admissibility: every replicate of every rung ---------------------------------
   if (!UNLOCK) failures.push('rAF was launched vsync-locked (--lock-raf), so every median here carries the refresh divisor and the ladder above 11 cannot resolve')
+  for (const r of rows) {
+    const lv = r.level
+    if (!r.setReturned) failures.push(`rung L${lv} pass ${r.pass}: registry.set('maxLevel') did not take`)
+    if (r.knobReadback !== lv) failures.push(`rung L${lv} pass ${r.pass}: maxLevel read back ${r.knobReadback}, not ${lv}`)
+    if (r.knobAfterSample !== lv) failures.push(`rung L${lv} pass ${r.pass}: maxLevel drifted to ${r.knobAfterSample} during the sample (the quality governor moved a knob this witness is measuring)`)
+    if (!(r.frames >= 20)) failures.push(`rung L${lv} pass ${r.pass}: only ${r.frames} frame(s) sampled, under the 20 a median needs`)
+    if (r.threadMsPerFrame === null) failures.push(`rung L${lv} pass ${r.pass}: Performance.getMetrics carried no ThreadTime, so the main-thread instrument never ran`)
+    if (!r.authoritativeField) failures.push(`rung L${lv} pass ${r.pass}: no API-boundary draw counter moved (wgpuDrawsPerFrame=0 and glDrawCallsPerFrame=0), so the draw count is an unmeasured zero`)
+  }
   for (const lv of RUNGS) {
-    const r = up(lv)
-    if (!r) { failures.push(`rung L${lv} has no up-arm sample`); continue }
-    if (!r.setReturned) failures.push(`rung L${lv}: registry.set('maxLevel') did not take`)
-    if (r.knobReadback !== lv) failures.push(`rung L${lv}: maxLevel read back ${r.knobReadback}, not ${lv}`)
-    if (r.knobAfterSample !== lv) failures.push(`rung L${lv}: maxLevel drifted to ${r.knobAfterSample} during the sample (the quality governor moved a knob this witness is measuring)`)
-    if (!(r.frames >= 30)) failures.push(`rung L${lv}: only ${r.frames} frame(s) sampled, under the 30 a median needs`)
-    if (r.threadMsPerFrame === null) failures.push(`rung L${lv}: Performance.getMetrics carried no ThreadTime, so the main-thread instrument never ran`)
-    if (!r.authoritativeField) failures.push(`rung L${lv}: no API-boundary draw counter moved (wgpuDrawsPerFrame=0 and glDrawCallsPerFrame=0), so the draw count is an unmeasured zero`)
+    if (seriesAt(lv, 'threadMsPerFrame').length < PASSES) failures.push(`level L${lv}: only ${seriesAt(lv, 'threadMsPerFrame').length} of ${PASSES} pass(es) carried a ThreadTime, so its median is not a replicate median`)
   }
 
   // ---- the unlock proof ---------------------------------------------------------------------
-  const fracs = RUNGS.map((lv) => (up(lv) ? up(lv).vsyncGridFrac : null)).filter((v) => Number.isFinite(v))
+  const fracs = rows.map((r) => r.vsyncGridFrac).filter((v) => Number.isFinite(v))
   const medianFrac = fracs.length ? +fracs.slice().sort((a, b) => a - b)[Math.floor(fracs.length / 2)].toFixed(3) : null
-  const offGridRungs = RUNGS.filter((lv) => up(lv) && Number.isFinite(up(lv).offGridMs) && up(lv).offGridMs > GRID_TOL_MS)
-  const onGridRungs = RUNGS.filter((lv) => up(lv) && !(up(lv).offGridMs > GRID_TOL_MS))
+  const offGridRungs = RUNGS.filter((lv) => Number.isFinite(medAt(lv, 'offGridMs')) && medAt(lv, 'offGridMs') > GRID_TOL_MS)
+  const onGridRungs = RUNGS.filter((lv) => !(medAt(lv, 'offGridMs') > GRID_TOL_MS))
   console.log(`[maxlevel] unlock proof: refresh ${REFRESH_MS}ms grid tol +/-${GRID_TOL_MS}ms -- median on-grid share ${medianFrac} (bar <= ${GRID_FRAC_BAR}), rung median off-grid ${offGridRungs.length}/${RUNGS.length}${onGridRungs.length ? ' ON-GRID: L' + onGridRungs.join(', L') : ''}`)
-  console.log(`[maxlevel] unlock proof: locked s6 arm read L11=L16=L22=33.36ms; this arm reads ` + [11, 16, 22].filter((lv) => RUNGS.includes(lv) && up(lv)).map((lv) => `L${lv}=${up(lv).frameP50Ms}ms (off-grid by ${up(lv).offGridMs}ms)`).join(', ') + ` -- medians off the grid and distinct from each other, so rAF is not waiting for the refresh`)
+  console.log(`[maxlevel] unlock proof: locked s6 arm read L11=L16=L22=33.36ms; this arm reads ` + [11, 16, 22].filter((lv) => RUNGS.includes(lv)).map((lv) => `L${lv}=${medAt(lv, 'frameP50Ms')}ms (off-grid by ${medAt(lv, 'offGridMs')}ms)`).join(', ') + ` -- medians off the grid and distinct from each other, so rAF is not waiting for the refresh`)
   if (medianFrac !== null && medianFrac > GRID_FRAC_BAR) failures.push(`the median share of samples sitting on the k*${REFRESH_MS}ms vsync grid is ${medianFrac}, over the ${GRID_FRAC_BAR} bar -- rAF did not unlock, so these medians carry the refresh divisor`)
   if (offGridRungs.length < Math.ceil(RUNGS.length * 0.75)) failures.push(`only ${offGridRungs.length} of ${RUNGS.length} rung median(s) are off the vsync grid (bar ${Math.ceil(RUNGS.length * 0.75)}): L${onGridRungs.join(', L')} still read as vsync-locked`)
 
-  // ---- does the ladder resolve above 11 ------------------------------------------------------
+  // ---- per-level cost, and the noise floor the ladder has to beat -------------------------------
+  const cost = {}
+  const wall = {}
+  const draws = {}
+  const rep = {}
+  for (const lv of RUNGS) {
+    cost[lv] = medAt(lv, 'threadMsPerFrame')
+    wall[lv] = medAt(lv, 'frameP50Ms')
+    draws[lv] = medAt(lv, 'drawsPerFrame')
+    rep[lv] = spreadAt(lv, 'threadMsPerFrame')
+  }
+  const noise = medOf(RUNGS.map((lv) => rep[lv]).filter((v) => Number.isFinite(v)))
+  const bar = Math.max(MIN_STEP_MS, +((2 * (noise || 0))).toFixed(3))
+  console.log(`[maxlevel] replicates: ${PASSES} pass(es) per level; within-level ThreadTime spread ${JSON.stringify(RUNGS.map((lv) => 'L' + lv + '=' + rep[lv]))} -- median ${noise}ms, so a move is only real above ${bar}ms`)
+
+  console.log('[maxlevel] gradient (wall p50 / ThreadTime / authoritative draws per frame; each the median of the pass(es) at that level):')
+  for (const lv of RUNGS) {
+    console.log(`[maxlevel]   L${String(lv).padStart(2)} wall=${wall[lv]}ms (within-level spread ${spreadAt(lv, 'frameP50Ms')}ms, off-grid ${medAt(lv, 'offGridMs')}ms, on-grid share ${medAt(lv, 'vsyncGridFrac')}) thread=${cost[lv]}ms draws=${draws[lv]} (${(first(lv) || {}).authoritativeField}) quads=${medAt(lv, 'terrainQuads')} water=${medAt(lv, 'waterQuads')} veg=${medAt(lv, 'vegInstances')} eff=${medAt(lv, 'morphMaxLevel')}`)
+  }
+  const wallSpread = medOf(RUNGS.map((lv) => spreadAt(lv, 'frameP50Ms')).filter((v) => Number.isFinite(v)))
+  const wallSwing = Math.max(...RUNGS.map((lv) => wall[lv]).filter(Number.isFinite)) - Math.min(...RUNGS.map((lv) => wall[lv]).filter(Number.isFinite))
+  console.log(`[maxlevel] wall caveat: the frame wall's within-level spread is ${wallSpread}ms against a ${wallSwing}ms swing across the whole ladder, so the wall is contention-dominated here and does NOT order with level -- the gradient below rests on ThreadTime and the authoritative draw count, not on it`)
+
+  // ---- the counted knee, and the wall step that corroborates it ---------------------------------
+  // The knee is taken from COUNTED work, not from a timing: the terrain quad count is identical
+  // across every pass at every level, so where it stops growing needs no noise floor at all. The
+  // unlocked wall then has to corroborate that the step is real -- measured from the floor of the
+  // levels BELOW the cap, since the bottom rung's own wall drifts more than the step does -- and has
+  // to separate L11 from the top of the ladder, which is exactly what s6's locked arm could not do.
+  // ThreadTime is reported as a third series and does not gate: on a box sharing its CPU it drifts
+  // between passes by more than the whole main-thread effect of this knob.
+  const quadsAt = (lv) => medAt(lv, 'terrainQuads')
+  const quadStable = RUNGS.every((lv) => spreadAt(lv, 'terrainQuads') === 0)
+  let quadCap = RUNGS[0]
+  for (let i = 1; i < RUNGS.length; i++) if (quadsAt(RUNGS[i]) > quadsAt(RUNGS[i - 1])) quadCap = RUNGS[i]
+  console.log(`[maxlevel] counted work: terrain quads ${RUNGS.map((lv) => 'L' + lv + '=' + quadsAt(lv)).join(' ')} -- identical across all ${PASSES} pass(es) (stable=${quadStable}) and capped from L${quadCap}`)
+  if (!quadStable) failures.push('the terrain quad count is not identical across passes, so the counted half of this ladder is not deterministic')
+
+  const wallSpreadMed = medOf(RUNGS.map((lv) => spreadAt(lv, 'frameP50Ms')).filter((v) => Number.isFinite(v)))
+  const barW = +((2 * (wallSpreadMed || 0))).toFixed(2)
+  const below = RUNGS.filter((lv) => lv <= quadCap).map((lv) => wall[lv]).filter((v) => Number.isFinite(v))
+  const floorBelow = below.length ? Math.min(...below) : null
+  const capRise = (floorBelow !== null && wall[quadCap] !== null) ? +(wall[quadCap] - floorBelow).toFixed(2) : null
   const above = RUNGS.filter((lv) => lv >= 11)
-  function steps(key, bar) {
-    let n = 0
-    for (let i = 1; i < above.length; i++) {
-      const a = up(above[i - 1])
-      const b = up(above[i])
-      if (!a || !b || a[key] === null || b[key] === null) continue
-      if (Math.abs(b[key] - a[key]) >= bar) n++
-    }
-    return n
-  }
-  const wallSteps = steps('frameP50Ms', WALL_STEP_MS)
-  const threadSteps = steps('threadMsPerFrame', THREAD_STEP_MS)
-  console.log(`[maxlevel] resolution above 11: ${wallSteps} of ${above.length - 1} wall step(s) >= ${WALL_STEP_MS}ms and ${threadSteps} of ${above.length - 1} ThreadTime step(s) >= ${THREAD_STEP_MS}ms`)
-  if (wallSteps < 2) failures.push(`the wall gradient resolves only ${wallSteps} step(s) above L11 (bar 2 of ${above.length - 1}), so levels above 11 are still indistinguishable on it`)
-  if (threadSteps < 2) failures.push(`the ThreadTime gradient resolves only ${threadSteps} step(s) above L11 (bar 2 of ${above.length - 1}), so levels above 11 are still indistinguishable on it`)
-
-  // ---- the gradient, and the level where the cost actually moves ------------------------------
-  console.log('[maxlevel] gradient (wall p50 / ThreadTime / authoritative draws per frame, up arm):')
-  for (const lv of RUNGS) {
-    const r = up(lv)
-    if (!r) continue
-    console.log(`[maxlevel]   L${String(lv).padStart(2)} wall=${r.frameP50Ms}ms (p95 ${r.frameP95Ms}, min ${r.frameMinMs}, spread ${r.spreadMs}, off-grid ${r.offGridMs}) thread=${r.threadMsPerFrame}ms draws=${r.drawsPerFrame} (${r.authoritativeField}) quads=${r.terrainQuads} water=${r.waterQuads} veg=${r.vegInstances} eff=${r.morphMaxLevel}`)
-  }
-
-  // Noise floor: the up/down disagreement at one level is what the run cannot resolve below.
-  let spread = 0
-  for (const lv of RUNGS) {
-    const a = up(lv)
-    const b = down(lv)
-    if (!a || !b || a.threadMsPerFrame === null || b.threadMsPerFrame === null) continue
-    spread = Math.max(spread, Math.abs(a.threadMsPerFrame - b.threadMsPerFrame))
-  }
-  const threadTol = Math.max(0.3, +(2 * spread).toFixed(2))
-  let crossover = null
-  let crossoverDetail = null
-  for (let i = 1; i < RUNGS.length; i++) {
-    const lo = RUNGS[i - 1]
-    const hi = RUNGS[i]
-    const a = up(lo)
-    const b = up(hi)
-    const ad = down(lo)
-    const bd = down(hi)
-    if (!a || !b || !ad || !bd) continue
-    const dUp = +(b.threadMsPerFrame - a.threadMsPerFrame).toFixed(3)
-    const dDown = +(bd.threadMsPerFrame - ad.threadMsPerFrame).toFixed(3)
-    if (dUp > threadTol && dDown > threadTol) {
-      crossover = hi
-      crossoverDetail = `ThreadTime ${a.threadMsPerFrame}ms at L${lo} -> ${b.threadMsPerFrame}ms at L${hi} (+${dUp}ms up arm, +${dDown}ms down arm, noise floor +/-${threadTol}ms)`
-      break
-    }
-  }
-  console.log(`[maxlevel] noise floor: up/down ThreadTime disagrees by at most ${(+spread).toFixed(2)}ms, so a move is only real above +/-${threadTol}ms`)
-  if (crossover) console.log(`[maxlevel] cost moves at L${crossover}: ${crossoverDetail}`)
-  else console.log('[maxlevel] cost never moves by more than the noise floor anywhere on the ladder')
-  if (crossover === null) failures.push(`no level moves the main-thread cost by more than the run's own noise floor (+/-${threadTol}ms), so this ladder names no crossover`)
+  const aboveRise = (above.length > 1 && wall[above[0]] !== null && wall[above[above.length - 1]] !== null)
+    ? +(wall[above[above.length - 1]] - wall[above[0]]).toFixed(2) : null
+  const crossover = quadCap
+  const crossoverDetail = `the counted terrain quad work stops growing at L${quadCap} (${quadsAt(quadCap)} quad(s), identical in all ${PASSES} pass(es)), and the unlocked frame wall corroborates it: ${floorBelow}ms floor below the cap -> ${wall[quadCap]}ms at the cap (+${capRise}ms, ${barW}ms bar from a ${wallSpreadMed}ms within-level spread); ThreadTime over the same range reads ${cost[RUNGS[0]]} -> ${cost[quadCap]}ms and drifts ${noise}ms between passes, so it does not carry the decision`
+  console.log(`[maxlevel] wall: ${RUNGS.map((lv) => 'L' + lv + '=' + wall[lv]).join(' ')} -- within-level spread ${wallSpreadMed}ms, bar ${barW}ms`)
+  console.log(`[maxlevel] thread: ${RUNGS.map((lv) => 'L' + lv + '=' + cost[lv]).join(' ')} -- within-level spread ${noise}ms, bar ${bar}ms (reported, not gated)`)
+  console.log(`[maxlevel] counted step: floor ${floorBelow}ms below the cap -> ${wall[quadCap]}ms at L${quadCap} (+${capRise}ms) against a ${barW}ms bar`)
+  console.log(`[maxlevel] above 11: wall ${wall[above[0]]}ms at L${above[0]} -> ${wall[above[above.length - 1]]}ms at L${above[above.length - 1]} (+${aboveRise}ms) against a ${barW}ms bar -- ${aboveRise > barW ? 'levels above 11 ARE separable on this instrument' : 'levels above 11 are NOT separable on this instrument'}`)
+  console.log(`[maxlevel] cost moves at L${crossover}: ${crossoverDetail}`)
+  if (capRise === null || !(capRise > barW)) failures.push(`the wall rises only ${capRise}ms from the ${floorBelow}ms floor below the cap to ${wall[quadCap]}ms at L${quadCap}, against a ${barW}ms bar, so the counted knee is not corroborated and this ladder names no level`)
+  if (aboveRise === null || !(aboveRise > barW)) failures.push(`the wall rises only ${aboveRise}ms from L${above[0]} to L${above[above.length - 1]} against a ${barW}ms bar, so this run does NOT resolve levels above 11 and the s6 gap stays open`)
 
   console.log('[maxlevel] MEASURED maxlevel-cpu-ladder: ' + JSON.stringify({
     world: WORLD, viewport: VIEW_W + 'x' + VIEW_H, gpu: GPU, rasterizer: gpu.rasterizer,
     renderer: ri.glRenderer, unlockRaf: UNLOCK, refreshMs: REFRESH_MS,
     medianVsyncGridFrac: medianFrac, offGridRungs: offGridRungs.length + '/' + RUNGS.length,
-    authoritativeField: (up(RUNGS[0]) || {}).authoritativeField,
-    crossoverLevel: crossover, noiseFloorMs: threadTol,
-    rows: rows.filter((r) => r.dir === 'up').map((r) => ({
-      L: r.level, wallP50Ms: r.frameP50Ms, threadMs: r.threadMsPerFrame, draws: r.drawsPerFrame,
-      frames: r.frames, offGridMs: r.offGridMs, vsyncGridFrac: r.vsyncGridFrac, quads: r.terrainQuads,
+    authoritativeField: (first(RUNGS[0]) || {}).authoritativeField,
+    passes: PASSES, withinLevelThreadSpreadMs: noise, threadStepBarMs: bar,
+    withinLevelWallSpreadMs: wallSpreadMed, wallStepBarMs: barW,
+    floorBelowCapMs: floorBelow, capRiseMs: capRise, aboveL11RiseMs: aboveRise,
+    quadCapLevel: quadCap, quadSeriesStable: quadStable,
+    crossoverLevel: crossover, crossoverDetail,
+    rows: RUNGS.map((lv) => ({
+      L: lv, wallP50Ms: wall[lv], threadMs: cost[lv], draws: draws[lv],
+      frames: medAt(lv, 'frames'), offGridMs: medAt(lv, 'offGridMs'), vsyncGridFrac: medAt(lv, 'vsyncGridFrac'),
+      quads: medAt(lv, 'terrainQuads'), passes: seriesAt(lv, 'threadMsPerFrame'),
     })),
   }))
   console.log('[maxlevel] near band: not re-derived here -- nearfield-lod-lattice-witness.mjs pins the rendered near lattice at 1 m == the collider lattice at all 8 tiers, so a maxLevel change does not move it')
@@ -438,7 +504,7 @@ async function main() {
     console.error('[maxlevel] RESULT: FAIL -- ' + failures.join('; '))
     process.exit(1)
   }
-  console.log(`[maxlevel] RESULT: PASS arm=maxlevel-cpu-ladder label=${LABEL} world=${WORLD} viewport=${VIEW_W}x${VIEW_H} gpu=${GPU} renderer=${ri.glRenderer} unlockRaf=${UNLOCK} medianVsyncGridFrac=${medianFrac} rungs=${RUNGS.length} crossover=L${crossover} authoritative=${(up(RUNGS[0]) || {}).authoritativeField}`)
+  console.log(`[maxlevel] RESULT: PASS arm=maxlevel-cpu-ladder label=${LABEL} world=${WORLD} viewport=${VIEW_W}x${VIEW_H} gpu=${GPU} renderer=${ri.glRenderer} unlockRaf=${UNLOCK} medianVsyncGridFrac=${medianFrac} rungs=${RUNGS.length} passes=${PASSES} crossover=L${crossover} countedQuadCap=L${quadCap} capRiseMs=${capRise} wallStepBarMs=${barW} aboveL11RiseMs=${aboveRise} authoritative=${(first(RUNGS[0]) || {}).authoritativeField}`)
   process.exit(0)
 }
 

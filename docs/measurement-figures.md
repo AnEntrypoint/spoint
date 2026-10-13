@@ -95,6 +95,16 @@ Both fits and the non-scaling remainder were moved to section 0 as INVALIDATED.
 - `[STAT:count] [INSTR:static]` [DERIVED] `planet-tsl.js:180-181` attribute upload sizing as above.
 - `[STAT:median] [INSTR:perf-run.mjs 25 s arm, --no-walk, median rAF-to-rAF frame wall; adapter pinned by vendorGpuArgs (--use-adapter-luid) and the renderer string asserted from window.__rendererInfo] [ADAPTER:AMD iGPU rdna-2] [RES:1920x1080@1 --knob=dprOff=true] [W:6c5e15a00ee2]` [LANDED] the `maxLevel` ladder at 1080p: 2 -> 16.68 ms (60 fps, n=1163), 6 -> 16.80 ms (59.5 fps, n=1015), 11 -> 33.36 ms (30 fps, n=693), 16 -> 33.36 ms (30 fps, n=689), 22 -> 33.36 ms (30 fps, n=690); no arm ran contended (peak host CPU 71/48/46/51/34%). Every median is a multiple of the 16.68 ms refresh period, so this instrument reads the ladder only as a vsync-grid ordinal: the one step it resolves is between 6 and 11 (60 -> 30 fps), and 11, 16 and 22 are indistinguishable on it. Main-thread CPU per frame (ThreadTime, not vsync-quantized) is 14.35 / 13.86 / 16.27 / 15.80 / 17.10 ms, so levels above 11 add under 1 ms of main-thread work and the doubled frame wall is present/GPU bound, not JS. Arms ran against the work tree at 6c5e15a00ee2 with the client bundle rebuilt from it (`app.bundlehash` 51b15a917b66456f). At 1280x720 every rung reads the 60 Hz divisor (16.71 ms), so a 720p ladder measures nothing.
 
+- `[STAT:median] [INSTR:scripts/maxlevel-crossover-witness.mjs --gpu=amd --viewport=1920x1080 --knob=dprOff=true,qualityGovernorOff=true --passes=3 --sample-ms=10000; rAF UNLOCKED (--disable-frame-rate-limit --disable-gpu-vsync), 3 alternating passes per level, adapter pinned by vendorGpuArgs (--use-adapter-luid=0,63299) and the renderer string asserted from window.__rendererInfo ("amd rdna-2")] [ADAPTER:AMD iGPU rdna-2] [RES:1920x1080@1] [W:LOCAL]` [LANDED] **the `maxLevel` ladder with rAF unlocked**, which is the row the locked arm above could not produce. Median of 3 passes per level, world `tps-game`:
+  - wall p50: L2 50.55, L6 51.54, L9 53.69, L11 55.63, L13 55.49, L16 56.70, L19 56.56, L22 59.16 ms.
+  - ThreadTime per frame: 7.244 / 7.553 / 7.779 / 8.144 / 8.198 / 7.890 / 8.124 / 8.543 ms.
+  - authoritative draws/frame (`drawsInstrument.authoritativeField` = `wgpuDrawsPerFrame`, counted at the `GPURenderPassEncoder.draw*` boundary): 30.56 / 35.75 / 40 / 40 / 40 / 40 / 40 / 40.
+  - terrain quads (counted, identical in all 3 passes): 112 / 133 / 169 / 188 / 294 / 294 / 294 / 294.
+  - **unlock proof**: the median share of frame samples sitting on the k*16.68 ms vsync grid is 0.039, and 7 of 8 rung medians are off that grid (L2 by 0.51 ms, L11 by 5.59, L16 by 6.66, L22 by 7.31). The locked arm above read L11=L16=L22=33.36 ms; this arm reads 55.63 / 56.70 / 59.16 ms -- three distinct, off-grid numbers.
+  - **where the cost moves: L13.** The counted quad work stops growing there (294 quads from L13 to L22), and the unlocked wall corroborates it: 50.55 ms floor below the cap -> 55.49 ms at the cap, +4.94 ms against a 3.10 ms bar (2x the 1.55 ms within-level wall spread). Above 11 the ladder is separable: L11 55.63 -> L22 59.16 ms, +3.53 ms over the same bar -- the separation the locked instrument could not make, because 55-59 ms is one vsync bucket (5x16.68 = 83.4 ms is the next).
+  - ThreadTime carries no gate here: its within-level spread over the 3 passes is 0.150 ms (bar 0.30 ms) but it is not monotone (7.890 at L16 against 8.198 at L13), and it drifts by more than that between runs, so it is reported and not used to place the knee.
+  - Caveats: LOCAL run on a box sharing its CPU with other arms, so the absolute wall (50-59 ms) is load-dependent while the knee and the separability are the claims; the vegetation mirror read 0 instances throughout, so the measured scene is terrain + water. The near band is NOT re-derived: `nearfield-lod-lattice-witness.mjs` pins the rendered near lattice at 1 m == the collider lattice at all 8 tiers, so a `maxLevel` change does not move it.
+
 ## 7. Per-pixel and per-vertex counts (static, live TSL path)
 
 - `[STAT:count] [INSTR:static] [ADAPTER:none]` [UNSOURCED] LAND = 9 `snoise3` (about 900 ALU) + 19-31 fetches, 12-24 triplanar from a 1024^2 4-layer RGBA8 mip set at `anisotropy = 8` (about 43 MB, past an iGPU cache). WATER = 77-107 `seaOctave` (about 5-7k ALU) = 5-7x terrain per pixel, yet measured about 0 because terrain occludes it. VS = 240 `snoise3` per vertex (`FD_TAPS` 5).
@@ -147,7 +157,7 @@ Both fits and the non-scaling remainder were moved to section 0 as INVALIDATED.
 Entries below are open questions this file records and does not answer. They are not figure rows and carry no provenance tag.
 
 - Whether the 6.27 ms terrain floor is an artifact of the INVALIDATED per-pass statistic. Unresolved until a re-derivation on a fixed instrument.
-- The 2/6/11/16/22 `maxLevel` ladder is measured at 1080p on AMD iGPU (section 6), but the frame-wall median saturates at 33.36 ms from level 11 up, so the gradient above 11 is unresolved: it needs an instrument that is not vsync-quantized, since main-thread CPU per frame separates 11 from 22 by under 1 ms.
+- Answered: the 2/6/11/16/22 `maxLevel` ladder no longer saturates (section 6). With rAF unlocked the 1080p wall reads 50.55 -> 59.16 ms across the ladder and 55.63 (L11) -> 59.16 (L22), so levels above 11 ARE separable; the cost stops moving at L13, where the counted terrain quad work caps at 294. What remains open is only the absolute wall, which was measured on a box sharing its CPU with other arms -- re-derive it on a quiet box before quoting the millisecond values as a budget.
 - Whether the resolution-sweep non-scaling part (6.61 ms at 1080p) is fixed cost. Unresolved under the INVALIDATED statistic.
 - Whether any re-derived number from a fixed GPU-pass instrument agrees with the struck figures. Unresolved until that instrument exists.
 - `tc3-*` rows: the coordinator's update names a `tc3-*` set of per-pass figures in AGENTS.md. Neither this file nor the baseline 55cd0199 AGENTS.md contains any `tc3` token; the set was not located and is not invalidated here.
@@ -197,57 +207,3 @@ on `gpulock`; within one run the two arms ran at 49.1 and 49.3 fps (run ab3) and
   `ShadowPipeline.js` widens that band by the live shadow reach
   `SHADOW_REDRAW_CASTER_HEIGHT_M / tan(sun elevation)`, derived from the light offset rather than a
   flat constant, so at a horizon sun the reach is unbounded and the skip turns itself off.
-
-## 15. Cascade selection belongs on the sun (counted, AMD iGPU, WebGPU)
-
-Rows below are counted work units and pixel deltas, never timings.
-`[STAT:count] [INSTR:.gm/scratch/shadow-player-49.mjs] [ADAPTER:AMD iGPU] [RES:1280x720] [LANDED:2704e7b3]`
-
-Adapter pinned with `--use-adapter-luid=0,63299` and asserted against `window.__rendererInfo`
-(`amd rdna-2`); knobs `qualityGovernorOff=true`, `dprOff=true` (both read back true). Preset High,
-`cascadeCount` 2, extents `[60, 192]`, `mapSize` 1024, world `tps-game`, map sillos. CONTENDED box:
-12+ sibling lanes queue on `gpulock` and the run that produced these rows lost the lock mid-flight
-(`gpulock: ... no longer holds the GPU lock`), so every rate here is marked contended.
-
-- Measured in the live page (`window.__shadowPipeline.lights`): intensities `[1.5667, 0]`. Cascade 1
-  is a `DirectionalLight(0xffffff, 0)` -- it owns a shadow map and a shadow camera and no light --
-  and three's node lighting folds a shadow into its own light at
-  `node_modules/three/src/nodes/lighting/AnalyticLightNode.js` `setupShadow`
-  (`shadowColorNode = this.colorNode.mul(shadowNode)`), reading `light.shadow.shadowNode` when it is
-  set, so a selection weighted inside cascade i is multiplied by zero light and darkens nothing.
-- The invalidation does NOT starve the sun's map. Over 741 walking frames, cascade 0 was left dirty by
-  `forceUpdate` on 741/741 and re-rendered on 741/741; the local player's meshes were drawn into it 429
-  times and into cascade 1's map 16 times, and the player was in the mover list on 24/741 frames.
-  Cascade 1 was dirty on 24/741 (3.2%) -- the band rule already skips it. Earlier runs of the same arm
-  agree: 1250 frames `[1250, 232]` with player shadow renders `[849, 224]`; 859 frames `[859, 182]`,
-  `[583, 173]`; 957 frames, player in movers 60.
-- Shipped cost of the inert cascades is small while the sun is high: cascade 1 took 430 shadow draws
-  over those 741 frames (0.58/frame) against cascade 0's 13055 (17.6/frame). The 24.2 draws/frame and
-  1.05 Mtexels/frame figure quoted in AGENTS.md is the DIRTY-ALL ceiling (legacy arm: ~21 draws/frame
-  for each cascade, 49/49 frames), and `_casterShadowReachM` is unbounded at a horizon sun, so that
-  ceiling is what a dawn or dusk frame pays continuously.
-- The player's shadow is VISIBLE, not merely rendered: toggling the local player's `castShadow`
-  changes a localized set of blocks above the same-rule floor and restoring it returns the region to
-  the floor. A whole-frame statistic cannot see it -- the settled scene animates (bots, time of day,
-  veg wind) at a block mean of tens of codes -- so the comparison is per-block, in a crop, and against
-  the same-rule floor measured with the same spacing.
-- FAR FIELD: UNMEASURED. Three arms in one page load, each toggling two parked casters (23 m and
-  76.5 m from the eye, ~8 m radius) with every cascade dirtied, 8 shots 0.7 s apart, symmetric so both
-  cross pairs (on1b/off1a, on2b/off2a) must clear all four same-rule floors: `null` (cascade 0 forced
-  at every distance) attributes 8 blocks at the NEAR caster's shadow, strongest cross-minus-floor 13.8
-  (32 px blocks); `ff` (shipped edges 60/192) attributes 0; `c1` (cascade 1 forced at every distance)
-  attributes 0. The near control clears its own floor by only about 10%, so this instrument sits at
-  its noise floor and neither "the far shadow appears" nor "it does not" is decidable from these runs.
-  Whole-frame mean luminance is stable in all three arms (112.6 / 113.6 / 114.6, on-minus-off within
-  +-0.15 of 255), so forcing cascade 1 does not darken the frame wholesale.
-- Cost of the fix: none that is countable. It changes no invalidation, no pass and no draw: the shadow
-  passes and draws per cascade are the same before and after (cascade 0 ~17.6 and cascade 1 ~0.6
-  shadow draws/frame walking). The fold is branchless, so a fragment now samples all n cascade maps
-  instead of one (n-1 extra depth fetches per lit fragment): a real cost, UNMEASURED here because no
-  GPU-pass instrument on this box is valid (s0).
-- Open question this section records and does not answer: why `shadow(cascade1)` does not reproduce,
-  at 23 m, the shadow `shadow(cascade0)` produces there. Cascade 1's map is rendered (18 draws per
-  pass), its light direction and target are set per cascade (`ShadowPipeline.js _updateCascade`), and
-  its box (+-192 m) contains the caster, so the next instrument should read the map, not the frame:
-  a probe that samples the depth texture, or a static world with no bots so the floor falls to a few
-  codes and a 10% margin becomes decisive.
