@@ -13,6 +13,7 @@ import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { packSnapshotBytes, newRecordMemo } from '../netcode/SnapshotPacker.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
+export { SNAP_ENTITY_VISITS_PER_TICK, PLAYERS_PER_SNAP_GROUP }
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
@@ -24,6 +25,15 @@ const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
 const PLAYERS_PER_SNAP_GROUP = 50
+// A snapshot tick walks the relevance ring once per recipient it serves, so the work a tick does
+// is recipients * population, and before this neither factor was bounded against the tick budget:
+// a 3000-entity world serving 32 recipients measured ~16 ms of a 16.7 ms tick, and the existing
+// rate control cannot reach past one halving no matter how far over budget the tick runs.
+// SNAP_ENTITY_VISITS_PER_TICK is how many (recipient, entity) pairs one tick is allowed to walk,
+// so a crowded world serves fewer recipients per tick instead of serving one unaffordable tick.
+// It is a function of the world state, never of a wall-clock sample: a cap priced from a timer
+// would make the wire stream depend on how fast the box happens to be.
+const SNAP_ENTITY_VISITS_PER_TICK = 24000
 const SNAP_RATE_MIN_HZ = 8
 const SNAP_RATE_ADJUST_INTERVAL = 64
 const AUTO_SAVE_INTERVAL = 300
@@ -223,7 +233,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
   const chartEpoch = deps.getChartEpoch()
   const playerSnap = networkState.getSnapshot()
   const playerCount = players.length
-  const snapGroups = Math.max(1, Math.ceil(playerCount / PLAYERS_PER_SNAP_GROUP))
+  const population = appRuntime.entities ? appRuntime.entities.size : 0
+  const maxRecipients = Math.min(PLAYERS_PER_SNAP_GROUP, Math.max(1, Math.floor(SNAP_ENTITY_VISITS_PER_TICK / Math.max(1, population))))
+  const snapGroups = Math.max(1, Math.ceil(playerCount / maxRecipients))
   const curGroup = snapshotSeq % snapGroups
   const clientSeq = Math.floor(snapshotSeq / snapGroups)
   const activeStage = stageLoader ? stageLoader.getActiveStage() : null
@@ -235,7 +247,14 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const curStaticVersion = appRuntime._staticVersion
     const curStaticCustomSum = appRuntime.getStaticCustomVersionSum ? appRuntime.getStaticCustomVersionSum() : 0
     let activeStaticEntries = null
-    if (state.staticByGroup.length !== snapGroups) state.staticByGroup = Array.from({ length: snapGroups }, () => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 }))
+    // Grow and shrink in place: rebuilding the array throws away every group's static cache, so a
+    // fan-out that moves by one would otherwise re-encode the whole static world on the next tick.
+    const newGroup = (i) => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 })
+    if (state.staticByGroup.length < snapGroups) {
+      for (let i = state.staticByGroup.length; i < snapGroups; i++) state.staticByGroup.push(newGroup(i))
+    } else if (state.staticByGroup.length > snapGroups) {
+      state.staticByGroup.length = snapGroups
+    }
     const curGroupStatic = state.staticByGroup[curGroup]
     if (isKeyframe || curStaticVersion !== curGroupStatic.lastStaticVersion || curStaticCustomSum !== curGroupStatic.lastStaticCustomSum) {
       const staticSnap = appRuntime.getStaticSnapshot()

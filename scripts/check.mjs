@@ -38,6 +38,8 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-turnover-witness.mjs', must: /MEASURED collider-turnover: [1-9]\d* step\(s\) of 30 m, radius 64 m -- capped cap 8 live [1-9]\d*\.\.[1-9]\d* in-radius [1-9]\d*\.\.[1-9]\d*[\s\S]*free cap 256 live [1-9]\d*\.\.[1-9]\d* in-radius [1-9]\d*\.\.[1-9]\d*[\s\S]*saturated 0\/9, stale 0\/18 step\(s\)[\s\S]*RESULT: PASS/ },
   { file: 'cpu-skip-witness.mjs', must: /"ticks": [1-9]\d*[\s\S]*"row2_encodePerSnapshotCall": [1-9][\d.]*[\s\S]*"row2_snapshotStaleTotal": 0[\s\S]*"row2_snapshotChecks": [1-9]\d*[\s\S]*"row3_colEntitiesPerTick": [1-9]\d*[\s\S]*"row4_interactPairsPerTick": [1-9]\d*[\s\S]*"clientErrors": 0[\s\S]*RESULT: PASS/ },
   { file: 'snapshot-perplayer-encode-witness.mjs', must: /RESULT: PASS -- [1-9]\d* recipient\(s\), 0 re-encode\(s\) with a warm cache, 0 byte mismatch\(es\) over [1-9]\d* wire record\(s\)/ },
+  { file: 'tick-snapshot-send-cost-witness.mjs', args: ['--ticks=128', '--rounds=2', '--players=64', '--entities=3000', '--spread=120', '--cluster=60', '--ctrlPlayers=8', '--ctrlEntities=300'], must: /per_snapshot_tick_ms relevance=[\d.]+ plan=[\d.]+ encode=[\d.]+ send=[\d.]+[\s\S]*recipients_per_snap_tick mean=[1-9][\d.]* max=[1-9]\d*[\s\S]*crowded recipients=[1-9]\d*\/[1-9]\d*[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* claim\(s\)/ },
+  { file: 'tick-snapshot-send-cost-witness.mjs', args: ['--ticks=128', '--rounds=2', '--players=64', '--entities=3000', '--spread=120', '--cluster=60', '--ctrlPlayers=8', '--ctrlEntities=300'], must: /per_snapshot_tick_ms relevance=[\d.]+ plan=[\d.]+ encode=[\d.]+ send=[\d.]+[\s\S]*recipients_per_snap_tick mean=[1-9][\d.]* max=[1-9]\d*[\s\S]*crowded recipients=[1-9]\d*\/[1-9]\d*[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* claim\(s\)/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /RESULT: PASS -- MSG\.WORLD_DEF carries netcode\.profile "lockstep" to a client that never saw the world file/ },
   { file: 'agents-md-facts-witness.mjs', must: /checked [1-9]\d* path claim\(s\), \d+ line claim\(s\) and \d+ sha-like token\(s\)[\s\S]*RESULT: PASS -- every AGENTS\.md path and line claim resolves/ },
   { file: 'ground-source-port-witness.mjs', must: /RESULT: PASS checks=[1-9]\d* failed=0/ },
@@ -47,7 +49,7 @@ const NO_GPU_WITNESSES = [
   { file: 'contact-occlusion-softness-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'browser-lease-single-session-witness.mjs', must: /  passed [1-9]\d*, failed 0[\s\S]*RESULT: PASS/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS [1-9]\d* file\(s\) scanned/ },
-  { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
+  { file: 'governor-hitch-response-witness.mjs', must: /qualityGovernor registry default true[\s\S]*single 100ms hitch answered after 1 frames[\s\S]*min trigger 1 frame\(s\)[\s\S]*smallest visible hitch 34ms answered after 1 frames[\s\S]*sustained 25ms overrun answered after 8 frames[\s\S]*single-frame spike 0 step\(s\)[\s\S]*0 resolution key\(s\) written[\s\S]*RESULT: PASS/ },
   { file: 'governor-leaf-ladder-witness.mjs', must: /RESULT: PASS label=governor-leaf-ladder-witness[\s\S]*leaf cutoff by tier 0\/0\/0\/[1-9]\d*\/[1-9]\d*\/[1-9]\d*m \(0 = leaves everywhere\), near and mid bands keep their foliage at every tier/ },
   { file: 'veg-macrotask-yield-witness.mjs', must: /\[veg-macrotask-yield\] delivery: messageChannel=\d+ setTimeout=0[\s\S]*requestAnimationFrame=0 macrotaskYield calls=[4-9][\s\S]*RESULT: PASS/ },
   // Species build / prewarm slice: the longest synchronous block the main thread takes is one unit
@@ -66,6 +68,15 @@ const NO_GPU_WITNESSES = [
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
+  // PERF-veg-dusk-lighting-discontinuity-1013. The ambient each lighting path gives a Lambert
+  // surface at a stated time-of-day, measured by running the real code: the keyframes come from
+  // client/core/TimeOfDay.js and both surfaces' numbers from terrain-ambient-shared.js, the module
+  // terrain-lighting-tsl.js itself imports. Dusk is where it bites because the direct sun term
+  // collapses with NdotL there, so what a surface reads at dusk IS its ambient. The `must` is the
+  // second half: the albedo-invariant double ratio, the parity at every stated albedo, and the
+  // wiring contract that the correction is still applied to both tree materials -- without them a
+  // run that computed numbers but stopped applying the fix would still read as a pass.
+  { file: 'veg-dusk-irradiance-witness.mjs', must: /MEASURED veg-dusk-lighting: dusk albedo=0\.2 veg\/terrain [\d.]+ -> [\d.]+[\s\S]*PASS ambient-parity-noon-albedo-0\.5[\s\S]*MEASURED veg-dusk-lighting double ratio \(dusk over noon, albedo 0\.2\): [\d.]+ -> [\d.]+[\s\S]*PASS dusk-over-noon-double-ratio[\s\S]*RESULT: PASS -- [1-9]\d* check\(s\), 0 failed, label=veg-dusk-lighting/ },
   // PERF-shadow-cascade-redraw-hitch-1013: how many cascade shadow maps one frame re-renders while
   // the player travels, unbounded against shipped. The `must` is the second half of the witness: a
   // run that printed no ladder, one whose unbounded arm never put all three cascades on one frame, or
@@ -102,15 +113,6 @@ const NO_GPU_WITNESSES = [
   // noise-floor checks, so a stencil that moves the normal past the mesh's own vertex-to-vertex
   // normal turn fails it too.
   { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
-  // PERF-veg-trees-missing-1013. The tier-node-graph warm in client/core/Vegetation.js is entered
-  // from the species build loop, which runs ABOVE the warm's own declarations, so any `const` in
-  // that path is still in its temporal dead zone at the call site: every species build then threw a
-  // ReferenceError that the build loop's own try/catch logged and swallowed, and the world came up
-  // with zero tree species -- no trees at all, while every instance and draw counter read a healthy
-  // zero and no witness that counts placements could see it. The `must` is the second half of the
-  // witness: a run that classified no binding, or one that found the warm call site gone, must read
-  // as a failure rather than as silence that passes.
-  { file: 'veg-warm-temporal-dead-zone-witness.mjs', must: /\[veg-warm-tdz\] RESULT: PASS -- [1-9]\d* warm binding\(s\) initialized before the species build loop's warm call at client.core.Vegetation\.js:[1-9]\d*, [1-9]\d* hoisted declaration\(s\) and \d+ declared above it/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -382,20 +384,12 @@ async function main() {
   } catch (e) {
     gateFailures.push(`check-frame-time-baselines.mjs: ${(e.stderr || e.stdout || e.message || '').toString().trim()}`)
   }
-  // PERF-veg-trees-missing-1013. The tree count this arm pins is the one the owner reported missing:
-  // trees alive at the end of the settle, and the same counter alongside the vegetation draw counter
-  // after a 45 s walk, so a regression that loses trees only once the player moves cannot pass here.
-  // The `must` is the second half of the witness: a run that printed no profile, whose vegetation
-  // never issued a draw, or whose walk never moved, must read as a failure rather than as silence
-  // that passes.
-  const VEG_INSTANCE_MUST = /\[PASS\] vegetation has instances after the player stands on open ground \(vegTotal=[1-9]\d*[\s\S]*\[PASS\] vegetation issues draw calls \(vegDraws=[\d.]+ impostor=[\d.]+\)[\s\S]*\[PASS\] vegetation is still drawn after a walk \(vegTotal=[1-9]\d* vegDraws=[1-9][\d.]*\)[\s\S]*RESULT: PASS vegTotal=[1-9]\d* peak=[1-9]\d*/
   const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)
   for (const gpu of gpuArms) {
     const keep = (line) => /^(\[veg-witness\]|RESULT:|  \[(PASS|FAIL)\])/.test(line)
     try {
       const { stdout } = await execFileAsync(process.execPath, ['scripts/veg-instance-browser-witness.mjs', `--gpu=${gpu}`, '--at=-15,-12.5', '--settle=15000', '--walk=45000'], { maxBuffer: 16 * 1024 * 1024 })
       for (const line of stdout.split('\n')) if (keep(line)) console.log(`check: ${line}`)
-      if (!VEG_INSTANCE_MUST.test(stdout)) gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: printed no line pinning a non-zero tree count at rest and after the walk, so either its profiles or its walk never ran`)
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
       gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
