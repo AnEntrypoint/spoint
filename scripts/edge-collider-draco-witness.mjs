@@ -211,6 +211,17 @@ async function main() {
   process.exitCode = failures === 0 ? 0 : 1
 }
 
+// ORCH-gate-hygiene-draco-and-docclaim-1013: a strip run rewrites the GLB it is pointed at, and
+// AGENTS.md records that this witness rewrites tracked `apps/tps-game/*.glb` in place and must never
+// run in a gate. It is therefore absent from the gpu-free arm of scripts/check.mjs and an ordinary
+// `node scripts/edge-collider-draco-witness.mjs` SKIPS instead of stripping: reaching it takes the
+// same explicit opt-in the GPU arms use (SPOINT_STRIP_WITNESS=1), so no `npm test` can trigger it.
+const STRIP_WITNESS_OPT_IN = process.env.SPOINT_STRIP_WITNESS === '1'
+if (!STRIP_WITNESS_OPT_IN) {
+  console.log(`[edge-collider-draco-witness] SKIPPED: SPOINT_STRIP_WITNESS!=1 -- a strip run rewrites a tracked GLB in place, so this witness is never in the gpu-free arm of scripts/check.mjs. Run it deliberately with: SPOINT_STRIP_WITNESS=1 node scripts/gpulock.mjs run <owner> -- node scripts/edge-collider-draco-witness.mjs`)
+  process.exit(0)
+}
+
 main().catch((err) => {
   console.error('[edge-collider-draco-witness] FAILED:', err)
   console.log('[edge-collider-draco-witness] RESULT: FAIL')

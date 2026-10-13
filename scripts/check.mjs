@@ -34,7 +34,8 @@ const NO_GPU_WITNESSES = [
   { file: 'tps-game-player-movement-witness.mjs', must: /RESULT: PASS: walked [1-9][\d.]*m over [1-9]\d* input step\(s\) and [1-9]\d* tick\(s\) in world=tps-game/ },
   { file: 'placement-climate-gate-witness.mjs', must: /RESULT: PASS identical true over [1-9]\d* veg and [1-9]\d* rock placement\(s\)[\s\S]*over [1-9]\d*\/[1-9]\d*\/[1-9]\d*\/[1-9]\d* placement\(s\) \(quarter-chunk control [1-9]\d* of [1-9]\d*\)/ },
   { file: 'check-cache-keys-scope-witness.mjs', must: /verifying 2 artifact\(s\) of the 2 tracked/ },
-  { file: 'edge-collider-draco-witness.mjs', must: /0 byte\(s\) written into the tracked tree/ },
+  // scripts/edge-collider-draco-witness.mjs is deliberately NOT listed here: see the
+  // SPOINT_STRIP_WITNESS arm below. A gate witness may not rewrite a tracked binary.
   { file: 'collider-turnover-witness.mjs', must: /MEASURED collider-turnover: [1-9]\d* step\(s\) of 30 m, radius 64 m -- capped cap 8 live [1-9]\d*\.\.[1-9]\d* in-radius [1-9]\d*\.\.[1-9]\d*[\s\S]*free cap 256 live [1-9]\d*\.\.[1-9]\d* in-radius [1-9]\d*\.\.[1-9]\d*[\s\S]*saturated 0\/9, stale 0\/18 step\(s\)[\s\S]*RESULT: PASS/ },
   { file: 'cpu-skip-witness.mjs', must: /"ticks": [1-9]\d*[\s\S]*"row2_encodePerSnapshotCall": [1-9][\d.]*[\s\S]*"row2_snapshotStaleTotal": 0[\s\S]*"row2_snapshotChecks": [1-9]\d*[\s\S]*"row3_colEntitiesPerTick": [1-9]\d*[\s\S]*"row4_interactPairsPerTick": [1-9]\d*[\s\S]*"clientErrors": 0[\s\S]*RESULT: PASS/ },
   { file: 'snapshot-perplayer-encode-witness.mjs', must: /RESULT: PASS -- [1-9]\d* recipient\(s\), 0 re-encode\(s\) with a warm cache, 0 byte mismatch\(es\) over [1-9]\d* wire record\(s\)/ },
@@ -412,6 +413,34 @@ async function main() {
   // These gates read committed state, not any witness's artefact, so a red witness above is no
   // reason to withhold their verdicts.
   const gateFailures = []
+
+  // ORCH-gate-hygiene-draco-and-docclaim-1013: edge-collider-draco-witness.mjs strips Draco out of a
+  // real GLB, and AGENTS.md records that a strip run rewrites the tracked binary in place, so it must
+  // never be reachable from an ordinary `npm test`. It is therefore absent from both gpu-free lists
+  // above and runs only behind SPOINT_STRIP_WITNESS=1 -- the same explicit opt-in shape
+  // SPOINT_GPU_WITNESS gives the browser arms. A witness that mutates tracked binaries is not a gate
+  // witness, and a gate must not be able to trigger it by accident.
+  if (process.env.SPOINT_STRIP_WITNESS === '1') {
+    const stripFile = 'edge-collider-draco-witness.mjs'
+    const stripMust = /0 byte\(s\) written into the tracked tree/
+    const stripStarted = Date.now()
+    let stripOut = ''
+    let stripCode = 0
+    try {
+      const done = await execFileAsync(process.execPath, [join('scripts', stripFile)], { maxBuffer: 16 * 1024 * 1024, timeout: NO_GPU_WITNESS_TIMEOUT_MS })
+      stripOut = done.stdout
+    } catch (e) {
+      stripOut = (e && e.stdout) || ''
+      stripCode = Number.isInteger(e.code) ? e.code : 1
+    }
+    const stripMs = Date.now() - stripStarted
+    if (stripCode !== 0 || !stripMust.test(stripOut)) {
+      gateFailures.push(`${stripFile}: exit ${stripCode} in ${(stripMs / 1000).toFixed(1)}s${stripMust.test(stripOut) ? '' : ', printed no line proving 0 byte(s) reached the tracked tree'}`)
+      for (const line of echoLines(stripOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
+    } else {
+      console.log(`check: opt-in strip witness ${stripFile} ${(stripMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(stripOut).line}`)
+    }
+  }
   try {
     const { stdout } = await execFileAsync(process.execPath, ['scripts/fire-witness-gate.mjs'], { maxBuffer: 16 * 1024 * 1024 })
     for (const line of stdout.split('\n')) if (line.trim()) console.log(`check: ${line}`)
@@ -534,11 +563,11 @@ async function main() {
   // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
   // boot shader warm wait never reported what it waited for, must read as a failure rather than as
   // silence that passes.
-  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
+  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*warm wait [1-9][\d.]*ms with \d+ outstanding[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->ready [1-9][\d.]*ms, init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
   const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
   for (const gpu of gpuArms) {
     try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/first-frame-boot-witness.mjs', `--gpu=${gpu}`, '--observe=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/first-frame-boot-witness.mjs', `--gpu=${gpu}`, '--observe=4000', '--before-worker=auto'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
       for (const line of stdout.split('\n')) if (firstFrameKeep(line)) console.log(`check: ${line}`)
       if (!FIRST_FRAME_MUST.test(stdout)) gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: printed no line matching its must regex, so either the first frame was swallowed by the 250ms clock again or the cold-load figure never resolved`)
     } catch (e) {
