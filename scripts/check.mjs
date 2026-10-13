@@ -117,6 +117,14 @@ const NO_GPU_WITNESSES = [
   // the wiring contract that both shader paths still carry the terms and the grade -- without them a
   // run that computed numbers but stopped applying the fix would still read as a pass.
   { file: 'grass-dusk-ambient-witness.mjs', must: /MEASURED grass-dusk-ambient: dusk albedo=0\.2 grass\/terrain [\d.]+ -> [\d.]+[\s\S]*PASS ambient-parity-noon-albedo-0\.5[\s\S]*MEASURED grass-dusk-ambient double ratio \(dusk over noon, albedo 0\.2\): [\d.]+ -> [\d.]+[\s\S]*PASS dusk-over-noon-double-ratio[\s\S]*PASS grass-ambient-is-the-terrain-ambient[\s\S]*RESULT: PASS -- [1-9]\d* check\(s\), 0 failed, label=grass-dusk-ambient/ },
+  // Owner report "a ridge with no grass where terrain tiles meet", kept as two symptoms and not one:
+  // the population straddling every boundary against the same line away from it, and the surface the
+  // placement reads. The `must` is the second half of the witness: a run that sampled no boundary,
+  // or one whose population at a boundary fell under 70% of its own surroundings -- a bare strip --
+  // must read as a failure rather than as silence that passes. Blades are indexed by their own
+  // coordinates and never by the chunk they came from, because chunk-key arithmetic manufactures a
+  // gap at exactly the chunk spacing, which is what the first run of this instrument appeared to find.
+  { file: 'grass-tile-seam-witness.mjs', must: /\[grass-tile-seam\] MEASURED grass-tile-seam: worst boundary ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\) at the \d+m boundary @ \d+m; worst surface step [\d.]+m against a [\d.]+m median step[\s\S]*RESULT: PASS/ },
   // PERF-shadow-cascade-redraw-hitch-1013: how many cascade shadow maps one frame re-renders while
   // the player travels, unbounded against shipped. The `must` is the second half of the witness: a
   // run that printed no ladder, one whose unbounded arm never put all three cascades on one frame, or
@@ -622,7 +630,7 @@ async function main() {
   // of the witness: a run whose renderer is not WebGPU, whose audit sampled nothing, whose grass
   // painted no pixels in a band, or whose pop count is not zero, must fail rather than pass in
   // silence.
-  const GRASS_FADE_VISUAL_MUST = /\[grass-fade-visual\] MEASURED browser grass inventory: instances \d+ -> [1-9][\d.]* \(near [1-9][\d.]*\), triangles [1-9][\d.]*, ring [\d.]+m[\s\S]*\[grass-fade-visual\] MEASURED band near \[0,\d+\)m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED band far-beyond \[[1-9]\d*,ring\]m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED popping: popOut=0 missingVisible=0 nearNotFull=0 overreach=0[\s\S]*RESULT: PASS label=\S+/
+  const GRASS_FADE_VISUAL_MUST = /\[grass-fade-visual\] MEASURED browser grass inventory: instances \d+ -> [1-9][\d.]* \(near [1-9][\d.]*\), triangles [1-9][\d.]*, ring [\d.]+m[\s\S]*\[grass-fade-visual\] MEASURED band near \[0,\d+\)m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED band far-beyond \[[1-9]\d*,ring\]m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED popping: popOut=0 \(atRest=0 moving=\d+\) missingVisible=\d+ \(atRest=0 moving=\d+\) nearNotFull=0 overreach=0[\s\S]*RESULT: PASS label=\S+/
   const grassFadeKeep = (line) => /^(RESULT:|\[grass-fade-visual\]|  \[(PASS|FAIL)\])/.test(line)
   for (const gpu of gpuArms) {
     try {
