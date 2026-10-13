@@ -605,6 +605,30 @@ async function main() {
       gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
+  // PERF-grass-density-fade-visual-1013. The distance-density law, its fade and the greater ring
+  // landed on gpu-free pins (instances, triangles, the ring, the near density and the two no-pop
+  // invariants), but the criterion that needs pixels -- that the drop-off reads as a GROWTH and not
+  // a step at near / mid / far, and that the enlarged camera-facing far clumps still read as grass
+  // -- cannot be seen by a counter. This arm boots the real page on the pinned adapter, REFUSES a
+  // silent fallback off WebGPURenderer/webgpu (which would run a different shader path), reads the
+  // uncaptured WebGPU error hook, and reports the browser grass inventory per distance band, the
+  // per-band apparent density as the pixels grass actually paints against a noise floor measured by
+  // diffing two grass-on frames, and the pop count over a real walk. Its `must` is the second half
+  // of the witness: a run whose renderer is not WebGPU, whose audit sampled nothing, whose grass
+  // painted no pixels in a band, or whose pop count is not zero, must fail rather than pass in
+  // silence.
+  const GRASS_FADE_VISUAL_MUST = /\[grass-fade-visual\] MEASURED browser grass inventory: instances \d+ -> [1-9][\d.]* \(near [1-9][\d.]*\), triangles [1-9][\d.]*, ring [\d.]+m[\s\S]*\[grass-fade-visual\] MEASURED band near \[0,\d+\)m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED band far-beyond \[[1-9]\d*,ring\]m:[^\n]*instances=[1-9]\d*[^\n]*grassPixels=[1-9]\d*[\s\S]*\[grass-fade-visual\] MEASURED popping: popOut=0 missingVisible=0 nearNotFull=0 overreach=0[\s\S]*RESULT: PASS label=\S+/
+  const grassFadeKeep = (line) => /^(RESULT:|\[grass-fade-visual\]|  \[(PASS|FAIL)\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/grass-density-fade-visual-witness.mjs', `--gpu=${gpu}`, '--rebuild-bundle', '--settle=25000', '--walk=20000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (grassFadeKeep(line)) console.log(`check: ${line}`)
+      if (!GRASS_FADE_VISUAL_MUST.test(stdout)) gateFailures.push(`grass-density-fade-visual-witness.mjs on ${gpu}: printed no line pinning a non-zero browser grass inventory, a per-band apparent density and a zero pop count, so either its renderer assertion, its band capture or its walk audit never ran`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (grassFadeKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`grass-density-fade-visual-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
   // PERF-occlusion-retarget-ab-1013. Whether the retargeted occlusion tier PAYS FOR ITSELF, read in
   // both currencies on ONE instrument: draws at the API boundary (the same
   // `drawsInstrument.authoritativeField` the draw-count row above reports, so the two pictures are
@@ -669,6 +693,37 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (firstFrameKeep(line)) console.error(`check: ${line}`)
       gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // PERF-grass-coherent-wind-webgpu-arm-1013. The wind lane that landed the join measured it on the
+  // WebGL FALLBACK and vsync-locked, so the path that ships -- the TSL/WGSL one, where
+  // client/core/GrassTSL.js's gustField samples a texture in the VERTEX stage with an explicit
+  // level 0 -- had never been compiled by a real WebGPU driver, and a textureSample there is
+  // illegal in WGSL while textureSampleLevel is not. It matters because the failure is silent: a
+  // pipeline that fails validation dispatches nothing and surfaces nothing, and its error arrives
+  // only ASYNC on device.onuncapturederror, so a clean console is not evidence. This arm boots on
+  // the pinned vendor adapter and reads THREE error channels instead: getCompilationInfo() on every
+  // WGSL module carrying a grass marker, a push/popErrorScope('validation') around every pipeline
+  // creation, and an uncapturederror listener. It does not stop at "it compiled": grass has to
+  // still DRAW (attributed by hiding it, so the count has a reason and not a bare zero) and the
+  // wind has to still ANIMATE (read from the checksums of the 64x64 rgba16float field the CPU hands
+  // the GPU, which is the only counter that can tell a live field from a frozen one). The `must` is
+  // the second half: `backend=webgpu class=WebGPURenderer` refuses a run that fell back again, and
+  // every pin below is a counter that must be non-zero or must be zero -- a run that installed no
+  // instrument, read no error channel, found no grass module or drew no grass reads as a failure
+  // rather than as silence that passes. `ab=` is allowed to be UNRESOLVED and is printed either
+  // way: the CPU half of the join is switchable in one page load but the GPU half is not, so a
+  // number the box cannot resolve must not be quoted as one.
+  const GRASS_WIND_MUST = /RESULT: PASS label=grass-wind-webgpu[\s\S]*backend=webgpu class=WebGPURenderer[\s\S]*grassModules=[1-9]\d*[\s\S]*compiled=true[\s\S]*validationErrors=0[\s\S]*uncaptured=0[\s\S]*vertexSampleLevel=true[\s\S]*drawsPerFrame=[1-9][\d.]*[\s\S]*grassDrawsPerFrame=[1-9][\d.]*[\s\S]*instances=[1-9]\d*[\s\S]*animates=[1-9]\d*\/[1-9]\d*[\s\S]*fieldCpuMsPerFrame=0\.000->[\d.]+\/[\d.]+\/[\d.]+[\s\S]*ab=(RESOLVED|UNRESOLVED)[\s\S]*recentre=\d+ in [\d.]+m worst [\d.]+ms[\s\S]*contention=(clean|CONTESTED) x[\d.]+/
+  const grassWindKeep = (line) => /^(RESULT:|\[grass-wind-webgpu\]|  \[(PASS|FAIL)\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/grass-wind-webgpu-witness.mjs', `--gpu=${gpu}`, '--settle=40000', '--control=10000', '--ab=6000', '--windows=8', '--walk=45000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (grassWindKeep(line)) console.log(`check: ${line}`)
+      if (!GRASS_WIND_MUST.test(stdout)) gateFailures.push(`grass-wind-webgpu-witness.mjs on ${gpu}: printed no line matching its must regex, so either it fell back off the webgpu backend, its compile/error channels never ran, or grass never drew`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (grassWindKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`grass-wind-webgpu-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
