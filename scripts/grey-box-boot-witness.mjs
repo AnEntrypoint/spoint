@@ -460,7 +460,7 @@ async function runArm(browser, report, arm, url) {
         }
       } catch (_) {}
       return {
-        sink: a ? { pending: a.pending, requested: a.requested, resolved: a.resolved, rejected: a.rejected, escorted: a.escorted, rescued: a.rescued, rescueFailed: a.rescueFailed } : null,
+        sink: a ? { pending: a.pending, requested: a.requested, resolved: a.resolved, rejected: a.rejected, escorted: a.escorted, rescued: a.rescued, rescueFailed: a.rescueFailed, dropped: a.dropped } : null,
         gpu: g ? { pending: g.pending, requested: g.requested, resolved: g.resolved, rejected: g.rejected, mutation: g.mutation } : null,
         gpuErrorCount: (window.__gpuErrors || []).length,
         gpuErrors: (window.__gpuErrors || []).slice(0, 8),
@@ -485,11 +485,22 @@ async function runArm(browser, report, arm, url) {
     // A grey box is one colour and no chroma. Both numbers come from the decoded PNG,
     // never from the canvas readback. The per-band chroma count is the "non-grey pixels
     // per band" number: a window that renders sky but no terrain is not one verdict.
+    //
+    // UNDRAWN is the counted-work-unit verdict and it outranks both: `renderer.info.render
+    // .drawCalls` is the number of draws the renderer submitted, so 0 means the scene was not
+    // drawn at all. Measured 2026-10-13: an arm whose every async pipeline was forced to reject
+    // read 0 draw calls and 0 triangles while its decoded screenshot still carried a sky gradient
+    // and a dark near band -- 26348 chroma pixels in the far band, 0 in the mid band, 40 distinct
+    // colours in the mid band -- which a whole-window chroma fraction reports as "renders". A
+    // window is not rendered because its clear colour has a gradient in it.
+    const drawCalls = drained && typeof drained.drawCalls === 'number' ? drained.drawCalls : null
     const verdict = pixels.decoded === false
       ? 'UNDECODED'
-      : (pixels.all.distinctColours <= 1 || (pixels.all.sdLum < 1 && pixels.all.chromaFrac < 0.001))
-        ? 'GREY'
-        : 'RENDERS'
+      : drawCalls === 0
+        ? 'UNDRAWN'
+        : (pixels.all.distinctColours <= 1 || (pixels.all.sdLum < 1 && pixels.all.chromaFrac < 0.001))
+          ? 'GREY'
+          : 'RENDERS'
     if (pixels.decoded) {
       for (const b of pixels.bands) tag(`band ${b.name} chromaPixels=${Math.round(b.chromaFrac * b.pixels)}/${b.pixels} sdLum=${b.sdLum} distinct=${b.distinctColours}`)
     }
