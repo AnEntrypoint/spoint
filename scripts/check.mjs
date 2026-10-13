@@ -89,7 +89,12 @@ const NO_GPU_WITNESSES = [
   // blades carries has to RISE (a run that bought coherence by lowering an amplitude must fail),
   // and the joined term has to be rebuilt as a fraction of the lattice rather than whole -- without
   // them a run that printed a coherence number but joined nothing still reads as a pass.
-  { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*RESULT: PASS/ },
+  // The two [PASS] fragments are in the order grass-coherent-wind-witness.mjs PRINTS them (the
+  // "gust is computed once per group" check is the first check() in the file, the turbulence check
+  // the sixth). They used to be listed the other way round, which no output can satisfy: the
+  // witness exits 0 and prints RESULT: PASS while this arm fails it on the `must`, which is the red
+  // gate with a green witness that reads as "never ran". Keep the order in step with the witness.
+  { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
