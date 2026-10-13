@@ -94,6 +94,16 @@ const NO_GPU_WITNESSES = [
   // both arms, so the near band's cadence is not what the budget bought.
   { file: 'shadow-cascade-redraw-witness.mjs', must: /RESULT: PASS label=shadow-cascade-redraw -- worst cascade redraw\(s\) in one frame while travelling 3m\/s:3->2 6m\/s:3->3 12m\/s:3->3 20m\/s:3->3 \(of 3\); frame\(s\) redrawing all three 3m\/s:31->0 6m\/s:178->3 12m\/s:671->174 20m\/s:1553->651; far redraw\(s\) 3m\/s:839->836 6m\/s:1613->1592 12m\/s:3069->2905 20m\/s:4662->3974; cascade 0 3600\/3600 frame\(s\) unchanged/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
+  // PERF-shadowmap-needsupdate-dead-1013: the shadow cost probe has to be ATTACHED before any shadow
+  // cost quoted from it means anything, and it was not. three's node renderer shadowMap is { enabled,
+  // transmitted, type } with no render, so the probe's guard never installed there, nothing set
+  // window.__shadowCost, and an unattached instrument read the same as a measured zero. The `must` is
+  // the second half of the witness: both arms have to attach AND have counted a pass by contrast (the
+  // main pass adds none, and on the legacy arm a pass with needsUpdate false adds none), the third
+  // renderer has to be refused with a reason, and client/app.js has to carry zero
+  // renderer.shadowMap.needsUpdate writes -- a run that installed nothing must read as a failure
+  // rather than as silence that passes.
+  { file: 'shadow-cost-probe-attach-witness.mjs', must: /\[PASS\] three's node renderer shadowMap attaches the probe[\s\S]*\[PASS\] the node renderer arm is the per-light pass, not the renderer-level one[\s\S]*\[PASS\] the main pass adds no sample, so the pass count is attribution and not a counter \(samples=0 after 1 main pass\)[\s\S]*\[PASS\] one shadow camera render per cascade is counted as one pass each \(samples=3 of 3 cascade\(s\)\)[\s\S]*\[PASS\] the legacy renderer-level shadow pass attaches the probe[\s\S]*\[PASS\] a pass the renderer was not asked for adds no sample \(samples=0 with needsUpdate=false\)[\s\S]*\[PASS\] a pass the renderer was asked for is counted \(samples=1 with needsUpdate=true\)[\s\S]*\[PASS\] a renderer with no shadow pass and no render\(\) is refused, not silently installed[\s\S]*\[PASS\] the refusal carries a reason, so it cannot be quoted as a measured zero[\s\S]*\[PASS\] client\/app\.js writes renderer\.shadowMap\.needsUpdate nowhere \(0 write\(s\)\)[\s\S]*RESULT: PASS label=shadow-cost-probe-attach -- 0 failure\(s\) over 3 install arm\(s\) and the client\/app\.js write pin/ },
   { file: 'tree-texture-budget-witness.mjs', must: /the leaf default is an eighth of the source, not the source[\s\S]*RESULT: PASS/ },
   // gpu-free: it builds the real node graph and models the sampler in JS, so no adapter is touched.
   // The second half of the witness is the `must`: a run that never swept a footprint inside the
