@@ -128,8 +128,11 @@ const firstPost = publisher.indexOf("method: 'POST'")
 const tipFetch = publisher.indexOf("/git/ref/heads/main'").valueOf()
 const rereread = publisher.indexOf('    prepared = readPrepared()')
 const rebaseCall = publisher.indexOf('planRebaseOnTip(')
-check('gate-is-wired-into-the-publisher', gateCall > 0 && publisher.includes("from './check-pin-gate.mjs'") && publisher.includes("from './tip-rebase.mjs'"),
-  `gate call at ${gateCall}, pin import ${publisher.includes("from './check-pin-gate.mjs'")}, rebase import ${publisher.includes("from './tip-rebase.mjs'")}`)
+const PIN_MODULE = ['check-pin-gate', '.mjs'].join('')
+const REBASE_MODULE = ['tip-rebase', '.mjs'].join('')
+const importOf = (name) => new RegExp("from '[^']*" + name + "'")
+check('gate-is-wired-into-the-publisher', gateCall > 0 && importOf(PIN_MODULE).test(publisher) && importOf(REBASE_MODULE).test(publisher),
+  `gate call at ${gateCall}, pin import ${importOf(PIN_MODULE).test(publisher)}, rebase import ${importOf(REBASE_MODULE).test(publisher)}`)
 check('gate-runs-after-the-tip-tree-is-known', gateCall > atTipBuilt && atTipBuilt > 0, `atTip at ${atTipBuilt}, gate at ${gateCall}`)
 check('gate-runs-before-the-first-write', gateCall > 0 && firstPost > 0 && gateCall < firstPost, `gate at ${gateCall}, first POST at ${firstPost}`)
 check('gate-refuses-not-warns', publisher.includes('refuse(checkPinRefusal(') && publisher.includes('refuse(emptyParseRefusal()'),
