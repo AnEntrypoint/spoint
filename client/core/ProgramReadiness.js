@@ -272,6 +272,7 @@ export function takeDeferredDraws(renderer) {
 // ---------------------------------------------------------------------------
 const FIRST_USE_SLICE_MS = 4
 const FIRST_USE_PREWARM_SLICE_MS = 96
+const FIRST_USE_MAX_ATTEMPTS = 3
 
 const firstUseState = {
   installed: false, prewarm: true, deferred: 0, drained: 0, skippedReady: 0,
@@ -309,24 +310,39 @@ export function installDeferredFirstUsePipelines(renderer) {
 
   const queue = []
   const queued = new Set()
+  const attempts = new Map()
   let draining = false
 
   const drain = () => {
+    // The slice is wide while the world is still behind the loading screen -- a long slice there is
+    // a slice nobody sees, and the point of the wide slice is that the scenery is complete by the
+    // time it is revealed -- and narrow from the reveal onwards. client/app.js stamps
+    // `__app.revealedAt` at exactly that moment, so the budget needs no call site of its own.
+    if (firstUseState.prewarm && typeof window !== 'undefined' && window.__app && window.__app.revealedAt) firstUseState.prewarm = false
     const budget = firstUseState.prewarm ? FIRST_USE_PREWARM_SLICE_MS : FIRST_USE_SLICE_MS
     const sliceStart = performance.now()
     let built = 0
-    while (queue.length > 0 && (built === 0 || performance.now() - sliceStart < budget)) {
+    let failed = 0
+    // `failed` bounds the slice as well as the object. A build that throws is re-queued for another
+    // slice, so without a per-slice bound the queue would be shifted and re-pushed inside one slice
+    // forever; without a per-object bound the draw path would re-enqueue a hopeless object every
+    // frame, which is a new hitch made out of a build that never succeeds.
+    while (queue.length > 0 && failed < FIRST_USE_MAX_ATTEMPTS && (built === 0 || performance.now() - sliceStart < budget)) {
       const renderObject = queue.shift()
       queued.delete(renderObject)
       firstUseState.queued = queue.length
       if (pipelines.isReady(renderObject)) { firstUseState.skippedReady++; continue }
+      const attempt = (attempts.get(renderObject) || 0) + 1
+      attempts.set(renderObject, attempt)
       const t0 = performance.now()
       try {
         // A non-null sink is what selects createRenderPipelineAsync over createRenderPipeline, and
         // installAsyncRenderPipelines escorts everything added to it.
         pipelines.getForRender(renderObject, [])
       } catch (e) {
+        failed++
         firstUseState.buildFailed++
+        if (attempt < FIRST_USE_MAX_ATTEMPTS) enqueue(renderObject)
         continue
       }
       const ms = performance.now() - t0
@@ -353,6 +369,10 @@ export function installDeferredFirstUsePipelines(renderer) {
   }
 
   const wrapped = function (renderObject) {
+    // A render bundle is encoded once and replayed forever, so an object that is not ready when its
+    // bundle is encoded is missing from that bundle for good -- there is no later frame to catch it
+    // up on. Those objects are built where they are asked for.
+    if (renderer._currentRenderBundle != null) { orig.call(this, renderObject); return }
     // Only a first use is deferred. An object whose pipeline exists is either ready or already
     // compiling asynchronously, and in both cases three's own isReady() gate decides the draw.
     if (deferEnabled() && pipelines.get(renderObject).pipeline === undefined) { enqueue(renderObject); return }
