@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import { SOURCE_REL, GENERATED_REL, MAX_BUFFER, catFileBatch, makeIndex, normalizeEol, recordedDigest } from './appcontext-closure.mjs'
 import { CHECK_REL, parseCheckPins, missingCheckPins, checkPinRefusal, emptyParseRefusal } from './check-pin-gate.mjs'
 import { planRebaseOnTip, contestedRefusal } from './tip-rebase.mjs'
+import { STALE_HISTORY_DEPTH, planStaleCheck, staleRefusal } from './stale-base.mjs'
 
 const REPO = 'AnEntrypoint/spoint'
 const ROOT = process.cwd()
@@ -334,6 +335,32 @@ async function main() {
     console.log('[git-api-publish] check pin gate: ' + pins.length + ' pinned witness file(s) in ' + CHECK_REL + ' all resolve -- carried by this commit or already on the tip tree')
   }
 
+  const enforceStaleBaseGate = async (tip, atTip) => {
+    const changed = prepared
+      .filter((p) => atTip.has(p.rel) && atTip.get(p.rel) !== local[p.rel])
+      .map((p) => ({ rel: p.rel, blob: local[p.rel] }))
+    if (changed.length === 0) {
+      console.log('[git-api-publish] stale base gate: no published path moves, so no revision can be reverted')
+      return
+    }
+    const history = {}
+    for (const { rel } of changed) {
+      const encoded = encodeURIComponent(rel)
+      const commits = await gh('/repos/' + repo + '/commits?path=' + encoded + '&sha=main&per_page=' + STALE_HISTORY_DEPTH)
+      const revs = []
+      for (const c of commits) {
+        try {
+          revs.push((await gh('/repos/' + repo + '/contents/' + encoded + '?ref=' + c.sha)).sha)
+        } catch {
+          revs.push(null)
+        }
+      }
+      history[rel] = revs
+    }
+    const plan = planStaleCheck({ entries: changed, atTip, history })
+    if (plan.stale.length) refuse(staleRefusal({ stale: plan.stale, tip }))
+    console.log('[git-api-publish] stale base gate: ' + plan.current.length + ' changed path(s) checked against the last ' + STALE_HISTORY_DEPTH + ' revision(s) main took on each; none is a revision main has moved past')
+  }
   let prevAtTip = null
   const publishOnce = async () => {
     const tip = (await gh('/repos/' + repo + '/git/ref/heads/main')).object.sha
@@ -360,6 +387,7 @@ async function main() {
     prevAtTip = atTip
     // before anything is written: a pin for a witness this commit does not carry reddens CI.
     enforceCheckPinGate(atTip)
+    await enforceStaleBaseGate(tip, atTip)
     const regenerated = await enforceClosureGate(tip, listing, atTip)
     if (regenerated !== null) {
       const entry = { rel: GENERATED_REL, text: regenerated, buffer: null, sha: null }
