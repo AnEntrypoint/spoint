@@ -558,12 +558,13 @@ async function main() {
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
   // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
   // counters never moved, must read as a failure rather than as silence that passes.
-  // PERF-rocks-batch-draw-attribution-1013: the `must` also demands the rocks line, because a rocks
-  // band of 0 used to be printed with the reason "the instrument cannot tell these two apart". A run
-  // that still cannot tell -- or that leaves that line out -- now reads as a failure: the reason must
-  // be `measured`, `proven-empty` or `proven-zero-batch-count`, and the two mutation arms must have
-  // moved the number (off zero when the batch is made to want draws, back to zero when it is removed).
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-zero-batch-count)"[\s\S]*RESULT: PASS arm=draw-instrument/
+  // PERF-rocks-multidrawcount-stale-1013: the `must` no longer accepts a rocks band of 0. `measured`
+  // plus a non-zero `rocksDrawsPerFrame` is the only passing shape now: `proven-zero-batch-count` was
+  // the measured name of the defect (a populated batch that drew nothing), not a verdict, and this
+  // arm runs the default world, which places rocks, so `proven-empty` is the same defect wearing a
+  // different reason. A band that disagrees with the batch's own `_multiDrawCount` still fails as
+  // `instrument-gap`, and the two mutation arms must still have moved the number in both directions.
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"rocksDrawsPerFrame":[1-9][\d.]*[\s\S]*"reason":"measured"[\s\S]*RESULT: PASS arm=draw-instrument/
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {

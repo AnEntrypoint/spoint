@@ -192,6 +192,40 @@ const PROBE = `(() => {
       castShadow: bm.castShadow === undefined ? null : bm.castShadow,
     }
   }
+  // PERF-rocks-multidrawcount-stale-1013: "all of them are frustum-culled" and "the count was
+  // never computed at this pose" are the same number in the band and in _multiDrawCount, so they
+  // are told apart by asking the pose itself: how many active+visible instance CENTRES lie inside
+  // the main camera's clip frustum right now. Any centre inside means a standing 0 cannot be this
+  // pose, so it is a count computed somewhere else and left standing.
+  W.__dpRocksFrustum = function () {
+    const bm = W.__rocks && W.__rocks._bm
+    const cam = W.__camera
+    if (!bm || !cam || !cam.projectionMatrix || !cam.matrixWorldInverse) return null
+    const M4 = bm.matrixWorld.constructor
+    const pv = new M4()
+    pv.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(bm.matrixWorld)
+    const m = new M4()
+    const A = pv.elements
+    const inf = bm._instanceInfo
+    let centers = 0, centersInFrustum = 0
+    for (let i = 0; i < inf.length; i++) {
+      const ii = inf[i]
+      if (!ii || !ii.active || !ii.visible) continue
+      centers++
+      bm.getMatrixAt(i, m)
+      const e = m.elements
+      const x = e[12], y = e[13], z = e[14]
+      const cw = A[3] * x + A[7] * y + A[11] * z + A[15]
+      if (cw <= 0) continue
+      const nx = (A[0] * x + A[4] * y + A[8] * z + A[12]) / cw
+      const ny = (A[1] * x + A[5] * y + A[9] * z + A[13]) / cw
+      const nz = (A[2] * x + A[6] * y + A[10] * z + A[14]) / cw
+      if (nx >= -1 && nx <= 1 && ny >= -1 && ny <= 1 && nz >= -1 && nz <= 1) centersInFrustum++
+    }
+    const ce = cam.matrixWorld.elements
+    return { centers: centers, centersInFrustum: centersInFrustum, cameraAt: [ce[12], ce[13], ce[14]], batchMatrixAt: [bm.matrixWorld.elements[12], bm.matrixWorld.elements[13], bm.matrixWorld.elements[14]] }
+  }
+
   // _multiDrawCount is recomputed per pass, so the value left standing after a frame is the LAST
   // pass's. Capture the main pass and the last non-main (shadow) pass separately.
   W.__dpRocksHook = function () {
@@ -394,7 +428,9 @@ async function main() {
 
     const rocksHook = await page.evaluate(`window.__dpRocksHook()`)
     const rocksBatch = await page.evaluate(`window.__dpRocksBatch()`)
+    const rocksFrustum = await page.evaluate(`window.__dpRocksFrustum()`)
     console.log(`[draw-instrument] rocks batch at settle: hook=${JSON.stringify(rocksHook)} ${JSON.stringify(rocksBatch)}`)
+    console.log(`[draw-instrument] rocks pose at settle: ${JSON.stringify(rocksFrustum)}`)
 
     // The governor is live by default and sheds a tier on a hitch, which would move the very
     // numbers this row is measuring (and would move them differently on a contended box). Pin it
@@ -609,6 +645,10 @@ async function main() {
       : (rocksActiveVisible === 0 && rocksBatchMdc === 0 ? 'proven-empty'
         : (rocksActiveVisible > 0 && rocksBatchMdc === 0 ? 'proven-zero-batch-count' : 'instrument-gap'))
     if (rocksReason === 'instrument-gap') failures.push(`rocks: ${ident.rocksInstances} placed, ${rocksActiveVisible} active/visible in the batch, the batch's own _multiDrawCount=${rocksBatchMdc}, yet the band recorded ${r2(rocksBase)} draw(s)/frame -- the BatchedMesh draw escapes the renderObject attribution, so this IS an instrument gap`)
+    // PERF-rocks-multidrawcount-stale-1013: a batch holding active, visible instances that draws
+    // nothing is the silent-non-rendering class, not a fact to print with a reason. The band has
+    // been proven able to see the batch's draws in both directions, so a zero here is the defect.
+    else if (rocksActiveVisible > 0 && rocksBase <= 0) failures.push(`rocks: ${rocksActiveVisible} active/visible instance(s) in the batch${rocksFrustum ? `, ${rocksFrustum.centersInFrustum} of ${rocksFrustum.centers} instance centre(s) inside the main camera frustum at this pose` : ''}, three's own _multiDrawCount=${rocksBatchMdc} and the band recorded ${r2(rocksBase)} draw(s)/frame -- rocks do not render in this world, and the instrument has already proven it can see this batch's draws (${rocksPlacedDraws === null ? 'n/a' : r2(rocksPlacedDraws)}/frame with one recompute forced)`)
     else if (!rocksMut.ok) failures.push(`rocks attribution mutation could not run: ${rocksMut.why}`)
     else {
       if (rocksPlacedDraws <= 0) failures.push(`rocks: with per-instance culling off${rocksMut.prep.added >= 0 ? ' and a rock placed 8 m in front of the camera' : ''} the band still recorded ${r2(rocksPlacedDraws)} draw(s)/frame, so the instrument cannot see the BatchedMesh draw at all -- an instrument gap, not an empty batch`)
@@ -638,6 +678,8 @@ async function main() {
       perObjectFrustumCulled: rocksBatch ? rocksBatch.perObjectFrustumCulled : null,
       sortObjects: rocksBatch ? rocksBatch.sortObjects : null,
       visibilityChanged: rocksBatch ? rocksBatch.visibilityChanged : null,
+      centersInFrustum: rocksFrustum ? rocksFrustum.centersInFrustum : null,
+      centers: rocksFrustum ? rocksFrustum.centers : null,
       rocksDrawsPerFrame: r2(rocksBase),
       placedInViewDrawsPerFrame: rocksPlacedDraws === null ? null : r2(rocksPlacedDraws),
       placedInViewMultiDrawCount: rocksMut.ok && rocksMut.onBatch ? rocksMut.onBatch.multiDrawCount : null,

@@ -8,6 +8,20 @@ export function setInstancedCullAuto(mesh, auto) {
   if (levels) for (const level of levels) level.autoUpdate = auto
 }
 
+// A BatchedMesh has no "keep the last list" mode, so freezing it means `perObjectFrustumCulled`:
+// with it false, BatchedMesh.onBeforeRender returns early and the standing multi-draw list is
+// reused. That flag is also an INPUT to the recompute (cull or do not cull), and three marks the
+// batch stale only on instance mutations -- addInstance, deleteInstance, setVisibleAt -- never on a
+// change of culling mode. So flipping it alone leaves the count computed under the previous mode
+// standing, and three then issues that many draws for the rest of the run: at the tps-game spawn
+// the culling pass left 0 and 67 active, visible rocks drew nothing. Invalidate with the flip so
+// the standing count belongs to the mode now in force. One recompute per transition, not per frame.
+export function setBatchedMeshCullAuto(mesh, auto) {
+  if (!mesh) return
+  mesh.perObjectFrustumCulled = auto
+  mesh._visibilityChanged = true
+}
+
 export function createCullFreeze(applyAutoUpdate) {
   let frozen = false
   let x = NaN, y = NaN, z = NaN, qx = 0, qy = 0, qz = 0, qw = NaN

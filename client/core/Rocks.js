@@ -3,7 +3,7 @@ import { commitTileExtent } from './TileExtent.js'
 import { makeRockSDF, marchRockSurface, ROCK_MESH_RES } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
-import { createCullFreeze } from './CullFreeze.js'
+import { createCullFreeze, setBatchedMeshCullAuto } from './CullFreeze.js'
 import { createPlacementRing } from './PlacementRing.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
@@ -226,7 +226,7 @@ export async function createRocks(opts = {}) {
     profile.deferredChunks = deferredChunks.size
   }
 
-  const cullFreeze = createCullFreeze((auto) => { bm.perObjectFrustumCulled = auto; profile.cullFrozen = !auto })
+  const cullFreeze = createCullFreeze((auto) => { setBatchedMeshCullAuto(bm, auto); profile.cullFrozen = !auto })
   let _cullDirty = true
 
   function update(dt, camera, playerPos) {
