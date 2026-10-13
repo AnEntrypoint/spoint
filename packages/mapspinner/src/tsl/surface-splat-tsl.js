@@ -1,5 +1,5 @@
 import {
-  If, float, vec2, vec3, vec4, int, select, texture, textureSize, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy,
+  If, float, vec2, vec3, vec4, int, select, texture, textureSize, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy, uniform,
 } from 'three/tsl'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { PLANET_RADIUS_M } from '../planet-radius.js'
@@ -12,6 +12,7 @@ const LUMA = vec3(0.299, 0.587, 0.114)
 const TEX_TILE_BASE_M = TD.texTile
 const SPLAT_DESIGN_RADIUS_M = PLANET_RADIUS_M
 const RIDGE_ALBEDO_OCTAVES = [[75.0, 1.0], [375.0, 0.6]]
+export const splatOctaveCollapse = uniform(1)
 
 const byLayer = (lay, v) => select(lay.lessThan(0.5), v[0], select(lay.lessThan(1.5), v[1], select(lay.lessThan(2.5), v[2], v[3])))
 
@@ -108,6 +109,7 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
   const gFine = triplanarGrads(wt, 4.0), gCoarse = triplanarGrads(wt, 1.0)
   const octavesCoincide = pxWorld.greaterThanEqual(texTileM.div(float(textureSize(u.surfAlb).x)))
     .and(pxWorld.lessThanEqual(texTileM.mul(0.25)))
+    .and(splatOctaveCollapse.greaterThan(0.5))
   const octFarFade = smoothstep(rs.mul(TD.octFar0), rs.mul(TD.octFar1), pxWorld)
   const texFade = float(1.0).sub(smoothstep(TD.nrmFade0, TD.nrmFade1, camDist))
   const crossFade = float(1.0).sub(smoothstep(TD.xFade0, TD.xFade1, camDist))

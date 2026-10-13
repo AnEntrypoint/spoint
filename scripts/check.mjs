@@ -126,6 +126,13 @@ const NO_GPU_WITNESSES = [
   // coincide band, or never swept one outside it, has to read as a failure rather than as silence
   // that passes -- without an out-of-band sample the guard is decorative and unproven.
   { file: 'surface-splat-octave-tap-witness.mjs', must: /MEASURED surface-splat-octave-tap: [1-9]\d* in-band footprint\(s\) collapse to one tap set, [1-9]\d* do not, [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=surface-splat-octave-tap/ },
+  // PERF-terrain-fragment-fetch-budget-1013-wall-unresolved-1013. The reproduction switch the frame
+  // -wall arm flips: a TSL uniform, so one page load carries both the collapsed fragment path and the
+  // pre-change one and the arms can interleave. gpu-free: it builds the real node graph and models
+  // the sampler in JS. The `must` names both budgets, so a switch that stops restoring the pre-change
+  // 12 fetches per layer -- or one that starts collapsing out-of-band pixels -- fails instead of
+  // passing silently, and the nine snoise3 and FD_TAPS pins keep the pair differing by fetches only.
+  { file: 'surface-splat-octave-ab-switch-witness.mjs', must: /MEASURED surface-splat-octave-ab-switch: revert arm 12 triplanar fetch\(es\) per layer on all [1-9]\d* sample\(s\), collapse arm 6 on the [1-9]\d* in-band one\(s\), [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=surface-splat-octave-ab-switch/ },
   // gpu-free: it drives the real deferral against a stub Pipelines, so the property it pins -- a
   // first use never builds inside the frame that needs it, and no queued object is ever stranded --
   // holds without an adapter. How long one prologue takes is a browser arm this CI does not run.
@@ -558,13 +565,12 @@ async function main() {
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
   // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
   // counters never moved, must read as a failure rather than as silence that passes.
-  // PERF-rocks-multidrawcount-stale-1013: the `must` no longer accepts a rocks band of 0. `measured`
-  // plus a non-zero `rocksDrawsPerFrame` is the only passing shape now: `proven-zero-batch-count` was
-  // the measured name of the defect (a populated batch that drew nothing), not a verdict, and this
-  // arm runs the default world, which places rocks, so `proven-empty` is the same defect wearing a
-  // different reason. A band that disagrees with the batch's own `_multiDrawCount` still fails as
-  // `instrument-gap`, and the two mutation arms must still have moved the number in both directions.
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"rocksDrawsPerFrame":[1-9][\d.]*[\s\S]*"reason":"measured"[\s\S]*RESULT: PASS arm=draw-instrument/
+  // PERF-rocks-batch-draw-attribution-1013: the `must` also demands the rocks line, because a rocks
+  // band of 0 used to be printed with the reason "the instrument cannot tell these two apart". A run
+  // that still cannot tell -- or that leaves that line out -- now reads as a failure: the reason must
+  // be `measured`, `proven-empty` or `proven-zero-batch-count`, and the two mutation arms must have
+  // moved the number (off zero when the batch is made to want draws, back to zero when it is removed).
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-zero-batch-count)"[\s\S]*RESULT: PASS arm=draw-instrument/
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {

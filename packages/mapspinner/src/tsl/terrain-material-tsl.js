@@ -9,7 +9,7 @@ import { parentGridPosition } from './geomorph-snap-tsl.js'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { defineHeightSpec } from './height-spec.js'
 import { createTslOps } from './ops-tsl.js'
-import { terrainAlbedoClimate, surfaceSplat } from './surface-splat-tsl.js'
+import { terrainAlbedoClimate, surfaceSplat, splatOctaveCollapse } from './surface-splat-tsl.js'
 import { createSculptOverrideTSL } from './sculpt-tsl.js'
 import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
 import { ATM_BOTTOM as ATM_BOTTOM_KM } from '../atmosphere-transmittance-lut.js'
@@ -125,6 +125,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     morphAim: uniformArray(Array.from({ length: 6 }, () => new THREE.Vector3()), 'vec3'),
     surfAlb: texture(placeholder.alb),
     surfNrm: texture(placeholder.nrm),
+    splatOctaveCollapse,
   }
   const faceU = reuse ? reuse.faceU : uniformArray(FACE_FRAME.map((f) => v3(f.u)), 'vec3')
   const faceV = reuse ? reuse.faceV : uniformArray(FACE_FRAME.map((f) => v3(f.v)), 'vec3')
