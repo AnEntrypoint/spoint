@@ -14,7 +14,14 @@ import { createSculptOverrideTSL } from './sculpt-tsl.js'
 import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
 import { ATM_BOTTOM as ATM_BOTTOM_KM } from '../atmosphere-transmittance-lut.js'
 
-const FD_TAPS = 5
+// The stencil offsets are exactly one grid step, so the +u tap is the position the vertex at
+// grid.x+1 already occupies. The stencil is therefore chosen by the TAP COUNT and nothing else:
+// at fdTaps 5 the -u/-v taps overwrite the centre and the difference is CENTRAL; at fdTaps 3 they
+// never run, wMU/wMV still hold the centre tap assigned at i=0, and the same cross product is a
+// FORWARD difference. One loop, one call site, no branch -- the four offset evaluations a central
+// stencil spends on the tangents become two. The height tap (i=0) is untouched either way, so
+// vTerrH and every height the mesh, the collider and placement read are bit-identical.
+export const FD_TAPS = 3
 const QUARTER_PI = 0.7853981634
 const WET_DARKEN = 0.65
 const NORMAL_TOWARD_UP = 0.05
@@ -160,16 +167,16 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     const h0 = float(0).toVar(), d0 = vec3(0).toVar()
     const wPU = vec3(0).toVar(), wMU = vec3(0).toVar(), wPV = vec3(0).toVar(), wMV = vec3(0).toVar()
     Loop({ start: int(0), end: u.fdTaps.add(u.loopBoundDelta), type: 'int', condition: '<' }, ({ i }) => {
-      const ox = select(i.equal(1), float(1), select(i.equal(2), float(-1), float(0)))
-      const oy = select(i.equal(3), float(1), select(i.equal(4), float(-1), float(0)))
+      const ox = select(i.equal(1), float(1), select(i.equal(3), float(-1), float(0)))
+      const oy = select(i.equal(2), float(1), select(i.equal(4), float(-1), float(0)))
       const fl = tan(absLocal.add(vec2(ox, oy).mul(step)).div(R).mul(QUARTER_PI)).mul(R)
       const d = normalize(fu.mul(fl.x).add(fv.mul(fl.y)).add(fc.mul(R))).toVar()
       const hh = spec.composeHeight(d).toVar()
       const w = d.mul(R.add(hh))
-      If(i.equal(0), () => { h0.assign(hh); d0.assign(d) })
+      If(i.equal(0), () => { h0.assign(hh); d0.assign(d); wMU.assign(w); wMV.assign(w) })
       If(i.equal(1), () => { wPU.assign(w) })
-      If(i.equal(2), () => { wMU.assign(w) })
-      If(i.equal(3), () => { wPV.assign(w) })
+      If(i.equal(2), () => { wPV.assign(w) })
+      If(i.equal(3), () => { wMU.assign(w) })
       If(i.equal(4), () => { wMV.assign(w) })
     })
     const n0 = normalize(cross(wPU.sub(wMU), wPV.sub(wMV)))
