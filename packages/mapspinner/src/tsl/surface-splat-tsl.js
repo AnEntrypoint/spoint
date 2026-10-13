@@ -1,5 +1,5 @@
 import {
-  If, float, vec2, vec3, vec4, int, select, texture, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy,
+  If, float, vec2, vec3, vec4, int, select, texture, textureSize, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy,
 } from 'three/tsl'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { PLANET_RADIUS_M } from '../planet-radius.js'
@@ -105,24 +105,31 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
   const tw0 = pow(abs(n), vec3(TD.triSharp))
   const tw = tw0.div(tw0.x.add(tw0.y).add(tw0.z).add(1e-4))
   const bAB = clamp(wA.div(max(wA.add(wB), 1e-4)), 0.0, 1.0)
-  const gNear = triplanarGrads(wt, 4.0), gFar = triplanarGrads(wt, 1.0)
+  const gFine = triplanarGrads(wt, 4.0), gCoarse = triplanarGrads(wt, 1.0)
+  const octavesCoincide = pxWorld.greaterThanEqual(texTileM.div(float(textureSize(u.surfAlb).x)))
+    .and(pxWorld.lessThanEqual(texTileM.mul(0.25)))
   const octFarFade = smoothstep(rs.mul(TD.octFar0), rs.mul(TD.octFar1), pxWorld)
   const texFade = float(1.0).sub(smoothstep(TD.nrmFade0, TD.nrmFade1, camDist))
   const crossFade = float(1.0).sub(smoothstep(TD.xFade0, TD.xFade1, camDist))
 
   const layerSample = (l) => {
     const li = int(l.add(0.5))
-    const albNear = triTap(u.surfAlb, gNear, tw, li).toVar()
-    const col = albNear.rgb.toVar()
-    If(octFarFade.notEqual(0.0), () => { col.assign(mix(albNear.rgb, triTap(u.surfAlb, gFar, tw, li).rgb, octFarFade)) })
+    const albFine = triTap(u.surfAlb, gFine, tw, li).toVar()
+    const col = albFine.rgb.toVar()
+    If(octFarFade.notEqual(0.0).and(octavesCoincide.not()), () => { col.assign(mix(albFine.rgb, triTap(u.surfAlb, gCoarse, tw, li).rgb, octFarFade)) })
     const nrm = vec3(0.0).toVar()
-    If(texFade.notEqual(0.0), () => { nrm.assign(triNrm(u.surfNrm, gNear, tw, li, n).add(triNrm(u.surfNrm, gFar, tw, li, n).mul(1.7 * TD.nrmLow))) })
+    If(texFade.notEqual(0.0), () => {
+      const nFine = triNrm(u.surfNrm, gFine, tw, li, n).toVar()
+      const nSecond = vec3(0.0).toVar()
+      If(octavesCoincide, () => { nSecond.assign(nFine) }).Else(() => { nSecond.assign(triNrm(u.surfNrm, gCoarse, tw, li, n)) })
+      nrm.assign(nFine.add(nSecond.mul(1.7 * TD.nrmLow)))
+    })
     const matColor = byLayer(l, [BC_GRASS, u.bcRock, BC_SHORE, BC_SNOW])
     const ord = byLayer(l, [float(0.6), float(0.3), float(0.0), float(1.0)])
     const meanL = byLayer(l, [u.meanL.x, u.meanL.y, u.meanL.z, u.meanL.w])
     const sat = max(mix(vec3(dot(col, LUMA)), col, TD.texSat), vec3(0.0))
     const detail = sat.mul(dot(matColor, LUMA).div(max(meanL, 0.02)))
-    const disp = albNear.a
+    const disp = albFine.a
     const pool = float(1.0).sub(smoothstep(byLayer(l, [u.poolLo.x, u.poolLo.y, u.poolLo.z, u.poolLo.w]), byLayer(l, [u.poolHi.x, u.poolHi.y, u.poolHi.z, u.poolHi.w]), disp))
     return { nrm, matColor, ord, detail, disp, pool }
   }

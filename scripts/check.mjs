@@ -447,6 +447,25 @@ async function main() {
       gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
+  // PERF-maxlevel-cpu-ladder-r1: the per-level cost gradient of `maxLevel` ABOVE the level the frame
+  // wall can resolve, on an instrument proven to have unlocked rAF. s6's locked ladder read
+  // L11=L16=L22=33.36 ms -- every median a multiple of the 16.68 ms refresh period -- so levels
+  // above 11 were indistinguishable on it, and `splitFactor` is inert (s6/s13). This arm unlocks rAF
+  // and refuses a run whose medians are still on that grid: the `must` names `unlockRaf:true`, the
+  // measured ladder and the crossover level, so a run that stayed vsync-locked, one whose rAF never
+  // unlocked, or one that resolved no level, reads as a failure rather than as silence that passes.
+  const MAXLEVEL_LADDER_MUST = /\[maxlevel\] MEASURED maxlevel-cpu-ladder: \{[^\n]*"unlockRaf":true[\s\S]*\[maxlevel\] cost moves at L[1-9]\d*:[\s\S]*RESULT: PASS arm=maxlevel-cpu-ladder/
+  const maxlevelKeep = (line) => /^(RESULT:|\[maxlevel\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/maxlevel-crossover-witness.mjs', `--gpu=${gpu}`, '--viewport=1920x1080', '--knob=dprOff=true,qualityGovernorOff=true', '--sample-ms=5000', '--desc-sample-ms=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (maxlevelKeep(line)) console.log(`check: ${line}`)
+      if (!MAXLEVEL_LADDER_MUST.test(stdout)) gateFailures.push(`maxlevel-crossover-witness.mjs on ${gpu}: printed no line matching its must regex, so either its unlock proof or the crossover level it must name never ran`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (maxlevelKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`maxlevel-crossover-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
   // PERF-cold-load-and-first-frame-1013: cold-load time-to-first-frame and the first frame's own
   // cost, measured on one instrument. It boots a real browser on the pinned vendor adapter, so it
   // rides the same opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the
