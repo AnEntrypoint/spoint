@@ -1,4 +1,5 @@
 import * as THREE from '/node_modules/three/build/three.module.js'
+import * as PROTOCOL from '../core/WorkerRenderProtocol.js'
 
 let renderer = null
 let scene = null
@@ -10,18 +11,13 @@ let lastStatsPost = 0
 let rafHandle = 0
 let seq = 0
 let run = 0
-const STATS_POST_INTERVAL_MS = 250
 
 function post(message) {
-  self.postMessage({ seq: ++seq, run, ...message })
+  self.postMessage(PROTOCOL.workerStamped(++seq, run, message))
 }
 
 function postError(code, message, stack) {
-  post({ type: 'error', code, message, stack: stack || null })
-}
-
-function dimsAreValid(width, height) {
-  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+  post(PROTOCOL.workerRefusalMessage(code, message, stack))
 }
 
 function buildScene(width, height) {
@@ -47,19 +43,20 @@ function tick(nowMs) {
   if (!running) return
   mesh.rotation.x += 0.008
   mesh.rotation.y += 0.013
+  const renderStartMs = performance.now()
   renderer.render(scene, camera)
+  const renderMs = performance.now() - renderStartMs
   frameCount++
 
-  if (nowMs - lastStatsPost > STATS_POST_INTERVAL_MS) {
+  // frameCount === 1 is the first rendered frame, and it is posted unconditionally: `nowMs` here is
+  // a worker-relative clock that starts at 0 when the worker is created, so the gate below reads
+  // `nowMs - 0 > 250` as false for the first ~250ms of the loop and swallows every frame in it.
+  // Swallowing the first frame is what left the first-frame cost unmeasured and made the reported
+  // frame numbers start at whatever count the loop had reached a quarter second in.
+  if (frameCount === 1 || nowMs - lastStatsPost > PROTOCOL.WORKER_CLOCK_MS.FRAME_STATS_GATE_MS) {
     lastStatsPost = nowMs
     const info = renderer.info
-    post({
-      type: 'frame',
-      frame: frameCount,
-      ms: nowMs,
-      drawCalls: info.render.calls,
-      triangles: info.render.triangles
-    })
+    post(PROTOCOL.workerFrameMessage(frameCount, nowMs, info.render.calls, info.render.triangles, renderMs))
   }
 
   rafHandle = self.requestAnimationFrame(tick)
@@ -69,18 +66,18 @@ self.onmessage = (e) => {
   const msg = e.data || {}
   try {
     switch (msg.type) {
-      case 'init': {
+      case PROTOCOL.WORKER_MESSAGE.INIT: {
         const { canvas, width, height, dpr } = msg
         if (running) {
-          postError('init-while-running', 'init refused: the render loop is already running (send stop first)')
+          postError(PROTOCOL.WORKER_REFUSAL.INIT_WHILE_RUNNING, 'init refused: the render loop is already running (send stop first)')
           break
         }
         if (!canvas) {
-          postError('init-no-canvas', 'init refused: msg.canvas is missing')
+          postError(PROTOCOL.WORKER_REFUSAL.INIT_NO_CANVAS, 'init refused: msg.canvas is missing')
           break
         }
-        if (!dimsAreValid(width, height)) {
-          postError('bad-init-payload', 'init refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
+        if (!PROTOCOL.workerDimsAreValid(width, height)) {
+          postError(PROTOCOL.WORKER_REFUSAL.BAD_INIT_PAYLOAD, 'init refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
           break
         }
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
@@ -91,14 +88,14 @@ self.onmessage = (e) => {
         run++
         frameCount = 0
         lastStatsPost = 0
-        post({ type: 'ready' })
+        post({ type: PROTOCOL.WORKER_MESSAGE.READY })
         rafHandle = self.requestAnimationFrame(tick)
         break
       }
-      case 'resize': {
+      case PROTOCOL.WORKER_MESSAGE.RESIZE: {
         const { width, height, dpr } = msg
-        if (!dimsAreValid(width, height)) {
-          postError('bad-resize-payload', 'resize refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
+        if (!PROTOCOL.workerDimsAreValid(width, height)) {
+          postError(PROTOCOL.WORKER_REFUSAL.BAD_RESIZE_PAYLOAD, 'resize refused: width and height must be finite and positive, got ' + String(width) + 'x' + String(height))
           break
         }
         if (renderer && camera) {
@@ -107,23 +104,23 @@ self.onmessage = (e) => {
           camera.aspect = width / Math.max(1, height)
           camera.updateProjectionMatrix()
         } else {
-          postError('resize-no-render-target', 'resize ignored: no renderer or camera (init has not run, or stop already ran)')
+          postError(PROTOCOL.WORKER_REFUSAL.RESIZE_NO_RENDER_TARGET, 'resize ignored: no renderer or camera (init has not run, or stop already ran)')
         }
         break
       }
-      case 'stop': {
+      case PROTOCOL.WORKER_MESSAGE.STOP: {
         running = false
         if (rafHandle) self.cancelAnimationFrame(rafHandle)
         if (renderer) { renderer.dispose(); renderer = null }
-        post({ type: 'stopped' })
+        post({ type: PROTOCOL.WORKER_MESSAGE.STOPPED })
         break
       }
       default: {
-        postError('unknown-message-type', 'unknown message type: ' + String(msg && msg.type))
+        postError(PROTOCOL.WORKER_REFUSAL.UNKNOWN_MESSAGE_TYPE, 'unknown message type: ' + String(msg && msg.type))
         break
       }
     }
   } catch (err) {
-    postError('handler-threw', String(err && err.message || err), err && err.stack)
+    postError(PROTOCOL.WORKER_REFUSAL.HANDLER_THREW, String(err && err.message || err), err && err.stack)
   }
 }

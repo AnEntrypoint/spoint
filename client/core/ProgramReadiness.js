@@ -45,8 +45,17 @@ function pendingPipelineCount(pipelines) {
   return n
 }
 
+// Reproduction switch, not a tuning knob: `window.__spointProgramReadinessVacuous = true` restores
+// the reader this file shipped with -- it skips the pipeline cache and falls through to
+// `info.programs`, which the common renderer never defines, so it answers 0 in every state and the
+// boot warm wait resolves on its first poll. It is what lets one witness measure the wait's cost
+// against the pre-fix behaviour on the same box and the same bundle.
+function vacuousProgramReadiness() {
+  return typeof window !== 'undefined' && window.__spointProgramReadinessVacuous === true
+}
+
 export function pendingProgramCount(renderer) {
-  const pipelines = renderer && renderer._pipelines
+  const pipelines = vacuousProgramReadiness() ? null : renderer && renderer._pipelines
   if (pipelines) return pendingPipelineCount(pipelines)
   const programs = renderer && renderer.info && renderer.info.programs
   if (!programs) return 0
@@ -55,13 +64,36 @@ export function pendingProgramCount(renderer) {
   return n
 }
 
+// The warm wait's own cost, published where a boot witness can read it: what was outstanding when
+// the wait was entered, how long the wait itself took, and what was still outstanding when it gave
+// up. Without it the wait is invisible -- it is neither a mark nor a console line -- so its cost
+// could not be told apart from the rest of the boot.
+const warmWait = { calls: 0, pendingAtStart: null, waitedMs: null, resolvedPending: null, vacuous: false, maxWaitMs: null }
+
+function recordWarmWait(pendingAtStart, waitedMs, resolvedPending, maxWaitMs) {
+  warmWait.calls++
+  warmWait.pendingAtStart = pendingAtStart
+  warmWait.waitedMs = waitedMs
+  warmWait.resolvedPending = resolvedPending
+  warmWait.vacuous = vacuousProgramReadiness()
+  warmWait.maxWaitMs = maxWaitMs
+  if (typeof window !== 'undefined') window.__programReadinessWait = { ...warmWait }
+}
+
 export function whenProgramsReady(renderer, maxWaitMs) {
   const t0 = performance.now()
+  const pendingAtStart = pendingProgramCount(renderer)
   return new Promise((resolve) => {
     const poll = () => {
       const pending = pendingProgramCount(renderer)
-      if (pending === 0) { resolve(0); return }
-      if (performance.now() - t0 >= maxWaitMs) { console.warn(`[shader] ${pending} program(s) still compiling after ${maxWaitMs}ms`); resolve(pending); return }
+      const waitedMs = performance.now() - t0
+      if (pending === 0) { recordWarmWait(pendingAtStart, waitedMs, 0, maxWaitMs); resolve(0); return }
+      if (waitedMs >= maxWaitMs) {
+        console.warn(`[shader] ${pending} program(s) still compiling after ${maxWaitMs}ms`)
+        recordWarmWait(pendingAtStart, waitedMs, pending, maxWaitMs)
+        resolve(pending)
+        return
+      }
       setTimeout(poll, READY_POLL_MS)
     }
     poll()
@@ -261,7 +293,7 @@ export function takeDeferredDraws(renderer) {
 // So the frame that first needs an object now enqueues it instead of building it, and a drain
 // builds queued objects off the draw path in bounded slices, yielding on a MessageChannel so the
 // browser can present a frame between slices. N first uses can no longer sum into one frame; the
-// most a steady frame can carry is one slice plus the one prologue that overshoots it.
+// most a steady frame can carry is one first use.
 //
 // Two properties hold by construction, not by tuning:
 //   * a queued object is drained to ready whether or not anything is rendering -- the drain
@@ -269,9 +301,23 @@ export function takeDeferredDraws(renderer) {
 //     object the way an unanswered async creation can;
 //   * a drain slice always builds at least one object, so a prologue longer than the slice cannot
 //     starve the queue.
+//
+// THE SLICE IS ONE FIRST USE, and that is a shape rather than a number. This drain used to carry a
+// millisecond budget -- 96 ms while the world was still behind the loading screen, 4 ms after the
+// reveal -- and to accumulate it ACROSS first uses:
+//     while (queue.length && failed < MAX && (built === 0 || now - sliceStart < budget))
+// A budget accumulated that way is read only BETWEEN two first uses, so the block it bounded was the
+// budget plus one more first use, and a single first use longer than the budget was never cut at all
+// -- the prologue ran to completion inside whichever slice happened to reach it. Lowering the
+// constant would have moved the number and kept the defect, so the constant is gone instead: a slice
+// builds one queued object and then yields, and the yield sits after that object rather than after a
+// budget.
+//
+// One first use is the smallest piece available, because there is no phase inside one to yield
+// between: the node graph build, both shader modules, every bind group layout and the pipeline layout
+// are synchronous in three and have no async form. So the block the main thread takes is one
+// prologue, which is the floor, instead of one prologue plus everything the budget let in beside it.
 // ---------------------------------------------------------------------------
-const FIRST_USE_SLICE_MS = 4
-const FIRST_USE_PREWARM_SLICE_MS = 96
 const FIRST_USE_MAX_ATTEMPTS = 3
 
 const firstUseState = {
@@ -314,41 +360,44 @@ export function installDeferredFirstUsePipelines(renderer) {
   let draining = false
 
   const drain = () => {
-    // The slice is wide while the world is still behind the loading screen -- a long slice there is
-    // a slice nobody sees, and the point of the wide slice is that the scenery is complete by the
-    // time it is revealed -- and narrow from the reveal onwards. client/app.js stamps
-    // `__app.revealedAt` at exactly that moment, so the budget needs no call site of its own.
+    // `prewarm` is the boot/steady-state marker a boot witness reads off firstUseState. It sized the
+    // slice once; it no longer does, because there is no slice left to size -- only the one first use
+    // the slice now is.
     if (firstUseState.prewarm && typeof window !== 'undefined' && window.__app && window.__app.revealedAt) firstUseState.prewarm = false
-    const budget = firstUseState.prewarm ? FIRST_USE_PREWARM_SLICE_MS : FIRST_USE_SLICE_MS
     const sliceStart = performance.now()
-    let built = 0
-    let failed = 0
-    // `failed` bounds the slice as well as the object. A build that throws is re-queued for another
-    // slice, so without a per-slice bound the queue would be shifted and re-pushed inside one slice
-    // forever; without a per-object bound the draw path would re-enqueue a hopeless object every
-    // frame, which is a new hitch made out of a build that never succeeds.
-    while (queue.length > 0 && failed < FIRST_USE_MAX_ATTEMPTS && (built === 0 || performance.now() - sliceStart < budget)) {
-      const renderObject = queue.shift()
-      queued.delete(renderObject)
-      firstUseState.queued = queue.length
-      if (pipelines.isReady(renderObject)) { firstUseState.skippedReady++; continue }
+    // ONE first use, then out. The budget this slice used to accumulate is gone on purpose: it was
+    // read only between two first uses, so what it bounded was the budget plus one more first use,
+    // and a prologue longer than the budget was never cut. The slice is the first use instead, so the
+    // block is the prologue and the yield sits after it.
+    const renderObject = queue.shift()
+    queued.delete(renderObject)
+    firstUseState.queued = queue.length
+    if (pipelines.isReady(renderObject)) {
+      firstUseState.skippedReady++
+    } else {
       const attempt = (attempts.get(renderObject) || 0) + 1
       attempts.set(renderObject, attempt)
       const t0 = performance.now()
+      let built = true
       try {
         // A non-null sink is what selects createRenderPipelineAsync over createRenderPipeline, and
         // installAsyncRenderPipelines escorts everything added to it.
         pipelines.getForRender(renderObject, [])
       } catch (e) {
-        failed++
+        built = false
         firstUseState.buildFailed++
+        // A build that throws is re-queued, bounded per object: without that bound the draw path
+        // would re-enqueue a hopeless object every frame, which is a new hitch made out of a build
+        // that never succeeds.
         if (attempt < FIRST_USE_MAX_ATTEMPTS) enqueue(renderObject)
-        continue
       }
-      const ms = performance.now() - t0
-      if (ms > firstUseState.worstBuildMs) firstUseState.worstBuildMs = ms
-      firstUseState.drained++
-      built++
+      // A build that threw built nothing, so it is not a measured first use and not a drained one:
+      // what decides its draw is three's own isReady() gate, exactly as before.
+      if (built) {
+        const ms = performance.now() - t0
+        if (ms > firstUseState.worstBuildMs) firstUseState.worstBuildMs = ms
+        firstUseState.drained++
+      }
     }
     const sliceMs = performance.now() - sliceStart
     if (sliceMs > firstUseState.worstSliceMs) firstUseState.worstSliceMs = sliceMs

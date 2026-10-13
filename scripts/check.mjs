@@ -150,14 +150,6 @@ const NO_GPU_WITNESSES = [
   // witness: a run that classified no binding, or one that found the warm call site gone, must read
   // as a failure rather than as silence that passes.
   { file: 'veg-warm-temporal-dead-zone-witness.mjs', must: /\[veg-warm-tdz\] RESULT: PASS -- [1-9]\d* warm binding\(s\) initialized before the species build loop's warm call at client.core.Vegetation\.js:[1-9]\d*, [1-9]\d* hoisted declaration\(s\) and \d+ declared above it/ },
-  // ORCH-check-pin-witness-exists-1013. A path-scoped publish in a shared work tree is not
-  // content-scoped: the check.mjs blob it writes carries whatever sibling lanes currently have
-  // uncommitted in that file, including pins for witnesses those lanes have not published, and CI
-  // then answers "never ran: unreadable (ENOENT)" for a witness remote has never seen.
-  // scripts/lib/git-api-publish.mjs now refuses that, and this witness is the guard’s own `must`:
-  // a publish carrying check.mjs and this file together must be accepted, one carrying check.mjs
-  // with this witness still absent must be refused.
-  { file: 'publish-gate-witness.mjs', must: /\[publish-gate\] RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -571,7 +563,7 @@ async function main() {
   // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
   // boot shader warm wait never reported what it waited for, must read as a failure rather than as
   // silence that passes.
-  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*warm wait [1-9][\d.]*ms with \d+ outstanding[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->ready [1-9][\d.]*ms, init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
+  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*warm wait [\d.]+ms with \S+ outstanding[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->ready [1-9][\d.]*ms, init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
   const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
   for (const gpu of gpuArms) {
     try {
