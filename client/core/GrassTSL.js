@@ -141,14 +141,26 @@ export function makeGrassMaterialTSL(wind, density) {
     const gEdge = min(float(d.fullR).div(max(clumpRank, float(1e-4)).pow(float(1 / d.p))).add(float(d.fadeM)), uGrassRing)
     const gIn = clamp(gEdge.sub(gDist).div(float(d.fadeM)), 0.0, 1.0)
     const gGrow = min(float(d.growMax), float(1.0).add(float(d.growK).mul(max(gDist.sub(float(d.fullR)), 0.0))))
-    transformed.mulAssign(gIn.mul(gGrow))
+    // The distance enlargement stays uniform: a blade covering for the density its neighbours no
+    // longer have has to be bigger across, not just taller.
+    transformed.mulAssign(gGrow)
+    // The fade takes a blade's HEIGHT to zero over its own last FADE_M metres, the way the ring
+    // fade it replaced did. Scaling the card's WIDTH with it is what turned a field of full-width
+    // blades into a field of narrow ones: measured in the browser, mid and far blades then carry
+    // 0.72-0.77 of their width as well as of their height.
+    transformed.y.mulAssign(gIn)
     const gFace = smoothstep(float(d.faceStart), float(d.faceEnd), gDist)
     const gAxis = normalize(instanceMatrixNode.mul(vec4(1.0, 0.0, 0.0, 0.0)).xz)
     const gToCam = normalize(uCamPosXZ.sub(instWorldXZ))
+    // A card's face is a quarter turn from its in-plane axis, so turning the clump's AXIS onto the
+    // direction to the camera turns the card EDGE-ON: measured, that clump reads 1.732 of
+    // silhouette where the same clump never turned reads 1.910 and a clump turned face-on reads
+    // 2.000, and not one of its cards is ever face-on. Turn the normal to the camera instead.
+    const gPerp = vec2(gToCam.y.negate(), gToCam.x)
     // The clump is drawn double-sided, so either sign of the camera direction faces it; picking
     // the nearer sign keeps the blend away from the antipode where a normalised lerp has no
     // length to normalise.
-    const gTarget = gToCam.mul(dot(gAxis, gToCam).greaterThanEqual(0.0).select(float(1.0), float(-1.0)))
+    const gTarget = gPerp.mul(dot(gAxis, gPerp).greaterThanEqual(0.0).select(float(1.0), float(-1.0)))
     const gDir = normalize(mix(gAxis, gTarget, gFace))
     const gCos = dot(gAxis, gDir), gSin = gAxis.x.mul(gDir.y).sub(gAxis.y.mul(gDir.x))
     const gRx = transformed.x.mul(gCos).sub(transformed.z.mul(gSin))

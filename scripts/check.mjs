@@ -125,6 +125,13 @@ const NO_GPU_WITNESSES = [
   // coordinates and never by the chunk they came from, because chunk-key arithmetic manufactures a
   // gap at exactly the chunk spacing, which is what the first run of this instrument appeared to find.
   { file: 'grass-tile-seam-witness.mjs', must: /\[grass-tile-seam\] MEASURED grass-tile-seam: worst boundary ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\) at the \d+m boundary @ \d+m; worst surface step [\d.]+m against a [\d.]+m median step[\s\S]*RESULT: PASS/ },
+  // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
+  // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a
+  // different width the moment its orientation changes, and the per-blade fade can shrink width as
+  // well as height. The `must` is the second half of the witness: a run whose shipped turning is
+  // not the one that faces the camera, or whose fade still multiplies the whole card, must read as
+  // a failure rather than as silence that passes.
+  { file: 'grass-blade-silhouette-witness.mjs', must: /\[PASS\] the fade takes a blade to zero in height and leaves its width alone[\s\S]*\[grass-silhouette\] MEASURED grass-silhouette: shipped=NORMAL-TO-CAMERA width [\d.]+ \(min [\d.]+\) vs fixed [\d.]+[\s\S]*RESULT: PASS/ },
   // PERF-shadow-cascade-redraw-hitch-1013: how many cascade shadow maps one frame re-renders while
   // the player travels, unbounded against shipped. The `must` is the second half of the witness: a
   // run that printed no ladder, one whose unbounded arm never put all three cascades on one frame, or
