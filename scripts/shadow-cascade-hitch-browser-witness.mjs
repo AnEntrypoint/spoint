@@ -136,7 +136,7 @@ async function browserArm() {
       const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const pageErrors = []
       page.on('pageerror', (e) => pageErrors.push(String(e)))
-      await page._send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { window.__shadowCascades = ${cascades}; window.__shadowFarRedrawBudget = 0 })()` })
+      await page._send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { window.__shadowCascades = ${cascades} })()` })
       await page.goto(`${base}/?singleplayer&dprOff=true`, { waitUntil: 'domcontentloaded' })
       const root = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: LABEL }).catch((e) => e)
       if (root instanceof Error) fail(root.message)
