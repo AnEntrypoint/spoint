@@ -517,7 +517,7 @@ async function main() {
   // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
   // boot shader warm wait never reported what it waited for, must read as a failure rather than as
   // silence that passes.
-  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
+  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->ready [1-9][\d.]*ms, init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
   const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
   for (const gpu of gpuArms) {
     try {

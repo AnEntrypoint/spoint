@@ -311,7 +311,7 @@ export function createConnectionHandlers(ctx) {
     }
     if (msg.type === MSG.INPUT || msg.type === MSG.PLAYER_INPUT) {
       if (isInputRateLimited(clientId)) return
-      const decoded = decodeInputPacket(inputSchemaFor(ctx.currentWorldDef), msg.payload)
+      const decoded = decodeInputPacket(inputSchemaFor(ctx.currentWorldDef), msg.payload, playerManager.ackSequenceOf(clientId))
       if (!decoded.accepted) { rejectInputPacket(clientId, decoded.reason, msg.payload); return }
       const gate = resolveEpochTransfer(ctx, decoded.chartEpoch)
       if (gate.rejected) { warnChartDropThrottled(clientId, `[chart] dropped input packet from client ${clientId}: ${gate.rejected}`); return }

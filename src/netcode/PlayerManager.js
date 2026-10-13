@@ -108,6 +108,13 @@ export class PlayerManager {
     if (inputs.length > MAX_BUFFERED_INPUTS) inputs.shift()
   }
 
+  // The sequence addInput compares against, published so a decode can walk past the records it would
+  // otherwise build an object for and then have addInput drop on this same comparison.
+  ackSequenceOf(playerId) {
+    const player = this.players.get(playerId)
+    return player ? (player.ackSequence || 0) : 0
+  }
+
   getInputs(playerId) {
     return this.inputBuffers.get(playerId) || []
   }

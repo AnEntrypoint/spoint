@@ -176,32 +176,68 @@ function writeRecord(view, off, schema, sequence, input, cases) {
   return off
 }
 
-function readRecord(view, off, schema, end) {
+const RECORD_TEMPLATES = new WeakMap()
+
+function recordTemplate(schema, analog) {
+  let pair = RECORD_TEMPLATES.get(schema)
+  if (!pair) { pair = []; RECORD_TEMPLATES.set(schema, pair) }
+  const slot = analog ? 1 : 0
+  if (!pair[slot]) {
+    const t = {}
+    for (const b of schema.buttons) t[b] = false
+    t.yaw = 0
+    t.pitch = 0
+    t.expr = 0
+    if (analog) { t.analogForward = 0; t.analogRight = 0 }
+    for (const a of schema.axes) t[a] = 0
+    pair[slot] = t
+  }
+  return pair[slot]
+}
+
+// The span of one record, validated without building anything. The server decodes every record of
+// every packet and then drops the ones it has already acked, so a packet carrying four redundant
+// records cost four objects and kept one. Measuring the span first is what lets the caller decide
+// whether a record is worth an object at all.
+function recordSpan(view, off, schema, end) {
   if (off + RECORD_FIXED_BYTES > end) throw throwableRejection(INPUT_CASE.TRUNCATED_RECORD, { offset: off, end })
+  const flags = view.getUint8(off + 13)
+  if (flags & ~FLAG_ANALOG) throw throwableRejection(INPUT_CASE.FLAGS, { got: flags })
+  let span = RECORD_FIXED_BYTES
+  if (flags & FLAG_ANALOG) {
+    span += ANALOG_BYTES
+    if (off + span > end) throw throwableRejection(INPUT_CASE.TRUNCATED_ANALOG, { offset: off, end })
+  }
+  const axesBytes = schema.axes.length * AXIS_BYTES
+  if (off + span + axesBytes > end) throw throwableRejection(INPUT_CASE.TRUNCATED_AXES, { offset: off, end })
+  return span + axesBytes
+}
+
+function readRecordInto(record, view, off, schema, end) {
+  const span = recordSpan(view, off, schema, end)
   const sequence = view.getUint32(off, true)
   const bits = view.getUint32(off + 4, true)
-  const input = {}
+  const analog = (view.getUint8(off + 13) & FLAG_ANALOG) !== 0
+  const input = { ...recordTemplate(schema, analog) }
   const { buttons, axes } = schema
   for (let i = 0; i < buttons.length; i++) input[buttons[i]] = (bits & (1 << i)) !== 0
   input.yaw = view.getUint16(off + 8, true) / YAW_STEPS * TAU
   input.pitch = view.getInt16(off + 10, true) / PITCH_SCALE
   input.expr = view.getUint8(off + 12)
-  const flags = view.getUint8(off + 13)
-  off += RECORD_FIXED_BYTES
-  if (flags & ~FLAG_ANALOG) throw throwableRejection(INPUT_CASE.FLAGS, { got: flags })
-  if (flags & FLAG_ANALOG) {
-    if (off + ANALOG_BYTES > end) throw throwableRejection(INPUT_CASE.TRUNCATED_ANALOG, { offset: off, end })
-    input.analogForward = view.getInt8(off) / ANALOG_SCALE
-    input.analogRight = view.getInt8(off + 1) / ANALOG_SCALE
-    off += ANALOG_BYTES
+  let at = off + RECORD_FIXED_BYTES
+  if (analog) {
+    input.analogForward = view.getInt8(at) / ANALOG_SCALE
+    input.analogRight = view.getInt8(at + 1) / ANALOG_SCALE
+    at += ANALOG_BYTES
   }
-  if (off + axes.length * AXIS_BYTES > end) throw throwableRejection(INPUT_CASE.TRUNCATED_AXES, { offset: off, end })
   for (const a of axes) {
-    const v = view.getFloat32(off, true); off += AXIS_BYTES
+    const v = view.getFloat32(at, true); at += AXIS_BYTES
     if (!Number.isFinite(v)) throw throwableRejection(INPUT_CASE.AXIS, { field: a })
     input[a] = v
   }
-  return { sequence, data: input, next: off }
+  record.sequence = sequence
+  record.data = input
+  return off + span
 }
 
 export function tryEncodeInputPacket(schema, entries, chartEpoch = 0) {
@@ -242,7 +278,10 @@ export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   return r.bytes
 }
 
-export function decodeInputPacket(schema, bytes) {
+// A caller that already knows it will drop everything at or below a sequence says so, and those
+// records are walked past instead of decoded: addInput rejects them on the same comparison, so this
+// changes how many objects the decode builds and nothing about which inputs the server keeps.
+export function decodeInputPacket(schema, bytes, dropAtOrBelow = null) {
   if (!(bytes instanceof Uint8Array)) return rejection(INPUT_CASE.PAYLOAD, {})
   if (bytes.length < 1) return rejection(INPUT_CASE.PAYLOAD_EMPTY, {})
   const n = bytes[0] & ~FLAG_EPOCH_TAGGED
@@ -256,7 +295,13 @@ export function decodeInputPacket(schema, bytes) {
     chartEpoch = view.getUint32(off, true); off += EPOCH_BYTES
   }
   try {
-    for (let i = 0; i < n; i++) { const r = readRecord(view, off, schema, bytes.length); entries.push({ sequence: r.sequence, data: r.data }); off = r.next }
+    for (let i = 0; i < n; i++) {
+      const span = recordSpan(view, off, schema, bytes.length)
+      if (dropAtOrBelow !== null && view.getUint32(off, true) <= dropAtOrBelow) { off += span; continue }
+      const entry = { sequence: 0, data: null }
+      off = readRecordInto(entry, view, off, schema, bytes.length)
+      entries.push(entry)
+    }
   } catch (e) {
     return toRejection(e, INPUT_CASE.TRUNCATED_RECORD)
   }
@@ -264,8 +309,28 @@ export function decodeInputPacket(schema, bytes) {
   return Object.freeze({ accepted: true, code: INPUT_CASE.ACCEPTED, entries, chartEpoch })
 }
 
+const QUANTIZE_RECORD = { sequence: 0, data: null }
+// quantizeInput runs once per input step for as long as the client is connected, so its wire scratch
+// is pooled instead of rebuilt: a fresh buffer and two fresh views per step were three allocations
+// whose entire purpose was to carry bytes across one synchronous call. Nothing outside this module
+// can observe the scratch, and neither writeRecord nor readRecordInto re-enters quantizeInput, so a
+// single module-level buffer is not shared with any second caller.
+const QUANTIZE_SCRATCH_MIN_BYTES = RECORD_FIXED_BYTES + ANALOG_BYTES
+let quantizeScratch = new Uint8Array(QUANTIZE_SCRATCH_MIN_BYTES)
+let quantizeScratchView = new DataView(quantizeScratch.buffer)
+
+function quantizeScratchFor(bytes) {
+  if (quantizeScratch.length < bytes) {
+    quantizeScratch = new Uint8Array(bytes)
+    quantizeScratchView = new DataView(quantizeScratch.buffer)
+  }
+  return quantizeScratchView
+}
+
 export function quantizeInput(schema, input, cases = []) {
-  const buf = new Uint8Array(recordBytes(schema, input))
-  writeRecord(new DataView(buf.buffer), 0, schema, 0, input, cases)
-  return readRecord(new DataView(buf.buffer), 0, schema, buf.length).data
+  const size = recordBytes(schema, input)
+  const view = quantizeScratchFor(size)
+  writeRecord(view, 0, schema, 0, input, cases)
+  readRecordInto(QUANTIZE_RECORD, view, 0, schema, size)
+  return QUANTIZE_RECORD.data
 }
