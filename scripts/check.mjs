@@ -61,6 +61,10 @@ const NO_GPU_WITNESSES = [
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
   { file: 'webgpu-pipeline-validation-refusal-witness.mjs', must: /\[PASS\] A1 real WGSL validates all four pipelines -- pipelinesValidated=4[\s\S]*\[PASS\] B1 broken WGSL is REFUSED --[\s\S]*\[PASS\] M1 without the error scope the same broken WGSL is NOT refused[\s\S]*RESULT: PASS/ },
   { file: 'tree-texture-budget-witness.mjs', must: /the leaf default is an eighth of the source, not the source[\s\S]*RESULT: PASS/ },
+  // gpu-free: the count is read out of three's own Pipelines and Info classes with a stub backend,
+  // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
+  // is a browser arm this CI does not run.
+  { file: 'program-readiness-witness.mjs', must: /MEASURED common arm: info\.programs=undefined \(as-shipped count 0\) with 4 outstanding, fixed count 4, 0 after settle[\s\S]*MEASURED wait: 3 outstanding at entry, polled max [1-9]\d*, resolved pending=0 after [1-9][\d.]*ms, work finished at [1-9][\d.]*ms[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -346,7 +350,7 @@ async function main() {
   // work unit -- synchronous createRenderPipeline on the draw path must be 0 -- so a regression that
   // puts compilation back on the draw path reds this arm even if the frame distribution still
   // happens to hold.
-  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
+  const GPU_HITCH_MUST = /\[landscape-change-hitch-witness\] synchronous createRenderPipeline on the draw path over the window: 0[\s\S]*\[landscape-change-hitch-witness\] first-draw compilation exercised by this window: [1-9]\d* pipeline\/shaderModule unit\(s\)[\s\S]*\[landscape-change-hitch-witness\] wall\(rAF delta\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*\[landscape-change-hitch-witness\] cpu\(main-thread frame cost\) \{"n":[1-9]\d*,"p50":[\d.]+,"p95":[\d.]+,"p99":[\d.]+,"max":[\d.]+[\s\S]*RESULT: PASS arm=\S+ label=landscape-change-hitch-witness/
   const gpuHitchKeep = (line) => /^(RESULT:|\[landscape-change-hitch-witness\])/.test(line)
   for (const gpu of gpuArms) {
     try {

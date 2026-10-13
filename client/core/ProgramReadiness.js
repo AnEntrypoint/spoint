@@ -22,8 +22,33 @@ export function runWarmPasses(renderPass, passes = 2) {
   return { attempted, succeeded, failed: attempted - succeeded, error }
 }
 
+// three's common renderer -- the TSL path, on either backend -- keeps no `info.programs` at all:
+// common/Info.js counts programs as a NUMBER under `info.memory`, so the reader below used to read
+// `undefined` and answer 0 for every state the renderer could be in. What the common renderer does
+// keep is the live Pipelines object, and its isReady() reads exactly one thing: whether the backend
+// has assigned a GPU pipeline yet. An async creation assigns it when it resolves and nowhere else,
+// so a cache entry whose backend holds no pipeline is a compilation still outstanding.
+function pendingPipelineCount(pipelines) {
+  const caches = pipelines.caches
+  const backend = pipelines.backend
+  if (!caches || !backend || typeof backend.get !== 'function') return 0
+  let n = 0
+  for (const pipeline of caches.values()) {
+    const data = backend.get(pipeline)
+    if (data.pipeline !== undefined && data.pipeline !== null) continue
+    // A creation three has already reported as failed is finished however it finished: three
+    // re-latches the error from its own popErrorScope callback and nothing assigns a pipeline
+    // afterwards, so counting it would spend the whole boot budget on a shader that cannot compile.
+    if (data.error === true) continue
+    n++
+  }
+  return n
+}
+
 export function pendingProgramCount(renderer) {
-  const programs = renderer.info && renderer.info.programs
+  const pipelines = renderer && renderer._pipelines
+  if (pipelines) return pendingPipelineCount(pipelines)
+  const programs = renderer && renderer.info && renderer.info.programs
   if (!programs) return 0
   let n = 0
   for (const p of programs) if (typeof p.isReady === 'function' && !p.isReady()) n++
@@ -203,6 +228,10 @@ export function installAsyncRenderPipelines(renderer) {
   wrapped.__spointOriginalGetForRender = orig
   Object.defineProperty(proto, 'getForRender', { value: wrapped, writable: true, configurable: true })
   asyncPipelineState.installed = true
+  // The async sink only moves the LAST step. Binding the deferral here as well is what keeps the
+  // rest of a first use -- node graph build, createShaderModule, the layouts -- out of the frame
+  // that needs it, and it is bound from here so the two halves cannot be installed apart.
+  installDeferredFirstUsePipelines(renderer)
   if (typeof window !== 'undefined') window.__asyncRenderPipelines = asyncPipelineState
   return true
 }
@@ -212,4 +241,127 @@ export function takeDeferredDraws(renderer) {
   renderer.deferredProgramDraws = 0
   renderer.lastDeferredDraws = n
   return n
+}
+
+// ---------------------------------------------------------------------------
+// WebGPU: the frame that FIRST needs a render object must not be the frame that builds it.
+//
+// installAsyncRenderPipelines moves the LAST step of a first use -- device.createRenderPipeline --
+// off the draw path. Everything three does before that step is still synchronous and still inside
+// the frame: the TSL node graph build, device.createShaderModule for both stages, every
+// createBindGroupLayout and the createPipelineLayout. Those have no async form, so a batch of
+// newly streamed scenery still lands the whole prologue of every one of its objects in one frame.
+//
+// three's draw path already answers "not yet" for free: `Renderer._renderObjectDirect` calls
+// `Pipelines.updateForRender(renderObject)` and then only draws when
+// `Pipelines.isReady(renderObject)`, and isReady() reads false while `get(renderObject).pipeline`
+// is undefined. `updateForRender` has exactly one caller in three -- that draw path -- so not
+// calling it is a complete answer: the object is not drawn this frame and nothing is built.
+//
+// So the frame that first needs an object now enqueues it instead of building it, and a drain
+// builds queued objects off the draw path in bounded slices, yielding on a MessageChannel so the
+// browser can present a frame between slices. N first uses can no longer sum into one frame; the
+// most a steady frame can carry is one slice plus the one prologue that overshoots it.
+//
+// Two properties hold by construction, not by tuning:
+//   * a queued object is drained to ready whether or not anything is rendering -- the drain
+//     reschedules itself on a MessageChannel until the queue is empty, so it cannot strand an
+//     object the way an unanswered async creation can;
+//   * a drain slice always builds at least one object, so a prologue longer than the slice cannot
+//     starve the queue.
+// ---------------------------------------------------------------------------
+const FIRST_USE_SLICE_MS = 4
+const FIRST_USE_PREWARM_SLICE_MS = 96
+
+const firstUseState = {
+  installed: false, prewarm: true, deferred: 0, drained: 0, skippedReady: 0,
+  buildFailed: 0, slices: 0, worstSliceMs: 0, worstBuildMs: 0, queued: 0,
+}
+
+function yieldToBrowser(fn) {
+  if (typeof MessageChannel === 'undefined') { setTimeout(fn, 0); return }
+  const channel = new MessageChannel()
+  channel.port1.onmessage = () => { channel.port1.close(); fn() }
+  channel.port2.postMessage(null)
+}
+
+// Reproduction switch, not a tuning knob: `window.__spointDeferFirstUse = false` puts every first
+// use back on the draw path, which is exactly the behaviour before this deferral existed. It is
+// what lets one witness measure both arms against the same bundle and the same box.
+function deferEnabled() {
+  return typeof window === 'undefined' || window.__spointDeferFirstUse !== false
+}
+
+export function endPipelinePrewarm() {
+  firstUseState.prewarm = false
+}
+
+export function installDeferredFirstUsePipelines(renderer) {
+  const pipelines = renderer && renderer._pipelines
+  // Scoped to the WebGPU backend: the row this answers is the TSL/WGSL one, and the legacy path
+  // compiles a different program model that this file has never measured.
+  if (!pipelines || !renderer.backend || renderer.backend.isWebGPUBackend !== true) return false
+  const proto = Object.getPrototypeOf(pipelines)
+  const desc = proto ? Object.getOwnPropertyDescriptor(proto, 'updateForRender') : null
+  if (!desc || typeof desc.value !== 'function') return false
+  if (desc.value.__spointDeferredFirstUse === true) { firstUseState.installed = true; return true }
+  const orig = desc.value
+
+  const queue = []
+  const queued = new Set()
+  let draining = false
+
+  const drain = () => {
+    const budget = firstUseState.prewarm ? FIRST_USE_PREWARM_SLICE_MS : FIRST_USE_SLICE_MS
+    const sliceStart = performance.now()
+    let built = 0
+    while (queue.length > 0 && (built === 0 || performance.now() - sliceStart < budget)) {
+      const renderObject = queue.shift()
+      queued.delete(renderObject)
+      firstUseState.queued = queue.length
+      if (pipelines.isReady(renderObject)) { firstUseState.skippedReady++; continue }
+      const t0 = performance.now()
+      try {
+        // A non-null sink is what selects createRenderPipelineAsync over createRenderPipeline, and
+        // installAsyncRenderPipelines escorts everything added to it.
+        pipelines.getForRender(renderObject, [])
+      } catch (e) {
+        firstUseState.buildFailed++
+        continue
+      }
+      const ms = performance.now() - t0
+      if (ms > firstUseState.worstBuildMs) firstUseState.worstBuildMs = ms
+      firstUseState.drained++
+      built++
+    }
+    const sliceMs = performance.now() - sliceStart
+    if (sliceMs > firstUseState.worstSliceMs) firstUseState.worstSliceMs = sliceMs
+    firstUseState.slices++
+    if (queue.length > 0) yieldToBrowser(drain)
+    else draining = false
+  }
+
+  const enqueue = (renderObject) => {
+    if (queued.has(renderObject)) return
+    queued.add(renderObject)
+    queue.push(renderObject)
+    firstUseState.queued = queue.length
+    firstUseState.deferred++
+    if (draining) return
+    draining = true
+    yieldToBrowser(drain)
+  }
+
+  const wrapped = function (renderObject) {
+    // Only a first use is deferred. An object whose pipeline exists is either ready or already
+    // compiling asynchronously, and in both cases three's own isReady() gate decides the draw.
+    if (deferEnabled() && pipelines.get(renderObject).pipeline === undefined) { enqueue(renderObject); return }
+    orig.call(this, renderObject)
+  }
+  wrapped.__spointDeferredFirstUse = true
+  wrapped.__spointOriginalUpdateForRender = orig
+  Object.defineProperty(proto, 'updateForRender', { value: wrapped, writable: true, configurable: true })
+  firstUseState.installed = true
+  if (typeof window !== 'undefined') window.__deferredFirstUsePipelines = firstUseState
+  return true
 }
