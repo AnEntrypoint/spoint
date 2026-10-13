@@ -140,6 +140,15 @@ const NO_GPU_WITNESSES = [
   // kept it aside, never refused a missing target by name, or never proved the misdirected link's
   // target survives, must read as a failure rather than as silence that passes.
   { file: 'workspace-link-stale-copy-witness.mjs', must: /\[PASS\] the stale copy is reported as a repair, not as already resolved[\s\S]*\[PASS\] the stale copy was MOVED ASIDE, not deleted, and the report names where it went[\s\S]*\[PASS\] a link pointing anywhere other than the workspace is repaired[\s\S]*\[PASS\] an unrelated installed package is NOT touched[\s\S]*\[PASS\] a missing workspace target is REFUSED with a named error[\s\S]*\[PASS\] every install path of this tree resolves INTO its workspace package[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
+  // PERF-veg-trees-missing-1013. The tier-node-graph warm in client/core/Vegetation.js is entered
+  // from the species build loop, which runs ABOVE the warm's own declarations, so any `const` in
+  // that path is still in its temporal dead zone at the call site: every species build then threw a
+  // ReferenceError that the build loop's own try/catch logged and swallowed, and the world came up
+  // with zero tree species -- no trees at all, while every instance and draw counter read a healthy
+  // zero and no witness that counts placements could see it. The `must` is the second half of the
+  // witness: a run that classified no binding, or one that found the warm call site gone, must read
+  // as a failure rather than as silence that passes.
+  { file: 'veg-warm-temporal-dead-zone-witness.mjs', must: /\[veg-warm-tdz\] RESULT: PASS -- [1-9]\d* warm binding\(s\) initialized before the species build loop's warm call at client.core.Vegetation\.js:[1-9]\d*, [1-9]\d* hoisted declaration\(s\) and \d+ declared above it/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -417,12 +426,20 @@ async function main() {
   } catch (e) {
     gateFailures.push(`check-frame-time-baselines.mjs: ${(e.stderr || e.stdout || e.message || '').toString().trim()}`)
   }
+  // PERF-veg-trees-missing-1013. The tree count this arm pins is the one the owner reported missing:
+  // trees alive at the end of the settle, and the same counter alongside the vegetation draw counter
+  // after a 45 s walk, so a regression that loses trees only once the player moves cannot pass here.
+  // The `must` is the second half of the witness: a run that printed no profile, whose vegetation
+  // never issued a draw, or whose walk never moved, must read as a failure rather than as silence
+  // that passes.
+  const VEG_INSTANCE_MUST = /\[PASS\] vegetation has instances after the player stands on open ground \(vegTotal=[1-9]\d*[\s\S]*\[PASS\] vegetation issues draw calls \(vegDraws=[\d.]+ impostor=[\d.]+\)[\s\S]*\[PASS\] vegetation is still drawn after a walk \(vegTotal=[1-9]\d* vegDraws=[1-9][\d.]*\)[\s\S]*RESULT: PASS vegTotal=[1-9]\d* peak=[1-9]\d*/
   const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)
   for (const gpu of gpuArms) {
     const keep = (line) => /^(\[veg-witness\]|RESULT:|  \[(PASS|FAIL)\])/.test(line)
     try {
       const { stdout } = await execFileAsync(process.execPath, ['scripts/veg-instance-browser-witness.mjs', `--gpu=${gpu}`, '--at=-15,-12.5', '--settle=15000', '--walk=45000'], { maxBuffer: 16 * 1024 * 1024 })
       for (const line of stdout.split('\n')) if (keep(line)) console.log(`check: ${line}`)
+      if (!VEG_INSTANCE_MUST.test(stdout)) gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: printed no line pinning a non-zero tree count at rest and after the walk, so either its profiles or its walk never ran`)
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
       gateFailures.push(`veg-instance-browser-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
@@ -517,7 +534,7 @@ async function main() {
   // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
   // boot shader warm wait never reported what it waited for, must read as a failure rather than as
   // silence that passes.
-  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->ready [1-9][\d.]*ms, init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
+  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
   const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
   for (const gpu of gpuArms) {
     try {

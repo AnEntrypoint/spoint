@@ -575,7 +575,15 @@ export async function createVegetation(opts = {}) {
   // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
   // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
   // compile's promise), so a single witness can measure both arms against the same bytes.
-  const warmOnceRetained = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
+  // It is a hoisted function declaration, not a `const` arrow, because the species build loop above
+  // reaches `queueTierNodeWarm` before control ever arrives at this line: a `const` here is still in
+  // its temporal dead zone at that call site, so every species build threw "Cannot access '<name>'
+  // before initialization", the build loop logged one failure per species and the world came up with
+  // zero tree species and therefore no trees at all. A declaration is initialized on scope entry, so
+  // no call site anywhere in `createVegetation` can reach it uninitialized.
+  function warmOnceRetained() {
+    return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
+  }
 
   function queueTierNodeWarm(instancer) {
     if (warmOnceRetained()) { warmTierMeshes(instancer); return }
