@@ -1,0 +1,94 @@
+[pipeline-hitch] --rebuild-bundle: running scripts/bundle-client.mjs before boot ...
+[bundle-client] wrote dist/client
+[bundle-client] stamped dist\client\app.bundlehash.json 2f5acb5fbda656a3 (221 bundled inputs, artifact b05a712b18b52812)
+[bundle-apps-manifest] resolving 68 app(s) (all ./apps directories): agent-fsm-demo, agent-interactive-demo, agent-physics-demo, agent-simple-demo, agent-spawner-demo, box-buoyant, box-dynamic, box-static, button, capture-zone, character-animator, character-controller, checkpoint-marker, collectible, combat-bot, deathrun, destructible-box, destructible-debris, ecs-demo, editor-apps, editor-events, editor-hierarchy, editor-inspector, example-progression, final-boss, fire-duel, fluid-source, fluid3d-source, fsm-arena, goblin, gold-coin, hit-feedback, item-pickup, lockstep-rts, matrix-construct-room, mini-boss, moving-platform, npc, npc-navigator, pickup, placed-model, playtest-bot, prop-dynamic, prop-static, respawn-zone, rpg-tutorial, rts-unit, shrinking-zone, shrinking-zone-ring, softbody-cloth, spawn-point, tank, terrain, tower, tps-game, trigger-volume, tutorial, tutorial-boss, tutorial-herb, tutorial-marker, tutorial-npc, tutorial-rat, tutorial-rpg, tutorial-rpg-world, unmanaged-ball-test, vehicle, waypoint, weapon-spawn
+[bundle-apps-manifest] C:\dev\spoint\dist\client\apps-manifest.json unchanged (68 apps)
+[pipeline-hitch] booting real server on port 3097 (world=tps-game) ...
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 41ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (25 of 68 app(s), unchanged, 3ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (2f5acb5fbda656a3))
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs f87bcb318644a963, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791895253731.9502) -- falling through to raw ESM worker
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 9f0298c0d914) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 16ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257 (near-field floor), 100.0% of the footprint is frozen at 0.17us a sample, 11.2ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 41ms(sample 32ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 45.6ms over 1 cluster batch(es) of 8 (pool prewarm 2.7ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 4.9ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[placed-model] loaded 4 saved entities
+[combat] 4 spawn point(s), 37 saved record(s)
+[world-persistence] restored snapshot: tick=19200 entities=10 bodies=0
+[server] http://localhost:3097 @ 64 TPS
+[identity] pid=8308 sha=912fdf60 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[pipeline-hitch] server up.
+[pipeline-hitch] navigating to http://localhost:3097/?singleplayer&world=tps-game&at=-15%2C-12.5 ...
+[pipeline-hitch] served client-root=bundle sha=b05a712b18b5 bytes=1204309 hash-verified=bundle
+[static] precompressed 5274 asset(s)
+[pipeline-hitch] loadingMachine.isReady after 20.9s
+[pipeline-hitch] rasterizer=accelerated renderer=amd rdna-2 adapter=none
+[pipeline-hitch] vegetation reached 0 instance(s) after 75000ms, under the 1000 floor -- this run measured a lightly-vegetated world and says so
+[pipeline-hitch] settled at 0 instance(s): probe p50=44.17ms worst=71.11ms over 45 frame(s)
+[pipeline-hitch] steady-state mark: 504 pipeline(s) and 6075 frame(s) already recorded at boot
+[pipeline-hitch] capturing orbit pose (10000ms) ...
+[pipeline-hitch] inventory: 504 creation(s) (504 at boot, 0 in steady state)
+[pipeline-hitch] synchronous (no async form) creations: boot 480, steady 0
+[pipeline-hitch] site createRenderPipeline: 2 total, 0 in steady state, worst 0.03ms
+[pipeline-hitch] site createRenderPipelineAsync: 24 total, 0 in steady state, worst 0.60ms
+[pipeline-hitch] site createShaderModule: 223 total, 0 in steady state, worst 1.29ms
+[pipeline-hitch] site createBindGroupLayout: 15 total, 0 in steady state, worst 0.05ms
+[pipeline-hitch] site createPipelineLayout: 24 total, 0 in steady state, worst 0.05ms
+[pipeline-hitch] site createComputePipeline: 216 total, 0 in steady state, worst 0.41ms
+[pipeline-hitch] site createComputePipelineAsync: 0 total, 0 in steady state, worst n/ams
+[pipeline-hitch] worst boot creation: 1.29ms createShaderModule fragment_mapspinner-water-tsl at frame 2838
+[pipeline-hitch] window hidden  (frame 0..2838): n=2838 p50=1.80ms p95=17.14ms worst=255.70ms at frame 1320
+[pipeline-hitch] window stream  (frame 2838..6075): n=3237 p50=32.92ms p95=58.01ms worst=142288.85ms at frame 2838
+[pipeline-hitch] window settled (frame 6075..6082): n=7 p50=58.49ms p95=67.50ms worst=67.50ms at frame 6077
+[pipeline-hitch] stream frame 2838: dt=142288.85ms with 30 creation(s) inside it, 4.11ms of them measured
+[pipeline-hitch] stream frame 2839: dt=728.26ms with 25 creation(s) inside it, 1.07ms of them measured
+[pipeline-hitch] stream frame 3195: dt=79.63ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] stream frame 5512: dt=73.19ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] stream frame 5147: dt=71.98ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] settled frame 6077: dt=67.50ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] settled frame 6081: dt=65.54ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] settled frame 6075: dt=65.20ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] settled frame 6080: dt=58.49ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] settled frame 6078: dt=58.24ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] hidden frame 1320: dt=255.70ms with 18 creation(s) inside it, 1.70ms of them measured
+[pipeline-hitch] hidden frame 276: dt=182.16ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] hidden frame 1375: dt=141.06ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] hidden frame 1373: dt=110.80ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] hidden frame 265: dt=93.60ms with 0 creation(s) inside it, 0.00ms of them measured
+[pipeline-hitch] creations by window: hidden 449, stream 55, settled 0
+[pipeline-hitch] steady long tasks: 439, worst 739.00ms at t=152514ms with 25 pipeline/module creation(s) inside it
+[pipeline-hitch] long task: 739.00ms at t=152514ms, 25 creation(s) inside
+[pipeline-hitch] long task: 205.00ms at t=6100ms, 18 creation(s) inside
+[pipeline-hitch] long task: 187.00ms at t=4654ms, 0 creation(s) inside
+[pipeline-hitch] long task: 93.00ms at t=6811ms, 0 creation(s) inside
+[pipeline-hitch] long task: 88.00ms at t=4445ms, 0 creation(s) inside
+[pipeline-hitch] first-use deferral: 0 deferred, 0 drained, 0 already ready, 0 failed, over 0 slice(s), worst slice 0.00ms, worst single first use 0.00ms
+▲ [WARNING] The glob pattern import("./hud/Chat.js?hr=*") did not match any files [empty-glob]
+
+    client/app.js:1400:15:
+      1400 │         import('./hud/Chat.js?hr=' + (payload.timestamp || Date....
+           ╵                ~~~~~~~~~~~~~~~~~~~
+
+1 warning
+
+  dist\client\ez-tree.es-AFA3XRFR.js   3.8mb
+  dist\client\app.js                   1.1mb
+  dist\client\chunk-SNAGG2N7.js       53.7kb
+  dist\client\XRSystem-GJHKI7EM.js    14.3kb
+  dist\client\chunk-ZTRHXE5B.js        9.5kb
+  ...and 30 more output files...
+
+Done in 345ms
+(node:8308) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[pipeline-hitch] RESULT: FAIL -- the capture presented only 7 frame(s), under the 40 a steady-state frame verdict needs; host contention 21.24 ->, mid 28.91 18.43 ms per fixed spin, CONTESTED (x1.57 of this run's cleanest 18.43 ms): this arm shared the box, so its wall-clock figures are inflated -- re-run alone before quoting them, so this run measured a shared box
