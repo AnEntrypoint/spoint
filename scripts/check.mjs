@@ -558,7 +558,11 @@ async function main() {
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
   // the witness: a run that printed no band table, whose authoritative field never resolved, or whose
   // counters never moved, must read as a failure rather than as silence that passes.
-  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*RESULT: PASS arm=draw-instrument/
+  // PERF-rocks-batch-draw-attribution-1013: the `must` also demands the rocks line, because a rocks
+  // band of 0 used to be printed with the reason "the instrument cannot tell these two apart". A run
+  // that still cannot tell -- or that leaves that line out -- now reads as a failure: the reason must
+  // be `measured`, `proven-empty` or `proven-culled`, and the two mutation arms must have moved it.
+  const DRAW_INSTRUMENT_MUST = /\[draw-instrument\] MEASURED authoritative-draw-count: \{[^\n]*"authoritativeField":"(wgpuDrawsPerFrame|glDrawCallsPerFrame)"[\s\S]*\[draw-instrument\] band draws\/frame: terrain=[1-9][\d.]*[\s\S]*\[draw-instrument\] band instances\/frame:[\s\S]*\[draw-instrument\] api boundary:[\s\S]*\[draw-instrument\] liveness: info\.render\.calls [1-9]\d* -> [1-9]\d* \(moved=true\)[\s\S]*\[draw-instrument\] MEASURED rocks-batch-attribution: \{"placed":\d+[\s\S]*"reason":"(measured|proven-empty|proven-culled)"[\s\S]*RESULT: PASS arm=draw-instrument/
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {
@@ -568,6 +572,34 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (drawInstrumentKeep(line)) console.error(`check: ${line}`)
       gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // PERF-occlusion-retarget-ab-1013. Whether the retargeted occlusion tier PAYS FOR ITSELF, read in
+  // both currencies on ONE instrument: draws at the API boundary (the same
+  // `drawsInstrument.authoritativeField` the draw-count row above reports, so the two pictures are
+  // comparable rather than two inventories) and main-thread CPU in ms/frame (CDP ThreadTime, the one
+  // clock vsync does not quantize -- the rAF wall here is a refresh multiple and is printed, never
+  // decided on). Both arms run inside ONE page load, one GPU lock hold and one continuous walk,
+  // interleaved, each warmed past the policy's own 90-frame stale-resolve reveal so neither arm is
+  // measured still carrying the other's hide state. The ON arm is pinned at the tier's own ceiling
+  // (96 = occlusionQueryBudget.maxTotalBudget) and merely RECORDS what the frame-time allocator was
+  // asking for, because that allocator allocates 0 on any frame it judges fast and forwarding its
+  // number would measure the allocator instead of the mechanism. Its `must` is the second half of
+  // the witness: a run whose cull never issued, whose arm switch never took (hiddenKeysMax 0 on
+  // both arms is one arm measured twice), whose CPU clock never read, or whose near/mid band fell
+  // under its floor, must read as a failure rather than as silence that passes. The verdict is
+  // reported but not pinned to a value -- the measurement decides it, and a cull that starts
+  // removing draws must not be able to turn this gate red by succeeding.
+  const OCC_AB_MUST = /\[occ-ab\] MEASURED occlusion-retarget A\/B: tier=webgpu-hiz field=wgpuDrawsPerFrame OFF [1-9][\d.]* draw\(s\)\/frame at [\d.]+ ms\/frame CPU, ON [1-9][\d.]* draw\(s\)\/frame at [\d.]+ ms\/frame CPU, [\d.]+ draw\(s\)\/frame saved for -?[\d.]+ ms\/frame, headroom [\d.]+ ms\/frame, verdict=(PAYS|PAYS-IN-DRAWS-OVER-BUDGET|DOES-NOT-PAY),[\s\S]*\[occ-ab\] RESULT: PASS[^\n]*cullRan=true instrumentCounted=true armTook=true[^\n]*warmed=true cpuRead=true nearOk=true midOk=true/
+  const occAbKeep = (line) => /^(RESULT:|\[occ-ab\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/occlusion-retarget-ab-witness.mjs', `--gpu=${gpu}`, '--frames=60', '--warm=150', '--windows=3'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (occAbKeep(line)) console.log(`check: ${line}`)
+      if (!OCC_AB_MUST.test(stdout)) gateFailures.push(`occlusion-retarget-ab-witness.mjs on ${gpu}: printed no line matching its must regex, so either the A/B never ran or its gates did not all hold`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (occAbKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`occlusion-retarget-ab-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   // PERF-maxlevel-cpu-ladder-r1: the per-level cost gradient of `maxLevel` ABOVE the level the frame
