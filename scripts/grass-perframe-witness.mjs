@@ -44,6 +44,11 @@ const WALK_MS = flagNumber(flag, 'walk', 0, argv)
 // mean), but hiding and restoring grass inside one boot holds the world, the renderer and the box
 // load still, so still-vs-hidden isolates grass's own per-frame main-thread cost.
 const AB_MS = flagNumber(flag, 'ab', 0, argv)
+// Paired near-LOD arm: measure the grass frame with the per-clump decision that is re-taken as the
+// player moves and with the chunk-latched decision it replaces, alternating in the SAME page. The
+// latched arm has to be re-committed (rebuildPlacement) because the decision is taken at commit
+// time, so simply flipping the flag back would leave the per-clump classification in place.
+const LOD_AB_MS = flagNumber(flag, 'lod-ab', 0, argv)
 // --shots=<dir> photographs the grass bands with the pre-change near-LOD geometry (3 rows) and
 // with the one that ships (2 rows), swapped in and out of the SAME boot. AGENTS.md: an LOD or
 // threshold change must be verified visually, per band, and any fidelity loss reported as its
@@ -222,6 +227,51 @@ try {
   console.log('[grass-perframe] rendererInfo: ' + JSON.stringify(settled.rendererInfo))
 
   const still = await measureWindow(page, MEASURE_MS, 'still')
+
+  let lodAb = null
+  if (LOD_AB_MS > 0) {
+    const arms = []
+    for (const [i, rev] of [false, true, false, true].entries()) {
+      const sw = await page.evaluate((r) => {
+        const g = window.__grass
+        if (!g) return { ok: false, reason: 'window.__grass absent' }
+        g.lodRevisit = r
+        if (r === false && typeof g.rebuildPlacement === 'function') g.rebuildPlacement()
+        return { ok: true, lodRevisit: g.lodRevisit, total: g.totalInstances }
+      }, rev).catch((e) => ({ ok: false, reason: e.message }))
+      console.log(`[grass-perframe] near-LOD arm ${rev ? 'revisited' : 'chunk-latched'}: ` + JSON.stringify(sw))
+      if (!sw.ok) break
+      await new Promise((r) => setTimeout(r, 4000))
+      arms.push({ rev, ...(await measureWindow(page, LOD_AB_MS, `lod-${rev ? 'revisited' : 'latched'}-${i + 1}`)) })
+    }
+    if (arms.length === 4) {
+      const meanOf = (list, f) => list.reduce((s, x) => s + (f(x) || 0), 0) / list.length
+      const latched = arms.filter((a) => a.rev === false)
+      const revisited = arms.filter((a) => a.rev === true)
+      const populations = arms.map((a) => a.unitsEnd.live)
+      const spread = (Math.max(...populations) - Math.min(...populations)) / Math.max(1, Math.max(...populations))
+      lodAb = {
+        latchedCpuMsPerFrame: +meanOf(latched, (w) => w.cpuMsPerFrame).toFixed(3),
+        revisitedCpuMsPerFrame: +meanOf(revisited, (w) => w.cpuMsPerFrame).toFixed(3),
+        cpuDeltaMsPerFrame: +(meanOf(revisited, (w) => w.cpuMsPerFrame) - meanOf(latched, (w) => w.cpuMsPerFrame)).toFixed(3),
+        latchedTrisPerFrame: Math.round(meanOf(latched, (w) => w.unitsEnd.trisPerFrame)),
+        revisitedTrisPerFrame: Math.round(meanOf(revisited, (w) => w.unitsEnd.trisPerFrame)),
+        latchedNearClumps: Math.round(meanOf(latched, (w) => w.unitsEnd.near && w.unitsEnd.near.count)),
+        revisitedNearClumps: Math.round(meanOf(revisited, (w) => w.unitsEnd.near && w.unitsEnd.near.count)),
+        liveClumps: Math.round(meanOf(arms, (w) => w.unitsEnd.live)),
+        populationSpread: +spread.toFixed(4),
+        driftRevisited2Minus1: +(revisited[1].cpuMsPerFrame - revisited[0].cpuMsPerFrame).toFixed(3),
+      }
+      console.log('[grass-perframe] paired near-LOD arm (alternating latched/revisited, one page, one boot): ' + JSON.stringify(lodAb))
+      if (lodAb.populationSpread > 0.05) {
+        failed++
+        console.log(`  [FAIL] the two near-LOD arms did not hold one population (spread ${lodAb.populationSpread} over ${JSON.stringify(populations)}), so their frame costs are not comparable`)
+      }
+    } else {
+      failed++
+      console.log(`  [FAIL] the paired near-LOD arm did not complete all four windows (${arms.length} of 4)`)
+    }
+  }
 
   // Alternating on/off/on/off. A single hide-then-restore pair is not evidence: on a shared box the
   // first window carries a transient (another lane's browser, a late bake) that never comes back, so

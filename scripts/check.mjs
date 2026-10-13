@@ -89,7 +89,7 @@ const NO_GPU_WITNESSES = [
   // per-vertex counts, so a stencil that goes back to five taps fails it, and it names the two
   // noise-floor checks, so a stencil that moves the normal past the mesh's own vertex-to-vertex
   // normal turn fails it too.
-  { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
+  { file: 'terrain-vs-normal-witness.mjs', must: /measured snoise3 per composeHeight: 48[\s\S]*the stencil move is inside the mesh's own normal variation at the median \([\d.]+deg vs [\d.]+deg\)[\s\S]*the stencil move is inside the mesh's own normal variation at p95 \([\d.]+deg vs [\d.]+deg\)[\s\S]*MEASURED terrain-vs-normal: [1-9]\d* stencil comparison\(s\)[\s\S]*vertex stage 243 -> 147 snoise3 per vertex[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
@@ -433,6 +433,25 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (drawInstrumentKeep(line)) console.error(`check: ${line}`)
       gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // PERF-cold-load-and-first-frame-1013: cold-load time-to-first-frame and the first frame's own
+  // cost, measured on one instrument. It boots a real browser on the pinned vendor adapter, so it
+  // rides the same opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the
+  // second half of the witness: a run whose first reported frame is NOT frame 1 -- the 250ms clock
+  // swallowed the first rendered frame again -- whose first frame carries no render cost, or whose
+  // boot shader warm wait never reported what it waited for, must read as a failure rather than as
+  // silence that passes.
+  const FIRST_FRAME_MUST = /\[first-frame\] MEASURED cold-load: time-to-first-frame [1-9][\d.]*ms[\s\S]*\[first-frame\] MEASURED worker-cold-start: init->first-reported-frame [1-9][\d.]*ms, first reported frame number 1, its render cost [1-9][\d.]*ms[\s\S]*RESULT: PASS arm=\S+ label=first-frame-boot-witness/
+  const firstFrameKeep = (line) => /^(RESULT:|\[first-frame\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/first-frame-boot-witness.mjs', `--gpu=${gpu}`, '--observe=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (firstFrameKeep(line)) console.log(`check: ${line}`)
+      if (!FIRST_FRAME_MUST.test(stdout)) gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: printed no line matching its must regex, so either the first frame was swallowed by the 250ms clock again or the cold-load figure never resolved`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (firstFrameKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)

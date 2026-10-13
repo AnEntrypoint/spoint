@@ -36,6 +36,9 @@ const CLUMP_HEIGHT_SCALE = 0.75
 const GRASS_ANIM_SPEED = 0.25
 const REGROWTH_DISABLED_HALF_LIFE_S = 1e12
 const CULL_ENTRY_BUDGET = 8192
+const XF_FLOATS = 9
+const LOD_REVISIT_STEP_M = 4
+const LOD_REVISIT_BUDGET = 2048
 const _up = new THREE.Vector3(0, 1, 0), _nrm = new THREE.Vector3(), _q = new THREE.Quaternion(), _qTilt = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 
 export async function createGrass(opts = {}) {
@@ -96,55 +99,84 @@ export async function createGrass(opts = {}) {
   const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
   let totalInstances = 0
-  const profile = { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0 }
+  let nearInstances = 0
+  const profile = { totalInstances: 0, nearInstances: 0, midInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0, lodRevisits: 0, lodMigrations: 0 }
   const _frustum = new THREE.Frustum(), _projMat = new THREE.Matrix4(), _cullBox = new THREE.Box3()
+
+  function clumpLodNear(x, z, px, pz) {
+    const ddx = x - px, ddz = z - pz
+    return !(ddx * ddx + ddz * ddz > LOD_NEAR_DIST * LOD_NEAR_DIST)
+  }
+
+  function writeInstances(mesh, xf, idx, entries, payloadAt) {
+    let _n = 0
+    mesh.addInstances(idx.length, (e, id) => {
+      const i = idx[_n++]
+      const o = i * XF_FLOATS
+      const tint = xf[o + 8]
+      e.position.set(xf[o], xf[o + 1], xf[o + 2])
+      e.quaternion.set(xf[o + 3], xf[o + 4], xf[o + 5], xf[o + 6])
+      const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * tint
+      e.scale.set(width, xf[o + 7] * CLUMP_HEIGHT_SCALE, width)
+      entries[i] = payloadAt(i, id)
+    })
+  }
+
+  function writeInstanceUniforms(mesh, en) {
+    _windShadowArr[0] = en.windPhase; _windShadowArr[1] = en.shadow
+    _groundTintArr[0] = en.groundR; _groundTintArr[1] = en.groundG; _groundTintArr[2] = en.groundB; _groundTintArr[3] = en.tint
+    if (isWebGPU) { mesh.setUniformAt(en.id, 'windShadow', _windShadowArr); mesh.setUniformAt(en.id, 'groundTint', _groundTintArr) }
+    else {
+      mesh.setUniformAt(en.id, 'windShadow', _windShadowVec.fromArray(_windShadowArr))
+      mesh.setUniformAt(en.id, 'groundTint', _groundTintVec.fromArray(_groundTintArr))
+    }
+  }
 
   function commitChunk(key, list, px, pz) {
     const [minX, minZ, maxX, maxZ] = placementRing.bounds(key, list)
     const [centerX, centerZ] = placementRing.centre(key)
-    let useMid = false
-    if (Number.isFinite(px) && Number.isFinite(pz)) {
+    const count = list ? Math.max(0, Math.min(list.length, MAX_INSTANCES - totalInstances)) : 0
+    const xf = new Float32Array(count * XF_FLOATS)
+    const lod = new Uint8Array(count)
+    const entries = new Array(count)
+    const nearIdx = [], midIdx = []
+    const classify = Number.isFinite(px) && Number.isFinite(pz)
+    let chunkNear = true
+    if (classify && !lodRevisit) {
       const nearestX = px < minX ? minX : (px > maxX ? maxX : px)
       const nearestZ = pz < minZ ? minZ : (pz > maxZ ? maxZ : pz)
       const ddx = nearestX - px, ddz = nearestZ - pz
-      useMid = (ddx * ddx + ddz * ddz) > LOD_NEAR_DIST * LOD_NEAR_DIST
+      chunkNear = !(ddx * ddx + ddz * ddz > LOD_NEAR_DIST * LOD_NEAR_DIST)
     }
-    const targetMesh = useMid ? imMid : im
-    const entries = []
     let _minY = Infinity, _maxY = -Infinity
-    if (list) {
-      const batch = Math.min(list.length, MAX_INSTANCES - totalInstances)
-      for (let i = 0; i < batch; i++) {
-        const p = list[i]
-        if (p.y < _minY) _minY = p.y
-        if (p.y + p.scale > _maxY) _maxY = p.y + p.scale
-      }
-      let _ci = 0
-      targetMesh.addInstances(batch, (e, id) => {
-        const p = list[_ci++]
-        e.position.set(p.x, p.y, p.z)
-        _q.setFromAxisAngle(_up, p.yaw)
-        _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
-        e.quaternion.copy(_q.premultiply(_qTilt))
-        const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * p.tint
-        e.scale.set(width, p.scale * CLUMP_HEIGHT_SCALE, width)
-        entries.push({ id, windPhase: p.windPhase, tint: p.tint, shadow: Number.isFinite(p.shadow) ? p.shadow : 1, groundR: p.groundR, groundG: p.groundG, groundB: p.groundB })
-      })
-      totalInstances += batch
-      for (const en of entries) {
-        try {
-          _windShadowArr[0] = en.windPhase; _windShadowArr[1] = en.shadow
-          _groundTintArr[0] = en.groundR; _groundTintArr[1] = en.groundG; _groundTintArr[2] = en.groundB; _groundTintArr[3] = en.tint
-          if (isWebGPU) { targetMesh.setUniformAt(en.id, 'windShadow', _windShadowArr); targetMesh.setUniformAt(en.id, 'groundTint', _groundTintArr) }
-          else {
-            targetMesh.setUniformAt(en.id, 'windShadow', _windShadowVec.fromArray(_windShadowArr))
-            targetMesh.setUniformAt(en.id, 'groundTint', _groundTintVec.fromArray(_groundTintArr))
-          }
-        } catch (_) {}
-      }
+    for (let i = 0; i < count; i++) {
+      const p = list[i]
+      if (p.y < _minY) _minY = p.y
+      if (p.y + p.scale > _maxY) _maxY = p.y + p.scale
+      _q.setFromAxisAngle(_up, p.yaw)
+      _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
+      _q.premultiply(_qTilt)
+      const o = i * XF_FLOATS
+      xf[o] = p.x; xf[o + 1] = p.y; xf[o + 2] = p.z
+      xf[o + 3] = _q.x; xf[o + 4] = _q.y; xf[o + 5] = _q.z; xf[o + 6] = _q.w
+      xf[o + 7] = p.scale; xf[o + 8] = p.tint
+      const near = classify ? (lodRevisit ? clumpLodNear(p.x, p.z, px, pz) : chunkNear) : true
+      lod[i] = near ? 1 : 0
+      if (near) nearIdx.push(i)
+      else midIdx.push(i)
     }
+    const payloadAt = (i, id) => {
+      const p = list[i]
+      return { id, near: lod[i] === 1, windPhase: p.windPhase, tint: p.tint, shadow: Number.isFinite(p.shadow) ? p.shadow : 1, groundR: p.groundR, groundG: p.groundG, groundB: p.groundB }
+    }
+    if (nearIdx.length) writeInstances(im, xf, nearIdx, entries, payloadAt)
+    if (midIdx.length) writeInstances(imMid, xf, midIdx, entries, payloadAt)
+    totalInstances += count
+    nearInstances += nearIdx.length
+    for (const i of nearIdx) { try { writeInstanceUniforms(im, entries[i]) } catch (_) {} }
+    for (const i of midIdx) { try { writeInstanceUniforms(imMid, entries[i]) } catch (_) {} }
     const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [centerX, centerZ], [minX, minZ, maxX, maxZ], _minY, _maxY, 1)
-    loaded.set(key, { entries, mesh: targetMesh, ...extent, occluded: false, inFrustum: true })
+    loaded.set(key, { key, entries, xf, lod, bounds: [minX, minZ, maxX, maxZ], nearCount: nearIdx.length, ...extent, occluded: false, inFrustum: true })
     _occCands = null
     profile.loads++
   }
@@ -165,9 +197,99 @@ export async function createGrass(opts = {}) {
 
   function unloadChunk(key) {
     const cell = loaded.get(key); if (!cell) return
-    const mesh = cell.mesh || im
-    for (const en of cell.entries) { try { mesh.removeInstances(en.id); totalInstances-- } catch (_) {} }
+    cell.detached = true
+    for (const en of cell.entries) {
+      if (!en) continue
+      try { (en.near ? im : imMid).removeInstances(en.id); totalInstances-- } catch (_) {}
+    }
+    nearInstances -= cell.nearCount || 0
     loaded.delete(key); _occCands = null; profile.unloads++
+  }
+
+  let lodRevisit = true
+  const _flipCell = [], _flipIdx = []
+  let _lodEvalPx = NaN, _lodEvalPz = NaN
+
+  function moveClumpsToLod(cell, idx, near) {
+    const from = near ? imMid : im
+    const to = near ? im : imMid
+    for (const i of idx) { try { from.removeInstances(cell.entries[i].id) } catch (_) {} }
+    let _n = 0
+    to.addInstances(idx.length, (e, id) => {
+      const i = idx[_n++]
+      const en = cell.entries[i]
+      const o = i * XF_FLOATS
+      const tint = cell.xf[o + 8]
+      e.position.set(cell.xf[o], cell.xf[o + 1], cell.xf[o + 2])
+      e.quaternion.set(cell.xf[o + 3], cell.xf[o + 4], cell.xf[o + 5], cell.xf[o + 6])
+      const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * tint
+      e.scale.set(width, cell.xf[o + 7] * CLUMP_HEIGHT_SCALE, width)
+      en.id = id
+      en.near = near
+      cell.lod[i] = near ? 1 : 0
+    })
+    const delta = near ? idx.length : -idx.length
+    cell.nearCount += delta
+    nearInstances += delta
+    const hide = cell.inFrustum === false || cell.occluded === true
+    for (const i of idx) {
+      const en = cell.entries[i]
+      try {
+        writeInstanceUniforms(to, en)
+        if (hide) to.setVisibilityAt(en.id, false)
+      } catch (_) {}
+    }
+    profile.lodMigrations += idx.length
+  }
+
+  function revisitNearLod(px, pz) {
+    if (!lodRevisit) {
+      if (_flipIdx.length) { _flipIdx.length = 0; _flipCell.length = 0 }
+      return
+    }
+    if (!(Number.isFinite(px) && Number.isFinite(pz))) return
+    const dx = px - _lodEvalPx, dz = pz - _lodEvalPz
+    const moved = !Number.isFinite(_lodEvalPx) || !(dx * dx + dz * dz < LOD_REVISIT_STEP_M * LOD_REVISIT_STEP_M)
+    if (!moved && _flipIdx.length === 0) return
+    _lodEvalPx = px; _lodEvalPz = pz
+    if (moved) {
+      _flipIdx.length = 0; _flipCell.length = 0
+      profile.lodRevisits++
+      for (const cell of loaded.values()) {
+        if (cell.pending || !cell.xf || !cell.bounds) continue
+        const b = cell.bounds
+        const nearestX = px < b[0] ? b[0] : (px > b[2] ? b[2] : px)
+        const nearestZ = pz < b[1] ? b[1] : (pz > b[3] ? b[3] : pz)
+        const ddx = nearestX - px, ddz = nearestZ - pz
+        const chunkOutside = (ddx * ddx + ddz * ddz) > LOD_NEAR_DIST * LOD_NEAR_DIST
+        if (chunkOutside && cell.nearCount === 0) continue
+        const entries = cell.entries
+        for (let i = 0; i < entries.length; i++) {
+          const o = i * XF_FLOATS
+          const want = chunkOutside ? false : clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)
+          if (want === (cell.lod[i] === 1)) continue
+          _flipCell.push(cell); _flipIdx.push(i)
+        }
+      }
+    }
+    const batches = new Map()
+    let budget = LOD_REVISIT_BUDGET
+    while (_flipIdx.length > 0 && budget > 0) {
+      const cell = _flipCell.pop(), i = _flipIdx.pop()
+      if (!cell || cell.detached || cell.pending || !cell.xf) continue
+      const o = i * XF_FLOATS
+      const want = clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)
+      if (want === (cell.lod[i] === 1)) continue
+      let g = batches.get(cell)
+      if (!g) { g = { near: [], mid: [] }; batches.set(cell, g) }
+      const list = want ? g.near : g.mid
+      list.push(i)
+      budget--
+    }
+    for (const [cell, g] of batches) {
+      if (g.mid.length) moveClumpsToLod(cell, g.mid, false)
+      if (g.near.length) moveClumpsToLod(cell, g.near, true)
+    }
   }
 
   let _ringClean = false, _scanKey = NaN
@@ -256,8 +378,7 @@ export async function createGrass(opts = {}) {
       entryBudget -= cell.entries.length
       cell.inFrustum = inFrustum
       if (cell.occluded) continue
-      const mesh = cell.mesh || im
-      for (const en of cell.entries) { try { mesh.setVisibilityAt(en.id, inFrustum) } catch (_) {} }
+      for (const en of cell.entries) { if (!en) continue; try { (en.near ? im : imMid).setVisibilityAt(en.id, inFrustum) } catch (_) {} }
     }
     profile.chunksCulled = culledCount
     profile.cullMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - tc0
@@ -322,6 +443,7 @@ export async function createGrass(opts = {}) {
       _lastPx = px; _lastPz = pz
       const _beforeInflight = !!_inflight, _beforeLoaded = loaded.size
       streamRing(px, pz)
+      revisitNearLod(px, pz)
       if ((!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)) _cullDirty = true
       wind.uCamPosXZ.value.set(px, pz)
       const decalOff = RenderControls.get('grassDecalsOff') === true
@@ -339,6 +461,8 @@ export async function createGrass(opts = {}) {
     }
     wind.uGrassRing.value = ringRadius
     profile.totalInstances = totalInstances
+    profile.nearInstances = nearInstances
+    profile.midInstances = totalInstances - nearInstances
     profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     if (typeof window !== 'undefined') window.__grassProfile = profile
     if (uGrassContactOcc) uGrassContactOcc.value = (typeof window !== 'undefined' && window.__grassContactOccOff === true) ? 0 : 1
@@ -384,8 +508,7 @@ export async function createGrass(opts = {}) {
       if (shouldHide === cell.occluded) continue
       cell.occluded = shouldHide
       if (!cell.inFrustum) continue
-      const mesh = cell.mesh || im
-      for (const en of cell.entries) { try { mesh.setVisibilityAt(en.id, !shouldHide) } catch (_) {} }
+      for (const en of cell.entries) { if (!en) continue; try { (en.near ? im : imMid).setVisibilityAt(en.id, !shouldHide) } catch (_) {} }
     }
   }
 
@@ -426,7 +549,7 @@ export async function createGrass(opts = {}) {
   function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, setSun: (sun) => setGrassSun(wind, sun), streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
+  const api = { update, setSun: (sun) => setGrassSun(wind, sun), streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get nearInstances() { return nearInstances }, get lodRevisit() { return lodRevisit }, set lodRevisit(v) { lodRevisit = v !== false; _lodEvalPx = NaN }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__grass = api
   return api
 }
