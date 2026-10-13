@@ -30,6 +30,14 @@
 //
 // usage: SPOINT_GPU_WITNESS=1 node scripts/gpulock.mjs run <owner> -- \
 //          node scripts/shadow-sample-witness.mjs [--gpu=amd] [--world=tps-game] [--out=...]
+//
+// --report=<path> re-decides a saved shadow-sample-report.json with no browser, no server and no
+// adapter, so the verdict can be proved against a known measurement without spending a GPU lease.
+//
+// VERDICT. Whether the player's own shadow darkens the ground is what this instrument exists to
+// find out, so it is reported and never asserted: a gate that failed on the finding would be a gate
+// that is red until the finding is fixed. What the verdict asserts is that the run MEASURED, which
+// is the thing a contended box takes away. See decide() for the three predicates.
 
 import fs from 'node:fs'
 import { resolve, dirname } from 'node:path'
@@ -37,11 +45,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-
-if (process.env.SPOINT_GPU_WITNESS !== '1') {
-  console.log('shadow-sample-witness SKIPPED: SPOINT_GPU_WITNESS!=1 (GPU witness; never in the gpu-free arm of scripts/check.mjs)')
-  process.exit(0)
-}
 
 const argv = process.argv.slice(2)
 const ARGS = new Map()
@@ -54,6 +57,141 @@ for (let i = 0; i < argv.length; i++) {
 }
 const flag = (n, d) => (ARGS.has(n) ? ARGS.get(n) : d)
 
+// ---------------------------------------------------------------- verdict
+//
+// Read off the measurement and only off the measurement. Three predicates must hold for a run to
+// count as one:
+//   1. every arm put probe pixels on the ground. Zero pixels is zero measurement, and on a contended
+//      box that is exactly what a run that never reached the adapter produces;
+//   2. the shadow-pass tap fired while it was installed. A hook that never fires in the main pass is
+//      a broken instrument, so its count is asserted and not merely reported;
+//   3. the CONTROL took effect and the SAMPLE resolved. If no arm pair moved a single frame pixel
+//      then APPLY changed nothing and "the sample did not move" would be vacuous; and a readout that
+//      is one number at every one of its pixels -- darkest equal to lightest -- is a readout of
+//      nothing. Both are liveness, so both are asserted.
+// A run failing any of those is "could not measure" and FAILS, because a witness that silently
+// passes when it measured nothing is worse than no witness. Whether the player's own shadow moves
+// the sample is reported beside them and never asserted: that is the thing this instrument exists
+// to find out, and a gate that failed on it would be red until the finding is fixed.
+const MIN_PROBE_PIXELS = 1
+const MIN_FRAME_PIXELS = 100
+const MIN_SAMPLE_SPREAD = 0.01
+const MIN_TAP_TOTAL = 1
+// Reported, not asserted: how large a sample difference counts as "the sample moved".
+const MIN_CHANGED_FRAC = 0.005
+const MIN_MEAN_DELTA = 0.02
+const MIN_DARKENED = 0.02
+const ARM_NAMES = ['base', 'noplayer', 'sunlit-no', 'sunlit-pl', 'restore']
+const PAIRS = [['base', 'noplayer'], ['sunlit-pl', 'sunlit-no'], ['noplayer', 'sunlit-no']]
+
+function decide(report) {
+  const reasons = []
+  const arms = (report && report.arms) || {}
+  const res = (report && report.resolve) || null
+  const quads = (report && report.probe && Number(report.probe.quadCount)) || 0
+  const probes = quads >= 2 ? ['A', 'B'] : ['A']
+  const pixels = {}
+  let tapTotal = 0
+  for (const name of ARM_NAMES) {
+    const arm = arms[name]
+    if (!arm) { reasons.push('arm-missing:' + name); continue }
+    for (const which of probes) pixels[name + '.' + which] = Number((arm.probe && arm.probe[which + 'Pixels']) || 0)
+    tapTotal += Number((arm.tap && arm.tap.total) || 0)
+  }
+  const emptyProbe = Object.keys(pixels).filter((k) => pixels[k] < MIN_PROBE_PIXELS)
+  if (emptyProbe.length) reasons.push('probe-read-no-pixels:' + emptyProbe.join(','))
+
+  // Setup predicates: each one is a state in which every number below would be absent, so failing
+  // here is what makes a "could not measure" run distinguishable from a "measured and quiet" one.
+  if (report && report.fatal) reasons.push('fatal:' + String(report.fatal).split('\n')[0].slice(0, 200))
+  if (res && res.hasRenderer === false) reasons.push('no-renderer')
+  if (res && res.shadowMapEnabled === false) reasons.push('shadow-map-disabled')
+  if (res && !(Number(res.lightCount) > 0)) reasons.push('no-cascade-lights:lightCount=' + String(res.lightCount))
+  if (res && !(Number(res.playerRootCount) > 0)) reasons.push('no-player-mesh:playerRootCount=' + String(res.playerRootCount))
+  if (report && report.coords && !report.coords.feet) reasons.push('no-feet-point')
+  if (report && report.tap && report.tap.installed && tapTotal < MIN_TAP_TOTAL) {
+    reasons.push('shadow-pass-tap-never-fired:total=' + tapTotal)
+  }
+
+  const diffs = (report && report.probeDiffs) || {}
+  const measured = []
+  let moved = 0
+  for (const [a, b] of PAIRS) {
+    const key = a + '-vs-' + b
+    for (const which of probes) {
+      const d = diffs[key] && diffs[key][which]
+      if (!d) continue
+      const row = { pair: key, probe: which, changed: d.changed, changedFrac: d.changedFrac, meanDelta: d.meanDelta, mostDarkenedBy: d.mostDarkenedBy }
+      const bySpread = Number(d.changedFrac) >= MIN_CHANGED_FRAC && Number(d.meanDelta) >= MIN_MEAN_DELTA
+      const byDarkest = d.mostDarkenedBy !== null && Number(d.mostDarkenedBy) >= MIN_DARKENED
+      row.moved = bySpread || byDarkest
+      if (row.moved) moved++
+      measured.push(row)
+    }
+  }
+  if (!measured.length) reasons.push('no-pair-diff:no arm pair produced a probe readout over a shared pixel set')
+
+  // Control: the arms must have taken effect. Each pair is a difference of two arms, so if no pair
+  // moved a frame pixel then APPLY changed nothing and every comparison above is a comparison of a
+  // scene against itself -- a run that never compared anything, not one that measured a quiet sample.
+  const frames = (report && report.frameDiffs) || {}
+  let framePixels = 0
+  for (const [a, b] of PAIRS) {
+    const f = frames[a + '-vs-' + b] && frames[a + '-vs-' + b].frame
+    if (f && Number(f.pixels) > framePixels) framePixels = Number(f.pixels)
+  }
+  if (framePixels < MIN_FRAME_PIXELS) {
+    reasons.push('arms-took-no-effect:best frame diff ' + framePixels + ' px, need ' + MIN_FRAME_PIXELS)
+  }
+
+  // Instrument: the readout must resolve. lightest minus darkest over one probe quad is the sample's
+  // own spread, and a quad whose spread is zero returned one number everywhere, which is the reading
+  // a probe that is not sampling anything produces.
+  let spread = 0
+  for (const name of ARM_NAMES) {
+    const arm = arms[name]
+    if (!arm || !arm.probe) continue
+    for (const which of probes) {
+      const s = arm.probe[which]
+      if (!s || !Number.isFinite(Number(s.max)) || !Number.isFinite(Number(s.min))) continue
+      const v = Number(s.max) - Number(s.min)
+      if (v > spread) spread = v
+    }
+  }
+  if (!(spread >= MIN_SAMPLE_SPREAD)) {
+    reasons.push('sample-unresolved:best probe spread ' + spread.toFixed(4) + ', need ' + MIN_SAMPLE_SPREAD)
+  }
+  return { pass: reasons.length === 0, reasons, pixels, tapTotal, pairs: measured, moved, framePixels, spread: +spread.toFixed(4) }
+}
+
+function printVerdict(d) {
+  console.log('[shadow-sample] MEASURED ' + JSON.stringify({ probePixels: d.pixels, tapTotal: d.tapTotal, spread: d.spread, framePixels: d.framePixels, pairs: d.pairs, moved: d.moved }))
+  console.log('[shadow-sample] RESULT: ' + (d.pass ? 'PASS' : 'FAIL') + ' -- ' + (d.pass
+    ? Object.keys(d.pixels).length + ' probe readout(s) of spread ' + d.spread + ', shadow-pass tap total '
+      + d.tapTotal + ', control frame diff ' + d.framePixels + ' px, ' + d.moved + ' of ' + d.pairs.length
+      + ' pair diff(s) moved the sample'
+    : d.reasons.join('; ')))
+  process.exit(d.pass ? 0 : 1)
+}
+
+// Opt-in corruption of the measurement, applied to one probe readout where it is read. MUTATE is
+// declared with the other flags further down and is read only when a readout is taken.
+function applyMutation(rd) {
+  if (!rd) return rd
+  if (MUTATE === 'flat-sample') for (let i = 0; i < rd.vals.length; i++) rd.vals[i] = 0.5
+  else if (MUTATE === 'no-probe') { rd.vals.length = 0; rd.pts.length = 0 }
+  return rd
+}
+
+if (ARGS.has('report')) {
+  printVerdict(decide(JSON.parse(fs.readFileSync(resolve(ROOT, String(ARGS.get('report'))), 'utf8'))))
+}
+
+if (process.env.SPOINT_GPU_WITNESS !== '1') {
+  console.log('[shadow-sample] RESULT: FAIL -- SKIPPED: SPOINT_GPU_WITNESS!=1, so no arm ran and nothing was measured [not-measured]')
+  process.exit(1)
+}
+
 const GPU = String(flag('gpu', 'amd'))
 const OUT = resolve(ROOT, String(flag('out', '.gm/pool/shadow-sample-r270-74')))
 const WORLD = String(flag('world', 'tps-game'))
@@ -63,6 +201,16 @@ const TOD_FRACTION = Number(flag('tod', '0.35'))
 const CAM_POSE = String(flag('cam', '0.9,0.28,3'))
 const EXTENT_M = Number(flag('extent', '2'))
 const PORT = String(flag('port', String(20000 + Math.floor(Math.random() * 20000))))
+// Mutation arms, opt-in and off by default. They corrupt the MEASUREMENT, never the verdict, so a
+// run carrying one must FAIL by the same path a genuinely dead run does -- that is what separates a
+// verdict read off the numbers from a PASS printed as a constant.
+//   --mutate=flat-sample  every probe sample reads the same constant, so no arm pair can move it
+//   --mutate=no-probe     the probe reads no pixels at all, which is exactly what a run that never
+//                         reached the adapter on a contended box produces
+const MUTATE = String(flag('mutate', ''))
+// The accelerated browser is shared with every other GPU lane on this host: cap the QUEUE wait so a
+// run that cannot get the adapter fails as "could not measure" instead of parking on it.
+const LEASE_WAIT_MS = Number(flag('lease-wait-ms', '900000'))
 
 const { vendorPinArgs } = await import(pathToFileURL(resolve(HERE, 'lib', 'witness-gpu.mjs')).href)
 const { gpuArgs, assertGpu } = await import(pathToFileURL(resolve(HERE, 'lib', 'gpu-probe.mjs')).href)
@@ -91,7 +239,7 @@ const browser = await chromium.launch({
   root: ROOT, owner: 'shadow-sample-r270-74', args: LAUNCH_ARGS,
   // The accelerated browser is shared with every other GPU lane on this host: a run that gives up
   // before the lease frees has taken no measurement at all (measured: 336 s behind one other lane).
-  leaseWaitMs: 900000, leaseTtlMs: 20 * 60 * 1000,
+  leaseWaitMs: LEASE_WAIT_MS, leaseTtlMs: 20 * 60 * 1000,
 })
 
 // ---------------------------------------------------------------- in-page helpers
@@ -537,7 +685,6 @@ function diffProbe(a, b) {
   }
 }
 
-let exitCode = 1
 const report = { world: process.env.WORLD, tod: TOD_FRACTION, cam: CAM_POSE, extent: EXTENT_M, arms: {}, coords: null, resolve: null, probe: null }
 try {
   const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
@@ -656,7 +803,7 @@ try {
       await wait(FRAME_MS)
       const shot = await page.screenshot({ path: resolve(OUT, 'probe-' + name + '-' + which + '.png') })
       const im = decodePng(shot.toString('base64'))
-      const rd = readProbe(im, cam, p, EXTENT_M, planeY, corners)
+      const rd = applyMutation(readProbe(im, cam, p, EXTENT_M, planeY, corners))
       out.probe[which] = rd && rd.vals.length ? stats(rd.vals) : null
       out.probe[which + 'Pixels'] = rd ? rd.vals.length : 0
       out.probe[which + 'NeutralFrac'] = rd ? rd.neutralFrac : null
@@ -727,16 +874,17 @@ try {
   }
 
   report.errors = errors.slice(0, 10)
-  exitCode = 0
 } catch (e) {
   report.fatal = String((e && e.stack) || (e && e.message) || e)
   console.log('[shadow-sample] FATAL ' + report.fatal)
 } finally {
+  const decision = decide(report)
+  report.verdict = decision
   const lean = { ...report }
   for (const k of Object.keys(lean.arms || {})) if (lean.arms[k] && lean.arms[k].image) delete lean.arms[k].image
   fs.writeFileSync(resolve(OUT, 'shadow-sample-report.json'), JSON.stringify(lean, null, 2))
   console.log('[shadow-sample] report ' + resolve(OUT, 'shadow-sample-report.json'))
   try { await browser.close() } catch (_) {}
   try { if (server && server.stop) await server.stop() } catch (_) {}
-  process.exit(exitCode)
+  printVerdict(decision)
 }
