@@ -42,8 +42,15 @@ const VENDOR = flag('vendor', process.env.SPOINT_GPU || 'amd')
 const WORLD = flag('world', 'tps-game')
 const PORT = flag('port', '3311')
 const AT = flag('at', '')
-const CAPTURE_MS = num('capture-ms', 45000)
-const SAMPLE_US = num('sample-us', 500)
+const CAPTURE_MS = num('capture-ms', 30000)
+// 2000us, not 500us. The profiler samples the same main thread it is measuring, and a synchronous
+// TSL node-graph build is the deepest, most sample-dense JS on that thread: at 500us a stalled arm
+// spends more time in the sampler than in the build, which is how a run ends with the page too slow
+// to answer Profiler.stop at all. 2000us still resolves a 16ms frame (8 samples) and a 600ms stall.
+const SAMPLE_US = num('sample-us', 2000)
+// Off by default only in the sense that it is opt-OUT: `--profile=0` measures without a profile when
+// an arm is too heavy to profile at all, and the run still reports, flagged as not-named.
+const PROFILE = flag('profile', '1') !== '0'
 const LONG_TASK_MS = num('long-task-ms', 200)
 const TOP_STACKS = num('top-stacks', 4)
 const WALK_LEGS = String(flag('walk-legs', 'KeyW,KeyD,KeyW,KeyA')).split(',').map((s) => s.trim()).filter(Boolean)
@@ -406,9 +413,13 @@ async function main() {
     const cleanSpin = spinMs()
     console.log('[longtask-stack] clean spin baseline ' + cleanSpin + 'ms')
 
-    await page._send('Profiler.setSamplingInterval', { interval: SAMPLE_US })
+    if (PROFILE) {
+      await page._send('Profiler.setSamplingInterval', { interval: SAMPLE_US })
+    } else {
+      console.log('[longtask-stack] --profile=0: no CPU profile, so a stall is measured but not named')
+    }
     const cpu0 = sampleHostCpu()
-    await page._send('Profiler.start')
+    if (PROFILE) await page._send('Profiler.start')
     const pageT0 = await evaluateWithDeadline(page, () => window.__ltProbe.mark(), 30000)
     const nodeT0 = Date.now()
     const mark = await evaluateWithDeadline(page, () => ({ lt: window.__ltProbe.longtasks.length, raf: window.__ltProbe.raf.length, fr: window.__ltProbe.frames.length, gr: window.__grProbe ? window.__grProbe.snap() : null }), 30000)
@@ -416,6 +427,35 @@ async function main() {
 
     const metrics = []
     const spins = []
+    // A page whose main thread is blocked cannot answer the final read -- and a blocked main thread
+    // is exactly what a stall produces, so the arm that most needs reporting is the arm that used to
+    // lose it. The probe arrays are therefore drained as the capture runs, so a wedged final read
+    // costs the tail of the capture instead of the whole measurement.
+    const inc = { longtasks: [], frames: [], raf: [], gr: null, reads: 0, readFails: 0 }
+    const drainProbe = async () => {
+      const got = await evaluateWithDeadline(page, () => {
+        const W = window
+        const p = W.__ltProbe
+        const c = W.__ltDrain || (W.__ltDrain = { lt: 0, fr: 0, raf: 0 })
+        const out = { lt: p.longtasks.slice(c.lt), fr: p.frames.slice(c.fr), raf: p.raf.slice(c.raf) }
+        c.lt = p.longtasks.length; c.fr = p.frames.length; c.raf = p.raf.length
+        const g = W.__grProbe
+        // Raw fields, never snap(): snap() is what resets max/worst, and those are the window's
+        // evidence, so a drain must not clear them.
+        out.gr = g ? {
+          sync: { n: g.sync.n, ms: g.sync.ms, max: g.sync.max, over50: g.sync.over50, over200: g.sync.over200, worst: g.sync.worst },
+          async: { n: g.async.n, ms: g.async.ms, wallMs: g.async.wallMs, max: g.async.max, over200: g.async.over200, worst: g.async.worst },
+          warm: { n: g.warm.n, distinct: g.warm.distinct, repeats: g.warm.repeats },
+        } : null
+        return out
+      }, 8000).catch(() => null)
+      if (!got) { inc.readFails += 1; return }
+      inc.reads += 1
+      for (const x of got.lt) inc.longtasks.push(x)
+      for (const x of got.fr) inc.frames.push(x)
+      for (const x of got.raf) inc.raf.push(x)
+      if (got.gr) inc.gr = got.gr
+    }
     const legKeys = WALK_LEGS
     let legIdx = 0
     let down = null
@@ -431,6 +471,7 @@ async function main() {
         const cpu = sampleHostCpu()
         metrics.push({ nodeAt: t0, mem, spin, cpu, metrics: m ? m.metrics : null })
         if (spin !== null) spins.push(spin)
+        if (metrics.length % 8 === 0) await drainProbe()
         const sleep = METRICS_INTERVAL_MS - (Date.now() - t0)
         await new Promise((r) => setTimeout(r, Math.max(0, sleep)))
       }
@@ -458,7 +499,10 @@ async function main() {
     // A frame-time report cannot say whether anything is still on screen. One frame is captured
     // here so a hitch fix can be checked against a picture of what the arm actually rendered.
     try {
-      const shot = await page._send('Page.captureScreenshot', { format: 'png' })
+      const shot = await Promise.race([
+        page._send('Page.captureScreenshot', { format: 'png' }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Page.captureScreenshot did not answer within 30000ms')), 30000)),
+      ])
       if (shot && shot.data) {
         mkdirSync(OUT_DIR, { recursive: true })
         const shotFile = resolve(OUT_DIR, 'longtask-stack-' + ARM + '-' + Date.now() + '.png')
@@ -469,7 +513,15 @@ async function main() {
       console.log('[longtask-stack] WARN screenshot unavailable: ' + (e && e.message ? e.message : e))
     }
 
-    const pageT1 = await evaluateWithDeadline(page, () => window.__ltProbe.mark(), 60000)
+    // A page too blocked to answer is the page the stall produces, so the end mark is not allowed to
+    // take the report with it: the node-side span is the fallback clock it is measured against anyway.
+    let pageT1 = null
+    try {
+      pageT1 = await evaluateWithDeadline(page, () => window.__ltProbe.mark(), 60000)
+    } catch (e) {
+      pageT1 = pageT0 + (Date.now() - nodeT0)
+      console.log('[longtask-stack] WARN end mark: ' + (e && e.message ? e.message : e) + ' -- using the node-side span (' + Math.round(pageT1 - pageT0) + 'ms) as the window')
+    }
     const nodeT1 = Date.now()
     const cpu1 = sampleHostCpu()
     // The profile is what NAMES a stall; the long-task list, the ThreadTime discriminator and the
@@ -479,20 +531,27 @@ async function main() {
     // that loses it still reports the windows, flagged as measured-but-not-named.
     let profile = null
     let profileError = null
-    try {
-      const stopped = await Promise.race([
-        page._send('Profiler.stop'),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Profiler.stop did not answer within 120000ms')), 120000)),
-      ])
-      profile = (stopped && stopped.profile) || null
-    } catch (e) {
-      profileError = e && e.message ? e.message : String(e)
-      console.log('[longtask-stack] WARN Profiler.stop: ' + profileError + ' -- reporting the long-task windows without stack attribution')
+    if (!PROFILE) {
+      profileError = '--profile=0: no profile was started'
+    } else {
+      try {
+        const stopped = await Promise.race([
+          page._send('Profiler.stop'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Profiler.stop did not answer within 240000ms')), 240000)),
+        ])
+        profile = (stopped && stopped.profile) || null
+      } catch (e) {
+        profileError = e && e.message ? e.message : String(e)
+        console.log('[longtask-stack] WARN Profiler.stop: ' + profileError + ' -- reporting the long-task windows without stack attribution')
+      }
     }
-    const final = await evaluateWithDeadline(page, () => {
-      const pick = (fn) => { try { return fn() } catch (_) { return null } }
-      const W = window
-      return {
+    let dataSource = 'final-read'
+    let final = null
+    try {
+      final = await evaluateWithDeadline(page, () => {
+        const pick = (fn) => { try { return fn() } catch (_) { return null } }
+        const W = window
+        return {
         longtasks: W.__ltProbe.longtasks.slice(),
         raf: W.__ltProbe.raf.slice(),
         frames: W.__ltProbe.frames.slice(),
@@ -513,6 +572,11 @@ async function main() {
         },
       }
     }, 120000)
+    } catch (e) {
+      dataSource = 'drained-during-capture'
+      console.log('[longtask-stack] WARN final probe read: ' + (e && e.message ? e.message : e) + ' -- reporting the ' + inc.longtasks.length + ' long task(s), ' + inc.frames.length + ' frame(s) and ' + inc.raf.length + ' callback(s) drained during the capture (' + inc.reads + ' drain(s), ' + inc.readFails + ' failed)')
+      final = { longtasks: inc.longtasks, raf: inc.raf, frames: inc.frames, units: { graphProbe: inc.gr } }
+    }
     browser.close().catch(() => {})
 
     const nodeSpanMs = nodeT1 - nodeT0
@@ -574,15 +638,67 @@ async function main() {
 
     console.log('[longtask-stack] profile: ' + (prof ? prof.timeline.length + ' sample(s) over ' + profSpanMs.toFixed(0) + 'ms, ' : 'UNAVAILABLE, ') + 'node-side span ' + nodeSpanMs + 'ms' + (prof ? ' (clock skew ' + clockErrorPct + '%)' : ''))
     console.log('[longtask-stack] host: cpu ' + cpuPct + '% busy, spin ' + cleanSpin + ' -> peak ' + spinPeak + 'ms (x' + spinRatio + ')')
-    console.log('[longtask-stack] frames: n=' + frames.length + ' p50=' + percentile(frameSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(frameSorted, 0.95).toFixed(2) + 'ms max=' + (frameSorted[frameSorted.length - 1] || 0).toFixed(2) + 'ms')
-    console.log('[longtask-stack] frame-loop callbacks: n=' + rafIn.length + ' p50=' + percentile(rafSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(rafSorted, 0.95).toFixed(2) + 'ms max=' + (rafSorted[rafSorted.length - 1] || 0).toFixed(2) + 'ms')
+    console.log('[longtask-stack] frames: n=' + frames.length + ' p50=' + percentile(frameSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(frameSorted, 0.95).toFixed(2) + 'ms p99=' + percentile(frameSorted, 0.99).toFixed(2) + 'ms max=' + (frameSorted[frameSorted.length - 1] || 0).toFixed(2) + 'ms')
+    console.log('[longtask-stack] frame-loop callbacks: n=' + rafIn.length + ' p50=' + percentile(rafSorted, 0.5).toFixed(2) + 'ms p95=' + percentile(rafSorted, 0.95).toFixed(2) + 'ms p99=' + percentile(rafSorted, 0.99).toFixed(2) + 'ms max=' + (rafSorted[rafSorted.length - 1] || 0).toFixed(2) + 'ms')
     const drawCalls = rafIn.map((r) => r.calls).filter((v) => typeof v === 'number').sort((a, b) => a - b)
     const tris = rafIn.map((r) => r.tris).filter((v) => typeof v === 'number').sort((a, b) => a - b)
     if (drawCalls.length > 0) console.log('[longtask-stack] counted units per frame: draws p50=' + percentile(drawCalls, 0.5) + ' p95=' + percentile(drawCalls, 0.95) + ' max=' + drawCalls[drawCalls.length - 1] + ' (n=' + drawCalls.length + ')')
     if (tris.length > 0) console.log('[longtask-stack] counted units per frame: triangles p50=' + percentile(tris, 0.5) + ' p95=' + percentile(tris, 0.95) + ' max=' + tris[tris.length - 1])
+    // Neither frame measure above is main-thread CPU: the rAF-to-rAF interval is vsync-quantized
+    // and the frame-loop callback duration is wall, so a frame spent descheduled reads as a frame
+    // spent working in both. The profile is the one instrument here that can separate them -- a
+    // sampled frame is only charged for the samples the thread spent EXECUTING (js + gc), so an
+    // idle or descheduled frame costs what it cost. A frame the profile did not sample is dropped
+    // rather than counted as zero: an unmeasured frame is not a free frame.
+    let frameCpu = null
+    if (prof) {
+      const cpuList = []
+      for (const f of frames) {
+        const slice = sliceWindow(prof, toProfUs(f.at - f.dt), toProfUs(f.at))
+        if (slice.length === 0) continue
+        let cpuUs = 0
+        for (const s of slice) {
+          const b = bucketOf(prof, s.node)
+          if (b === 'js' || b === 'garbage collector') cpuUs += s.dt
+        }
+        cpuList.push(cpuUs / 1000)
+      }
+      cpuList.sort((a, b) => a - b)
+      const r2 = (v) => Math.round(v * 100) / 100
+      frameCpu = {
+        n: cpuList.length,
+        dropped: frames.length - cpuList.length,
+        p50: cpuList.length ? r2(percentile(cpuList, 0.5)) : 0,
+        p95: cpuList.length ? r2(percentile(cpuList, 0.95)) : 0,
+        p99: cpuList.length ? r2(percentile(cpuList, 0.99)) : 0,
+        max: cpuList.length ? r2(cpuList[cpuList.length - 1]) : 0,
+      }
+      console.log('[longtask-stack] main-thread CPU per frame (profiled js+gc): n=' + frameCpu.n + ' p50=' + frameCpu.p50 + 'ms p95=' + frameCpu.p95 + 'ms p99=' + frameCpu.p99 + 'ms max=' + frameCpu.max + 'ms (' + frameCpu.dropped + ' frame(s) unprofiled)')
+    } else {
+      console.log('[longtask-stack] main-thread CPU per frame: UNAVAILABLE -- the CPU profile did not come back')
+    }
     const u = final.units || {}
     let windowedGraphBuilds = null
-    if (u.vegProfile) console.log('[longtask-stack] veg: ' + JSON.stringify({ totalInstances: u.vegProfile.totalInstances, species: u.vegProfile.species, meshTierInstances: u.vegProfile.meshTierInstances, leafTierInstances: u.vegProfile.leafTierInstances, vegDrawCalls: u.vegProfile.vegDrawCalls, bvhRebuilds: u.vegProfile.bvhRebuilds, impostors: u.vegProfile.impostors }))
+    // "Built" is not "drawn". A node graph cached too early or keyed too coarsely is exactly how a
+    // tree ends up rendering with a broken material, or not at all, and a hitch fix that costs the
+    // trees is a regression rather than a fix. So the arm states what vegetation actually DREW:
+    // vegDrawCalls counts the LOD levels whose instance count is non-zero, and visibleInstances is
+    // what the instancer handed the renderer. Both are read from the live profile, not from a knob.
+    let treeProof = null
+    if (u.vegProfile) {
+      const p = u.vegProfile
+      treeProof = {
+        vegDrawCalls: p.vegDrawCalls ?? null,
+        visibleInstances: p.visibleInstances ?? null,
+        totalInstances: p.totalInstances ?? null,
+        species: p.species ?? null,
+        impostors: p.impostors ?? null,
+      }
+      console.log('[longtask-stack] veg: ' + JSON.stringify({ totalInstances: p.totalInstances, species: p.species, visibleInstances: p.visibleInstances, meshTierInstances: p.meshTierInstances, leafTierInstances: p.leafTierInstances, vegDrawCalls: p.vegDrawCalls, bvhRebuilds: p.bvhRebuilds, impostors: p.impostors }))
+      console.log('[longtask-stack] TREES DRAWN: vegDrawCalls=' + treeProof.vegDrawCalls + ' visibleInstances=' + treeProof.visibleInstances + ' of totalInstances=' + treeProof.totalInstances + ' over species=' + treeProof.species)
+    } else {
+      console.log('[longtask-stack] TREES DRAWN: UNPROVEN -- no __vegProfile on this page, so this arm cannot say whether vegetation drew')
+    }
     if (u.grassProfile) console.log('[longtask-stack] grass: ' + JSON.stringify({ instances: u.grassProfile.instances, draws: u.grassProfile.draws, tiles: u.grassProfile.tiles, loadChunkMs: u.grassProfile.loadChunkMs }))
     if (u.rocksProfile) console.log('[longtask-stack] rocks: ' + JSON.stringify({ instances: u.rocksProfile.instances, draws: u.rocksProfile.draws, tiles: u.rocksProfile.tiles }))
     if (u.shadowCost) console.log('[longtask-stack] shadow cost: ' + JSON.stringify(u.shadowCost).slice(0, 600))
@@ -676,13 +792,17 @@ async function main() {
     writeFileSync(outFile, JSON.stringify({
       arm: ARM,
       warmSwitch: WARM_SWITCH,
+      dataSource,
+      drain: { reads: inc.reads, readFails: inc.readFails, longtasks: inc.longtasks.length, frames: inc.frames.length },
+      treeProof,
       windowedGraphBuilds,
       vendor: VENDOR, world: WORLD, port: PORT, captureMs: CAPTURE_MS, sampleUs: SAMPLE_US,
       gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, backend: gpu.backend },
       profSpanMs, nodeSpanMs, clockErrorPct, profileError,
       host: { cpuPct, cleanSpin, spinPeak, spinRatio },
-      frames: { n: frames.length, p50: percentile(frameSorted, 0.5), p95: percentile(frameSorted, 0.95), max: frameSorted[frameSorted.length - 1] || 0 },
-      raf: { n: rafIn.length, p50: percentile(rafSorted, 0.5), p95: percentile(rafSorted, 0.95), max: rafSorted[rafSorted.length - 1] || 0 },
+      frames: { n: frames.length, p50: percentile(frameSorted, 0.5), p95: percentile(frameSorted, 0.95), p99: percentile(frameSorted, 0.99), max: frameSorted[frameSorted.length - 1] || 0 },
+      raf: { n: rafIn.length, p50: percentile(rafSorted, 0.5), p95: percentile(rafSorted, 0.95), p99: percentile(rafSorted, 0.99), max: rafSorted[rafSorted.length - 1] || 0 },
+      frameCpu,
       metrics, tasks: report, units: final.units || null,
       countedUnitsPerFrame: {
         draws: drawCalls.length ? { n: drawCalls.length, p50: percentile(drawCalls, 0.5), p95: percentile(drawCalls, 0.95), max: drawCalls[drawCalls.length - 1] } : null,
