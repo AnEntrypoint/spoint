@@ -18,7 +18,7 @@
 // No per-pass GPU timings: they are invalid on this project.
 
 import { readFileSync } from 'node:fs'
-import { registerHooks } from 'node:module'
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { loadWorldModule } from '../src/sdk/WorldLocator.js'
@@ -33,12 +33,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const REPO_URL = pathToFileURL(`${REPO}/`).href
 const TAG = '[veg-build-slice]'
 
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (specifier.startsWith('/src/')) return nextResolve(new URL(specifier.slice(1), REPO_URL).href, context)
-    return nextResolve(specifier, context)
-  },
-})
+await installSpecifierHooks()
 
 // ez-tree's module body runs THREE.TextureLoader.load, which needs document.createElementNS for the
 // img element. The load never completes here and no texture is ever read: this witness times

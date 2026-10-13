@@ -14,7 +14,7 @@
 // triangle counts are comparable. The oracle is independent of Grass.js: it re-places the same ring
 // through placementsForGrassChunk and counts the clumps that lie inside the near radius of the
 // player, so "the near LOD is exactly the near disc" is checked from outside the module.
-import { registerHooks } from 'node:module'
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { resolve, dirname } from 'node:path'
 
@@ -27,13 +27,7 @@ const CANVAS_CTX = () => ({
 })
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: CANVAS_CTX }) }
 globalThis.Image = class { set src(v) {} }
-registerHooks({
-  resolve(spec, context, nextResolve) {
-    if (spec.startsWith('/src/')) return nextResolve(new URL(spec.slice(1), ROOT_URL).href, context)
-    if (spec.startsWith('/node_modules/')) return nextResolve(new URL(spec.slice(1), ROOT_URL).href, context)
-    return nextResolve(spec, context)
-  },
-})
+await installSpecifierHooks()
 const href = (p) => pathToFileURL(resolve(ROOT, p)).href
 
 const WORLD = 'tps-game.js'
