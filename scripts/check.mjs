@@ -69,6 +69,12 @@ const NO_GPU_WITNESSES = [
   // so no adapter is touched. Whether a real adapter's async creation resolves on the same schedule
   // is a browser arm this CI does not run.
   { file: 'program-readiness-witness.mjs', must: /MEASURED common arm: info\.programs=undefined \(as-shipped count 0\) with 4 outstanding, fixed count 4, 0 after settle[\s\S]*MEASURED wait: 3 outstanding at entry, polled max [1-9]\d*, resolved pending=0 after [1-9][\d.]*ms, work finished at [1-9][\d.]*ms[\s\S]*RESULT: PASS/ },
+  // The near-field density pin: the rendered near band must sit at the COLLIDER's lattice -- equal to
+  // it, not merely not coarser -- at every quality tier, measured against the grass placement lattice
+  // too, with the vegetation the same ground carries counted so a trees-missing regression cannot
+  // hide behind a density figure that did not move. The re-solve arm is pinned by the counter its own
+  // mutation moves: `--mutate-reseed` re-solves every node and this `must` must then fail.
+  { file: 'nearfield-lod-lattice-witness.mjs', must: /\[nearfield-lattice\] PIN near-field density boot L13: rendered 1\.2775 m, grass placement lattice 2 m, collider lattice 1 m, near-field lattice step 1 m == collider 1 m at all 8 tier\(s\), measured step [\d.]+ m u \/ [\d.]+ m v; trees placed over the near band: [1-9]\d* over [1-9]\d* chunk\(s\)[\s\S]*checks [1-9]\d* passed, 0 failed[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000

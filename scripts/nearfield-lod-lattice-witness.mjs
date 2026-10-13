@@ -495,6 +495,85 @@ if (frame && !ARGS.has('no-lattice')) {
   latticeReport.quadtreeNearSpacingRangeM = rows.map((r) => r.nearSpacingMaxM)
 }
 
+// ---- the near band's OWN vegetation, counted rather than assumed. The density table above is
+// compared with the grass placement lattice, so a band that measures right while carrying no
+// vegetation would still print a pass; the trees the same ground places are counted over the same
+// band, so a trees-missing regression cannot hide behind a density figure that did not move.
+const vegCensus = { available: false, chunks: 0, trees: null, chunkM: null, error: null }
+if (frame && !ARGS.has('no-veg')) {
+  try {
+    const { placementsForChunk, VEG } = await import(pathToFileURL(resolve(ROOT, 'src', 'terrain', 'VegPlacement.js')).href)
+    const { chunkKeyAtLocal, latticeFor } = await import(pathToFileURL(resolve(ROOT, 'src', 'terrain', 'PlacementChart.js')).href)
+    const { createCachedAnchorField } = await import(pathToFileURL(resolve(ROOT, 'src', 'terrain', 'ClimateCache.js')).href)
+    const vegLattice = latticeFor(frame, VEG)
+    const anchorField = createCachedAnchorField(sampler.anchorField, frame)
+    const keys = new Set()
+    for (let z = -48; z <= 48; z += 24) for (let x = -48; x <= 48; x += 24) keys.add(chunkKeyAtLocal(vegLattice, frame, spawn[0] + x, spawn[2] + z))
+    let trees = 0
+    for (const key of keys) trees += placementsForChunk(key, frame, anchorField, tcfg.seed | 0).length
+    Object.assign(vegCensus, { available: true, chunks: keys.size, trees, chunkM: VEG.CHUNK })
+  } catch (e) {
+    vegCensus.error = String((e && e.message) || e)
+  }
+}
+console.log('[nearfield-lattice] veg census ' + JSON.stringify(vegCensus))
+
+// ---- the re-solve mutation. A node another field has already solved at THIS lattice is donated,
+// not solved again: that is the whole difference between a 66049-node field and a 0-node one on
+// ground the player has already walked. sampleTerrainGridChunked is the real function the height
+// field streamer calls and `seed` is exactly what its seedFromSolved hands it, so the mutation is
+// the path before that donation existed (seed: null), which re-solves every node. The pin is that
+// the shipped path solves 0 of the nodes the other field already solved, so the mutation is caught
+// by the same counter it moves -- and a run that never seeds reads as a failure, not as a pass.
+const reseed = { available: false }
+if (frame && latticeReport.available && !ARGS.has('no-reseed')) {
+  const { sampleTerrainGridChunked } = await import(pathToFileURL(resolve(ROOT, 'src', 'terrain', 'HeightfieldStreamer.js')).href)
+  const clSpacing = latticeReport.colliderLattice.spacingM
+  const HALF_M = 48
+  const N = Math.max(2, Math.round((HALF_M * 2) / clSpacing) + 1)
+  const at = (x, z) => frame.groundHeightLocal(x, z)
+  const cz = spawn[2] - HALF_M
+  const cx0 = spawn[0] - HALF_M
+  const opts = (cornerX, seed) => ({ heightFn: at, N, spacing: clSpacing, cornerX, cornerZ: cz, budgetMs: 1000, seed })
+  const first = await sampleTerrainGridChunked(opts(cx0, null))
+  // --mutate-reseed runs the shipped arms without the seed: the path before the donation existed. It
+  // is the mutation this pin exists to catch, so it must print FAIL and exit 1.
+  const MUTATE = ARGS.has('mutate-reseed')
+  const back = await sampleTerrainGridChunked(opts(cx0, MUTATE ? null : { samples: first.samples, filled: new Uint8Array(N * N).fill(1) }))
+  const backMutated = await sampleTerrainGridChunked(opts(cx0, null))
+  // A second field a quarter of a field along, at the SAME lattice: the offset is a whole number of
+  // cells of this lattice, which is the only offset at which a donation is a reuse and not a shift.
+  const shift = Math.max(1, Math.round((N - 1) / 4))
+  const seedPartial = { samples: new Float32Array(N * N), filled: new Uint8Array(N * N) }
+  let donatedCells = 0
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N - shift; i++) {
+      seedPartial.samples[j * N + i] = first.samples[j * N + i + shift]
+      seedPartial.filled[j * N + i] = 1
+      donatedCells++
+    }
+  }
+  const cx1 = cx0 + shift * clSpacing
+  const partial = await sampleTerrainGridChunked(opts(cx1, MUTATE ? null : seedPartial))
+  const partialMutated = await sampleTerrainGridChunked(opts(cx1, null))
+  let worstDonatedDelta = 0
+  for (let k = 0; k < N * N; k++) {
+    if (!seedPartial.filled[k]) continue
+    const d = Math.abs(partial.samples[k] - partialMutated.samples[k])
+    if (d > worstDonatedDelta) worstDonatedDelta = d
+  }
+  Object.assign(reseed, {
+    available: true, N, spacingM: clSpacing, shift, donatedCells,
+    firstSolved: first.solved, firstReused: first.reused,
+    backSolved: back.solved, backReused: back.reused,
+    mutatedBackSolved: backMutated.solved, mutatedBackReused: backMutated.reused,
+    partialSolved: partial.solved, partialReused: partial.reused,
+    mutatedPartialSolved: partialMutated.solved, mutatedPartialReused: partialMutated.reused,
+    worstDonatedDeltaM: +worstDonatedDelta.toFixed(6),
+  })
+}
+console.log('[nearfield-lattice] reseed ' + JSON.stringify(reseed))
+
 const collM =(collider.baked && collider.baked.spacingM) ? collider.baked.spacingM : collider.configured.spacingM
 const grassM = GRASS.CHUNK / GRASS.GRID
 const verdict = rows.map((r) => r.error ? { maxLevel: r.maxLevel, error: r.error } : {
@@ -525,6 +604,18 @@ const pinned = okRows.filter((r) => !(r.nearSpacingMaxM > collM))
 console.log(`[nearfield-lattice] first level at or finer than the ${collM}m collider lattice: L${pinned.length ? Math.min(...pinned.map((r) => r.maxLevel)) : 'none in range'}`)
 console.log('[nearfield-lattice] near-band spacing range across all tiers: ' +
   (okRows.length ? `${Math.min(...okRows.map((r) => r.nearSpacingMeanM))} .. ${Math.max(...okRows.map((r) => r.nearSpacingMeanM))} m` : 'n/a'))
+{
+  const bootQ = rows.find((r) => r.maxLevel === bootMaxLevel && !r.error) || null
+  const bootT = latticeReport.available ? (latticeReport.perTier.find((t) => t.maxLevel === bootMaxLevel) || null) : null
+  const tiers = latticeReport.available ? latticeReport.perTier.length : 0
+  console.log('[nearfield-lattice] PIN near-field density boot L' + bootMaxLevel +
+    ': rendered ' + (bootQ ? bootQ.nearSpacingMaxM : 'n/a') + ' m' +
+    ', grass placement lattice ' + grassM + ' m' +
+    ', collider lattice ' + collM + ' m' +
+    ', near-field lattice step ' + (bootT ? bootT.lattice.stepM : 'n/a') + ' m == collider ' + collM + ' m at all ' + tiers + ' tier(s)' +
+    ', measured step ' + (bootT ? bootT.lattice.measuredStepUm : 'n/a') + ' m u / ' + (bootT ? bootT.lattice.measuredStepVm : 'n/a') + ' m v' +
+    '; trees placed over the near band: ' + vegCensus.trees + ' over ' + vegCensus.chunks + ' chunk(s)')
+}
 // ---- the decision ------------------------------------------------------------------------------
 // The table above is a measurement, not a verdict. What makes "the near band is 1.2775 m against a
 // 1.00 m collider" a fact rather than a printout is that two INDEPENDENT computations agree on it:
@@ -569,6 +660,26 @@ check('latticeRimStepWithinAbuttingFaceting', !!lt && lt.every((t) => {
   const bound = Math.max(t.perimeterJumpBefore ? t.perimeterJumpBefore.max : 0, abutting ? abutting.max : 0)
   return !t.perimeterJumpAfter || t.perimeterJumpAfter.max <= bound + 1e-9
 }), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpBefore && t.perimeterJumpBefore.max, t.perimeterJumpAfter && t.perimeterJumpAfter.max, t.facetingBands && t.facetingBands.after[1].lattice.max]) : null))
+// ALWAYS EQUAL, not merely "not coarser": the ruling is that the land around the player is at FULL
+// DETAIL -- collider res -- and governance must not move the near band. `stepM` is the lattice's own
+// step in metres and the collider's spacing is metres of the same ground, so the two being the same
+// number at every tier is the claim; a step that merely stays under the collider would let the band
+// sit one tier coarser and still pass.
+check('nearFieldStepEqualsColliderSpacingAtEveryTier', !!lt && lt.length > 0 && lt.every((t) => t.lattice.engaged && t.lattice.stepM === collM), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.stepM, collM]) : null))
+// ...and non-vacuous: without the lattice the quadtree's own near band IS coarser than the collider
+// at the tier that ships, so the equality above is holding something down that would otherwise drift.
+const bootQuadtreeRow = rows.find((r) => r.maxLevel === bootMaxLevel && !r.error)
+check('quadtreeNearBandIsCoarserSoThePinIsNotVacuous', !!bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM > collM, JSON.stringify([bootMaxLevel, bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM, collM]))
+// The density pin is compared with the grass placement lattice, so the vegetation the same ground
+// carries has to be counted here: a band with no trees on it is not the near field the ruling names.
+check('treesPlacedOverTheNearBand', vegCensus.available && vegCensus.chunks > 0 && vegCensus.trees > 0, JSON.stringify(vegCensus))
+// A node another field already solved at this lattice is donated, not solved again. The mutation is
+// the same call with no seed -- the path before the donation existed -- and it re-solves every node,
+// so the counter below is one the mutation moves and the pin is not vacuous.
+check('reseedBacktrackSolvesNothing', reseed.available && reseed.backSolved === 0 && reseed.backReused === reseed.N * reseed.N, JSON.stringify(reseed))
+check('reseedMutationReSolvesEveryNode', reseed.available && reseed.mutatedBackSolved === reseed.N * reseed.N && reseed.mutatedBackSolved > reseed.backSolved, JSON.stringify(reseed))
+check('reseedPartialOverlapDonatesTheSharedNodes', reseed.available && reseed.partialReused === reseed.donatedCells && reseed.partialSolved === reseed.N * reseed.shift, JSON.stringify(reseed))
+check('reseedDonationMatchesAFreshSolve', reseed.available && reseed.worstDonatedDeltaM <= 1e-6, JSON.stringify(reseed))
 const failed = checks.filter((c) => !c.ok)
 console.log(`[nearfield-lattice] decision halvingWorst=${halvingWorst} chordWorst=${chordWorst} collM=${collM} grassM=${grassM} levels=${rows.length}`)
 console.log(`[nearfield-lattice] checks ${checks.length - failed.length} passed, ${failed.length} failed`)
