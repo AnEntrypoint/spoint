@@ -10,8 +10,11 @@
 // frame, so the report is a distribution (p95/p99/max) of wall rAF delta and of main-thread frame
 // cost, plus -- the attribution -- each node's worst single-frame cost.
 //
-// Deliberately NOT registered in scripts/check.mjs: it reaches the browser + GPU, so it rides behind
-// scripts/gpulock.mjs, not the gpu-free arm. Run it as:
+// Registered in scripts/check.mjs behind SPOINT_GPU_WITNESS, not in its gpu-free arm: it boots a
+// real browser and needs the accelerated adapter, so a lane with no GPU must not run it. Its `must`
+// regex there is the second half of this witness -- a run that printed no distribution, or whose
+// window exercised no first draw, has to read as a failure rather than as silence that passes.
+// Run it as:
 //   node scripts/gpulock.mjs run <owner> -- node scripts/landscape-change-hitch-witness.mjs
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -103,7 +106,7 @@ const INSTALL_SRC = `(() => {
   const rig = { frames: [], errors: [] }
   W.__hitchRig = rig
 
-  const gpuC = { createBuffer: 0, bufferBytes: 0, createTexture: 0, createRenderPipeline: 0, createComputePipeline: 0, createShaderModule: 0, createBindGroup: 0, writeBuffer: 0, writeBytes: 0, submit: 0 }
+  const gpuC = { createBuffer: 0, bufferBytes: 0, createTexture: 0, createRenderPipeline: 0, createRenderPipelineAsync: 0, createComputePipeline: 0, createShaderModule: 0, createBindGroup: 0, writeBuffer: 0, writeBytes: 0, submit: 0 }
   const gpuPrev = Object.assign({}, gpuC)
   rig.gpuCounters = gpuC
   function wrapProto(protoName, methodName, onCall) {
@@ -200,7 +203,12 @@ const INSTALL_SRC = `(() => {
   // createShaderModule (always sync) and createRenderPipeline (sync only outside compileAsync) --
   // which no count can separate.
   const gpuMaxMs = {}
-  function wrapTimed(protoName, methodName, kind, sizeOf) {
+  // The kind argument is the gpuC key this call counts, verbatim. It used to be a short log name
+  // 'pipeline', 'shaderModule') that no gpuC key answered to, so gpuC[kind]++ wrote onto undefined
+  // and every create counter stayed 0 for the whole window -- a counted work unit that is never
+  // incremented is a silent pass, and it made "no synchronous createRenderPipeline" true by
+  // construction. Only the mutation arm caught it, because only there did it have to be non-zero.
+  const wrapTimed = (protoName, methodName, kind, sizeOf) => {
     const C = W[protoName]
     if (!C || !C.prototype) return false
     const P = C.prototype
@@ -223,12 +231,12 @@ const INSTALL_SRC = `(() => {
   }
 
   const gpuPatched = {}
-  gpuPatched.createBuffer = wrapTimed('GPUDevice', 'createBuffer', 'buffer', (a) => (a[0] && a[0].size) || 0)
-  gpuPatched.createTexture = wrapTimed('GPUDevice', 'createTexture', 'texture', null)
-  gpuPatched.createRenderPipeline = wrapTimed('GPUDevice', 'createRenderPipeline', 'pipeline', null)
-  gpuPatched.createRenderPipelineAsync = wrapTimed('GPUDevice', 'createRenderPipelineAsync', 'pipelineAsync', null)
+  gpuPatched.createBuffer = wrapTimed('GPUDevice', 'createBuffer', 'createBuffer', (a) => (a[0] && a[0].size) || 0)
+  gpuPatched.createTexture = wrapTimed('GPUDevice', 'createTexture', 'createTexture', null)
+  gpuPatched.createRenderPipeline = wrapTimed('GPUDevice', 'createRenderPipeline', 'createRenderPipeline', null)
+  gpuPatched.createRenderPipelineAsync = wrapTimed('GPUDevice', 'createRenderPipelineAsync', 'createRenderPipelineAsync', null)
   gpuPatched.createComputePipeline = wrapProto('GPUDevice', 'createComputePipeline', () => { gpuC.createComputePipeline++ })
-  gpuPatched.createShaderModule = wrapTimed('GPUDevice', 'createShaderModule', 'shaderModule', null)
+  gpuPatched.createShaderModule = wrapTimed('GPUDevice', 'createShaderModule', 'createShaderModule', null)
   gpuPatched.createBindGroup = wrapProto('GPUDevice', 'createBindGroup', () => { gpuC.createBindGroup++ })
   gpuPatched.writeBuffer = wrapProto('GPUQueue', 'writeBuffer', (a) => { gpuC.writeBuffer++; const data = a[2]; const size = a[4]; gpuC.writeBytes += Number.isFinite(size) ? size : (data && (data.byteLength || data.length)) || 0 })
   gpuPatched.submit = wrapProto('GPUQueue', 'submit', () => { gpuC.submit++ })
@@ -416,7 +424,7 @@ const REPORT_SRC = `((args) => {
   for (const f of byCpu.slice(0, args.worstCpu)) worstCpu.push(frameDetail(f))
   const programStacks = {}
   for (const e of rig.createLog) {
-    if (e.kind !== 'pipeline' && e.kind !== 'shaderModule' && e.kind !== 'texture') continue
+    if (e.kind !== 'createRenderPipeline' && e.kind !== 'createShaderModule' && e.kind !== 'createTexture') continue
     const k = e.kind + ' :: ' + (e.stack || '(no stack)')
     programStacks[k] = (programStacks[k] || 0) + 1
   }
@@ -456,6 +464,7 @@ const REPORT_SRC = `((args) => {
     wall: dist(wall),
     cpu: dist(cpu),
     gpuTotal: gpuAgg,
+    gpuCreateTotals: { createBuffer: rig.gpuCounters.createBuffer, createTexture: rig.gpuCounters.createTexture, createRenderPipeline: rig.gpuCounters.createRenderPipeline, createRenderPipelineAsync: rig.gpuCounters.createRenderPipelineAsync, createShaderModule: rig.gpuCounters.createShaderModule },
     nodes,
     worst,
     worstCpu,
@@ -481,6 +490,7 @@ const PROBE = `(() => {
     dprOff: window.__renderControls ? window.__renderControls.get('dprOff') : null,
     veg: window.__veg ? (window.__veg.profile && window.__veg.profile.totalInstances) || 0 : 0,
     grass: window.__grassProfile ? window.__grassProfile.totalInstances : 0,
+    rocks: window.__rocks && window.__rocks.profile ? window.__rocks.profile.totalInstances : 0,
     asyncPipelines: window.__asyncRenderPipelines ? Object.assign({}, window.__asyncRenderPipelines) : null,
     renderer: window.__rendererInfo ? window.__rendererInfo.renderer : null,
   }
@@ -631,7 +641,26 @@ async function browserArm() {
     const framesN = report.frames
     expect('the instrument counted frames', framesN, '>', 500)
     expect('the player actually travelled, so the landscape changed', travelled, '>', 30)
-    expect('scene population is non-zero (veg instances counted)', end.veg, '>', 0)
+    // veg is not a population every world carries, so demanding THAT counter be non-zero made a
+    // live measuring arm read as broken. What the claim needs is that the population counters are
+    // live at all, and that is what this asserts.
+    const popLive = Math.max(end.veg || 0, end.grass || 0, end.rocks || 0)
+    console.log(`[${LABEL}] scene population at the end of the walk: ${jsonLine({ veg: end.veg, grass: end.grass, rocks: end.rocks })}`)
+    expect('the scene population counters are live: at least one of veg/grass/rocks is populated', popLive, '>', 0)
+    // The fix's own counted work unit. three minted every pipeline of a newly streamed batch
+    // synchronously inside one render:scene-color frame; zero is the invariant the fix restores. The
+    // mutation arm asserts the opposite direction on the same counter, so an instrument that cannot
+    // see the reintroduced stall fails its own mutation run instead of reporting a clean window.
+    const syncPipelines = report.gpuTotal.createRenderPipeline || 0
+    if (REVERT_ASYNC) expect('the reintroduced defect is visible: createRenderPipeline is synchronous again on the draw path', syncPipelines, '>', 0)
+    else expect('no render pipeline is created synchronously on the draw path', syncPipelines, '==', 0)
+    // A counted work unit that never moves is a silent pass. These counters were dead once -- they
+    // incremented keys gpuC did not have -- and a dead counter made "no synchronous pipeline was
+    // created" true by construction. Assert they moved before any of them is trusted.
+    const createUnits = ['createBuffer', 'createTexture', 'createRenderPipeline', 'createRenderPipelineAsync', 'createShaderModule']
+      .reduce((s, k) => s + (report.gpuCreateTotals[k] || 0), 0)
+    console.log(`[${LABEL}] gpu create counters over the window: ${jsonLine(report.gpuCreateTotals)}`)
+    expect('the create counters are not dead: the window recorded at least one GPU create', createUnits, '>', 0)
     // A window in which nothing was compiled says NOTHING about the fix either way: the stall only
     // exists on a first draw, so a run with no first draws must fail rather than read as a pass.
     const compiled = (report.gpuTotal.createRenderPipeline || 0) + (report.gpuTotal.createShaderModule || 0) + ((end.asyncPipelines && end.asyncPipelines.requested) || 0)
@@ -643,6 +672,10 @@ async function browserArm() {
     console.log(`[${LABEL}] travel ${jsonLine({ travelledM: +travelled.toFixed(1), trackSamples: track.length, end: lastPos })}`)
     console.log(`[${LABEL}] wall(rAF delta) ${jsonLine(report.wall)}`)
     console.log(`[${LABEL}] cpu(main-thread frame cost) ${jsonLine(report.cpu)}`)
+    // Printed here, after both distributions, because scripts/check.mjs pins the fix on this exact
+    // counted work unit and reads the report top to bottom: the number has to land after the
+    // distribution it is the attribution for, or the pin's regex never matches it.
+    console.log(`[${LABEL}] synchronous createRenderPipeline on the draw path over the window: ${syncPipelines}`)
     console.log(`[${LABEL}] frames over ${HITCH_WALL_MS}ms wall: ${report.hitchFrames} of ${framesN} (${(100 * report.hitchFrames / Math.max(1, framesN)).toFixed(2)}%)`)
     console.log(`[${LABEL}] hitch attribution (dominant node inside every >=${HITCH_WALL_MS}ms frame):`)
     for (const h of report.hitchAttribution.slice(0, 12)) console.log(`    ${h.count}x  sum ${h.sumMs}ms  worst ${h.maxMs}ms  ${h.id}`)
