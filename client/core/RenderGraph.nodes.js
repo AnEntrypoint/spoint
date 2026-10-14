@@ -198,6 +198,8 @@ export function buildRenderSectionNodes() {
         const stats = ctx.overdrawProbe.tick(ctx.now)
         if (stats) ctx.res.overdrawStats = stats
       },
+    },
+
     {
       id: 'visibility-commit',
       reads: ['sceneDepth'],
