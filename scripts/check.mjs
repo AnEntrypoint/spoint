@@ -125,6 +125,21 @@ const NO_GPU_WITNESSES = [
   // coordinates and never by the chunk they came from, because chunk-key arithmetic manufactures a
   // gap at exactly the chunk spacing, which is what the first run of this instrument appeared to find.
   { file: 'grass-tile-seam-witness.mjs', must: /\[grass-tile-seam\] MEASURED grass-tile-seam: worst boundary ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\) at the \d+m boundary @ \d+m; worst surface step [\d.]+m against a [\d.]+m median step[\s\S]*RESULT: PASS/ },
+  // PERF-grass-rim-draw-gap-1013, the DRAW side of the owner report the placement-side witness
+  // above closed: the population is continuous across the terrain-tile rim, so a bare strip there
+  // can only be a draw-side loss -- a blade the distance law keeps that the instancer never hands
+  // the encoder. It reads the two values that become `instanceCount` and the instance buffer --
+  // InstancedMesh.count and instanceMatrix -- buckets them by distance ring, and compares them to
+  // the instancer's own liveCount, so a slot three submits whose matrix is the zero matrix (the
+  // state setVisibleAt(id,false) and releaseId() leave behind) is counted as what it is and never
+  // as a blade. The `must` is the second half: law-on has to equal drawn in every ring, the rim
+  // ratio has to hold against the 0.7 budget, and BOTH forcing arms have to have MOVED one band --
+  // a ring held empty because nothing reaches it fills when the ring widens, and when FULL_R is
+  // pushed out -- so an instrument that cannot see distance reads as a failure rather than as
+  // silence that passes. gpu-free: it boots client/core/Grass.js in node over the real tps-game
+  // terrain and reaches three's submission boundary, which is the layer that owns instanceCount;
+  // the WebGPU encoder itself is a browser arm this CI does not run.
+  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* live=[1-9]\d* drawn=[1-9]\d*[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
   // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
   // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a
   // different width the moment its orientation changes, and the per-blade fade can shrink width as
