@@ -26,6 +26,7 @@ import { witnessGpu } from './lib/gpu-probe.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
+import { walkExcursion, walkFloorFailure } from './lib/walk-translation.mjs'
 
 const LABEL = 'landscape-change-hitch-witness'
 const LF = String.fromCharCode(10)
@@ -49,6 +50,11 @@ const WORST_N = Number(flag('worst', '30'))
 const WORST_CPU_N = Number(flag('worst-cpu', '6'))
 const MIN_COMPILES = Number(flag('min-compiles', '20'))
 const HITCH_WALL_MS = Number(flag('hitch-wall', '50'))
+// This page is ?singleplayer, where the authoritative player never advances and the client is
+// corrected to spawn every tick, so a rubber-banding walk racks up path length (travelled, below)
+// and never leaves the spawn. The floor that catches it is the EXCURSION: how far the player got
+// from where the walk started. 10 m is the bar one-fps-pathology-witness already uses.
+const MIN_WALK_MOVED_M = Number(flag('min-walk-moved', '10'))
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRATCH = resolve(flag('scratch', join(tmpdir(), 'spoint-landscape-hitch')))
 // Mutation arm: reintroduce the stall inside one named frame-graph node and watch the instrument
@@ -640,6 +646,11 @@ async function browserArm() {
 
     const framesN = report.frames
     expect('the instrument counted frames', framesN, '>', 500)
+    const walkEx = walkExcursion(track)
+    const walkFloor = walkFloorFailure(track, MIN_WALK_MOVED_M, 'the walk')
+    if (walkFloor) console.log(`[${LABEL}] walk floor: ${walkFloor}`)
+    expect('the walk left its own start, so the landscape it measured is the landscape it changed', !walkFloor,
+      `excursionM=${walkEx.maxExcursionM === null ? 'null' : walkEx.maxExcursionM.toFixed(2)} pathM=${walkEx.pathM === null ? 'null' : walkEx.pathM.toFixed(1)} netM=${walkEx.netM === null ? 'null' : walkEx.netM.toFixed(1)} over ${walkEx.samples} sample(s), floor ${MIN_WALK_MOVED_M}m`)
     expect('the player actually travelled, so the landscape changed', travelled, '>', 30)
     // veg is not a population every world carries, so demanding THAT counter be non-zero made a
     // live measuring arm read as broken. What the claim needs is that the population counters are

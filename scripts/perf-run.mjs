@@ -11,6 +11,7 @@ import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
 import { flagListNumber, flagNumber, numericListFlag } from './lib/witness-args.mjs'
+import { walkExcursion, walkFloorFailure } from './lib/walk-translation.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -34,6 +35,12 @@ const WARMUP_SECONDS = flagNumber(flag, 'warmup', 3, argv)
 const BACKEND = flag('backend', 'webgl')
 const GPU = flag('gpu', 'nvidia')
 const WALK = !has('no-walk')
+// A keyboard walk on a ?singleplayer page does not translate the player (the authoritative player
+// never advances and the client is corrected to spawn each tick), so a walk arm that measured 0.38 m
+// over 84 m of route has to fail instead of publishing. 10 m is the bar one-fps-pathology-witness
+// already uses; the four legs net ~0 on purpose, so the floor is on the EXCURSION from the walk's
+// first sample, never on the net.
+const MIN_WALK_MOVED_M = flagNumber(flag, 'min-walk-moved', 10, argv)
 const LEG_MS = flagNumber(flag, 'leg', 10000, argv)
 const INPUT_WAIT_MS = flagNumber(flag, 'input-wait', 60000, argv)
 const EXTRA_QUERY = flag('extra', '')
@@ -62,6 +69,7 @@ let spawnedChromePid = null
 let knobApplied = null
 let witnessUnreached = []
 let reachabilityUnreached = []
+let walkFloorFail = null
 setTimeout(() => {
   console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run')
   if (spawnedChromePid && process.platform === 'win32') spawnSync('taskkill', ['/PID', String(spawnedChromePid), '/T', '/F'], { stdio: 'ignore' })
@@ -943,10 +951,19 @@ async function main() {
     }
     const walkMs = Date.now() - walkStart
     const maxDelta = track0 ? track.reduce((m, p) => Math.max(m, Math.hypot(p[0] - track0[0], p[1] - track0[1], p[2] - track0[2])), 0) : 0
+    const walkEx = walkExcursion(track)
     console.log(`[perf-run] walk done in ${walkMs}ms, track samples=${track.length}, maxDelta=${maxDelta.toFixed(2)}m`)
     if (WALKER) console.log('[perf-run] walker result: ' + JSON.stringify(await page.evaluate(() => window.__walkDone || null).catch(() => null)))
     if (HEIGHT_PROBE) console.log('[perf-run] height probe result: ' + JSON.stringify(await page.evaluate(() => window.__heightProbe || null).catch(() => null)).slice(0, 3000))
-    if (WALK && maxDelta < 1) console.log(`[perf-run] ASSERT FAILED: player moved ${maxDelta.toFixed(3)}m over ${SECONDS}s -- not real movement`)
+    // The default arm is the keyboard walk on --room=singleplayer, and that page does not translate
+    // the player, so this used to be a console.log and a 0.38 m walk published as a walk.
+    if (WALK && !WALKER) {
+      walkFloorFail = walkFloorFailure(track, MIN_WALK_MOVED_M, `the walk (--room=${ROOM_MODE})`)
+      if (walkFloorFail) {
+        console.error(`[perf-run] walk floor: ${walkFloorFail} (maxDelta=${maxDelta.toFixed(2)}m over ${SECONDS}s, excursion=${walkEx.maxExcursionM === null ? 'null' : walkEx.maxExcursionM.toFixed(2)}m path=${walkEx.pathM === null ? 'null' : walkEx.pathM.toFixed(2)}m)`)
+        console.error(`[perf-run] the intended idle arm is --no-walk; a walk window has to move the player or it is measuring a standing one`)
+      }
+    }
 
     clearInterval(gpuTimer)
     clearInterval(hostCpuTimer)
@@ -1264,8 +1281,9 @@ async function main() {
     server.stop()
   }
   const unreached = witnessUnreached.concat(reachabilityUnreached.map((k) => `reachability: ${k} is false`))
-  if (unreached.length) {
-    console.error(`[perf-run] RESULT: FAIL -- witness never reached the state it measured: ${unreached.join('; ')} (required marks: ${REQUIRED_MARKS.join(',') || 'none'}, required counts: ${REQUIRED_COUNTS.join(',') || 'none'})`)
+  const fatal = walkFloorFail ? unreached.concat([walkFloorFail]) : unreached
+  if (fatal.length) {
+    console.error(`[perf-run] RESULT: FAIL -- ${walkFloorFail ? 'the walk never translated the player: ' + walkFloorFail : 'witness never reached the state it measured: ' + unreached.join('; ')} (required marks: ${REQUIRED_MARKS.join(',') || 'none'}, required counts: ${REQUIRED_COUNTS.join(',') || 'none'})`)
     process.exit(4)
   }
   process.exit(0)

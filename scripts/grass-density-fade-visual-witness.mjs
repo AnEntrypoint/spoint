@@ -36,6 +36,7 @@ import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
 import { flagNumber } from './lib/witness-args.mjs'
+import { LOCAL_POSITION_EXPR, walkExcursion, walkFloorFailure } from './lib/walk-translation.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -80,6 +81,11 @@ const STEP_M = flagNumber(flag, 'step', 1, argv)              // relocation step
 const TELEPORT_STEPS = flagNumber(flag, 'steps', 40, argv)
 const STEP_WAIT_MS = flagNumber(flag, 'step-wait', 450, argv)
 const STEP_SAMPLES = flagNumber(flag, 'step-samples', 1, argv)
+// The legs have to carry the player AWAY from its start, not merely accumulate path: on a
+// ?singleplayer page the authoritative player never advances and the client is corrected to spawn
+// every tick, so a rubber-banding walk racks up pathM and never leaves the spawn. 10 m is the bar
+// one-fps-pathology-witness already uses.
+const MIN_WALK_MOVED_M = flagNumber(flag, 'min-walk-moved', 10, argv)
 const BASELINE_INSTANCES = flagNumber(flag, 'baseline-instances', 105188, argv)
 const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
 
@@ -641,6 +647,7 @@ try {
   let pathM = 0
   let teleported = 0
   const pathSamples = []
+  const legsTrack = []
   let preFlight = null
   let sentMove = null
   if (WALK_MS > 0) {
@@ -655,8 +662,11 @@ try {
       onGround: (window.__client && window.__client.getLocalState && window.__client.getLocalState().onGround) || null,
       boot: window.__spointBoot || null,
     })).catch((e) => ({ error: e.message }))
-    const readPos = () => page.evaluate(() => (window.__client && window.__client.getLocalState ? window.__client.getLocalState().position : null)).catch(() => null)
+    // getLocalState().position is an array [x,y,z]; the copy is what keeps two reads comparable,
+    // and the helper is the same array-safe read every walk arm uses.
+    const readPos = () => page.evaluate(LOCAL_POSITION_EXPR).catch(() => null)
     const start = await readPos()
+    if (start) legsTrack.push(start)
     console.log('[grass-fade-visual] pre-flight ' + JSON.stringify(preFlight) + ' start=' + JSON.stringify(start))
     // Four legs, because one direction can be blocked by scenery: the audit needs the player to
     // actually travel, not to stand against a rock pressing W.
@@ -670,7 +680,7 @@ try {
         await new Promise((r2) => setTimeout(r2, 1000))
         const p = await readPos()
         if (p && prev) pathM += Math.hypot(p[0] - prev[0], p[2] - prev[2])
-        if (p) { prev = p; pathSamples.push([+p[0].toFixed(2), +p[2].toFixed(2)]) }
+        if (p) { prev = p; pathSamples.push([+p[0].toFixed(2), +p[2].toFixed(2)]); legsTrack.push(p) }
         if (!sentMove) {
           sentMove = await page.evaluate(() => {
             const i = (window.__app || {}).sentInput || null
@@ -716,6 +726,12 @@ try {
   console.log('[grass-fade-visual] uncaptured GPU errors: ' + gpuErrors.length + (gpuErrors.length ? ' first=' + String(gpuErrors[0]).slice(0, 200) : ''))
 
   const walkAudit = audit || {}
+  const legsEx = walkExcursion(legsTrack)
+  const legsFloor = WALK_MS > 0 ? walkFloorFailure(legsTrack, MIN_WALK_MOVED_M, 'the keyboard legs') : null
+  if (legsFloor) console.log('[grass-fade-visual] legs floor: ' + legsFloor)
+  expect('the keyboard legs alone carried the player away from its start', !legsFloor,
+    `excursionM=${legsEx.maxExcursionM === null ? 'null' : legsEx.maxExcursionM.toFixed(2)} pathM=${legsEx.pathM === null ? 'null' : legsEx.pathM.toFixed(1)} netM=${legsEx.netM === null ? 'null' : legsEx.netM.toFixed(1)} over ${legsEx.samples} sample(s), floor ${MIN_WALK_MOVED_M}m` +
+    ` -- the relocation fallback below travels whatever the legs did not, so pathM alone cannot tell a walk from a rubber-band; on a ?singleplayer page the authoritative player never advances and the client is corrected to spawn every tick`)
   expect('the walk actually carried the player along its legs', pathM > 20,
     `pathM=${pathM.toFixed(1)} netM=${walkedM.toFixed(1)}, ${pathSamples.length} sample(s), sentMove=${JSON.stringify(sentMove)}, preFlight=${JSON.stringify(preFlight)}`)
   expect('the fade audit sampled settled frames while the player moved', (walkAudit.samplesSettled || 0) > 30,
