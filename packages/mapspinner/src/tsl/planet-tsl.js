@@ -151,22 +151,23 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   // at and plans the tiles that replace whole quadtree leaves with it. It lives outside this package
   // because the spacing is the collider's, which only the host knows.
   const near = (opts.nearLattice && typeof opts.nearLattice.plan === 'function') ? opts.nearLattice : null
+  // The floor is set PER FACE, because the near band is drawn on ONE face -- the one the player is
+  // standing on -- and the floor exists to bound the step at THAT band's rim. On the five faces the
+  // player is not on, the camera's own face-local position is the projection of the player onto a face
+  // they are tens of kilometres away from: at the tps-game anchor three of those projections are the
+  // face's own corner. A floor there refines ground no rim abuts, and it measured as 45% of every leaf
+  // the floor added.
   let lastNear = null
-  if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) qt.setNearFieldLeafFloor(near.maxLeafM, near.floorSpanLeaves)
-  const nearSpanLeaves = near ? near.floorSpanLeaves : 0
 
   function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev, lod) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
+    // surfElev is the ground elevation at the camera as a fraction of R, so this is the camera's
+    // height above the ground it stands on -- the only altitude the near field is about.
+    const groundClearanceM = Math.max(camDist - R - surfElev * R, 0)
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
     applyLodConfig(qt, R, viewportH, lod)
-    if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) {
-      // surfElev is the ground elevation at the camera as a fraction of R, so this is the camera's
-      // height above the ground it stands on -- the only altitude the near field is about.
-      const groundClearanceM = Math.max(camDist - R - surfElev * R, 0)
-      qt.setNearFieldLeafFloor(near.maxLeafM, nearSpanLeaves, groundClearanceM)
-    }
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
@@ -180,6 +181,12 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       cull.cx = F.c[0]; cull.cy = F.c[1]; cull.cz = F.c[2]
       const lc = worldToFaceLocal(face, camWorldPos, R)
       const al = aim ? worldToFaceLocal(face, aim, R) : null
+      if (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) {
+        if (face === nearFace && lc && Number.isFinite(lc[0]) && Number.isFinite(lc[1])) {
+          const reach = near.floorReachLeaves(groundPerFaceMetre(lc[0], lc[1], R, near.requestedHalfExtentM))
+          qt.setNearFieldLeafFloor(near.maxLeafM, reach.outerSpanLeaves, groundClearanceM, reach.innerSpanLeaves)
+        } else qt.setNearFieldLeafFloor(0, 1)
+      }
       u.morphAim.array[face].set(al ? al[0] : 0, al ? al[1] : 0, al ? 1 : 0)
       const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
       // The band is PLAYER-CENTRED, so a leaf is either WHOLLY inside it and dropped, or it straddles

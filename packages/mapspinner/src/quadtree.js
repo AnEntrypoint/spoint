@@ -33,6 +33,7 @@ export class Quadtree {
     this._farCoarsenFloor = 0.6;
     this._nearLeafFloor = 0.0;
     this._nearLeafFloorSpan = 2.0;
+    this._nearFloorInnerSpan = 0.0;
     this._nearFloorClearance = null;
   }
 
@@ -48,9 +49,18 @@ export class Quadtree {
   // disengages the moment the player walks somewhere high -- on a 200 m ridge the camera is 200 m
   // above sea level and 1.7 m above the ground, and only the second number is what the floor is
   // about. Measured: with the ellipsoid term the floor stops firing above ~144 m of elevation.
-  setNearFieldLeafFloor(leafM, spanLeaves = 1.0, groundClearanceM = null) {
+  //
+  // spanLeaves is the OUTER reach and innerSpanLeaves the INNER one, so a floor with an inner reach
+  // refines an ANNULUS instead of a disc. The band drops every leaf it covers whole, so the ground
+  // under the band is refined only to be thrown away: the floor's job is the rim, which is a square
+  // the player's own ground stops at. Both reaches are measured PER AXIS, not as a radius, because
+  // the band's footprint is a square aligned with the face -- a disc has to spend the square's
+  // corner in every direction to cover that square, sqrt(2) of reach and twice the area, where a
+  // per-axis reach covers it exactly.
+  setNearFieldLeafFloor(leafM, spanLeaves = 1.0, groundClearanceM = null, innerSpanLeaves = 0.0) {
     this._nearLeafFloor = (typeof leafM === 'number' && isFinite(leafM) && leafM > 0) ? leafM : 0.0;
     this._nearLeafFloorSpan = (typeof spanLeaves === 'number' && isFinite(spanLeaves) && spanLeaves > 0) ? spanLeaves : 2.0;
+    this._nearFloorInnerSpan = (typeof innerSpanLeaves === 'number' && isFinite(innerSpanLeaves) && innerSpanLeaves > 0) ? innerSpanLeaves : 0.0;
     this._nearFloorClearance = (typeof groundClearanceM === 'number' && isFinite(groundClearanceM) && groundClearanceM >= 0) ? groundClearanceM : null;
     return this._nearLeafFloor;
   }
@@ -102,13 +112,22 @@ export class Quadtree {
     // keyed on that would skip the very node that holds the player.
     let forced = false;
     if (nearFloor > 0.0 && l > nearFloor && level < QUADTREE_LEVEL_CEILING) {
-      const gx = Math.max(ox - this._cam[0], 0.0, this._cam[0] - (ox + l));
-      const gy = Math.max(oy - this._cam[1], 0.0, this._cam[1] - (oy + l));
+      const cx = this._cam[0], cy = this._cam[1];
+      const gx = Math.max(ox - cx, 0.0, cx - (ox + l));
+      const gy = Math.max(oy - cy, 0.0, cy - (oy + l));
+      // The FAR gap: how far this node's box reaches from the camera, per axis the same way. A node
+      // is in the annulus when its near gap is inside the outer reach and its far gap is outside the
+      // inner one, so a node the rim cuts THROUGH -- inner part under the band, outer part past it --
+      // is still refined. Keying on the near gap alone would leave the rim's own leaf at whatever the
+      // distance LOD happened to give it, which is exactly the step this floor exists to remove.
+      const fx = Math.max(Math.abs(cx - ox), Math.abs(cx - (ox + l)));
+      const fy = Math.max(Math.abs(cy - oy), Math.abs(cy - (oy + l)));
       const floorAltTerm = this._nearFloorClearance === null
         ? this._altitudeDistTerm
         : Math.max(this._nearFloorClearance / this.distFactor, 0.0);
-      const gap = Math.max(floorAltTerm, Math.sqrt(gx * gx + gy * gy));
-      forced = gap <= nearFloor * this._nearLeafFloorSpan;
+      const gap = Math.max(floorAltTerm, gx, gy);
+      const farGap = Math.max(floorAltTerm, fx, fy);
+      forced = gap <= nearFloor * this._nearLeafFloorSpan && farGap > nearFloor * this._nearFloorInnerSpan;
     }
     if ((dist < l * effSplit && level < this.maxLevel) || forced) {
       const hl = l / 2.0;

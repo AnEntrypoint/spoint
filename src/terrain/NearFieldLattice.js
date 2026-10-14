@@ -40,9 +40,10 @@ export const NEAR_FIELD_FLOOR_TILES = 1
 
 // The cube-sphere map is not conformal: one face-local metre is 0.780 m of ground along u and 0.617
 // along v at the tps-game anchor, and it drifts with position on the face. The floor is a length in
-// FACE-LOCAL metres while the band's extent is metres of GROUND, so the floor's reach is the band's
-// extent divided by the SMALLEST ground-per-face-metre the map can show, or the floor stops short of
-// the rim on the part of the face where the map stretches most.
+// FACE-LOCAL metres while the band's extent is metres of GROUND, so a reach derived from the band's
+// extent is divided by the ground-per-face-metre the map shows where the player stands. The SMALLEST
+// the map can show is the fallback a caller with no measured metric uses: dividing by it gives the
+// largest face-local reach, so the floor still reaches the rim wherever the player stands.
 export const MIN_GROUND_PER_FACE_METRE = 0.6
 
 function positiveFinite(v) {
@@ -69,13 +70,37 @@ export function createNearFieldLattice(opts = {}) {
   // How wide the band can get: a whole number of tiles, capped so a step of distance tessellation
   // cannot drag the rim outward with the LOD and migrate the ridge when quality is shed.
   const coverageCap = Math.max(1, Math.floor(requestedHalfExtentM / tileM))
-  // The floor has to hold across the whole band AND one cell past it: a rim whose other side is
-  // ground the floor never reached is a rim that meets the far field after all. The band's footprint
-  // is a square, so its corner is sqrt(2) half-extents out, and the floor is a radius -- the reach is
-  // the corner, not the edge. measured step at the tps-game anchor with this floor: 1.34 m of ground
-  // per leaf against the band's 1.00 m.
-  const floorReachM = ((coverageCap * tileM) / 2) * Math.SQRT2 / MIN_GROUND_PER_FACE_METRE + maxLeafM
-  const floorSpanLeaves = floorReachM / maxLeafM
+  // The floor's reach, in FACE-LOCAL metres, from the band's OWN footprint rather than from a level
+  // count or a fixed radius: the floor's whole job is one leaf of ground past the band's rim, so the
+  // reach is the rim plus that leaf and nothing else.
+  //
+  // OUTER: the band is snapped to its own tile grid rather than centred on the player, so its rim can
+  // sit a whole tile further from the camera than the band's half-extent; and a face-local reach buys
+  // least GROUND where the map stretches least, so the reach is divided by the SMALLEST metric the map
+  // shows. Measured at the tps-game anchor: 0.780 m of ground per face-local metre along u and 0.617
+  // along v, so a reach converted with the larger of the two stops about 20 m of ground short of the
+  // rim along v -- which is a rim that meets the far field after all, and it measured 0.483 m against
+  // the 0.0626 m the floor exists to hold. The reach is PER AXIS, so it is the half-extent and not the
+  // half-extent times sqrt(2): the square's corner is already inside it.
+  //
+  // INNER: the band drops every leaf it covers WHOLE, so everything more than one leaf inside the rim
+  // is ground the band throws away -- 66% of the leaves the whole-footprint floor added, all of it
+  // where the tiles are drawn anyway. The floor therefore refines the RIM ANNULUS. The inner reach is
+  // derived from the metric the band is laid out in, because that is the only way it can be one leaf
+  // inside the rim and not somewhere else: past one leaf the leaves stop being smaller than the band,
+  // so they stop being droppable, and the tiles they suppress are the near field's own resolution.
+  function floorReachLeaves(groundPerFaceMetre) {
+    const gpf = positiveFinite(groundPerFaceMetre) || 1
+    const outerM = (coverageCap * tileM / 2 + tileM) / MIN_GROUND_PER_FACE_METRE
+    const innerM = Math.max(0, (coverageCap * tileM) / (2 * gpf) - maxLeafM)
+    return { groundPerFaceMetre: gpf, outerM, innerM, outerSpanLeaves: outerM / maxLeafM, innerSpanLeaves: innerM / maxLeafM }
+  }
+  // The reach for a caller with no metric to measure: the map's smallest ground-per-face-metre gives
+  // the largest face-local reach, so the floor still reaches the rim wherever the player stands. It
+  // carries no inner reach, because an inner reach is only safe when it is derived from the same
+  // metric the band is laid out in -- the conservative outer is wider than the band, so subtracting a
+  // leaf from it would leave the hole wider than the band and the tiles would start being suppressed.
+  const floorSpanLeaves = floorReachLeaves(MIN_GROUND_PER_FACE_METRE).outerSpanLeaves
 
   return Object.freeze({
     spacingM,
@@ -86,6 +111,7 @@ export function createNearFieldLattice(opts = {}) {
     maxLeafM,
     requestedHalfExtentM,
     floorSpanLeaves,
+    floorReachLeaves,
     // leaves: the quadtree's leaves, each { ox, oy, l }. camera is the player in the same face-local
     // metres. instanceBudget caps the band's tile count at the number of instances the terrain
     // payload it joins already spends, so the band can never cost more than the ground it replaces

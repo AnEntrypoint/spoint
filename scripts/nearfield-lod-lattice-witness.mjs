@@ -140,16 +140,22 @@ function spanChord(face, ox, oy, l, alongU) {
   return s * R
 }
 
-function leavesFor(maxLevel, splitFactor, floorM, spanLeaves) {
+function leavesFor(maxLevel, splitFactor, floorM, spanLeaves, innerSpanLeaves, onlyFace) {
   const qt = new Quadtree(R)
   qt.computeSplitDist(splitFactor * LOD_STEP, VIEW_H, FOVY)
   qt.setConfig(R, maxLevel, lodDistFactor(splitFactor))
-  if (Number.isFinite(floorM) && floorM > 0) qt.setNearFieldLeafFloor(floorM, Number.isFinite(spanLeaves) ? spanLeaves : 1.0)
+  if (Number.isFinite(floorM) && floorM > 0) qt.setNearFieldLeafFloor(floorM, Number.isFinite(spanLeaves) ? spanLeaves : 1.0, null, Number.isFinite(innerSpanLeaves) ? innerSpanLeaves : 0.0)
   const all = []
   let nearest = null, nearestD = Infinity
   for (let face = 0; face < 6; face++) {
     const lc = worldToFaceLocal(face, camW, R)
     if (!lc || !Number.isFinite(lc[0])) continue
+    // The floor is set per face exactly as the renderer sets it: on the near face, because that is the
+    // face the band is drawn on, and off everywhere else.
+    if (Number.isFinite(floorM) && floorM > 0) {
+      if (onlyFace === undefined || onlyFace === face) qt.setNearFieldLeafFloor(floorM, Number.isFinite(spanLeaves) ? spanLeaves : 1.0, null, Number.isFinite(innerSpanLeaves) ? innerSpanLeaves : 0.0)
+      else qt.setNearFieldLeafFloor(0, 1.0)
+    }
     const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], undefined, undefined, camAlt, null)
     for (const q of leaves) {
       all.push({ face, ox: q.ox, oy: q.oy, l: q.l, level: q.level })
@@ -378,11 +384,25 @@ if (frame && !ARGS.has('no-lattice')) {
   const lcNear = worldToFaceLocal(nearFace, camW, R)
   const GPF = groundPerFaceMetre(lcNear[0], lcNear[1], R, nfl.requestedHalfExtentM)
   console.log('[nearfield-lattice] ground metres per face-local metre at the camera: ' + GPF.toFixed(6))
+  // --mutate-floor=disc puts the floor back the way it was before the annulus: the conservative
+  // reach, no inner reach, and set on ALL SIX faces. --mutate-floor=short keeps the annulus and the
+  // near-face gate but converts the reach with the metric the band is laid out in instead of the
+  // smallest one the map shows: it measures 0.483 m at the rim instead of 0.0626 m, so it is the
+  // mutation the rim-step pin below exists to catch. Both must print FAIL and exit 1.
+  const MUTATE_FLOOR = String(flag('mutate-floor', 'none'))
+  const reach = nfl.floorReachLeaves(GPF)
+  const shortOuterM = reach.innerM + nfl.maxLeafM + nfl.tileM / reach.groundPerFaceMetre
+  const floorSpan = MUTATE_FLOOR === 'disc' ? nfl.floorSpanLeaves
+    : MUTATE_FLOOR === 'short' ? shortOuterM / nfl.maxLeafM
+      : reach.outerSpanLeaves
+  const floorInner = MUTATE_FLOOR === 'disc' ? 0 : reach.innerSpanLeaves
+  const floorOnlyFace = MUTATE_FLOOR === 'disc' ? undefined : nearFace
+  console.log('[nearfield-lattice] floor reach outer ' + reach.outerM.toFixed(3) + ' m face-local (' + floorSpan.toFixed(4) + ' leaves), inner ' + reach.innerM.toFixed(3) + ' m (' + floorInner.toFixed(4) + ' leaves), mutate-floor=' + MUTATE_FLOOR)
 
   const perTier = []
   for (const L of LEVELS) {
     const before = leavesFor(L, TD.splitFactor, 0)
-    const after = leavesFor(L, TD.splitFactor, nfl.maxLeafM, nfl.floorSpanLeaves)
+    const after = leavesFor(L, TD.splitFactor, nfl.maxLeafM, floorSpan, floorInner, floorOnlyFace)
     const leavesNear = after.all.filter((q) => q.face === nearFace)
     const plan = nfl.plan(leavesNear, [lcNear[0], lcNear[1]], GRID, leavesNear.length, GPF)
     const drop = new Set(plan.drop)
@@ -470,7 +490,7 @@ if (frame && !ARGS.has('no-lattice')) {
     available: true,
     colliderLattice: cl,
     bakeSpacingM: +bakeSpacingM.toFixed(4),
-    lattice: { spacingM: nfl.spacingM, extentM: nfl.extentM, gridSteps: nfl.gridSteps, tileBudget: nfl.tileBudget, tileM: nfl.tileM, maxLeafM: nfl.maxLeafM, floorSpanLeaves: +nfl.floorSpanLeaves.toFixed(4) },
+    lattice: { spacingM: nfl.spacingM, extentM: nfl.extentM, gridSteps: nfl.gridSteps, tileBudget: nfl.tileBudget, tileM: nfl.tileM, maxLeafM: nfl.maxLeafM, floorSpanLeaves: +nfl.floorSpanLeaves.toFixed(4), floorReach: { groundPerFaceMetre: +reach.groundPerFaceMetre.toFixed(6), outerM: +reach.outerM.toFixed(3), innerM: +reach.innerM.toFixed(3), outerSpanLeaves: +floorSpan.toFixed(4), innerSpanLeaves: +floorInner.toFixed(4), nearFaceOnly: floorOnlyFace !== undefined }, mutateFloor: MUTATE_FLOOR },
     windowHalfM: WINDOW_M,
     perTier,
   })
@@ -675,6 +695,27 @@ check('nearFieldStepEqualsColliderSpacingAtEveryTier', !!lt && lt.length > 0 && 
 // at the tier that ships, so the equality above is holding something down that would otherwise drift.
 const bootQuadtreeRow = rows.find((r) => r.maxLevel === bootMaxLevel && !r.error)
 check('quadtreeNearBandIsCoarserSoThePinIsNotVacuous', !!bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM > collM, JSON.stringify([bootMaxLevel, bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM, collM]))
+// The floor's cost is the leaves it adds to the quadtree, and the floor's job is ONE leaf of ground
+// past the band's rim. A floor that refines the whole footprint, or that refines the five faces no
+// band is drawn on, costs several times that for ground no rim abuts -- 2298 added leaves was the
+// shipped disc, of which 91% was ground inside the band the band throws away or outside the ring the
+// rim needs. Counted, not timed: the same instrument measures both arms and one leaf is a leaf on any
+// box. --mutate-floor=disc restores the conservative reach with no inner reach on all six faces and
+// must print FAIL here, so the bound is one a real regression moves.
+const FLOOR_COST_MAX_LEAVES = 1024
+check('nearFieldFloorRefinesTheRimAnnulusOnly', !!lt && lt.length > 0 && lt.every((t) => t.floorCostLeaves <= FLOOR_COST_MAX_LEAVES), JSON.stringify({ bound: FLOOR_COST_MAX_LEAVES, perTier: lt ? lt.map((t) => [t.maxLevel, t.floorCostLeaves]) : null }))
+// What the rim step is bounded by is the COARSER of the two surfaces meeting at the rim, and the
+// floor is what caps the coarser one, so the step is a property of the reach and not of the terrain:
+// 0.0626 m is the band's own faceting and it is the same number at every tier. A reach that stops
+// short of the rim along the axis the cube-sphere map stretches least gives 0.483 m at the tiers the
+// distance LOD no longer covers the ring by itself, so this is pinned against the measurement and not
+// against the faceting it happens to abut, which would let a wider far field hide it.
+const RIM_STEP_MAX_M = 0.063
+check('nearFieldRimStepHoldsAtEveryTier', !!lt && lt.length > 0 && lt.every((t) => !t.perimeterJumpAfter || t.perimeterJumpAfter.max <= RIM_STEP_MAX_M), JSON.stringify({ bound: RIM_STEP_MAX_M, perTier: lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpAfter && t.perimeterJumpAfter.max]) : null }))
+// ...and the annulus must not buy that by uncovering the band: a leaf the floor stopped refining
+// grows until it straddles the rim, and every tile inside a straddling leaf is suppressed -- the band
+// loses the tile and keeps the leaf, which is the near field's own resolution going away.
+check('nearFieldFloorSuppressesNoTile', !!lt && lt.length > 0 && lt.every((t) => t.lattice.suppressedTiles === 0), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.suppressedTiles, t.lattice.straddlingLeafCount, t.lattice.leavesCovered]) : null))
 // The density pin is compared with the grass placement lattice, so the vegetation the same ground
 // carries has to be counted here: a band with no trees on it is not the near field the ruling names.
 check('treesPlacedOverTheNearBand', vegCensus.available && vegCensus.chunks > 0 && vegCensus.trees > 0, JSON.stringify(vegCensus))
