@@ -6,6 +6,7 @@ import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
 import { createPlacementRing } from './PlacementRing.js'
 import { placementsForGrassChunk, createGrassChunkCursor, GRASS, GRASS_DENSITY, grassBladeEdgeM } from '/src/terrain/GrassPlacement.js'
+import { createGrassChunkLod } from '/src/terrain/GrassPlacementLod.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
@@ -73,6 +74,16 @@ export async function createGrass(opts = {}) {
   const EDGE_CAP_M = Math.max(FULL_R + GRASS_DENSITY.FADE_M + 1, ringRadius - GRASS_DENSITY.EDGE_M)
   const DENSITY_REACH_M = EDGE_CAP_M + DENSITY_LEAD_M
   const DENSITY_REACH_SQ = DENSITY_REACH_M * DENSITY_REACH_M
+  // The placement a chunk is generated with knows the law, so it can materialise the blades the
+  // law will draw at this distance and refine as the player closes. null is the whole-chunk
+  // placement it replaces, kept only so the two can be measured against each other.
+  const LOD_LAW = (cfg.grassPlacementLod === false) ? null : {
+    fullR: FULL_R, capM: EDGE_CAP_M, leadM: GRASS_DENSITY.LEAD_M,
+    spreadM: Number.isFinite(cfg.grassLodSpreadM) ? cfg.grassLodSpreadM : undefined,
+    slackM: Number.isFinite(cfg.grassLodSlackM) ? cfg.grassLodSlackM : undefined,
+    releaseM: Number.isFinite(cfg.grassLodReleaseM) ? cfg.grassLodReleaseM : undefined,
+  }
+  const REFINE_BUDGET_MS = Number.isFinite(cfg.grassRefineBudgetMs) ? cfg.grassRefineBudgetMs : 2
   const densityCfg = {
     fullR: FULL_R, p: GRASS_DENSITY.P, fadeM: GRASS_DENSITY.FADE_M,
     growMax: GRASS_DENSITY.GROW_MAX, growK: GRASS_DENSITY.GROW_K,
@@ -117,7 +128,7 @@ export async function createGrass(opts = {}) {
   let _occCands = null
   let totalInstances = 0
   let nearInstances = 0
-  const profile = { totalInstances: 0, nearInstances: 0, midInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0, lodRevisits: 0, lodMigrations: 0, densityAdds: 0, densityRemoves: 0, revisitAdds: 0, revisitRemoves: 0 }
+  const profile = { totalInstances: 0, nearInstances: 0, midInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0, lodRevisits: 0, lodMigrations: 0, densityAdds: 0, densityRemoves: 0, revisitAdds: 0, revisitRemoves: 0, refines: 0, refineBlades: 0, refineMs: 0, released: 0 }
   const _frustum = new THREE.Frustum(), _projMat = new THREE.Matrix4(), _cullBox = new THREE.Box3()
 
   function clumpLodNear(x, z, px, pz) {
@@ -187,16 +198,64 @@ export async function createGrass(opts = {}) {
     profile.densityRemoves += idx.length
   }
 
-  function commitChunk(key, list, px, pz) {
+  // One blade row: the transform and the per-instance payload, plus the squared reach the LOD
+  // revisit decides the blade against. Nothing here touches an instancer.
+  function writeRow(p, i, xf, pf, lod, keepR2, px, pz, classify, chunkNear) {
+    _q.setFromAxisAngle(_up, p.yaw)
+    _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
+    _q.premultiply(_qTilt)
+    const o = i * XF_FLOATS
+    xf[o] = p.x; xf[o + 1] = p.y; xf[o + 2] = p.z
+    xf[o + 3] = _q.x; xf[o + 4] = _q.y; xf[o + 5] = _q.z; xf[o + 6] = _q.w
+    xf[o + 7] = p.scale; xf[o + 8] = p.tint
+    const o7 = i * PF_FLOATS
+    pf[o7] = Number.isFinite(p.q) ? p.q : 0
+    pf[o7 + 1] = p.windPhase
+    pf[o7 + 2] = p.tint
+    pf[o7 + 3] = Number.isFinite(p.shadow) ? p.shadow : 1
+    pf[o7 + 4] = p.groundR; pf[o7 + 5] = p.groundG; pf[o7 + 6] = p.groundB
+    const near = classify ? (lodRevisit ? clumpLodNear(p.x, p.z, px, pz) : chunkNear) : true
+    lod[i] = near ? 1 : 0
+    const reach = grassBladeEdgeM(pf[o7], FULL_R, EDGE_CAP_M) + DENSITY_LEAD_M
+    keepR2[i] = reach * reach
+    return near
+  }
+
+  // A chunk's population grows as the player closes on it and gives back what the law has finished
+  // with as the player recedes, so the buffers behind a cell are held with headroom and a change of
+  // size is a new view over the same bytes. views() re-slices, buffers() (re)allocates.
+  function buffersFor(cell, count) {
+    const reuse = !!(cell && cell.bufXf && cell.cap >= count)
+    const cap = reuse ? cell.cap : Math.max(64, count, Math.ceil(count * 1.4))
+    if (reuse) return null
+    return {
+      cap,
+      bufXf: new Float32Array(cap * XF_FLOATS), bufPf: new Float32Array(cap * PF_FLOATS),
+      bufLod: new Uint8Array(cap), bufOn: new Uint8Array(cap), bufKeep: new Float32Array(cap),
+      allEntries: new Array(cap),
+    }
+  }
+
+  function viewsFor(cell, bufs, count) {
+    const bufXf = bufs ? bufs.bufXf : cell.bufXf
+    const bufPf = bufs ? bufs.bufPf : cell.bufPf
+    const bufLod = bufs ? bufs.bufLod : cell.bufLod
+    const bufOn = bufs ? bufs.bufOn : cell.bufOn
+    const bufKeep = bufs ? bufs.bufKeep : cell.bufKeep
+    return {
+      cap: bufs ? bufs.cap : cell.cap, bufXf, bufPf, bufLod, bufOn, bufKeep,
+      allEntries: bufs ? bufs.allEntries : cell.allEntries,
+      xf: bufXf.subarray(0, count * XF_FLOATS), pf: bufPf.subarray(0, count * PF_FLOATS),
+      lod: bufLod.subarray(0, count), on: bufOn.subarray(0, count), keepR2: bufKeep.subarray(0, count),
+    }
+  }
+
+  function commitChunk(key, list, px, pz, src) {
     const [minX, minZ, maxX, maxZ] = placementRing.bounds(key, list)
     const [centerX, centerZ] = placementRing.centre(key)
     const count = list ? Math.max(0, Math.min(list.length, MAX_INSTANCES - totalInstances)) : 0
-    const xf = new Float32Array(count * XF_FLOATS)
-    const pf = new Float32Array(count * PF_FLOATS)
-    const lod = new Uint8Array(count)
-    const on = new Uint8Array(count)
-    const keepR2 = new Float32Array(count)
-    const entries = new Array(count)
+    const bufs = buffersFor(null, count)
+    const v = viewsFor(null, bufs, count)
     const nearIdx = [], midIdx = []
     const classify = Number.isFinite(px) && Number.isFinite(pz)
     let chunkNear = true
@@ -211,31 +270,20 @@ export async function createGrass(opts = {}) {
       const p = list[i]
       if (p.y < _minY) _minY = p.y
       if (p.y + p.scale > _maxY) _maxY = p.y + p.scale
-      _q.setFromAxisAngle(_up, p.yaw)
-      _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
-      _q.premultiply(_qTilt)
-      const o = i * XF_FLOATS
-      xf[o] = p.x; xf[o + 1] = p.y; xf[o + 2] = p.z
-      xf[o + 3] = _q.x; xf[o + 4] = _q.y; xf[o + 5] = _q.z; xf[o + 6] = _q.w
-      xf[o + 7] = p.scale; xf[o + 8] = p.tint
-      const o7 = i * PF_FLOATS
-      pf[o7] = Number.isFinite(p.q) ? p.q : 0
-      pf[o7 + 1] = p.windPhase
-      pf[o7 + 2] = p.tint
-      pf[o7 + 3] = Number.isFinite(p.shadow) ? p.shadow : 1
-      pf[o7 + 4] = p.groundR; pf[o7 + 5] = p.groundG; pf[o7 + 6] = p.groundB
-      const near = classify ? (lodRevisit ? clumpLodNear(p.x, p.z, px, pz) : chunkNear) : true
-      lod[i] = near ? 1 : 0
-      const reach = grassBladeEdgeM(pf[o7], FULL_R, EDGE_CAP_M) + DENSITY_LEAD_M
-      keepR2[i] = reach * reach
+      const near = writeRow(p, i, v.xf, v.pf, v.lod, v.keepR2, px, pz, classify, chunkNear)
       const ddx = p.x - px, ddz = p.z - pz
-      const keep = !classify || (ddx * ddx + ddz * ddz < keepR2[i])
-      if (!keep) continue
-      on[i] = 1
-      if (near) nearIdx.push(i)
-      else midIdx.push(i)
+      if (!classify || (ddx * ddx + ddz * ddz < v.keepR2[i])) {
+        v.on[i] = 1
+        if (near) nearIdx.push(i)
+        else midIdx.push(i)
+      }
     }
-    const cell = { key, entries, xf, pf, lod, on, keepR2, bounds: [minX, minZ, maxX, maxZ], nearCount: 0, onCount: 0, occluded: false, inFrustum: true }
+    const cell = Object.assign({
+      key, xf: v.xf, pf: v.pf, lod: v.lod, on: v.on, keepR2: v.keepR2, entries: v.allEntries,
+      count, bounds: [minX, minZ, maxX, maxZ], cx: centerX, cz: centerZ,
+      nearCount: 0, onCount: 0, occluded: false, inFrustum: true,
+      minY: _minY, maxY: _maxY, src: src || null,
+    }, v)
     if (nearIdx.length) addBlades(cell, nearIdx, true)
     if (midIdx.length) addBlades(cell, midIdx, false)
     const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [centerX, centerZ], [minX, minZ, maxX, maxZ], _minY, _maxY, 1)
@@ -245,12 +293,53 @@ export async function createGrass(opts = {}) {
     profile.loads++
   }
 
+  // The chunk grew: the blades it gained are written into the cell it already holds, and they
+  // start switched off. Nothing is added to an instancer here -- revisit owns instances, and it
+  // already decides every blade in the cell every LOD_REVISIT_STEP_M of travel -- so a growth
+  // costs the rows it writes and not a re-commit.
+  function appendChunk(cell, list, px, pz) {
+    const from = cell.count
+    const count = Math.min(list.length, from + Math.max(0, MAX_INSTANCES - totalInstances))
+    const bufs = buffersFor(cell, count)
+    if (bufs) {
+      bufs.bufXf.set(cell.xf)
+      bufs.bufPf.set(cell.pf)
+      bufs.bufLod.set(cell.lod)
+      bufs.bufOn.set(cell.on)
+      bufs.bufKeep.set(cell.keepR2)
+      for (let i = 0; i < from; i++) bufs.allEntries[i] = cell.entries[i]
+    }
+    const v = viewsFor(cell, bufs, count)
+    const classify = Number.isFinite(px) && Number.isFinite(pz)
+    const chunkNear = false
+    let minX = cell.bounds[0], minZ = cell.bounds[1], maxX = cell.bounds[2], maxZ = cell.bounds[3]
+    for (let i = from; i < count; i++) {
+      const p = list[i]
+      if (p.y < cell.minY) cell.minY = p.y
+      if (p.y + p.scale > cell.maxY) cell.maxY = p.y + p.scale
+      if (p.x < minX) minX = p.x
+      if (p.x > maxX) maxX = p.x
+      if (p.z < minZ) minZ = p.z
+      if (p.z > maxZ) maxZ = p.z
+      writeRow(p, i, v.xf, v.pf, v.lod, v.keepR2, px, pz, classify, chunkNear)
+      v.on[i] = 0
+    }
+    // The bounds a commit takes already carry the chunk's own corners, so a growth only has to
+    // widen them by the blades it wrote: re-scanning the whole population would be the same
+    // answer at the cost of the whole population.
+    Object.assign(cell, v, { count, entries: v.allEntries, bounds: [minX, minZ, maxX, maxZ] })
+    const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [cell.cx, cell.cz], [minX, minZ, maxX, maxZ], cell.minY, cell.maxY, 1)
+    for (const k in extent) cell[k] = extent[k]
+    _occCands = null
+    profile.refines++
+  }
+
   function loadChunk(key, px, pz) {
     if (loaded.has(key)) return
     exactFrame.beginChunk()
     let list; try { list = placementsForGrassChunk(key, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
     if (exactFrame.missing) { deferGrassChunk(key); return }
-    commitChunk(key, list, px, pz)
+    commitChunk(key, list, px, pz, null)
   }
 
   function deferGrassChunk(key) {
@@ -304,6 +393,71 @@ export async function createGrass(opts = {}) {
   // Two decisions per blade, re-taken together every LOD_REVISIT_STEP_M of travel: whether the
   // distance-density law still holds the blade at all, and if it does, which of the two clump
   // geometries it is drawn with. The first is the one that moves the instance count.
+  function scanChunk(cell, px, pz) {
+    if (cell.pending || !cell.xf || !cell.keepR2 || !cell.bounds) return
+    const b = cell.bounds
+    const nearestX = px < b[0] ? b[0] : (px > b[2] ? b[2] : px)
+    const nearestZ = pz < b[1] ? b[1] : (pz > b[3] ? b[3] : pz)
+    const ddx = nearestX - px, ddz = nearestZ - pz
+    const nearestSq = ddx * ddx + ddz * ddz
+    // A chunk whose nearest corner is already past the law's reach holds nothing the law
+    // could switch on, so it only costs a pass while it still holds something switched on.
+    const chunkOutside = nearestSq > LOD_NEAR_DIST * LOD_NEAR_DIST
+    if (nearestSq > DENSITY_REACH_SQ && cell.onCount === 0) return
+    const xf = cell.xf, keepR2 = cell.keepR2, on = cell.on, lod = cell.lod
+    for (let i = 0; i < on.length; i++) {
+      const o = i * XF_FLOATS
+      const bdx = xf[o] - px, bdz = xf[o + 2] - pz
+      const inReach = bdx * bdx + bdz * bdz < keepR2[i]
+      if (inReach !== (on[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i); continue }
+      if (!inReach) continue
+      const wantNear = chunkOutside ? false : clumpLodNear(xf[o], xf[o + 2], px, pz)
+      if (wantNear !== (lod[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i) }
+    }
+  }
+
+  // A released blade keeps its instance: the row it owns is dropped and the rows behind it close
+  // up, which is a move of the row and not of the instance it names.
+  function compactChunk(cell, drop, px, pz) {
+    const n = cell.count
+    if (!n || !drop.length) return
+    const live = []
+    for (const i of drop) if (cell.on[i] === 1) live.push(i)
+    if (live.length) { removeBlades(cell, live); profile.densityRemoves += live.length }
+    let w = 0, ri = 0, r = 0
+    while (r < n) {
+      if (ri < drop.length && drop[ri] === r) { ri++; r++; continue }
+      const r0 = r
+      while (r < n && !(ri < drop.length && drop[ri] === r)) r++
+      if (w !== r0) {
+        cell.xf.copyWithin(w * XF_FLOATS, r0 * XF_FLOATS, r * XF_FLOATS)
+        cell.pf.copyWithin(w * PF_FLOATS, r0 * PF_FLOATS, r * PF_FLOATS)
+        cell.lod.copyWithin(w, r0, r)
+        cell.on.copyWithin(w, r0, r)
+        cell.keepR2.copyWithin(w, r0, r)
+        cell.entries.copyWithin(w, r0, r)
+      }
+      w += r - r0
+    }
+    for (let i = w; i < n; i++) cell.entries[i] = null
+    Object.assign(cell, viewsFor(cell, null, w))
+    cell.count = w
+    profile.released += drop.length
+    // The flips the chunk had queued name rows that have just moved, so they are dropped and the
+    // chunk is re-scanned at the position they were taken at: a scan is the same decisions again.
+    if (dropFlips(cell)) scanChunk(cell, px, pz)
+  }
+
+  function dropFlips(cell) {
+    let w = 0, dropped = 0
+    for (let r = 0; r < _flipIdx.length; r++) {
+      if (_flipCell[r] === cell) { dropped++; continue }
+      _flipCell[w] = _flipCell[r]; _flipIdx[w] = _flipIdx[r]; w++
+    }
+    _flipCell.length = w; _flipIdx.length = w
+    return dropped
+  }
+
   function revisitNearLod(px, pz) {
     if (!lodRevisit) {
       if (_flipIdx.length) { _flipIdx.length = 0; _flipCell.length = 0 }
@@ -317,28 +471,7 @@ export async function createGrass(opts = {}) {
     if (moved) {
       _flipIdx.length = 0; _flipCell.length = 0
       profile.lodRevisits++
-      for (const cell of loaded.values()) {
-        if (cell.pending || !cell.xf || !cell.keepR2 || !cell.bounds) continue
-        const b = cell.bounds
-        const nearestX = px < b[0] ? b[0] : (px > b[2] ? b[2] : px)
-        const nearestZ = pz < b[1] ? b[1] : (pz > b[3] ? b[3] : pz)
-        const ddx = nearestX - px, ddz = nearestZ - pz
-        const nearestSq = ddx * ddx + ddz * ddz
-        // A chunk whose nearest corner is already past the law's reach holds nothing the law
-        // could switch on, so it only costs a pass while it still holds something switched on.
-        const chunkOutside = nearestSq > LOD_NEAR_DIST * LOD_NEAR_DIST
-        if (nearestSq > DENSITY_REACH_SQ && cell.onCount === 0) continue
-        const xf = cell.xf, keepR2 = cell.keepR2, on = cell.on, lod = cell.lod
-        for (let i = 0; i < on.length; i++) {
-          const o = i * XF_FLOATS
-          const bdx = xf[o] - px, bdz = xf[o + 2] - pz
-          const inReach = bdx * bdx + bdz * bdz < keepR2[i]
-          if (inReach !== (on[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i); continue }
-          if (!inReach) continue
-          const wantNear = chunkOutside ? false : clumpLodNear(xf[o], xf[o + 2], px, pz)
-          if (wantNear !== (lod[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i) }
-        }
-      }
+      for (const cell of loaded.values()) scanChunk(cell, px, pz)
     }
     const batches = new Map()
     let budget = LOD_REVISIT_BUDGET
@@ -411,7 +544,7 @@ export async function createGrass(opts = {}) {
 
   function stepInflight() {
     exactFrame.beginChunk()
-    const done = _inflight.cursor.step(LOAD_BUDGET)
+    const done = _inflight.cursor.step(LOAD_BUDGET, streamFocus[0], streamFocus[1])
     if (exactFrame.missing) _inflight.missing = true
     return done
   }
@@ -426,14 +559,37 @@ export async function createGrass(opts = {}) {
     // blades past their own edge.
     const fx = Number.isFinite(streamFocus[0]) ? streamFocus[0] : px
     const fz = Number.isFinite(streamFocus[1]) ? streamFocus[1] : pz
-    commitChunk(key, cursor.blades, fx, fz)
+    commitChunk(key, cursor.blades, fx, fz, cursor)
   }
 
   function startInflight(key, px, pz) {
     loaded.set(key, { entries: [], pending: true })
     exactFrame.beginChunk()
-    _inflight = { key, cursor: createGrassChunkCursor(key, exactFrame.placementFrame, anchorField, worldSeed, undefined, () => exactFrame.missing), px, pz, missing: false }
+    const cursor = LOD_LAW
+      ? createGrassChunkLod(key, exactFrame.placementFrame, anchorField, worldSeed, LOD_LAW, undefined, () => exactFrame.missing)
+      : createGrassChunkCursor(key, exactFrame.placementFrame, anchorField, worldSeed, undefined, () => exactFrame.missing)
+    _inflight = { key, cursor, px, pz, missing: false }
     if (stepInflight()) finishInflight()
+  }
+
+  // A chunk is generated with the population the law will draw from where the player is, so the
+  // population has to grow as the player closes. The chunk's own placement decides whether it has
+  // grown, which is free until the player has actually closed on it, and the commit keeps the
+  // prefix it already holds.
+  function refineRing(px, pz) {
+    if (!LOD_LAW) return
+    let budget = REFINE_BUDGET_MS
+    for (const [key, cell] of loaded) {
+      if (budget <= 0) break
+      if (cell.pending || !cell.src) continue
+      const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+      const added = cell.src.grow(px, pz, budget)
+      const drop = cell.src.takeReleased ? cell.src.takeReleased() : null
+      if (drop && drop.length) compactChunk(cell, drop, px, pz)
+      budget -= ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
+      if (added > 0) { profile.refineBlades += added; appendChunk(cell, cell.src.blades, px, pz) }
+      profile.refineMs += ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
+    }
   }
 
   let _lastPx = NaN, _lastPz = NaN
@@ -459,7 +615,7 @@ export async function createGrass(opts = {}) {
       if (!inFrustum) culledCount++
       if (inFrustum === cell.inFrustum) continue
       if (entryBudget <= 0) { _cullBacklog = true; continue }
-      entryBudget -= cell.entries.length
+      entryBudget -= cell.count != null ? cell.count : cell.entries.length
       cell.inFrustum = inFrustum
       if (cell.occluded) continue
       for (const en of cell.entries) { if (!en) continue; try { (en.near ? im : imMid).setVisibilityAt(en.id, inFrustum) } catch (_) {} }
@@ -528,6 +684,7 @@ export async function createGrass(opts = {}) {
       const _beforeInflight = !!_inflight, _beforeLoaded = loaded.size
       streamRing(px, pz)
       revisitNearLod(px, pz)
+      refineRing(px, pz)
       if ((!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)) _cullDirty = true
       wind.uCamPosXZ.value.set(px, pz)
       const decalOff = RenderControls.get('grassDecalsOff') === true
@@ -579,7 +736,7 @@ export async function createGrass(opts = {}) {
         root.updateMatrixWorld(true)
         cell._occProxy = { root, key }
       }
-      cell._occProxy.instanceCount = cell.entries.length
+      cell._occProxy.instanceCount = cell.count != null ? cell.count : cell.entries.length
       out.push(cell._occProxy)
     }
     _occCands = out
