@@ -143,6 +143,7 @@ const INSTALL_RUNNER = `(() => {
   window.__odRun = async (opts) => {
     const od = window.__od
     const THREE = od.M
+    const M = od.M
     const { renderer, scene, camera, target, mat, w, h } = od
     const D = w * h
     const fromHalf = THREE.DataUtils.fromHalfFloat.bind(THREE.DataUtils)
@@ -155,23 +156,32 @@ const INSTALL_RUNNER = `(() => {
       const pT = renderer.getRenderTarget(), pA = renderer.autoClear
       const pC = new THREE.Color(); renderer.getClearColor(pC); const pAl = renderer.getClearAlpha()
       renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setClearColor(0x000000, 0)
+      // The calibration primitive is a camera-facing quad INSIDE THE REAL SCENE, rendered by the
+      // scene path the measurement itself uses. Both synthetic fullscreen primitives -- QuadMesh
+      // and a throwaway ortho scene + plane -- rasterized nothing on this renderer, and a
+      // calibration that silently draws nothing reads back as 0 fragments for one fragment and
+      // would zero every figure below it, so the one primitive that shares the measured path is
+      // the one that calibrates it.
+      const d = Math.max(camera.near * 4, 1)
+      const hh = 2 * d * Math.tan((camera.fov * Math.PI / 180) / 2)
+      const qgeo = new THREE.PlaneGeometry(hh * camera.aspect * 1.05, hh * 1.05)
+      const qmat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.FrontSide, depthTest: false, depthWrite: false })
+      const cq = new THREE.Mesh(qgeo, qmat)
+      cq.frustumCulled = false
+      const qdir = new THREE.Vector3(); camera.getWorldDirection(qdir)
+      const qpos = new THREE.Vector3(); camera.getWorldPosition(qpos)
+      cq.position.copy(qpos).addScaledVector(qdir, d)
+      const qquat = new THREE.Quaternion(); camera.getWorldQuaternion(qquat)
+      cq.quaternion.copy(qquat)
+      scene.add(cq)
+      const saved = []
+      scene.traverse((o) => { saved.push([o, o.visible]); o.visible = false })
+      cq.visible = true
+      renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setClearColor(0x000000, 0)
       mat.side = THREE.FrontSide
-      // QuadMesh is the fullscreen triangle three's own overdraw probe draws (client/core/
-      // OverdrawProbe.js), so it is the one fullscreen primitive known to rasterize on this
-      // renderer; a hand-rolled ortho camera + plane is not, and a calibration that silently
-      // rasterizes nothing reads back as 0 fragments for one fragment and zeroes every figure.
-      if (M.QuadMesh) {
-        new M.QuadMesh(mat).render(renderer)
-      } else {
-        const cs = new THREE.Scene()
-        const cc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
-        cc.position.z = 5
-        const qm = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat)
-        qm.frustumCulled = false
-        cs.add(qm)
-        renderer.render(cs, cc)
-        qm.geometry.dispose()
-      }
+      scene.overrideMaterial = mat
+      renderer.render(scene, camera)
+      scene.overrideMaterial = null
       const mid = await renderer.readRenderTargetPixelsAsync(target, w >> 1, h >> 1, 1, 1)
       od.unit = fh(mid[0])
       if (!(od.unit > 0)) {
@@ -185,9 +195,11 @@ const INSTALL_RUNNER = `(() => {
         const wp = await renderer.readRenderTargetPixelsAsync(target, w >> 1, h >> 1, 1, 1)
         od.diag = { quad: [fh(mid[0]), fh(mid[1]), fh(mid[2]), fh(mid[3])], clearWhite: [fh(wp[0]), fh(wp[1]), fh(wp[2]), fh(wp[3])] }
       }
+      for (const [o, v] of saved) o.visible = v
+      scene.remove(cq)
+      qgeo.dispose(); qmat.dispose()
       renderer.setRenderTarget(pT); renderer.autoClear = pA; renderer.setClearColor(pC, pAl)
       log.push('calibrated unitsPerFragment=' + od.unit)
-      qm.geometry.dispose()
     }
     const unit = od.unit
     if (!(unit > 0) || !Number.isFinite(unit)) throw new Error('the accumulation target never calibrated (unitsPerFragment=' + unit + '), so no fragment figure can be read' + (od.diag ? ' -- diag=' + JSON.stringify(od.diag) : ''))
