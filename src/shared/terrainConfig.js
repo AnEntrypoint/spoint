@@ -6,9 +6,9 @@ import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from './fnv1a.js'
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
 const DEFAULT_MINIMAP_RES = 256
-export const DEFAULT_TERRAIN_HASH_VERSION = 2
-export const LEGACY_TERRAIN_HASH_VERSION = 1
-export const TERRAIN_HASH_VERSIONS = Object.freeze([1, 2])
+export let DEFAULT_TERRAIN_HASH_VERSION = 2
+export let LEGACY_TERRAIN_HASH_VERSION = 1
+export let TERRAIN_HASH_VERSIONS = Object.freeze([1, 2])
 
 const PARSED_TERRAIN_CONFIG = Symbol('parsedTerrainConfig')
 
@@ -159,3 +159,35 @@ export function withTerrainHashVersion(worldDef, hashVersion) {
   assertTerrainHashVersion(hashVersion)
   return mapTerrainConfigs(worldDef, cfg => ({ ...cfg, hashVersion }))
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapTerrainConfig = (next) => {
+  isParsedTerrainConfig = next.isParsedTerrainConfig
+  assertTerrainHashVersion = next.assertTerrainHashVersion
+  resolveTerrainConfig = next.resolveTerrainConfig
+  terrainHashVersionOf = next.terrainHashVersionOf
+  terrainCarvesOf = next.terrainCarvesOf
+  parseTerrainConfig = next.parseTerrainConfig
+  parseTerrainHashOverride = next.parseTerrainHashOverride
+  minimapBaseName = next.minimapBaseName
+  minimapTaggedBaseName = next.minimapTaggedBaseName
+  minimapExtentOf = next.minimapExtentOf
+  minimapResOf = next.minimapResOf
+  minimapDescriptor = next.minimapDescriptor
+  terrainBakeKey = next.terrainBakeKey
+  minimapBakeParams = next.minimapBakeParams
+  withTerrainSeed = next.withTerrainSeed
+  withTerrainHashVersion = next.withTerrainHashVersion
+  DEFAULT_TERRAIN_HASH_VERSION = next.DEFAULT_TERRAIN_HASH_VERSION
+  LEGACY_TERRAIN_HASH_VERSION = next.LEGACY_TERRAIN_HASH_VERSION
+  TERRAIN_HASH_VERSIONS = next.TERRAIN_HASH_VERSIONS
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapTerrainConfig)

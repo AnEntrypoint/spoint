@@ -1,10 +1,10 @@
-export const DEFAULT_TICK_RATE_HZ = 60
-export const DEFAULT_GRAVITY = Object.freeze([0, -9.81, 0])
-export const DEFAULT_SPAWN_POINT = Object.freeze([0, 5, 0])
-export const PLAYER_DEFAULTS = Object.freeze({ capsuleRadius: 0.4, capsuleHalfHeight: 0.9, crouchHalfHeight: 0.45, mass: 120, health: 100 })
-export const DEFAULT_PLAYER_MODEL = '/assets/default-avatar.vrm'
-export const DEFAULT_ICE_SERVERS =Object.freeze([Object.freeze({ urls: 'stun:stun.l.google.com:19302' })])
-export const DEFAULT_MOBILE_BUTTONS = Object.freeze([
+export let DEFAULT_TICK_RATE_HZ = 60
+export let DEFAULT_GRAVITY = Object.freeze([0, -9.81, 0])
+export let DEFAULT_SPAWN_POINT = Object.freeze([0, 5, 0])
+export let PLAYER_DEFAULTS = Object.freeze({ capsuleRadius: 0.4, capsuleHalfHeight: 0.9, crouchHalfHeight: 0.45, mass: 120, health: 100 })
+export let DEFAULT_PLAYER_MODEL = '/assets/default-avatar.vrm'
+export let DEFAULT_ICE_SERVERS =Object.freeze([Object.freeze({ urls: 'stun:stun.l.google.com:19302' })])
+export let DEFAULT_MOBILE_BUTTONS = Object.freeze([
   Object.freeze({ action: 'jump' }),
   Object.freeze({ action: 'crouch' }),
   Object.freeze({ action: 'interact' })
@@ -35,8 +35,8 @@ export class WorldMobileButtonsError extends Error {
   }
 }
 
-export const MOBILE_BUTTON_GRID_MAX_COL = 3
-export const MOBILE_BUTTON_GRID_MAX_ROW = 3
+export let MOBILE_BUTTON_GRID_MAX_COL = 3
+export let MOBILE_BUTTON_GRID_MAX_ROW = 3
 
 export function worldMobileButtons(worldDef) {
   const declared = worldDef?.input?.mobileButtons
@@ -92,3 +92,34 @@ function envIceServers() {
 export function worldIceServers(worldDef) {
   return worldDef?.iceServers || envIceServers() || DEFAULT_ICE_SERVERS.map(s => ({ ...s }))
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapWorldDefaults = (next) => {
+  worldTickRate = next.worldTickRate
+  worldGravity = next.worldGravity
+  worldSpawnPoints = next.worldSpawnPoints
+  worldEquipment = next.worldEquipment
+  worldMobileButtons = next.worldMobileButtons
+  worldPlayerModel = next.worldPlayerModel
+  playerDefault = next.playerDefault
+  worldIceServers = next.worldIceServers
+  WorldMobileButtonsError = next.WorldMobileButtonsError
+  DEFAULT_TICK_RATE_HZ = next.DEFAULT_TICK_RATE_HZ
+  DEFAULT_GRAVITY = next.DEFAULT_GRAVITY
+  DEFAULT_SPAWN_POINT = next.DEFAULT_SPAWN_POINT
+  PLAYER_DEFAULTS = next.PLAYER_DEFAULTS
+  DEFAULT_PLAYER_MODEL = next.DEFAULT_PLAYER_MODEL
+  DEFAULT_ICE_SERVERS = next.DEFAULT_ICE_SERVERS
+  DEFAULT_MOBILE_BUTTONS = next.DEFAULT_MOBILE_BUTTONS
+  MOBILE_BUTTON_GRID_MAX_COL = next.MOBILE_BUTTON_GRID_MAX_COL
+  MOBILE_BUTTON_GRID_MAX_ROW = next.MOBILE_BUTTON_GRID_MAX_ROW
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapWorldDefaults)

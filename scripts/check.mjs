@@ -274,7 +274,10 @@ const NO_GPU_WITNESSES = [
   // march removed and with both removed and requires the count to fall to half and then to zero --
   // a counter that printed 0 in every arm would fail here instead of reading as a measurement.
   { file: 'sky-aerial-perspective-count-witness.mjs', must: /MEASURED before: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED one-march-removed: expNodes=24 expOps=40 lutFetches=8[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*MEASURED shared-solve: expNodes=0 expOps=0 lutFetches=6[\s\S]*RESULT: PASS/ },
-]
+  // The `must` is the second half of the witness: zero reloads is also what a dead counter prints,
+  // so it pins (a) the control module still reloading once, (b) the reload class actually FALLING
+  // over the real 426-module graph, and (c) the whole slice converted -- not just SceneSetup.js.
+  { file: 'hmr-self-accept-rebind-witness.mjs', must: /MEASURED hmr-self-accept-rebind: page reload\(s\) per save for client\/core\/SceneSetup\.js 1 -> 0 \(control module \S+ still 1\)[\s\S]*reload class of the real graph 394\/426 -> 375\/426[\s\S]*self-accepting module\(s\) 19, converted in this slice 18[\s\S]*RESULT: PASS/ },]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
 const SLOW_NO_GPU_WITNESSES = [

@@ -1,6 +1,6 @@
-export const DEFAULT_PATCH_MAX_LEVEL = 11
+export let DEFAULT_PATCH_MAX_LEVEL = 11
 
-export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
+export let SURFACE_SOLVE_TOLERANCE_M = 1e-4
 const _reportedSolveFailures = new Set()
 const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
 const _solveStats = { solves: 0, evaluations: 0 }
@@ -86,7 +86,7 @@ function groundFailureCause(e) {
   return `solver residual ${e.residualM} m`
 }
 
-export const NO_GROUND_HEIGHT = null
+export let NO_GROUND_HEIGHT = null
 
 export function isNoGroundHeight(v) { return v === NO_GROUND_HEIGHT }
 
@@ -332,3 +332,39 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   frame.reanchor = reanchor
   return frame
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapPlanetFrame = (next) => {
+  surfaceSolveStepDiscontinuities = next.surfaceSolveStepDiscontinuities
+  surfaceSolveStats = next.surfaceSolveStats
+  resetSurfaceSolveStats = next.resetSurfaceSolveStats
+  groundMemoStats = next.groundMemoStats
+  resetGroundMemoStats = next.resetGroundMemoStats
+  isNoGroundHeight = next.isNoGroundHeight
+  isSurfaceRootWithin = next.isSurfaceRootWithin
+  guardedGroundHeight = next.guardedGroundHeight
+  sphereDropBelowTangent = next.sphereDropBelowTangent
+  sphereSurfaceLocalY = next.sphereSurfaceLocalY
+  waterlineLocalY = next.waterlineLocalY
+  elevationAtLocal = next.elevationAtLocal
+  anchorBasis = next.anchorBasis
+  tangentLocalToDir = next.tangentLocalToDir
+  createPlanetFrame = next.createPlanetFrame
+  SurfaceSolveError = next.SurfaceSolveError
+  ChartRangeError = next.ChartRangeError
+  NoGroundHeightError = next.NoGroundHeightError
+  SolveToleranceError = next.SolveToleranceError
+  SurfaceSolveArgumentError = next.SurfaceSolveArgumentError
+  DEFAULT_PATCH_MAX_LEVEL = next.DEFAULT_PATCH_MAX_LEVEL
+  SURFACE_SOLVE_TOLERANCE_M = next.SURFACE_SOLVE_TOLERANCE_M
+  NO_GROUND_HEIGHT = next.NO_GROUND_HEIGHT
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapPlanetFrame)

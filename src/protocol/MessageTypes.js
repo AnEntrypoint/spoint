@@ -1,6 +1,6 @@
-export const WIRE_PROTOCOL_VERSION = 5
+export let WIRE_PROTOCOL_VERSION = 5
 
-export const MSG = Object.freeze({
+export let MSG = Object.freeze({
   HANDSHAKE: 0x01,
   HANDSHAKE_ACK: 0x02,
   HEARTBEAT: 0x03,
@@ -147,7 +147,7 @@ export function msgName(id) {
   return nameMap.has(id) ? nameMap.get(id) : null
 }
 
-export const UNRELIABLE_MSGS = new Set([
+export let UNRELIABLE_MSGS = new Set([
   MSG.HEARTBEAT, MSG.HEARTBEAT_ACK, MSG.SNAPSHOT, MSG.INPUT, MSG.STATE_CORRECTION, MSG.DELTA_UPDATE,
   MSG.PLAYER_INPUT, MSG.CLIENT_PERF, MSG.CLIENT_STATE, MSG.FREDDIE_MESSAGE, MSG.TIME_OF_DAY_SYNC, MSG.PEER_RTT_TABLE
 ])
@@ -157,7 +157,7 @@ export function isUnreliable(type) {
   return UNRELIABLE_MSGS.has(type)
 }
 
-export const DISCONNECT_REASONS = Object.freeze({
+export let DISCONNECT_REASONS = Object.freeze({
   NORMAL: 0,
   TIMEOUT: 1,
   KICKED: 2,
@@ -166,3 +166,22 @@ export const DISCONNECT_REASONS = Object.freeze({
   RATE_LIMITED: 5,
   PROTOCOL_MISMATCH: 6
 })
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapMessageTypes = (next) => {
+  msgName = next.msgName
+  isUnreliable = next.isUnreliable
+  WIRE_PROTOCOL_VERSION = next.WIRE_PROTOCOL_VERSION
+  MSG = next.MSG
+  UNRELIABLE_MSGS = next.UNRELIABLE_MSGS
+  DISCONNECT_REASONS = next.DISCONNECT_REASONS
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapMessageTypes)

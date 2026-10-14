@@ -4,7 +4,7 @@ import planet from '../presets/planet.js'
 import platformer from '../presets/platformer.js'
 import rts from '../presets/rts.js'
 
-export const WORLD_PRESETS = Object.freeze({ tps, arena, planet, platformer, rts })
+export let WORLD_PRESETS = Object.freeze({ tps, arena, planet, platformer, rts })
 
 const isPlainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 
@@ -48,3 +48,18 @@ export function expandWorldPresets(worldDef) {
   }
   return mergeWorld(merged, own)
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapWorldPresets = (next) => {
+  expandWorldPresets = next.expandWorldPresets
+  WORLD_PRESETS = next.WORLD_PRESETS
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapWorldPresets)

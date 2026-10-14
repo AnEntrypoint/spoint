@@ -244,3 +244,31 @@ export function valueNoise3(hash, seed, px, py, pz, cellM) {
   const y0 = x00 + (x10 - x00) * ty, y1 = x01 + (x11 - x01) * ty
   return y0 + (y1 - y0) * tz
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapPlacementChart = (next) => {
+  latticeFor = next.latticeFor
+  ringAroundLocal = next.ringAroundLocal
+  chunkKeyAtLocal = next.chunkKeyAtLocal
+  chunkCentreLocal = next.chunkCentreLocal
+  chunkBoundsLocal = next.chunkBoundsLocal
+  surfaceAlongDir = next.surfaceAlongDir
+  tangentFrame = next.tangentFrame
+  tangentToLocal = next.tangentToLocal
+  tangentHeadingInChart = next.tangentHeadingInChart
+  tangentFrameQuat = next.tangentFrameQuat
+  quatMulF32 = next.quatMulF32
+  radialSlopeAt = next.radialSlopeAt
+  climateAt = next.climateAt
+  seaLocalXZ = next.seaLocalXZ
+  valueNoise3 = next.valueNoise3
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapPlacementChart)

@@ -1,23 +1,23 @@
 import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
 import { biomeStrokeReplay, replayStrokes } from './brushStroke.js'
 
-export const CELL_M = 8
+export let CELL_M = 8
 
-export const PAINT_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'target carries a finite temp, humidity and erosion'])
+export let PAINT_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'target carries a finite temp, humidity and erosion'])
 
 function cellKey(cx, cz) {
   const KEY_AXIS_SPAN = 1 << 23, KEY_AXIS_OFFSET = KEY_AXIS_SPAN >> 1
   return (cx + KEY_AXIS_OFFSET) * KEY_AXIS_SPAN + (cz + KEY_AXIS_OFFSET)
 }
 
-export const BIOME_PRESETS = Object.freeze({
+export let BIOME_PRESETS = Object.freeze({
   desert: Object.freeze({ temp: 0.85, humidity: 0.10, erosion: 0.55 }),
   tundra: Object.freeze({ temp: 0.10, humidity: 0.45, erosion: 0.35 }),
   forest: Object.freeze({ temp: 0.55, humidity: 0.75, erosion: 0.25 }),
   grassland: Object.freeze({ temp: 0.55, humidity: 0.40, erosion: 0.30 }),
   wetland: Object.freeze({ temp: 0.60, humidity: 0.95, erosion: 0.15 }),
 })
-export const BIOME_NAMES = Object.freeze(Object.keys(BIOME_PRESETS))
+export let BIOME_NAMES = Object.freeze(Object.keys(BIOME_PRESETS))
 
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
 
@@ -108,3 +108,22 @@ export function createBiomeOverride(strokes) {
 export function loadBiomeOverride(json) {
   return createBiomeOverride(json && json.strokes)
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapBiomeOverride = (next) => {
+  createBiomeOverride = next.createBiomeOverride
+  loadBiomeOverride = next.loadBiomeOverride
+  CELL_M = next.CELL_M
+  PAINT_REQUIRES = next.PAINT_REQUIRES
+  BIOME_PRESETS = next.BIOME_PRESETS
+  BIOME_NAMES = next.BIOME_NAMES
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapBiomeOverride)

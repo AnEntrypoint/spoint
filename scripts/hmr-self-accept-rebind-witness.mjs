@@ -123,6 +123,37 @@ const GRAPH = join(REPO, 'src', 'sdk', 'DevHmrGraph.js')
 const DECIDE = join(CLIENT, 'dev', 'hmr-decide.js')
 const RUNTIME = join(CLIENT, 'dev', 'HmrRuntime.js')
 const SCENE_SETUP = join(CLIENT, 'core', 'SceneSetup.js')
+// The rest of the slice: modules that were classified RELOAD (findBoundaries walked to the app root
+// and found no acceptor) and now self-accept and re-assign their own export bindings. Ranked by how
+// much of the graph depends on them, with a preference for root-level static imports, and refused
+// where a re-assign could not be proved complete:
+//   client/core/strings.js -- exports `default STRINGS` alongside the named const, and a default
+//     export snapshots its value, so re-pointing STRINGS would leave every `import STRINGS from`
+//     reading the previous object: a silent partial, worse than a reload.
+//   src/protocol/msgpack.js -- builds a packer at import time (_ensurePackr()); a re-import
+//     constructs a second one and the swap cannot retire the first.
+//   src/shared/chartAnchor.js, src/netcode/NetcodeProfile.js -- re-export an imported binding
+//     (`export { X }`), which is not an assignable binding here.
+const CONVERTED = [
+  '/src/terrain/PlanetFrame.js',
+  '/src/terrain/PlacementLattice.js',
+  '/src/shared/fnv1a.js',
+  '/src/shared/chartReexpress.js',
+  '/src/shared/chartTransfer.js',
+  '/src/terrain/PlacementChart.js',
+  '/src/protocol/MessageTypes.js',
+  '/src/shared/canonicalJSON.js',
+  '/src/shared/worldDefaults.js',
+  '/src/shared/worldName.js',
+  '/src/shared/terrainConfig.js',
+  '/src/terrain/BiomeOverride.js',
+  '/src/terrain/PaintedWeights.js',
+  '/src/shared/worldResolve.js',
+  '/src/shared/worldPresets.js',
+  '/src/shared/equipment.js',
+  '/src/shared/relevanceRadius.js',
+  '/core/debug-log.js',
+]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)
 }
@@ -153,6 +184,16 @@ async function run() {
   check('the real module graph built', g.size() > 100, 'graph size ' + g.size())
 
   const SCENE_SETUP_URL = '/core/SceneSetup.js'
+  // A url in this graph is root-absolute over the client dir first and the repo root second
+  // ('/core/X.js' but also '/src/terrain/X.js'), so a self-acceptor scan that only looked under
+  // client/ would miss every src/ module and understate the accept class.
+  const fileOf = (u) => {
+    const a = join(CLIENT, u.slice(1))
+    if (existsSync(a)) return a
+    const b = join(REPO, u.slice(1))
+    if (existsSync(b)) return b
+    return null
+  }
   const sample = [...g.parents.keys()].filter((u) => !u.startsWith('/node_modules/'))
   const appSrc = readFileSync(join(CLIENT, 'app.js'), 'utf8')
   const above = new Set()
@@ -163,7 +204,9 @@ async function run() {
   // A self-acceptor is registered by the module itself, so the acceptor set that reflects the
   // source is "every module whose source calls acceptSelf".
   const selfAccepting = sample.filter((u) => {
-    try { return /acceptSelf\s*[?(]/.test(readFileSync(join(CLIENT, u.slice(1)), 'utf8')) } catch (_) { return false }
+    const f = fileOf(u)
+    if (f === null) return false
+    try { return /acceptSelf\s*[?(]/.test(readFileSync(f, 'utf8')) } catch (_) { return false }
   })
   const reachAll = new Map(reachBase)
   for (const u of selfAccepting) {
@@ -257,6 +300,62 @@ async function run() {
     'second save: ' + second.reloads + ' reload(s), ' + second.imports + ' fetch(es), binding moved=' +
     (!!swapped2 && live.setupLights === swapped2.setupLights))
 
+  // --- the rest of the slice ----------------------------------------------------
+  // Same three claims per module, and the second one is identity, not equality: a function or
+  // class export of the freshly imported instance is a DIFFERENT object from the previous copy's,
+  // so `live.f === next.f && live.f !== beforeF` is the re-assignment. A primitive constant reads
+  // the same in both copies and is therefore not evidence on its own, which is why each module has
+  // to show at least one binding that provably moved. Zero reloads with a dead counter is the
+  // failure this is guarding against, so every module also has to have been RELOAD before.
+  let vSeq = 4000
+  const convertedRows = []
+  for (const url of CONVERTED) {
+    const file = fileOf(url)
+    if (file === null) {
+      check('converted module ' + url + ' resolves to a file', false, url + ' is in the graph but has no file')
+      continue
+    }
+    const wasReload = findBoundaries(reachBase, { url, parents: g.ancestors(url) }) === null
+    const nowAt = findBoundaries(reachAll, { url, parents: g.ancestors(url) })
+    check(url + ' was RELOAD and now accepts at itself',
+      wasReload && !!nowAt && nowAt.length === 1 && nowAt[0] === url,
+      url + ': wasReload=' + wasReload + ', findBoundaries now ' + JSON.stringify(nowAt))
+
+    let mod = null
+    try { mod = await import(url) } catch (e) {
+      check(url + ' imports under node', false, url + ' threw: ' + (e && e.message))
+      continue
+    }
+    const names = Object.keys(mod).filter((n) => n !== 'default')
+    const beforeVals = names.map((n) => mod[n])
+    const key = new URL(pathToFileURL(file).href).pathname
+    const seg = { reloads: reloaded, imports: versionedImports }
+    for (let i = 0; i < 4; i++) {
+      source.onmessage({ data: JSON.stringify({
+        kind: 'module', seq: vSeq + i, t: Date.now(), path: url.slice(1), url: key, v: vSeq + i,
+        parents: {}, client: true, worker: false, eager: true,
+      }) })
+    }
+    vSeq += 100
+    await hmr.settled()
+    const got = { reloads: reloaded - seg.reloads, imports: versionedImports - seg.imports, href: lastVersionedHref }
+    const next = got.href ? await import(got.href) : null
+    check('one save of ' + url + ' reloads nothing and fetches once',
+      got.reloads === 0 && got.imports === 1,
+      url + ': ' + got.reloads + ' page reload(s), ' + got.imports + ' versioned fetch(es)')
+    if (!next) continue
+    const pointing = names.filter((n) => mod[n] === next[n]).length
+    const identity = names.filter((n, i) => (typeof next[n] === 'function' || (next[n] !== null && typeof next[n] === 'object')) &&
+      mod[n] === next[n] && mod[n] !== beforeVals[i]).length
+    check('every export binding of ' + url + ' points at the new copy and at least one provably moved',
+      pointing === names.length && identity > 0,
+      url + ': ' + pointing + '/' + names.length + ' binding(s) point at the new copy, ' + identity +
+      ' provably re-assigned (so the swap ran and covered the whole export set)')
+    convertedRows.push(url + '=' + got.reloads + 'r/' + got.imports + 'f/' + pointing + 'of' + names.length +
+      'b/' + identity + 'moved')
+  }
+  say('CONVERTED ' + convertedRows.length + ' module(s): ' + convertedRows.join(' '))
+
   // --- non-vacuity: the edit really reaches a static importer -------------------
   // Zero reloads is what a silent no-op reports too. The pair below is the smallest thing with the
   // same shape as app.js -> SceneSetup.js: a STATIC import, a self-accepting module, and a swap.
@@ -297,6 +396,51 @@ async function run() {
   }
   check('a static importer calls the EDITED copy after the swap', pairOk, pairDetail)
 
+  // --- non-vacuity, driven by the runtime: the swap the RUNTIME performs for a real on-disk edit
+  // --- is the one a static importer of that module observes -------------------------------------
+  // The pair above calls the swap function directly. This one never touches it: it edits a module
+  // on disk, fires one save through the real runtime, and reads the value back through a second
+  // module that imported it statically. So "0 reloads" is not the only thing being asserted -- the
+  // edit is shown to take effect in code that never re-imported.
+  const TMP2 = join(REPO, '.gm', 'tmp', 'hmr-self-accept-rebind-runtime')
+  rmSync(TMP2, { recursive: true, force: true })
+  mkdirSync(TMP2, { recursive: true })
+  const rtTarget = join(TMP2, 'target.js')
+  const rtConsumer = join(TMP2, 'consumer.js')
+  const writeRtTarget = (v) => writeFileSync(rtTarget, [
+    "export let marker = '" + v + "'",
+    'export function read() { return marker }',
+    'const _hotSwapTarget = (next) => { marker = next.marker; read = next.read }',
+    'globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapTarget)',
+    '',
+  ].join('\n'))
+  writeFileSync(rtConsumer, ["import { read } from './target.js'", 'export const value = () => read()', ''].join('\n'))
+  let rtOk = false
+  let rtDetail = 'not run'
+  try {
+    writeRtTarget('v1')
+    await import(pathToFileURL(rtTarget).href)
+    const consumer = await import(pathToFileURL(rtConsumer).href)
+    const rtBefore = consumer.value()
+    writeRtTarget('v2')
+    const rtKey = new URL(pathToFileURL(rtTarget).href).pathname
+    for (let i = 0; i < 4; i++) {
+      source.onmessage({ data: JSON.stringify({
+        kind: 'module', seq: 7000 + i, t: Date.now(), path: 'target.js', url: rtKey, v: 7000 + i,
+        parents: {}, client: true, worker: false, eager: true,
+      }) })
+    }
+    await hmr.settled()
+    const rtAfter = consumer.value()
+    rtOk = rtBefore === 'v1' && rtAfter === 'v2'
+    rtDetail = 'runtime-driven: importer saw ' + rtBefore + ' before the save and ' + rtAfter + ' after it'
+  } catch (e) {
+    rtDetail = 'the runtime-driven pair threw: ' + (e && e.message)
+  } finally {
+    rmSync(TMP2, { recursive: true, force: true })
+  }
+  check('the runtime swap of a real on-disk edit is what a static importer observes', rtOk, rtDetail)
+
   // --- non-vacuity: the reload counter does move when it should -----------------
   const doomed = sample.find((u) => {
     if (u === SCENE_SETUP_URL || selfAccepting.includes(u)) return false
@@ -336,7 +480,8 @@ async function run() {
   say('MEASURED hmr-self-accept-rebind: page reload(s) per save for client/core/SceneSetup.js ' +
     beforeArm.reloads + ' -> ' + first.reloads + ' (control module ' + (doomed || 'none') + ' still ' + control + '); versioned module fetch(es) per save ' +
     first.imports + '; export binding(s) moved to the new copy ' + moved + ' of ' + movedFns.length +
-    '; reload class of the real graph ' + before.reload + '/' + sample.length + ' -> ' + after.reload + '/' + sample.length)
+    '; reload class of the real graph ' + before.reload + '/' + sample.length + ' -> ' + after.reload + '/' + sample.length +
+    '; self-accepting module(s) ' + selfAccepting.length + ', converted in this slice ' + CONVERTED.length)
   say('RESULT: ' + (failures.length === 0 ? 'PASS' : 'FAIL') + ' (' + (checks.length - failures.length) + ' of ' + checks.length + ' claim(s) passed)')
   for (const f of failures) say('[FAIL] ' + f)
   process.exitCode = failures.length === 0 ? 0 : 1
