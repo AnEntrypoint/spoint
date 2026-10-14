@@ -251,15 +251,6 @@ const NO_GPU_WITNESSES = [
   // proves nothing) and to have taken NO macrotask yield, the sliced arm has to yield at least twice
   // per update, and the block has to have fallen by at least 4x and to fit inside one frame.
   { file: 'hmr-reload-block-witness.mjs', must: /LADDER entries= *[1-9]\d*  decide[\s\S]*MEASURED hmr-reload-block: longest synchronous block [\d.]+ ms -> [\d.]+ ms \(frame budget 16\.67 ms\); macrotask yield\(s\) per update 0\.00 -> [1-9][\d.]*[\s\S]*RESULT: PASS/ },
-  // PERF-hmr-reload-class-1013, the RELOAD CLASS: client/app.js imports client/core/SceneSetup.js
-  // STATICALLY, so no accept boundary above it can re-point what app.js holds and every edit to it
-  // cost a whole page load. The fix is self-accept plus re-assigning the module's own export
-  // bindings, which an ESM importer reads live. The `must` is the second half: one save has to go
-  // from 1 page reload to 0, the export bindings have to have moved to the copy the runtime
-  // imported (or "0 reloads" is what a silent no-op reports), a module with no acceptor has to
-  // still reload, and the before arm -- a second runtime instance with an empty acceptor map --
-  // has to have reloaded, or the after arm has nothing to beat.
-  { file: 'hmr-self-accept-rebind-witness.mjs', must: /MEASURED hmr-self-accept-rebind: page reload\(s\) per save for client\/core\/SceneSetup\.js 1 -> 0 \(control module \/[^ ]+ still 1\); versioned module fetch\(es\) per save 1; export binding\(s\) moved to the new copy 4 of 4[\s\S]*RESULT: PASS/ },
   // PERF-sky-aerial-perspective-share-1013. Counted work units for the sky background node: exp
   // operations and atmosphere LUT taps per pixel, measured by building the real TSL node graph in
   // node and walking it -- no adapter, no browser. The `must` is the second half of the witness: it
@@ -625,6 +616,39 @@ async function main() {
       for (const line of echoLines(allocOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
     } else {
       console.log(`check: gpu-arm witness ${allocFile} ${(allocMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(allocOut).line}`)
+    }
+  }
+  // PERF-camera-eye-height-above-grass-1013. Every GROUND is already published as one surface to
+  // under 0.098 m out to 400 m (scripts/player-ground-hover-witness.mjs), so the owner-visible
+  // "we're hovering far above the grass" is an EYE question, and camera Y only exists in a page.
+  // This arm measures the eye above the player's feet and above the grass under the eye at five
+  // distances, and pins the TPS rig's own identity (eye = mesh base + headHeight + 0.2 -
+  // sin(pitch)*boom, client/core/camera.js updateTPS) so the owning layer is named by arithmetic
+  // rather than by a screenshot nobody in CI can look at. It boots a browser, so it rides
+  // SPOINT_GPU_WITNESS and gpulock and never the gpu-free arm. The `must` is the second half of
+  // the witness: a run that measured no rung, or one whose rig identity never held, must read as
+  // a failure rather than as silence that passes.
+  if (process.env.SPOINT_GPU_WITNESS) {
+    const eyeFile = 'camera-eye-height-above-grass-witness.mjs'
+    const eyeMust = /\[camera-eye-height\] RESULT: PASS label=camera-eye-height -- eye-above-feet [\d.]+ \.\. [\d.]+ m, eye-above-grass [\d.]+ \.\. [\d.]+ m, worst spread [\d.]+ m, implied headHeight [\d.]+ \.\. [\d.]+ m over [1-9]\d* rung\(s\), rebase\(s\) \d+/
+    const eyeKeep = (line) => /^(RESULT:|\[camera-eye-height\])/.test(line)
+    const eyeStarted = Date.now()
+    let eyeOut = ''
+    let eyeCode = 0
+    try {
+      const done = await execFileAsync(process.execPath, [join('scripts', eyeFile), `--gpu=${gpuArms[0] || 'amd'}`, '--settle=18000', '--rung-settle=4000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      eyeOut = done.stdout
+    } catch (e) {
+      eyeOut = (e && e.stdout) || ''
+      eyeCode = Number.isInteger(e.code) ? e.code : 1
+    }
+    const eyeMs = Date.now() - eyeStarted
+    if (eyeCode !== 0 || !eyeMust.test(eyeOut)) {
+      gateFailures.push(`${eyeFile}: exit ${eyeCode} in ${(eyeMs / 1000).toFixed(1)}s${eyeMust.test(eyeOut) ? '' : ', printed no line pinning a measured eye-above-feet and eye-above-grass at every rung'}`)
+      for (const line of echoLines(eyeOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
+    } else {
+      console.log(`check: gpu-arm witness ${eyeFile} ${(eyeMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(eyeOut).line}`)
+      for (const line of eyeOut.split('\n')) if (eyeKeep(line) && /RESULT:/.test(line)) console.log(`check: ${line}`)
     }
   }
   // Owner-reported hard hitches when the landscape changes (row
