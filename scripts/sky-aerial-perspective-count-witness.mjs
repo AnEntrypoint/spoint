@@ -3,15 +3,16 @@
 // atmosphere LUT fetches. It builds the REAL node graph in node (no adapter, no browser) by
 // running the sky's own Fn body against the real TSL module, then walks that graph.
 //
-// Non-vacuity: the same counter is run against three source variants written to a scratch dir --
-// one march removed, both marches removed, and the proposed shared-LUT solve -- so a count that
-// does not move when the marches are removed is a failure, not a measurement.
+// Non-vacuity in both directions: the shipped source is counted, then a variant that restores the
+// two marches this node used to run is counted and has to come back to the original numbers, and a
+// variant with every march removed has to come back to zero. A counter that printed the same figure
+// for all three, or zero for all three, fails here instead of reading as a measurement.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const LABEL = 'sky-aerial-perspective-count'
+const LABEL = 'sky-single-march-count'
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
 const ROOT = path.resolve(HERE, '..')
 const REAL = path.join(ROOT, 'packages', 'mapspinner', 'src', 'tsl', 'sky-tsl.js')
@@ -120,62 +121,61 @@ const variant = (name, edits) => {
   return dest
 }
 
-const SKY_CALL = "const sky = marchSteps(camera, ray, sun, distToTop(r, mu))"
-const GROUND_CALL = "const ground = marchSteps(camera, ray, sun, max(distToGround(r, mu), 1e-3))"
+// The shipped background node: one march whose end distance is selected by wSky instead of two
+// marches whose results are blended by it.
+const SINGLE_BLOCK = [
+  '    const wSky = smoothstep(muTangent.sub(ATM_HORIZON_BLEND_MU), muTangent.add(ATM_HORIZON_BLEND_MU), mu)',
+  '    const dEnd = mix(max(distToGround(r, mu), 1e-3), distToTop(r, mu), wSky)',
+  '    const marched = marchSteps(camera, ray, sun, dEnd)',
+  '    const skyVisible = distToTop(r, mu).greaterThan(0.0).and(rIn.lessThanEqual(ATM_TOP).or(dtIn.greaterThanEqual(0.0)))',
+  '    const radianceBase = select(skyVisible, marched.radiance, vec3(0.0))',
+  '    const trans = select(skyVisible, mix(vec3(0.0), marched.trans, wSky), vec3(1.0))',
+].join('\n')
 
-const before = await countSky(REAL)
-console.log(`MEASURED before: expNodes=${before.expNodes} expOps=${before.expOps} lutFetches=${before.fetches} graphNodes=${before.nodes}`)
+// The node as it shipped before this row: two unconditional marches, mixed.
+const TWO_MARCH_BLOCK = [
+  '    const wSky = smoothstep(muTangent.sub(ATM_HORIZON_BLEND_MU), muTangent.add(ATM_HORIZON_BLEND_MU), mu)',
+  '    const sky = marchSteps(camera, ray, sun, distToTop(r, mu))',
+  '    const ground = marchSteps(camera, ray, sun, max(distToGround(r, mu), 1e-3))',
+  '    const skyVisible = distToTop(r, mu).greaterThan(0.0).and(rIn.lessThanEqual(ATM_TOP).or(dtIn.greaterThanEqual(0.0)))',
+  '    const radianceBase = select(skyVisible, mix(ground.radiance, sky.radiance, wSky), vec3(0.0))',
+  '    const trans = select(skyVisible, mix(vec3(0.0), sky.trans, wSky), vec3(1.0))',
+].join('\n')
 
-const oneMarch = await countSky(variant('one-march.js', [[GROUND_CALL, 'const ground = sky']]))
-console.log(`MEASURED one-march-removed: expNodes=${oneMarch.expNodes} expOps=${oneMarch.expOps} lutFetches=${oneMarch.fetches}`)
+const real = fs.readFileSync(REAL, 'utf8').replace(/\r\n/g, '\n')
+const nodeBody = (() => {
+  const a = real.indexOf('const node = Fn(() => {')
+  const b = real.indexOf('\n  })()', a)
+  return a < 0 || b < 0 ? '' : real.slice(a, b)
+})()
+// The refuted predecessor row swapped marchSteps for marchRadiance, a different integrator. This row
+// must not: one march, same march.
+check('background node still integrates with marchSteps', /marchRadiance\(/.test(nodeBody), false)
+check('background node no longer carries the second march', (nodeBody.match(/marchSteps\(/g) || []).length, 1)
 
-const noMarch = await countSky(variant('no-march.js', [
-  [SKY_CALL, 'const sky = { radiance: vec3(0.0), trans: vec3(1.0) }'],
-  [GROUND_CALL, 'const ground = sky'],
+const single = await countSky(REAL)
+console.log(`MEASURED single-march: expNodes=${single.expNodes} expOps=${single.expOps} lutFetches=${single.fetches} graphNodes=${single.nodes}`)
+
+const two = await countSky(variant('two-marches.js', [[SINGLE_BLOCK, TWO_MARCH_BLOCK]]))
+console.log(`MEASURED two-marches-restored: expNodes=${two.expNodes} expOps=${two.expOps} lutFetches=${two.fetches}`)
+
+const none = await countSky(variant('no-march.js', [
+  ['    const marched = marchSteps(camera, ray, sun, dEnd)', '    const marched = { radiance: vec3(0.0), trans: vec3(1.0) }'],
 ]))
-console.log(`MEASURED both-marches-removed: expNodes=${noMarch.expNodes} expOps=${noMarch.expOps} lutFetches=${noMarch.fetches}`)
+console.log(`MEASURED both-marches-removed: expNodes=${none.expNodes} expOps=${none.expOps} lutFetches=${none.fetches}`)
 
-// The proposed share: one scattering/transmittance solve for the camera, one tail solve for the
-// ground end. Both branches derive from it, so nothing is integrated twice.
-const SHARED = `    const muS = dot(camera, sun).div(r).toVar()
-    const nu = dot(ray, sun).toVar()
-    const dTop = distToTop(r, mu).toVar()
-    const full = scattering(r, mu, muS).toVar()
-    const tFull = transmittance(r, mu).toVar()
-    const dGround = max(distToGround(r, mu), 1e-3).toVar()
-    const pEnd = camera.add(ray.mul(dGround)).toVar()
-    const rEnd = length(pEnd).toVar()
-    const muEnd = dot(pEnd, ray).div(rEnd).toVar()
-    const tail = scattering(rEnd, muEnd, dot(pEnd, sun).div(rEnd)).toVar()
-    const tEnd = transmittance(rEnd, muEnd).toVar()
-    const hasTail = dGround.lessThan(dTop.sub(1e-4))
-    const tToEnd = tFull.div(max(tEnd, vec3(1e-6))).toVar()
-    const gr = select(hasTail, max(full.rgb.sub(tToEnd.mul(tail.rgb)), vec3(0.0)), vec3(0.0)).toVar()
-    const gm = select(hasTail, max(full.a.sub(dot(tToEnd, vec3(1 / 3)).mul(tail.a)), 0.0), 0.0).toVar()
-    const phaseR = rayleigh.mul(rayleighPhase(nu))
-    const phaseM = vec3(miePhase(nu).mul(ATM_MIE_SCAT))
-    const sky = { radiance: solar.mul(full.rgb.mul(phaseR).add(full.a.mul(phaseM))), trans: tFull }
-    const ground = { radiance: solar.mul(gr.mul(phaseR).add(gm.mul(phaseM))), trans: vec3(0.0) }`
-const shared = await countSky(variant('shared.js', [
-  [`    const sky = marchSteps(camera, ray, sun, distToTop(r, mu))\n    const ground = marchSteps(camera, ray, sun, max(distToGround(r, mu), 1e-3))`, SHARED],
-]))
-console.log(`MEASURED shared-solve: expNodes=${shared.expNodes} expOps=${shared.expOps} lutFetches=${shared.fetches}`)
+// One march: 8 unrolled steps of 2 scalar exp + 1 vec3 exp and one transmittance-LUT tap.
+check('single march expOps/pixel', single.expOps, 40)
+check('single march expNodes/pixel', single.expNodes, 24)
+check('single march lutFetches/pixel', single.fetches, 8)
 
-// Baseline: the two marches are unconditional, 8 steps each, 2 scalar + 1 vec3 exp and one
-// transmittance-LUT tap per step.
-check('before expOps/pixel', before.expOps, 80)
-check('before lutFetches/pixel', before.fetches, 16)
-check('before expNodes/pixel', before.expNodes, 48)
+// Non-vacuous the other way: put the march back and the count returns to the original numbers.
+check('two marches restored expOps/pixel', two.expOps, 80)
+check('two marches restored expNodes/pixel', two.expNodes, 48)
+check('two marches restored lutFetches/pixel', two.fetches, 16)
 
-// Non-vacuous in both directions: remove work and the count must fall, all of it and to zero.
-check('one march removed halves expOps', oneMarch.expOps, 40)
-check('one march removed halves fetches', oneMarch.fetches, 8)
-check('both marches removed zeroes expOps', noMarch.expOps, 0)
-check('both marches removed zeroes fetches', noMarch.fetches, 0)
+check('both marches removed zeroes expOps', none.expOps, 0)
+check('both marches removed zeroes fetches', none.fetches, 0)
 
-// The shared solve integrates nothing: 6 LUT taps (2+1 for the camera, 2+1 for the ground tail).
-check('shared solve expOps/pixel', shared.expOps, 0)
-check('shared solve lutFetches/pixel', shared.fetches, 6)
-
-console.log(`RESULT: ${fail.length ? 'FAIL' : 'PASS'} label=${LABEL} before={exp:${before.expOps},lut:${before.fetches}} shared={exp:${shared.expOps},lut:${shared.fetches}}`)
+console.log(`RESULT: ${fail.length ? 'FAIL' : 'PASS'} label=${LABEL} single={exp:${single.expOps},lut:${single.fetches}} two-marches={exp:${two.expOps},lut:${two.fetches}}`)
 if (fail.length) { console.log('FAILURES ' + JSON.stringify(fail)); process.exit(1) }

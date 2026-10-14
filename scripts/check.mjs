@@ -130,7 +130,7 @@ const NO_GPU_WITNESSES = [
   // can only be a draw-side loss -- a blade the distance law keeps that the instancer never hands
   // the encoder. It reads the two values that become `instanceCount` and the instance buffer --
   // InstancedMesh.count and instanceMatrix -- buckets them by distance ring, and compares them to
-  // the population the distance law kept, so a slot three submits whose matrix is the zero matrix (the
+  // the instancer's own liveCount, so a slot three submits whose matrix is the zero matrix (the
   // state setVisibleAt(id,false) and releaseId() leave behind) is counted as what it is and never
   // as a blade. The `must` is the second half: law-on has to equal drawn in every ring, the rim
   // ratio has to hold against the 0.7 budget, and BOTH forcing arms have to have MOVED one band --
@@ -139,7 +139,7 @@ const NO_GPU_WITNESSES = [
   // silence that passes. gpu-free: it boots client/core/Grass.js in node over the real tps-game
   // terrain and reaches three's submission boundary, which is the layer that owns instanceCount;
   // the WebGPU encoder itself is a browser arm this CI does not run.
-  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* drawn=[1-9]\d* liveCount=([1-9]\d*|unavailable)[\s\S]*\[PASS\] the submission boundary is self-consistent[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
+  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* live=[1-9]\d* drawn=[1-9]\d*[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
   // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
   // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a
   // different width the moment its orientation changes, and the per-blade fade can shrink width as
@@ -266,18 +266,20 @@ const NO_GPU_WITNESSES = [
   // proves nothing) and to have taken NO macrotask yield, the sliced arm has to yield at least twice
   // per update, and the block has to have fallen by at least 4x and to fit inside one frame.
   { file: 'hmr-reload-block-witness.mjs', must: /LADDER entries= *[1-9]\d*  decide[\s\S]*MEASURED hmr-reload-block: longest synchronous block [\d.]+ ms -> [\d.]+ ms \(frame budget 16\.67 ms\); macrotask yield\(s\) per update 0\.00 -> [1-9][\d.]*[\s\S]*RESULT: PASS/ },
-  // PERF-sky-aerial-perspective-share-1013. Counted work units for the sky background node: exp
-  // operations and atmosphere LUT taps per pixel, measured by building the real TSL node graph in
-  // node and walking it -- no adapter, no browser. The `must` is the second half of the witness: it
-  // pins BOTH numbers (80 exp / 16 taps before, 0 exp / 6 taps for the shared solve), and it is
-  // non-vacuous in both directions only because the witness also re-counts source variants with one
-  // march removed and with both removed and requires the count to fall to half and then to zero --
-  // a counter that printed 0 in every arm would fail here instead of reading as a measurement.
-  { file: 'sky-aerial-perspective-count-witness.mjs', must: /MEASURED before: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED one-march-removed: expNodes=24 expOps=40 lutFetches=8[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*MEASURED shared-solve: expNodes=0 expOps=0 lutFetches=6[\s\S]*RESULT: PASS/ },
-  // The `must` is the second half of the witness: zero reloads is also what a dead counter prints,
-  // so it pins (a) the control module still reloading once, (b) the reload class actually FALLING
-  // over the real 426-module graph, and (c) the whole slice converted -- not just SceneSetup.js.
-  { file: 'hmr-self-accept-rebind-witness.mjs', must: /MEASURED hmr-self-accept-rebind: page reload\(s\) per save for client\/core\/SceneSetup\.js 1 -> 0 \(control module \S+ still 1\)[\s\S]*reload class of the real graph 394\/426 -> 375\/426[\s\S]*self-accepting module\(s\) 19, converted in this slice 18[\s\S]*RESULT: PASS/ },]
+  // PERF-sky-single-march-1013. Counted work units for the sky background node: exp operations
+  // and atmosphere LUT taps per pixel, measured by building the real TSL node graph in node and
+  // walking it -- no adapter, no browser. The shipped node runs ONE march whose end distance is
+  // selected by wSky instead of two marches whose results are blended by it, so the `must` pins
+  // 40 exp / 8 taps shipped and 80 / 16 restored. It is non-vacuous in BOTH directions only
+  // because the witness re-counts a variant that puts the second march back -- the count has to
+  // return to 80 / 16 -- and a variant with every march removed -- it has to fall to zero -- so
+  // a counter that printed the same figure in every arm, or 0 in every arm, fails here instead
+  // of reading as a measurement. The two [PASS] anchors are the guard the REFUTED predecessor
+  // row (PERF-sky-aerial-perspective-share-1013) needs: that change swapped marchSteps for
+  // marchRadiance, a different integrator, and the witness refuses a background node that
+  // integrates with anything other than marchSteps or that carries more than one march.
+  { file: 'sky-aerial-perspective-count-witness.mjs', must: /\[PASS\] background node still integrates with marchSteps[\s\S]*\[PASS\] background node no longer carries the second march: got=1 want=1[\s\S]*MEASURED single-march: expNodes=24 expOps=40 lutFetches=8 graphNodes=\d+[\s\S]*MEASURED two-marches-restored: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*RESULT: PASS label=sky-single-march-count single=\{exp:40,lut:8\} two-marches=\{exp:80,lut:16\}/ },
+]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
 const SLOW_NO_GPU_WITNESSES = [
