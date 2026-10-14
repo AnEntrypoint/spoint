@@ -264,7 +264,7 @@ const INSTALL_RUNNER = `(() => {
       renderer.setRenderTarget(pT); renderer.autoClear = pA; renderer.setClearColor(pC, pAl)
       log.push('calibrated unitsPerFragment=' + od.unit)
     }
-    const unit = od.unit
+    let unit = od.unit
     if (!(unit > 0) || !Number.isFinite(unit)) throw new Error('the accumulation target never calibrated (unitsPerFragment=' + unit + '), so no fragment figure can be read' + (od.diag ? ' -- diag=' + JSON.stringify(od.diag) : ''))
 
     // ---------- collect + classify ----------
@@ -302,7 +302,6 @@ const INSTALL_RUNNER = `(() => {
       for (const m of ms) { if (!m) continue; if (m.side === 2) return 2; s = s == null ? m.side : s }
       return s == null ? 0 : s
     }
-    const topLevel = (o) => { let p = o; while (p.parent && p.parent !== scene) p = p.parent; return p }
     const bandOf = new Map()
     const renderables = []
     for (const o of all) {
@@ -316,8 +315,12 @@ const INSTALL_RUNNER = `(() => {
       if (!o.material) continue
       const b = bandOf.get(o)
       if (b) { bandOf.set(o, b); renderables.push(o); continue }
-      const t = topLevel(o)
-      const label = (t.name && t.name !== '') ? ('scene:' + t.name) : ('scene:' + t.type + '#' + String(all.indexOf(t)))
+      // ONE band per named material, and ONE per object type for the unnamed rest. The label it
+      // replaced, scene:<type>#<index-in-traversal>, minted a band per object -- 534 of them --
+      // which attributes nothing and makes the run's cost scale with the object count, so the
+      // per-band passes were still warming pipelines long after the composite was measured.
+      const mn2 = matName(o)
+      const label = (mn2 && mn2 !== '') ? ('mat:' + mn2) : ('scene:' + o.type)
       bandOf.set(o, label)
       renderables.push(o)
     }
@@ -328,50 +331,80 @@ const INSTALL_RUNNER = `(() => {
     names.sort()
 
     // ---------- pass machinery ----------
-    const readAllOnce = async () => {
-      const buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
+    // THE ACCUMULATION RENDER HAPPENS INSIDE THE APP'S OWN FRAME. A render issued from outside the
+    // app's rAF loop does not land: with the app's loop frozen the calibration quad rasterized
+    // nothing (calibMax 0, 0 of 2,073,600 px covered) while a white CLEAR of the same target still
+    // read 1 everywhere, so neither the target nor the readback was at fault -- the render was. With
+    // the loop running the render does land, but the app is then drawing the same scene into the
+    // same target around it, which is why ONE fragment measured 1.0000 at boot, 0.436 in one run and
+    // 0.2955 in the next: a constant that moves between runs is not a scale, it is a target
+    // something else also writes. So every measured pass is rendered by
+    // client/core/OverdrawProbe.js from inside the render graph -- the path that measured the
+    // published 18.375 front / 20.807 back -- which draws the whole scene once with its additive
+    // material into its own RGBA16F target and reads it back. This witness sets only the cull side,
+    // the visibility and the enabled flag, then reads the target the probe filled.
+    const RC = window.__renderControls
+    const probe = window.__overdrawProbe
+    if (!RC || !probe) throw new Error('window.__renderControls or window.__overdrawProbe is absent, so the accumulation pass cannot be driven by the app')
+    // THE FILTER IS RE-ASSERTED AT RENDER TIME, NOT SET ONCE. The app writes object.visible every
+    // frame, so a filter applied before a sample is gone by the time that sample renders: every band
+    // read back ~2.2M fragments, the same as the composite, and hiding the top band made the deep
+    // bucket GROW from 9 px to 7317 px (it hid nothing, so the bucket moved for other reasons). So
+    // the filter is applied immediately before the accumulation render, and ONLY for it -- the
+    // render whose scene carries the probe's own override material -- which leaves the app's own
+    // frame renders untouched.
+    const realRender = renderer.render.bind(renderer)
+    renderer.render = (s, c) => {
+      if (s && s.overrideMaterial === probe.accumulateMaterial && od.filterKeep) {
+        for (const o of all) o.visible = od.filterKeep.has(o)
+      }
+      return realRender(s, c)
+    }
+    const visSaved = new Array(all.length)
+    for (let i = 0; i < all.length; i++) visSaved[i] = all[i].visible
+    const restoreVisible = () => { for (let i = 0; i < all.length; i++) all[i].visible = visSaved[i] }
+    const probeSample = async (side, pred, budgetMs = 60000) => {
+      const keep = keepFor(pred)
+      od.filterKeep = keep
+      for (const o of all) o.visible = keep.has(o)
+      probe.accumulateMaterial.side = side
+      probe.accumulateMaterial.forceSinglePass = true
+      probe.accumulateMaterial.depthTest = false
+      probe.accumulateMaterial.depthWrite = false
+      const before = probe.counters().reads
+      RC.set('overdraw', true)
+      let got = false
+      const t0 = Date.now()
+      try {
+        while (Date.now() - t0 < budgetMs) {
+          await new Promise(r => setTimeout(r, 100))
+          if (probe.counters().reads > before) { got = true; break }
+        }
+      } finally {
+        // Off again BEFORE anything is read. While it is on, the app re-renders the accumulation
+        // every 1000 ms, and a read is a snapshot of ONE pass only if the target is frozen between
+        // the sample that filled it and the read that measures it.
+        RC.set('overdraw', false)
+      }
+      if (!got) { od.filterKeep = null; throw new Error('the overdraw probe never published a new sample within ' + budgetMs + ' ms') }
+      // The probe's OWN readback of the same pass. It is a second instrument looking at the same
+      // target: if its totalFragments and this witness's sum/unit disagree, the disagreement is
+      // between the two instruments and not in the scene.
+      const st = probe.stats()
+      od.lastStats = st ? {
+        totalFragments: st.totalFragments,
+        fragmentsPerScreenPx: st.fragmentsPerScreenPixel,
+        coveredPixels: st.coveredPixels,
+        unitsPerFragment: st.unitsPerFragment,
+        maxFragmentsPerPixel: st.maxFragmentsPerPixel,
+        histogram: st.histogram,
+      } : null
+      const buf = await renderer.readRenderTargetPixelsAsync(probe.target, 0, 0, w, h)
       const out = new Float32Array(D)
       for (let i = 0; i < D; i++) out[i] = fh(buf[i * 4])
+      od.filterKeep = null
+      restoreVisible()
       return out
-    }
-    // (drainGpu is declared above the calibration; see the comment there.)
-    const readAll = async () => {
-      await drainGpu()
-      return await readAllOnce()
-    }
-    // A render target's own size is the region the instrument is counting over, so the renderer's
-    // user viewport and scissor must not narrow it: the app leaves both set (VDRS / split view),
-    // and an accumulation pass drawn into a sub-rect reads back as 0 at the centre while a clear
-    // of the same target still reads 1 everywhere -- the exact shape of the failure this replaces.
-    const fullViewport = (fn) => {
-      const pv = new THREE.Vector4()
-      renderer.getViewport(pv)
-      const ps = renderer.getScissorTest()
-      renderer.setViewport(0, 0, w, h)
-      renderer.setScissorTest(false)
-      try { return fn() } finally { renderer.setViewport(pv); renderer.setScissorTest(ps) }
-    }
-    const renderPass = (side, keep) => {
-      const pT = renderer.getRenderTarget(), pA = renderer.autoClear
-      const pC = new THREE.Color(); renderer.getClearColor(pC); const pAl = renderer.getClearAlpha()
-      const pO = scene.overrideMaterial
-      const saved = new Array(all.length)
-      for (let i = 0; i < all.length; i++) saved[i] = all[i].visible
-      for (const o of all) o.visible = keep.has(o)
-      renderer.setRenderTarget(target)
-      renderer.autoClear = true
-      renderer.setClearColor(0x000000, 0)
-      mat.side = side
-      scene.overrideMaterial = mat
-      try {
-        fullViewport(() => renderer.render(scene, camera))
-      } finally {
-        scene.overrideMaterial = pO
-        for (let i = 0; i < all.length; i++) all[i].visible = saved[i]
-        renderer.setRenderTarget(pT)
-        renderer.autoClear = pA
-        renderer.setClearColor(pC, pAl)
-      }
     }
     // keep-set: ancestors of the wanted renderables, so hiding a parent cannot hide a wanted child
     const keepFor = (pred) => {
@@ -383,21 +416,82 @@ const INSTALL_RUNNER = `(() => {
       }
       return keep
     }
-    const bandPasses = async (pred) => {
-      renderPass(THREE.FrontSide, keepFor((o) => pred(o) && objSide(o) !== 1))
-      const f = await readAll()
-      renderPass(THREE.BackSide, keepFor((o) => pred(o) && objSide(o) !== 0))
-      const b = await readAll()
-      return { f, b }
+    // A pass is re-sampled while it rasterizes nothing, so a sample that never landed cannot be
+    // reported as a measured zero.
+    const bandPasses = async (pred, tries = 1) => {
+      let f = null, b = null, sf = null, sb = null
+      for (let attempt = 0; attempt < tries; attempt++) {
+        f = await probeSample(THREE.FrontSide, (o) => pred(o) && objSide(o) !== 1)
+        sf = od.lastStats
+        b = await probeSample(THREE.BackSide, (o) => pred(o) && objSide(o) !== 0)
+        sb = od.lastStats
+        let t = 0
+        for (let i = 0; i < D; i++) t += f[i] + b[i]
+        if (t > 0) break
+      }
+      return { f, b, statsF: sf, statsB: sb }
     }
+    // ONE FRAGMENT, MEASURED ON THE PATH THE MEASUREMENT ITSELF USES. A camera-facing quad is
+    // sampled ALONE, so it puts exactly one fragment on every pixel it covers and sum/coveredPx is
+    // what one fragment is worth here. The three cull variants say whether the FrontSide variant
+    // rasterizes at all, which the composite alone cannot tell apart from a scene with nothing
+    // front-facing. Re-measured at the end of the arm: a unit that moved makes the arm's own
+    // numbers non-comparable, and that is stated rather than divided away.
+    const unitQuad = async () => {
+      const d = Math.max(camera.near * 4, 1)
+      const hh = 2 * d * Math.tan((camera.fov * Math.PI / 180) / 2)
+      const geo = new THREE.PlaneGeometry(hh * camera.aspect * 1.05, hh * 1.05)
+      const qm = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false, depthWrite: false })
+      const q = new THREE.Mesh(geo, qm)
+      q.frustumCulled = false
+      const dir = new THREE.Vector3(); camera.getWorldDirection(dir)
+      const pos = new THREE.Vector3(); camera.getWorldPosition(pos)
+      q.position.copy(pos).addScaledVector(dir, d)
+      const qq = new THREE.Quaternion(); camera.getWorldQuaternion(qq)
+      q.quaternion.copy(qq)
+      scene.add(q)
+      all.push(q)
+      visSaved.push(true)
+      renderables.push(q)
+      const out = {}
+      for (const [nm, sd] of [['front', THREE.FrontSide], ['back', THREE.BackSide], ['double', THREE.DoubleSide]]) {
+        const a = await probeSample(sd, (o) => o === q)
+        let cov = 0, tot = 0
+        for (let i = 0; i < D; i++) { if (a[i] > 0) cov++; tot += a[i] }
+        out[nm] = { coveredPx: cov, sum: Math.round(tot), perCoveredPx: cov > 0 ? +(tot / cov).toFixed(4) : null }
+      }
+      scene.remove(q)
+      geo.dispose(); qm.dispose()
+      all.pop()
+      visSaved.pop()
+      renderables.pop()
+      return out
+    }
+    // Warm-up: the first samples pay for pipeline compilation and for the probe's own calibration.
+    await bandPasses(() => true, 1)
+    const warm = 'sampled'
+    log.push('warm sample done')
+    const probeDiag = await unitQuad()
+    log.push('one-fragment quad ' + JSON.stringify(probeDiag))
+    const unitFromBoot = unit
+    if (probeDiag.double.coveredPx > 0 && probeDiag.double.perCoveredPx > 0) unit = probeDiag.double.perCoveredPx
+    log.push('unit from boot calibration ' + unitFromBoot + ', from the one-fragment quad ' + unit)
 
     // ---------- full-scene composite ----------
     const wanted = opts.bands ? new Set(opts.bands) : null
     const hidden = opts.hideBand || null
     const sceneKeep = (o) => !hidden || bandOf.get(o) !== hidden
-    const comp = await bandPasses(sceneKeep)
+    const comp = await bandPasses(sceneKeep, 3)
     const stack = new Float32Array(D)
     for (let i = 0; i < D; i++) stack[i] = (comp.f[i] + comp.b[i]) / unit
+
+    // The whole rasterized stack in ONE unculled pass: not the F/B split, but the quantity the deep
+    // bucket is a threshold on, and the number the published front+back (18.375 + 20.807) should add
+    // up to, so it says whether the scene rendered at all under either split.
+    const compD = await probeSample(THREE.DoubleSide, sceneKeep)
+    let dSum = 0
+    for (let i = 0; i < D; i++) dSum += compD[i] / unit
+    const matState = { side: probe.accumulateMaterial.side, transparent: probe.accumulateMaterial.transparent, alphaTest: probe.accumulateMaterial.alphaTest, hasAlphaMap: !!probe.accumulateMaterial.alphaMap, toneMapped: probe.accumulateMaterial.toneMapped, blending: probe.accumulateMaterial.blending, blendSrc: probe.accumulateMaterial.blendSrc, forceSinglePass: probe.accumulateMaterial.forceSinglePass, probeUnitsPerFragment: probe.counters().unitsPerFragment }
 
     let frontSum = 0, backSum = 0
     for (let i = 0; i < D; i++) { frontSum += comp.f[i] / unit; backSum += comp.b[i] / unit }
@@ -440,6 +534,12 @@ const INSTALL_RUNNER = `(() => {
       }
       bands.push({ name, objects, totalFragments: Math.round(totalFrags), deepFragments: Math.round(deepFrags), maxFragmentsOnADeepPixel: Math.round(maxAt), noOverride, alphaTest, transparent, sides: sideHist })
     }
+    // The same one-fragment quad re-measured AFTER every pass of the arm: if one fragment is still
+    // worth the same amount, the arm's numbers are on one scale, and if it moved, the arm's numbers
+    // are not comparable and the drift is stated instead of being divided away.
+    const probeDiagEnd = await unitQuad()
+    log.push('one-fragment quad at end ' + JSON.stringify(probeDiagEnd))
+
     // identity check: SUM bands == composite, pixel by pixel
     let l1 = 0, l1deep = 0
     for (let i = 0; i < D; i++) { const d = Math.abs(sum[i] - stack[i]); l1 += d; if (mask[i]) l1deep += d }
@@ -455,11 +555,14 @@ const INSTALL_RUNNER = `(() => {
       front: { total: Math.round(frontSum), perScreenPx: p3(frontSum, D), histogram: histOf(comp.f, unit) },
       back: { total: Math.round(backSum), perScreenPx: p3(backSum, D), histogram: histOf(comp.b, unit) },
       composite: { total: Math.round(frontSum + backSum), perScreenPx: p3(frontSum + backSum, D), histogram: histOf(stack, 1) },
+      unculled: { total: Math.round(dSum), perScreenPx: p3(dSum, D), histogram: histOf(compD, unit) },
+      matState,
+      probeStats: { front: comp.statsF || null, back: comp.statsB || null },
       deep: { threshold: ${DEEP_LO} + 1, pixels: deepPx, pctOfScreen: pct2(deepPx, D), fragments: Math.round(deepTotal), minFragmentsOnADeepPixel: ${DEEP_LO} + 1 },
       identity: { l1AllPixels: Math.round(l1), l1DeepPixels: Math.round(l1deep), compositeFragments: Math.round(frontSum + backSum), bandSumFragments: Math.round(bands.reduce((a, b) => a + b.totalFragments, 0)) },
       bands,
       log,
-      diag: od.diag || null,
+      diag: Object.assign({}, od.diag || null, { warm, probeDiag, probeDiagEnd, unitFromBoot }),
     }
   }
   return true
@@ -468,14 +571,23 @@ const INSTALL_RUNNER = `(() => {
 // A fullscreen quad in the scene: the instrument must read ~1 fragment per screen pixel for it, and
 // the additive identity must still hold with it in the scene.
 const ADD_QUAD = `(() => {
+  // The last run's positive control died here with "Cannot read properties of undefined (reading
+  // 'PlaneGeometry')", so the run never measured a control at all. Resolve the module defensively
+  // and SAY which route failed rather than throwing inside the constructor: window.__od exposes
+  // the material-class module as M, and window.__app.THREE is the same module by another door.
   const od = window.__od
   if (!od) return { ok: false, why: 'no instrument installed' }
-  const { M: THREE, scene, camera } = od
+  const THREE = od.M || (window.__app && window.__app.THREE) || null
+  const scene = od.scene, camera = od.camera
+  if (!THREE || typeof THREE.PlaneGeometry !== 'function') return { ok: false, why: 'no three module with PlaneGeometry is reachable (od.M=' + (od.M ? 'present' : 'absent') + ', __app.THREE=' + ((window.__app && window.__app.THREE) ? 'present' : 'absent') + ')' }
   if (od.quad) { od.quad.visible = true; return { ok: true, reused: true } }
   const d = Math.max(camera.near * 4, 1)
   const hh = 2 * d * Math.tan((camera.fov * Math.PI / 180) / 2)
   const geo = new THREE.PlaneGeometry(hh * camera.aspect * 1.05, hh * 1.05)
-  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.FrontSide, depthTest: false, depthWrite: false })
+  // DoubleSide, so the control is drawn in BOTH cull passes (objSide 2 is excluded from neither).
+  // As a FrontSide object the last run's control fell only into the front pass, which on this
+  // renderer rasterizes nothing, so the control read 16918 fragments against 2073600 pixels.
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false, depthWrite: false })
   const q = new THREE.Mesh(geo, m)
   q.frustumCulled = false
   q.renderOrder = 9999
@@ -578,7 +690,12 @@ async function main() {
     const base = await runArm(page, {}, budget)
     console.log(`[${LABEL}] calibrated unitsPerFragment=${base.unit} viewport=${base.viewport} pixels=${base.pixels}`)
     console.log(`[${LABEL}] calibration ${JSON.stringify(base.diag || null)}`)
+    for (const l of base.log || []) console.log(`[${LABEL}] ${l}`)
     console.log(`[${LABEL}] composite front ${base.front.total} (${base.front.perScreenPx}/screen px) back ${base.back.total} (${base.back.perScreenPx}/screen px) histogram front ${JSON.stringify(base.front.histogram)} back ${JSON.stringify(base.back.histogram)}`)
+    console.log(`[${LABEL}] composite UNCULLED (one DoubleSide pass) ${base.unculled.total} (${base.unculled.perScreenPx}/screen px) histogram ${JSON.stringify(base.unculled.histogram)}`)
+    console.log(`[${LABEL}] override material live ${JSON.stringify(base.matState)}`)
+    console.log(`[${LABEL}] probe own readback front ${JSON.stringify(base.probeStats.front)}`)
+    console.log(`[${LABEL}] probe own readback back ${JSON.stringify(base.probeStats.back)}`)
     console.log(`[${LABEL}] deep bucket (>${base.deep.threshold - 1}): ${base.deep.pixels} px = ${base.deep.pctOfScreen}% of the screen, ${base.deep.fragments} fragment(s)`)
     for (const b of base.bands) {
       console.log(`[${LABEL}] band ${b.name}: deep ${b.deepFragments} fragment(s) = ${b.sharePct}% of the deep bucket | whole screen ${b.totalFragments} | objects=${b.objects} alphaTest=${b.alphaTest} transparent=${b.transparent} sides=${JSON.stringify(b.sides)}`)
