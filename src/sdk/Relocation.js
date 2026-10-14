@@ -215,7 +215,17 @@ export function teleportPlayer(ctx, playerId, spec, { onGrounded = null } = {}) 
     if (!position) throw new Error('teleport: no terrain height at target and no explicit y')
   }
   placePlayerAt(ctx, playerId, position)
-  beginTeleportHold(player, { onRelease: (release) => onGrounded?.(release) })
+  // A relocation to a point waits for the same ground, on the same budget, as a spawn: the
+  // teleport hold's own 8 s ceiling and its bare 60 m raycast cannot tell "no collider field here
+  // yet" from "no ground here at all", so on a world whose collider has to be solved on the CPU --
+  // which is what ?terrainhash=<n> forces, because the shipped bake is rejected for the other hash
+  // version -- it released the player into the air long before its field landed and the fall kill
+  // took it again on every respawn. One question, one probe, one budget.
+  beginTeleportHold(player, {
+    maxMs: SPAWN_HOLD_MAX_MS,
+    probeGroundY: () => probeSpawnHoldGround(ctx, position).y,
+    onRelease: (release) => onGrounded?.(release),
+  })
   return { position, tick: ctx.tickSystem.currentTick }
 }
 

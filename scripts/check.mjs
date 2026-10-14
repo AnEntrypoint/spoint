@@ -293,6 +293,18 @@ const NO_GPU_WITNESSES = [
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
 const SLOW_NO_GPU_WITNESSES = [
+
+  // PERF-tps-game-spawn-above-ground-1013 / PERF-spawn-not-touching-ground-1013. A relocation to a
+  // point (`?at=<x>,<z>`) must wait for the same ground, on the same budget, as a spawn. Before
+  // this change src/sdk/Relocation.js teleportPlayer() armed TeleportHold with its own 8000 ms
+  // ceiling and a bare 60 m downward raycast, neither of which can tell "no collider field here
+  // yet" from "no ground here at all", so on a world whose collider has to be CPU-solved -- which
+  // is what ?terrainhash=1 forces, because the shipped bake is rejected for the other hash version
+  // -- it released the player into the air at 8 s and src/behaviours/combat.js killByFall took it
+  // again on every respawn. The `must` is the second half of the witness: a run that never armed a
+  // hold, one that kept the 8 s ceiling, or one whose uncovered player still fell, must read as a
+  // failure rather than as silence that passes.
+  { file: 'relocation-ground-wait-witness.mjs', must: /\[PASS\] the relocation hold waits on the spawn ground budget[\s\S]*\[PASS\] while the field is missing the relocation hold probes no ground[\s\S]*\[PASS\] one second later the uncovered player is still held and has not fallen[\s\S]*RESULT: PASS relocation-ground-wait/ },
   { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
   { file: 'collider-ring-scale-witness.mjs', must: /\[ring-scale\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-scale\] RESULT: PASS/ },
   { file: 'collider-ring-boot-batches-witness.mjs', must: /ms per 1k operation\(s\) over [1-9]\d* operation\(s\)/ },
