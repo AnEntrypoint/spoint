@@ -146,9 +146,16 @@ export async function createVegetation(opts = {}) {
     return _vegShadowSkipFar
   }
 
+  // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
+  // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
+  // compile's promise), so a single witness can measure both arms against the same bytes.
+  // Declared above the species loop, and as a hoisted function rather than a `const`: the loop
+  // reaches this through `queueTierNodeWarm`, so a binding declared below the loop is still in its
+  // temporal dead zone on the first species.
+  function warmOnceRetained() { return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false }
+
   const meshes = []
 
-  let buildErr = 0
   for (let i = 0; i < buildList.length; i++) {
     const { name, variant } = buildList[i]
     try {
@@ -265,7 +272,12 @@ export async function createVegetation(opts = {}) {
       leaf.updateMatrix(); leaf.matrixAutoUpdate = false
       branch.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER; leaf.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER
       meshes.push({ name, variant, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
-    } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
+    } catch (e) {
+      // A species that fails to build is not a smaller landscape, it is an empty one, and the boot
+      // that follows looks healthy: `meshes` short, placements counting, nothing drawn. Refuse.
+      console.error('[veg] species build failed:', name, e?.message || e)
+      throw e
+    }
     if (opts.onProgress) opts.onProgress(i + 1, buildList.length)
     const _yieldT = (typeof performance !== 'undefined') ? performance.now() : 0
     {
@@ -277,7 +289,7 @@ export async function createVegetation(opts = {}) {
   // streamed into it: instances arrive through `update()`, and the caller only reaches `update()`
   // once `createVegetation` has resolved.
   await awaitTierNodeWarm()
-  performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
+  performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=0')
   if (typeof window !== 'undefined') window.__vegTexBudget = { budget: TEX_BUDGET, stats: treeTextureStats(), refusals: treeTextureHalveRefusals() }
   const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
 
@@ -376,7 +388,7 @@ export async function createVegetation(opts = {}) {
   let _occCands = null
   let curSuper = null
   let totalInstances = 0
-  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, bvhRebuilds: 0, species: speciesList.length, buildErrors: buildErr, impostors: meshes.filter(m => m.impostor).length, loadChunkMs: 0, loadChunkCalls: 0, prewarmMs: 0, prewarmChunks: 0, prewarmYieldMs: 0, prewarmWorkMs: 0, prewarmDeferred: 0 }
+  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, bvhRebuilds: 0, species: speciesList.length, buildErrors: 0, impostors: meshes.filter(m => m.impostor).length, loadChunkMs: 0, loadChunkCalls: 0, prewarmMs: 0, prewarmChunks: 0, prewarmYieldMs: 0, prewarmWorkMs: 0, prewarmDeferred: 0 }
 
   const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
 
@@ -570,19 +582,6 @@ export async function createVegetation(opts = {}) {
     profile.prewarmChunks = n
     profile.prewarmDeferred = deferred
     return n
-  }
-
-  // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
-  // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
-  // compile's promise), so a single witness can measure both arms against the same bytes.
-  // It is a hoisted function declaration, not a `const` arrow, because the species build loop above
-  // reaches `queueTierNodeWarm` before control ever arrives at this line: a `const` here is still in
-  // its temporal dead zone at that call site, so every species build threw "Cannot access '<name>'
-  // before initialization", the build loop logged one failure per species and the world came up with
-  // zero tree species and therefore no trees at all. A declaration is initialized on scope entry, so
-  // no call site anywhere in `createVegetation` can reach it uninitialized.
-  function warmOnceRetained() {
-    return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
   }
 
   function queueTierNodeWarm(instancer) {
