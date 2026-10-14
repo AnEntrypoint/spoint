@@ -729,7 +729,7 @@ async function main() {
   const drawInstrumentKeep = (line) => /^(RESULT:|\[draw-instrument\])/.test(line)
   for (const gpu of gpuArms) {
     try {
-      const { stdout } = await execFileAsync(process.execPath, ['scripts/draw-instrument-witness.mjs', `--gpu=${gpu}`, '--settle=12000', '--frames=40'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/draw-instrument-witness.mjs', `--gpu=${gpu}`, '--settle=12000', '--frames=40', '--timeout=540000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
       for (const line of stdout.split('\n')) if (drawInstrumentKeep(line)) console.log(`check: ${line}`)
       if (!DRAW_INSTRUMENT_MUST.test(stdout)) gateFailures.push(`draw-instrument-witness.mjs on ${gpu}: printed no line matching its must regex, so either its band inventory or its counter-moved floor never ran`)
     } catch (e) {
@@ -825,6 +825,28 @@ async function main() {
     } catch (e) {
       for (const line of ((e && e.stdout) || '').toString().split('\n')) if (firstFrameKeep(line)) console.error(`check: ${line}`)
       gateFailures.push(`first-frame-boot-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
+    }
+  }
+  // A species that fails to build used to shrink the landscape instead of refusing, so the boot
+  // looked healthy with nothing in it. Commit 1e89f8c9 made the build refuse, and species started
+  // building -- and the boot stopped completing inside the budget a lane had been using, which read
+  // as a hang. It is not one: the species build is real work, and on a software adapter it measures
+  // about 14s per species over 45 of them. This arm is the instrument that separates the two, and it
+  // does it by polling rather than by waiting on isReady: it records the loading machine's own state,
+  // every `boot:*` performance mark and the vegetation instance count, and reports the last mark the
+  // page reached, because "not-ready after N ms" distinguishes nothing. The `must` is the second
+  // half: a run that never reached readiness is a FAIL, and so is one that reached it with
+  // vegInstances 0 -- a boot with no trees in it is the silent-empty-world this exists to refuse.
+  const VEG_WARM_DRAIN_MUST = /RESULT: PASS label=veg-warm-drain -- ready at [1-9]\d*ms with vegInstances=[1-9]\d* over [1-9]\d* mesh\(es\)/
+  const vegWarmDrainKeep = (line) => /^(RESULT:|\[veg-warm-drain\])/.test(line)
+  for (const gpu of gpuArms) {
+    try {
+      const { stdout } = await execFileSync(process.execPath, ['scripts/veg-warm-drain-boot-witness.mjs', '--timeout=540000', '--poll=2000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      for (const line of stdout.split('\n')) if (vegWarmDrainKeep(line)) console.log(`check: ${line}`)
+      if (!VEG_WARM_DRAIN_MUST.test(stdout)) gateFailures.push(`veg-warm-drain-boot-witness.mjs on ${gpu}: printed no line pinning a ready time with a non-zero vegetation instance count, so either the boot never settled or it settled with no species built`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (vegWarmDrainKeep(line)) console.error(`check: ${line}`)
+      gateFailures.push(`veg-warm-drain-boot-witness.mjs on ${gpu}: ${(e.stderr || e.message || '').toString().trim()}`)
     }
   }
   // PERF-grass-coherent-wind-webgpu-arm-1013. The wind lane that landed the join measured it on the

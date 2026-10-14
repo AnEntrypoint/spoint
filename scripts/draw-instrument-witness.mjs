@@ -33,7 +33,11 @@ const PORT = flag('port', '3137')
 const BACKEND = flag('backend', 'webgpu')
 const FRAMES = flagNumber(flag, 'frames', 40, process.argv.slice(2))
 const PARAMS = flag('params', 'singleplayer')
-const TIMEOUT_MS = flagNumber(flag, 'timeout', 300000, process.argv.slice(2))
+// A species build is real work now, and the ready wait below has to be able to hold it: a real
+// adapter reaches ready in about a minute, a software adapter takes about ten, and a cold server
+// doing its own GLB transforms alongside the boot takes longer than either. 300 s was the budget
+// from before species built at all and it reported its own timeout as "never became ready".
+const TIMEOUT_MS = flagNumber(flag, 'timeout', 780000, process.argv.slice(2))
 const SETTLE_MS = flagNumber(flag, 'settle', 12000, process.argv.slice(2))
 const WORLD = flag('world', 'tps-game')
 const VIEW_W = flagNumber(flag, 'w', DEFAULT_VIEWPORT.width, process.argv.slice(2))
