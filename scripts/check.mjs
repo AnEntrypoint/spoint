@@ -96,6 +96,14 @@ const NO_GPU_WITNESSES = [
   // gate with a green witness that reads as "never ran". Keep the order in step with the witness.
   { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
+  // PERF-player-hovering-above-grass-1013. The four grounds a player can stand on, at one instant
+  // and position, out to 400 m: the collider, the exact CPU solve, the grass ground and the player's
+  // own settled Y. The GROWTH fragments pin the direction: each |delta| must stay under 0.1 m at the
+  // far rung, so a coarse far field under any one of the surfaces cannot land silently.
+  { file: 'player-ground-hover-witness.mjs', must: /DIST d=0 at\([\d.]+,[\d.]+\)[\s\S]*DIST d=400 at\([\d.]+,[\d.]+\)[\s\S]*GROWTH hoverM: 0m=0 -> 400m=0\.0[\s\S]*GROWTH physMinusCpuM: 0m=0 -> 400m=0\.0[\s\S]*RESULT: PASS world=tps-game -- 16 check\(s\), 0 failure\(s\)/ },
+  // The rendered mesh is the ground the owner can see, and it only exists in the page, so this arm
+  // builds the same quadtree LOD + TerrainMeshSurface in node for a camera standing at each rung.
+  { file: 'rendered-mesh-ladder-witness.mjs', must: /DIST d=0 at\(0,0\)[\s\S]*DIST d=400 at\(358,179\)[\s\S]*GROWTH meshMinusCpuM: 0m=0 -> 400m=0\.0[\s\S]*RESULT: PASS world=tps-game\.js -- 15 check\(s\), 0 failure\(s\)/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
