@@ -112,6 +112,14 @@ const NO_GPU_WITNESSES = [
   // gate with a green witness that reads as "never ran". Keep the order in step with the witness.
   { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*\[PASS\] the shared field is what makes them move together[\s\S]*\[PASS\] a recentre recomputes only the cells it no longer has[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
+  // PERF-exact-surface-not-attached-1013. The rendered-mesh mirror is ATTACHED to the frame at
+  // client/core/TerrainBackdrop.js:130 and only SERVED once sync() has built its near-quad index,
+  // and sync() used to be reachable only from renderPlanet -- so every blade, tree and rock the
+  // scenery build places (before the world is revealed) read an empty mirror and fell through to
+  // the frame's own sampler, which is the state grass-terrain-shared-geometry-witness.mjs calls
+  // BEFORE. The `must` pins both halves: the detached arm has to be measurably off the mesh, and
+  // the attached arm has to sit on it with no sync() from anyone.
+  { file: 'mesh-surface-read-coverage-witness.mjs', must: /\[PASS\] M01-empty-payload-refuses[\s\S]*\[PASS\] M02-unsynced-read-serves[\s\S]*band far  \[40,61\.6\)m  detached n= *[1-9]\d*[\s\S]*attached n= *[1-9]\d* mean=0\.0000m max=0\.0000m[\s\S]*\[PASS\] M03-detached-arm-is-off-the-mesh[\s\S]*\[PASS\] M04-attached-arm-sits-on-the-mesh[\s\S]*\[PASS\] M05-no-resync-storm[\s\S]*\[PASS\] M06-rebuild-once-per-version[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },

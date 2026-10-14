@@ -275,10 +275,32 @@ export function createTerrainMeshSurface(opts = {}) {
     focus[0] = x; focus[1] = z
   }
 
+  // A read used to be a function of WHEN the render loop last called sync(), not of the ground it
+  // asks about: before the first sync the index is empty and every read answers "no ground", so
+  // client/core/ExactPatchFrame.js falls through to the frame's own sampler and every blade, tree
+  // and rock the boot prewarm places sits on the fractal instead of on the mesh it is drawn on.
+  // Scenery is built before the world is revealed (client/app.js _awaitSceneryBuild runs before
+  // _revealWorld, and sync() only runs inside renderPlanet), so that window is the whole initial
+  // ring, not one frame. The mirror therefore answers for itself: a read whose point is not inside
+  // the footprint it last built rebuilds it around that point.
+  //
+  // One rebuild per render sync is the bound that keeps this from becoming per-read work -- the
+  // render loop's own sync() bumps version, so a placement burst pays at most one.
+  let syncedQuads = 0
+  let lazySyncVersion = -1
+  function ensureCoverage(x, z) {
+    if (syncedQuads > 0 && Math.hypot(x - focus[0], z - focus[1]) <= focusRadiusM) return
+    if (lazySyncVersion === version) return
+    setFocus(x, z)
+    sync()
+    lazySyncVersion = version
+  }
+
   function sync() {
     version++
     stats.syncs++
     near.length = 0
+    syncedQuads = 0
     const q = quadsFn()
     if (!q || !q.offsets || !q.faces || !Number.isFinite(q.count) || q.count <= 0) { stats.nearQuads = 0; return }
     const g = q.gridSize | 0
@@ -317,6 +339,7 @@ export function createTerrainMeshSurface(opts = {}) {
       near.push({ face, ox, oy, l, level, cx, cz, minX: minX - FOOTPRINT_INFLATE_M, maxX: maxX + FOOTPRINT_INFLATE_M, minZ: minZ - FOOTPRINT_INFLATE_M, maxZ: maxZ + FOOTPRINT_INFLATE_M })
     }
     stats.nearQuads = near.length
+    syncedQuads = near.length
     rebuildNearIndex()
   }
 
@@ -339,6 +362,7 @@ export function createTerrainMeshSurface(opts = {}) {
 
   function heightAtLocal(x, z) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return MESH_SURFACE_NO_GROUND
+    ensureCoverage(x, z)
     stats.queries++
     candidates.length = 0
     if (nearCellM > 0) {
