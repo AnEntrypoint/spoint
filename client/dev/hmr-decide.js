@@ -45,6 +45,30 @@ export function loadedByPath(entries, url, base = 'http://localhost/') {
   return false
 }
 
+// The resource timing buffer only grows, so the pathname set is built once and appended to: an
+// entry is never removed and a new one is only ever added at the end. `absorb` takes resource
+// entries or plain url strings and costs one URL parse per entry it has not already seen, so a
+// page that has held 20000 of them pays that once and every later lookup is a set hit.
+export function createLoadedPaths(base = 'http://localhost/') {
+  let paths = new Set()
+  let count = 0
+  const pathOf = (entry) => {
+    const name = typeof entry === 'string' ? entry : entry && entry.name
+    if (typeof name !== 'string') return null
+    try { return new URL(name, base).pathname } catch (_) { return null }
+  }
+  return {
+    absorb(entries) {
+      if (!entries || entries.length < count) { paths = new Set(); count = 0 }
+      for (let i = count; i < entries.length; i++) { const p = pathOf(entries[i]); if (p) paths.add(p) }
+      count = entries.length
+      return paths
+    },
+    has(url) { const p = pathOf(url); return p !== null && paths.has(p) },
+    size: () => paths.size,
+  }
+}
+
 export function sameValue(a, b) {
   if (a === b) return true
   if (typeof a === 'function' || typeof b === 'function') return false

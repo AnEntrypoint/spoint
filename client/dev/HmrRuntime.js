@@ -1,4 +1,5 @@
-import { ancestorsOf, findBoundaries, isClass, loadedByPath, nothingLive, sameValue } from './hmr-decide.js'
+import { ancestorsOf, createLoadedPaths, findBoundaries, isClass, loadedByPath, nothingLive, sameValue } from './hmr-decide.js'
+import { macrotaskYield } from '../core/macrotaskYield.js'
 
 const EVENTS_URL = '/__hmr/events'
 const POSE_KEY = '__spointHmrPose'
@@ -19,6 +20,19 @@ let queue = Promise.resolve()
 let lastBootId = null
 let liveBootId = null
 let toastModule = null
+// The reproduction switch scripts/hmr-reload-block-witness.mjs A/Bs: false replays the pre-fix
+// path (scan every resource timing entry, one ancestor walk per node, no macrotask yield).
+let sliced = true
+// One save is N fs events whenever it writes N files -- a save-all, a branch switch, or one agent
+// turn -- and N events used to be N applies: N module fetches, N subsystem rebuilds and, for the
+// modules with no accept boundary above them (92% of the real graph), N whole page reloads back to
+// back. Two updates that cannot both change the outcome must not both do the work, so the queue
+// keeps only the NEWEST event per module and drops the ones it supersedes, and once a page reload
+// is ordered every later update already lands with it and does nothing.
+let coalesced = true
+const pendingUpdates = new Map()
+let draining = false
+let reloadOrdered = false
 
 const keyOf = (url) => new URL(url, location.href).pathname
 const isSingleplayer = () => !!window.__app?.client?._worker
@@ -90,6 +104,9 @@ async function waitForServer(staleBootId) {
 }
 
 async function reloadPreserving(ev, reason) {
+  // Set before the first await, not after it: the reload is ordered HERE, and every update that
+  // arrives while waitForServer runs is already going to land with it.
+  reloadOrdered = true
   record(ev, 'reload', reason)
   savePose()
   await waitForServer(ev.restarting ? ev.bootId : null)
@@ -100,9 +117,27 @@ const PAGE_FLOOR = Math.floor(performance.timeOrigin)
 function versionedUrl(key, v) { return `${key}?hmr=${v}&p=${PAGE_FLOOR}` }
 
 function trackChain(ev, boundary) {
-  for (const node of Object.keys(ancestorsOf(ev.parents, ev.url))) {
-    if (node === boundary || boundary in ancestorsOf(ev.parents, node)) listOf(instances, node).push(versionedUrl(node, ev.v))
+  const reached = Object.keys(ancestorsOf(ev.parents, ev.url))
+  if (!sliced) {
+    for (const node of reached) {
+      if (node === boundary || boundary in ancestorsOf(ev.parents, node)) listOf(instances, node).push(versionedUrl(node, ev.v))
+    }
+    return
   }
+  // `boundary in ancestorsOf(parents, node)` is one walk up per node, so the whole chain cost
+  // nodes squared. Walk the parents map down from the boundary once instead: a node is under the
+  // boundary exactly when the boundary is one of its ancestors.
+  const children = new Map()
+  for (const [node, parents] of Object.entries(ev.parents)) {
+    for (const p of parents) { const list = children.get(p); if (list) list.push(node); else children.set(p, [node]) }
+  }
+  const under = new Set([boundary])
+  const stack = [boundary]
+  while (stack.length) {
+    const u = stack.pop()
+    for (const c of children.get(u) || []) if (!under.has(c)) { under.add(c); stack.push(c) }
+  }
+  for (const node of reached) if (under.has(node)) listOf(instances, node).push(versionedUrl(node, ev.v))
 }
 
 function patchClass(oldCls, newCls) {
@@ -123,11 +158,10 @@ function patchClass(oldCls, newCls) {
   }
 }
 
-// Exact name first (cheap, and the common case), then by pathname: a copy this
-// page pulled in through HMR is filed under its `?hmr=` url and must still
-// count as loaded, or the next edit to it would be reported as a noop while
-// the patched copy keeps running.
+const loaded = createLoadedPaths(location.href)
+
 function wasLoaded(url) {
+  if (sliced) { loaded.absorb(performance.getEntriesByType('resource')); return loaded.has(url) }
   if (performance.getEntriesByName(new URL(url, location.href).href).length > 0) return true
   return loadedByPath(performance.getEntriesByType('resource').map(e => e.name), url, location.href)
 }
@@ -155,8 +189,12 @@ async function applyBoundary(ev, boundary) {
   disposers.delete(boundary)
   const handlers = acceptors.get(boundary) || []
   acceptors.set(boundary, handlers.filter(h => !h.self))
+  if (sliced) await macrotaskYield()
   const newMod = await import(versionedUrl(boundary, ev.v))
   trackChain(ev, boundary)
+  // The handlers of one boundary stay in one block on purpose: a frame rendered between them
+  // would run update() against a subsystem half of the way through being replaced.
+  if (sliced) await macrotaskYield()
   for (const h of handlers) await h.fn(newMod, data(boundary))
 }
 
@@ -181,12 +219,16 @@ async function applyModule(ev) {
     return record(ev, 'noop', 'no acceptor and nothing on this page loaded it, so the next import reads the new copy')
   }
   if (!acceptors.get(ev.url)?.length) {
+    if (sliced) await macrotaskYield()
     const patched = await tryClassPatch(ev).catch(e => { console.warn('[hmr] class patch failed:', e); return false })
     if (patched) { parts.push('patched ' + patched.join(',')); return record(ev, 'patched', parts.join('; ')) }
   }
   const boundaries = findBoundaries(acceptors, ev)
   if (!boundaries) return reloadPreserving(ev, 'no accept boundary up to the app root')
-  for (const b of boundaries) await applyBoundary(ev, b)
+  for (const b of boundaries) {
+    if (sliced) await macrotaskYield()
+    await applyBoundary(ev, b)
+  }
   parts.push('accepted at ' + boundaries.join(','))
   return record(ev, 'accepted', parts.join('; '))
 }
@@ -256,6 +298,7 @@ async function apply(ev) {
   }
   const filter = readOnlyFilter()
   if (filter && !filter.test(ev.path)) return record(ev, 'ignored', 'outside __spointHmr.only filter')
+  if (reloadOrdered && coalesced) return record(ev, 'ignored', 'a page reload is already ordered; this update lands with it')
   try {
     if (ev.kind === 'css') return applyCss(ev)
     if (ev.kind === 'module') return await applyModule(ev)
@@ -271,17 +314,43 @@ async function apply(ev) {
   }
 }
 
+// A versioned import reads the file from disk at request time, so for one module the newest event
+// already carries every older one's edit: applying it makes the superseded ones pure waste.
+const updateKey = (ev) => (ev.kind === 'module' ? 'module:' + ev.url : ev.kind + ':' + (ev.url || '') + ':' + (ev.path || ''))
+const enqueue = (ev) => {
+  if (!coalesced) { queue = queue.then(() => apply(ev)); return queue }
+  pendingUpdates.set(updateKey(ev), ev)
+  if (draining) return queue
+  draining = true
+  queue = queue.then(async () => {
+    while (pendingUpdates.size) {
+      const batch = [...pendingUpdates.values()]
+      pendingUpdates.clear()
+      for (const e of batch) await apply(e)
+    }
+    draining = false
+  })
+  return queue
+}
+
 function connect() {
   const source = new EventSource(EVENTS_URL)
   source.onmessage = (msg) => {
     let ev
     try { ev = JSON.parse(msg.data) } catch (_) { return }
     if (ev.kind === 'hello') liveBootId = ev.bootId
-    queue = queue.then(() => apply(ev))
+    enqueue(ev)
   }
 }
 
-globalThis.__spointHmr = { accept, acceptSelf, acceptAsset, dispose, data, only, log, subsystem, settled: () => queue }
+globalThis.__spointHmr = {
+  accept, acceptSelf, acceptAsset, dispose, data, only, log, subsystem,
+  settled: () => queue,
+  setSliced: (on) => { sliced = !!on; return sliced },
+  setCoalesced: (on) => { coalesced = !!on; return coalesced },
+  pendingCount: () => pendingUpdates.size,
+  reloadOrdered: () => reloadOrdered,
+}
 performance.setResourceTimingBufferSize?.(20000)
 connect()
 restorePose()
