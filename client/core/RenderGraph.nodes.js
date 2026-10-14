@@ -190,6 +190,15 @@ export function buildRenderSectionNodes() {
     },
 
     {
+      id: 'overdraw-probe',
+      reads: ['sceneColor'],
+      writes: [],
+      shouldRun: ctx => !!ctx.overdrawProbe && RenderControls.get('overdraw') === true,
+      run(ctx) {
+        const stats = ctx.overdrawProbe.tick(ctx.now)
+        if (stats) ctx.res.overdrawStats = stats
+      },
+    {
       id: 'visibility-commit',
       reads: ['sceneDepth'],
       writes: ['occlusionCommitted'],

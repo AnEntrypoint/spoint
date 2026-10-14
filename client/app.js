@@ -61,6 +61,7 @@ import { createColliderDebug } from './core/ColliderDebug.js'
 import { createRenderGraph } from './core/RenderGraph.js'
 import { buildRenderSectionNodes } from './core/RenderGraph.nodes.js'
 import { buildSSAONodes, installSSAO, registerSSAOWebGPU } from './core/SSAO.js'
+import { createOverdrawProbe } from './core/OverdrawProbe.js'
 import { buildSSRNodes, installSSR, registerSSRWebGPU } from './core/SSR.js'
 import { buildBloomNodes, installBloom, registerBloomWebGPU } from './core/Bloom.js'
 import { buildFSR1Nodes, installFSR1, registerFSR1WebGPU } from './core/FSR1.js'
@@ -107,7 +108,7 @@ const _dbgWater = dbg('water')
 const _dbgBoot = dbg('boot')
 const _dbgEditor = dbg('editor')
 const _dbgInput = dbg('input')
-const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel, createCaveMeshes, createColliderDebug, createSculptOverlay, createOcclusionQueryBudget, createReplayBuffer, createSceneGraphCaptureFn, createMobileControlsUI, createCullingHub, createPlacementScheduler, createSpectatorMode }
+const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createOverdrawProbe, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel, createCaveMeshes, createColliderDebug, createSculptOverlay, createOcclusionQueryBudget, createReplayBuffer, createSceneGraphCaptureFn, createMobileControlsUI, createCullingHub, createPlacementScheduler, createSpectatorMode }
 
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   navigator.serviceWorker.register('/service-worker.js').catch(() => {})
@@ -1047,6 +1048,7 @@ if (globalThis.__spointHmr) {
   hmr.subsystem('/hud/MobileControlsUI.js', m => { _hmrFactories.createMobileControlsUI = m.createMobileControlsUI; return _rebuildMobileControls(_worldDef) })
   hmr.subsystem('/core/CullingHub.js', m => { _hmrFactories.createCullingHub = m.createCullingHub; return _rebuildCullingHub() })
   hmr.subsystem('/core/PlacementScheduler.js', m => { _hmrFactories.createPlacementScheduler = m.createPlacementScheduler; return _rebuildPlacementScheduler() })
+  hmr.subsystem('/core/OverdrawProbe.js', m => { _hmrFactories.createOverdrawProbe = m.createOverdrawProbe; return _rebuildOverdrawProbe() })
   hmr.subsystem('/core/SpectatorMode.js', m => { _hmrFactories.createSpectatorMode = m.createSpectatorMode; return _rebuildSpectatorMode() })
   const graphBuilders = { '/core/RenderGraph.js': ['createRenderGraph'], '/core/RenderGraph.nodes.js': ['buildRenderSectionNodes'], '/core/SSAO.js': ['buildSSAONodes'], '/core/Bloom.js': ['buildBloomNodes'], '/core/SSR.js': ['buildSSRNodes'], '/core/FSR1.js': ['buildFSR1Nodes'] }
   for (const [file, names] of Object.entries(graphBuilders)) hmr.accept(file, m => {
@@ -2551,6 +2553,17 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
   if (window.__springBoneLodStats!==_springBoneLodStats) window.__springBoneLodStats=_springBoneLodStats
 }
 const _springBoneLodStats={updated:0,skipped:0}
+let overdrawProbe = _hmrFactories.createOverdrawProbe({ renderer, scene, camera })
+_graphCtx.overdrawProbe = overdrawProbe
+if (typeof window !== 'undefined' && window.__app) window.__app.overdrawProbe = overdrawProbe
+function _rebuildOverdrawProbe() {
+  const prev = overdrawProbe
+  overdrawProbe = _hmrFactories.createOverdrawProbe({ renderer, scene, camera })
+  _graphCtx.overdrawProbe = overdrawProbe
+  if (typeof window !== 'undefined' && window.__app) window.__app.overdrawProbe = overdrawProbe
+  if (prev && prev !== overdrawProbe) { try { prev.dispose?.() } catch (_) {} }
+  return overdrawProbe
+}
 
 const _buildMainRenderGraph = () => _hmrFactories.createRenderGraph([..._hmrFactories.buildRenderSectionNodes(), ..._hmrFactories.buildSSAONodes(), ..._hmrFactories.buildBloomNodes(), ..._hmrFactories.buildSSRNodes(), ..._hmrFactories.buildFSR1Nodes()])
 let renderGraph = _buildMainRenderGraph()

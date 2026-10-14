@@ -145,7 +145,7 @@ const INSTALL = `(() => {
       }
       const w = Math.max(4, Math.floor(target.width)), h = Math.max(4, Math.floor(target.height))
       window.__od = { M, renderer, scene, camera, target, mat, w, h, unit: null, runs: 0, adopted }
-      window.__odMeta = { ok: true, w, h, mat: mat.constructor ? mat.constructor.name : 'material', adopted, from: adopted ? 'window.__overdrawProbe' : (W ? 'three/webgpu' : 'window.__app.THREE'), hasDataUtils: !!(M.DataUtils && M.DataUtils.fromHalfFloat) }
+      window.__odMeta = { ok: true, w, h, mat: mat.constructor ? mat.constructor.name : 'material', adopted, from: adopted ? 'window.__overdrawProbe' : (W ? 'three/webgpu' : 'window.__app.THREE'), hasDataUtils: !!(M.DataUtils && M.DataUtils.fromHalfFloat), sameThreeAsRenderer: !!(M.WebGPURenderer && renderer.constructor && M.WebGPURenderer === renderer.constructor), viewport: [w, h] }
       window.__odBooted = true
     } catch (e) {
       window.__odBootErr = String((e && e.message) || e)
@@ -200,7 +200,12 @@ const INSTALL_RUNNER = `(() => {
       cq.quaternion.copy(qquat)
       scene.add(cq)
       const saved = []
-      scene.traverse((o) => { saved.push([o, o.visible]); o.visible = false })
+      // The ROOT is deliberately left visible. three Renderer._projectObject is called with the
+      // scene itself and returns early on object.visible === false (three.webgpu.js), so hiding
+      // the root along with its children empties the render list: the calibration then draws
+      // nothing at all and reads 0 covered pixels out of w*h, while a clear of the same target
+      // still reads 1 -- which is exactly the shape of the failure this line removes.
+      scene.traverse((o) => { if (o === scene) return; saved.push([o, o.visible]); o.visible = false })
       cq.visible = true
       // The renderer keeps the app's user viewport and scissor test, so an accumulation pass drawn
       // through them lands in a sub-rect of the target: the centre pixel then reads 0 while a clear
@@ -214,6 +219,7 @@ const INSTALL_RUNNER = `(() => {
       mat.side = THREE.FrontSide
       scene.overrideMaterial = mat
       renderer.render(scene, camera)
+      const calibDrawCalls = renderer.info && renderer.info.render ? renderer.info.render.calls : null
       scene.overrideMaterial = null
       // Read the WHOLE target, not one pixel: the max over every pixel is one fragment's worth, and
       // the count of covered pixel(s) says whether the quad really covered the screen.
@@ -221,7 +227,7 @@ const INSTALL_RUNNER = `(() => {
       let mx = 0, covered = 0
       for (let i = 0; i < D; i++) { const v = fh(buf[i * 4]); if (v > mx) mx = v; if (v > 0) covered++ }
       od.unit = mx
-      od.diag = { calibMax: mx, calibCoveredPx: covered, ofPixels: D, viewport: [renderer.getViewport(new THREE.Vector4()).toArray()] }
+      od.diag = { calibMax: mx, calibCoveredPx: covered, ofPixels: D, viewport: [renderer.getViewport(new THREE.Vector4()).toArray()], calibDrawCalls, sceneVisible: scene.visible, adopted: od.adopted, matClass: mat.constructor && mat.constructor.name, readbackLen: buf && buf.length, readbackCtor: buf && buf.constructor && buf.constructor.name, sameThreeAsRenderer: !!(M.WebGPURenderer && renderer.constructor && M.WebGPURenderer === renderer.constructor) }
       if (!(od.unit > 0)) {
         renderer.setClearColor(0xffffff, 1)
         renderer.render(new THREE.Scene(), camera)
