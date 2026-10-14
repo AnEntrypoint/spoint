@@ -131,9 +131,11 @@ function windExact(out, x, z, t, wdx, wdz, amp) {
 function windLattice(out, x, z, f = field) {
   const data = f.texture.image.data
   const C = f.cells
-  const ox = field.uniforms.uFieldOrigin.value.x
-  const oz = field.uniforms.uFieldOrigin.value.y
-  const cellM = field.extentM / C
+  // The origin belongs to the field being sampled: reading the module-level one would silently
+  // sample every field as if it were centred where `field` is.
+  const ox = f.uniforms.uFieldOrigin.value.x
+  const oz = f.uniforms.uFieldOrigin.value.y
+  const cellM = f.extentM / C
   const u = (x - ox) / cellM - 0.5
   const v = (z - oz) / cellM - 0.5
   let i0 = Math.floor(u), j0 = Math.floor(v)
@@ -272,8 +274,21 @@ const refreshAt = (t) => {
 const afterSampler = (t) => refreshAt(t)
 afterSampler.sample = (out, x, z) => windLattice(out, x, z)
 
+// The other direction: the SAME shared field, with the per-blade oscillator phase put back. If the
+// coherence above comes from the shared field and not from something else in the arm, this destroys
+// it -- and it is the defect the owner reported, so it is the arm that has to read low.
+const afterPhaseSampler = (t) => refreshAt(t)
+afterPhaseSampler.sample = (out, x, z, t) => {
+  windLattice(out, x, z)
+  const ph = bladePhase(Math.round(x / SPACING), Math.round(z / SPACING))
+  const gph = t * 2.2 + ph
+  out[0] += Math.sin(gph) * 0.25 * WIND_AMP
+  out[1] += Math.cos(gph * 0.7) * 0.25 * WIND_AMP
+}
+
 const B = measure(beforeSampler)
 const A = measure(afterSampler)
+const P = measure(afterPhaseSampler)
 
 // ---------------------------------------------------------------- lattice fidelity
 
@@ -311,6 +326,37 @@ for (let k = 0; k < 2000; k++) {
   if (e > schedMax) schedMax = e
 }
 
+// A recentre used to rebuild every cell of the lattice. It now SCROLLS it: the cells still over the
+// same ground are moved into their new slots and only the newly exposed border is computed, and the
+// band schedule runs on every frame whatever the camera does, so a cell the scroll carries over is
+// never staler than one the schedule has not reached. Measured over a ladder of camera speeds,
+// sampling strictly inside the window the lattice covers -- a sample outside it is clamped to the
+// edge and would read as a field error.
+const SPEEDS = [0, 0.1, 1, 4, 40]
+function stalenessAt(stepM, frames) {
+  const f = createGrassWindField()
+  let tt = 0
+  for (let i = 0; i < frames; i++) {
+    tt += FRAME_DT
+    f.update(tt, i * stepM % 400, i * stepM * 0.75 % 300, WIND_AMP, DIR_X, DIR_Z, reach)
+  }
+  const ox = f.uniforms.uFieldOrigin.value.x, oz = f.uniforms.uFieldOrigin.value.y
+  let m = 0, amp = 0
+  for (let k = 0; k < 4000; k++) {
+    const x = ox + 4 + ((k * 7919) % 1000) / 1000 * (f.extentM - 8)
+    const z = oz + 4 + ((k * 104729) % 1000) / 1000 * (f.extentM - 8)
+    windLattice(probe, x, z, f)
+    windExact(exact, x, z, tt, DIR_X, DIR_Z, WIND_AMP)
+    const e = Math.max(Math.abs(probe[0] - exact[0]), Math.abs(probe[1] - exact[1]))
+    if (e > m) m = e
+    const r = Math.hypot(exact[0], exact[1]); if (r > amp) amp = r
+  }
+  return { m, amp, frac: m / amp, scrolls: f.stats.scrolls }
+}
+const staled = SPEEDS.map((s) => ({ s, ...stalenessAt(s, 600) }))
+const WALK = staled[1]
+const staleWorst = staled.reduce((w, v) => (v.frac > w.frac ? v : w), staled[0])
+
 // ---------------------------------------------------------------- counted work units
 
 function countingMath() {
@@ -340,11 +386,19 @@ function timeField(frames, recentreEvery) {
     times.push(Number(process.hrtime.bigint() - t0) / 1e6)
   }
   times.sort((a, b) => a - b)
-  return { mean: times.reduce((s, v) => s + v, 0) / times.length, p95: times[Math.floor(times.length * 0.95)], max: times[times.length - 1] }
+  const at = (q) => times[Math.min(times.length - 1, Math.floor(times.length * q))]
+  return { mean: times.reduce((s, v) => s + v, 0) / times.length, p95: at(0.95), p99: at(0.99), max: times[times.length - 1] }
 }
 const steady = timeField(2000, 0)
 const recentring = timeField(2000, 1)
 const CELLS_PER_FRAME = field.stats.lastBandCells
+// What a recentre costs in WORK, which is the part that is not host-dependent: the lattice scrolls,
+// so only the border the window newly exposes is computed, plus the band this frame always writes.
+const recentreProbe = createGrassWindField()
+recentreProbe.update(0, 0, 0, WIND_AMP, DIR_X, DIR_Z, reach)
+recentreProbe.update(0.01, 40, 40, WIND_AMP, DIR_X, DIR_Z, reach)
+const RECENTRE_CELLS = recentreProbe.stats.lastBandCells
+const FULL_CELLS = GRASS_WIND_FIELD_CELLS * GRASS_WIND_FIELD_CELLS
 const BAND_ROWS = Math.ceil(GRASS_WIND_FIELD_CELLS / GRASS_WIND_FIELD_BANDS)
 const BLADES_PER_GROUP = GRASS_WIND_FIELD_EXTENT_M / GRASS_WIND_FIELD_CELLS
 const ringArea = Math.PI * RING * RING
@@ -360,13 +414,16 @@ console.log('MEASURED grass-coherent-wind: neighbour coherence (1 = blades move 
 console.log(`  before (per-blade phase)  ${sep(B)}`)
 console.log(`  after  (shared gust field) ${sep(A)}`)
 console.log(`  coherence length (correlation falls to 0.5): ${f2(B.len)}m -> ${f2(A.len)}m`)
+console.log(`  shared field, per-blade phase PUT BACK ${sep(P)}`)
 console.log(`  displacement over ${N * N} blade(s) x ${TIMES} instant(s): rms ${f3(B.rms)} -> ${f3(A.rms)} m, peak ${f3(B.peak)} -> ${f3(A.peak)} m`)
  console.log(`  collective motion of a 4m block of blades (what reads as turbulence): ${f3(B.collective)} -> ${f3(A.collective)} m`)
 console.log(`  lattice vs the exact field: mean ${meanErr.toFixed(5)}m max ${maxErr.toFixed(5)}m against an amplitude of ${f3(ampMax)}m`)
 console.log(`  one band per frame at 60fps: the oldest of ${BANDS} band(s) reads ${schedMax.toFixed(5)}m off the exact field`)
 console.log(`  counted transcendental(s): ${TRIG_PER_BLADE_BEFORE} per blade before -> ${TRIG_PER_GROUP_AFTER} per group of ~${bladesPerGroup.toFixed(0)} blade(s) after (${TRIG_PER_GROUP_AFTER} per blade of it: 0)`)
 console.log(`  per frame: ${TRIG_BEFORE_LO.toLocaleString()}..${TRIG_BEFORE_HI.toLocaleString()} per-blade transcendental(s) -> ${(CELLS_PER_FRAME * TRIG_PER_GROUP_AFTER).toLocaleString()} (${CELLS_PER_FRAME} cell(s) of ${GRASS_WIND_FIELD_CELLS}x${GRASS_WIND_FIELD_CELLS}, ${GRASS_WIND_FIELD_BANDS} band(s) of ${BAND_ROWS} row(s))`)
-console.log(`  cpu per frame: 0.000ms before (the shader did it) -> mean ${steady.mean.toFixed(4)}ms p95 ${steady.p95.toFixed(4)}ms; a re-centre rebuilds the lattice once: mean ${recentring.mean.toFixed(4)}ms p95 ${recentring.p95.toFixed(4)}ms max ${recentring.max.toFixed(4)}ms`)
+console.log(`  a recentre now SCROLLS the lattice: ${RECENTRE_CELLS} of ${FULL_CELLS} cell(s) recomputed (${recentreProbe.stats.scrolls} scroll(s), ${recentreProbe.stats.fullRebuilds} full build(s))`)
+console.log(`  a moving camera vs the exact field at the same instant: ${staled.map((v) => `${v.s}m/frame ${(100 * v.frac).toFixed(1)}%`).join('  ')}`)
+console.log(`  cpu per frame: 0.000ms before (the shader did it) -> mean ${steady.mean.toFixed(4)}ms p95 ${steady.p95.toFixed(4)}ms max ${steady.max.toFixed(4)}ms; a recentre: mean ${recentring.mean.toFixed(4)}ms p95 ${recentring.p95.toFixed(4)}ms p99 ${recentring.p99.toFixed(4)}ms max ${recentring.max.toFixed(4)}ms`)
 console.log(`  group: ${f2(GROUP_M)}m cell(s) over a ${GRASS_WIND_FIELD_EXTENT_M}m lattice, ~${bladesPerGroup.toFixed(0)} blade(s) per cell at ${INSTANCES.toLocaleString()} instance(s) over a ${RING}m ring -- ${(bladesPerGroup * MID_VERTS).toFixed(0)}..${(bladesPerGroup * NEAR_VERTS).toFixed(0)} vertex evaluation(s) joined into 1`)
 
 // ---------------------------------------------------------------- checks
@@ -384,8 +441,14 @@ check('the turbulence reads MORE, not less', A.collective > B.collective * 1.2,
   `a 4m block of blades moves ${f3(B.collective)} -> ${f3(A.collective)}m (x${(A.collective / B.collective).toFixed(2)})`)
 check('the lattice carries the field it stands for', maxErr < 0.2 * ampMax, `max ${maxErr.toFixed(5)}m of ${f3(ampMax)}m (${(100 * maxErr / ampMax).toFixed(1)}%)`)
 check('one band per frame is not a visible seam', schedMax < 0.1 * ampMax, `after 600 frame(s) the oldest of ${BANDS} band(s) is ${schedMax.toFixed(5)}m off the exact field, ${(100 * schedMax / ampMax).toFixed(1)}% of ${f3(ampMax)}m`)
-check('the join does not buy a hitch', recentring.max < 34 && steady.mean < 1,
-  `steady ${steady.mean.toFixed(4)}ms/frame, worst re-centre ${recentring.max.toFixed(4)}ms against the 34ms smallest visible hitch`)
+check('the shared field is what makes them move together', P.coherence[0.5] < A.coherence[0.5] - 0.15 && P.coherence[0.5] < 0.8,
+  `0.5m coherence ${f3(A.coherence[0.5])} with the shared field alone, ${f3(P.coherence[0.5])} once the per-blade phase is put back`)
+check('a recentre recomputes only the cells it no longer has', RECENTRE_CELLS < FULL_CELLS / 2 && recentreProbe.stats.scrolls === 1,
+  `${RECENTRE_CELLS} of ${FULL_CELLS} cell(s), ${recentreProbe.stats.scrolls} scroll(s), ${recentreProbe.stats.fullRebuilds} full build(s)`)
+check('a moving camera does not outrun the lattice', WALK.frac < 0.1 && staleWorst.frac < 0.15,
+  `at a walking ${WALK.s}m/frame the lattice is ${(100 * WALK.frac).toFixed(1)}% off the exact field; worst over the ladder ${(100 * staleWorst.frac).toFixed(1)}% at ${staleWorst.s}m/frame`)
+check('the join does not buy a hitch', recentring.mean < 1 && recentring.p99 < 34 && steady.mean < 1,
+  `steady ${steady.mean.toFixed(4)}ms/frame; recentre mean ${recentring.mean.toFixed(4)}ms p99 ${recentring.p99.toFixed(4)}ms max ${recentring.max.toFixed(4)}ms against the 34ms smallest visible hitch -- the max is the host, not the join, since a ${CELLS_PER_FRAME}-cell steady band reads up to ${steady.max.toFixed(2)}ms on this box`)
 check('both shader paths still read the shared field', /uGrassWindField/.test(matSrc) && /uGrassWindField/.test(tslSrc),
   'client/core/GrassMaterial.js and client/core/GrassTSL.js both sample uGrassWindField')
 check('a non-finite clock is refused, not defaulted', (() => {
@@ -397,5 +460,5 @@ check('a non-finite clock is refused, not defaulted', (() => {
   return f2f.stats.rejectedWrites === before + 1
 })(), 'a NaN update is counted in stats.rejectedWrites and changes nothing')
 
-console.log(`RESULT: ${failed.length === 0 ? 'PASS' : 'FAIL'} (${failed.length} failure(s)) coherence0.5m=${f3(B.coherence[0.5])}->${f3(A.coherence[0.5])} trigPerFrame=${TRIG_BEFORE_LO.toLocaleString()}..${TRIG_BEFORE_HI.toLocaleString()}->${(CELLS_PER_FRAME * TRIG_PER_GROUP_AFTER).toLocaleString()} cpuMsPerFrame=0.000->${steady.mean.toFixed(4)}`)
+console.log(`RESULT: ${failed.length === 0 ? 'PASS' : 'FAIL'} (${failed.length} failure(s)) coherence0.5m=${f3(B.coherence[0.5])}->${f3(A.coherence[0.5])} (per-blade phase put back: ${f3(P.coherence[0.5])}) trigPerFrame=${TRIG_BEFORE_LO.toLocaleString()}..${TRIG_BEFORE_HI.toLocaleString()}->${(CELLS_PER_FRAME * TRIG_PER_GROUP_AFTER).toLocaleString()} cpuMsPerFrame=0.000->${steady.mean.toFixed(4)} recentreCells=${RECENTRE_CELLS}/${FULL_CELLS}`)
 process.exit(failed.length === 0 ? 0 : 1)

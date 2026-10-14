@@ -114,7 +114,8 @@ export function createGrassWindField() {
   }
 
   const state = { originX: NaN, originZ: NaN, band: 0, reach: GRASS_WIND_FIELD_REACH_M, cellM }
-  const stats = { cellWrites: 0, frames: 0, fullRebuilds: 0, recentres: 0, rejectedWrites: 0, lastBandCells: 0 }
+  const stats = { cellWrites: 0, frames: 0, fullRebuilds: 0, recentres: 0, rejectedWrites: 0, lastBandCells: 0,
+    scrolls: 0, scrolledCells: 0 }
   const gust = [0, 0, 0]
 
   function writeCell(j, i, t, amp, dx, dz) {
@@ -134,6 +135,54 @@ export function createGrassWindField() {
 
   const rowsPerBand = Math.max(1, Math.ceil(CELLS / GRASS_WIND_FIELD_BANDS))
 
+  // A recentre does not have to recompute the cells it still has. The lattice is a window onto the
+  // world; moving that window by k cells leaves CELLS-k of its rows and columns over the same
+  // ground, so those texels are MOVED into their new slots and only the newly exposed border is
+  // computed. A cell a scroll keeps is exactly as fresh as a cell the band schedule has not reached
+  // yet -- the band cycle still refreshes every cell within GRASS_WIND_FIELD_BANDS frames -- so this
+  // joins the gusts already paid for instead of paying for them again.
+  //
+  // new[j][i] = old[j + sj][i + si], because the cell at index j under the new origin covers the
+  // world position the cell at index j + sj covered under the old one.
+  function scroll(sj, si) {
+    const srcCol0 = Math.max(0, sj)
+    const srcCol1 = CELLS - 1 + Math.min(0, sj)
+    const dstCol0 = srcCol0 - sj
+    const iFrom = Math.max(0, -si)
+    const iTo = Math.min(CELLS - 1, CELLS - 1 - si)
+    // Rows are read from a neighbour that must not have been overwritten yet: from above when the
+    // window moved +z, from below when it moved -z.
+    const asc = si >= 0
+    for (let n = 0; n <= iTo - iFrom; n++) {
+      const i = asc ? iFrom + n : iTo - n
+      data.copyWithin((i * CELLS + dstCol0) * 4, ((i + si) * CELLS + srcCol0) * 4, ((i + si) * CELLS + srcCol1 + 1) * 4)
+    }
+  }
+
+  function fillExposed(sj, si, t, amp, dx, dz) {
+    let n = 0
+    for (let i = 0; i < CELLS; i++) {
+      const rowExposed = i + si < 0 || i + si > CELLS - 1
+      for (let j = 0; j < CELLS; j++) {
+        if (!rowExposed && j + sj >= 0 && j + sj <= CELLS - 1) continue
+        writeCell(j, i, t, amp, dx, dz)
+        n++
+      }
+    }
+    return n
+  }
+
+  // The band schedule runs on EVERY frame, including a frame that scrolled: it is the only thing
+  // that bounds how stale a cell can be, and a camera that recentres often enough would otherwise
+  // starve the cells the scroll keeps.
+  function bandWrite(t, amp, dx, dz) {
+    const from = state.band * rowsPerBand
+    const to = Math.min(CELLS, from + rowsPerBand)
+    buildRows(from, to, t, amp, dx, dz)
+    stats.lastBandCells += (to - from) * CELLS
+    state.band = (state.band + 1) % Math.ceil(CELLS / rowsPerBand)
+  }
+
   function update(t, camX, camZ, amp, dirX, dirZ, reach) {
     if (!Number.isFinite(t)) { stats.rejectedWrites++; return stats }
     const r = Number.isFinite(reach) && reach > 0 ? reach : GRASS_WIND_FIELD_REACH_M
@@ -152,18 +201,34 @@ export function createGrassWindField() {
     const a = Number.isFinite(amp) ? amp : 0
 
     stats.frames++
+    stats.lastBandCells = 0
+    const first = !Number.isFinite(state.originX) || !Number.isFinite(state.originZ)
+    const shiftedX = first ? 0 : ox - state.originX
+    const shiftedZ = first ? 0 : oz - state.originZ
+    const sj = first ? 0 : Math.round(shiftedX / cellM)
+    const si = first ? 0 : Math.round(shiftedZ / cellM)
+    const cellAligned = !first && Math.abs(shiftedX - sj * cellM) < 1e-9 && Math.abs(shiftedZ - si * cellM) < 1e-9
+    const stillOverlaps = Math.abs(sj) < CELLS && Math.abs(si) < CELLS
     if (ox !== state.originX || oz !== state.originZ) {
+      const canScroll = cellAligned && stillOverlaps
       state.originX = ox; state.originZ = oz
-      state.band = 0
-      stats.recentres++; stats.fullRebuilds++
-      buildRows(0, CELLS, t, a, dx, dz)
-      stats.lastBandCells = CELLS * CELLS
+      stats.recentres++
+      if (canScroll) {
+        // The band is left where it is: a cell the scroll carries over is no staler than one the
+        // schedule has not reached, and resetting it would starve the last rows.
+        scroll(sj, si)
+        stats.scrolls++
+        stats.lastBandCells = fillExposed(sj, si, t, a, dx, dz)
+        stats.scrolledCells += stats.lastBandCells
+        bandWrite(t, a, dx, dz)
+      } else {
+        state.band = 0
+        stats.fullRebuilds++
+        stats.lastBandCells = CELLS * CELLS
+        buildRows(0, CELLS, t, a, dx, dz)
+      }
     } else {
-      const from = state.band * rowsPerBand
-      const to = Math.min(CELLS, from + rowsPerBand)
-      buildRows(from, to, t, a, dx, dz)
-      stats.lastBandCells = (to - from) * CELLS
-      state.band = (state.band + 1) % Math.ceil(CELLS / rowsPerBand)
+      bandWrite(t, a, dx, dz)
     }
     uniforms.uFieldOrigin.value.set(ox, oz)
     texture.needsUpdate = true
