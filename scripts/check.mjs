@@ -139,6 +139,16 @@ const NO_GPU_WITNESSES = [
   // silence that passes. gpu-free: it boots client/core/Grass.js in node over the real tps-game
   // terrain and reaches three's submission boundary, which is the layer that owns instanceCount;
   // the WebGPU encoder itself is a browser arm this CI does not run.
+  // PERF-fill-overdraw-backface-1013. The terrain patch grid is single-sided now, and the pin is
+  // the WHOLE decision, not the one line: the material the page builds has to build the side the
+  // camera sees (named by scripts/terrain-side-overdraw-ab-witness.mjs, which culls each side in
+  // turn and diffs the frame per band), it has to be one assignment site so no second place
+  // re-doubles it, and the surfaces whose backfaces are load-bearing -- grass cards, vegetation
+  // leaves and the water surface -- have to be UNCHANGED. gpu-free: it builds the real node graph in
+  // node and reads four sources; it never touches an adapter. The `must` is the second half: a
+  // reintroduced DoubleSide, a moved vertex stencil or a flipped constant fails here instead of
+  // drifting.
+  { file: 'terrain-side-single-witness.mjs', must: /MEASURED terrain-side-single: terrain material side=BackSide\(1\) built from createTerrainMaterialTSL; grass, vegetation leaves and water still DoubleSide; [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=terrain-side-single/ },
   { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* live=[1-9]\d* drawn=[1-9]\d*[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
   // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
   // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a

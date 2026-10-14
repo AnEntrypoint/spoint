@@ -230,6 +230,9 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   material.outputNode = Fn(() => select(u.fsCheap.greaterThan(0.5), vec4(fsDbg, 1.0), lighting.gradeOutput(output)))()
   material.metalness = 0.0
   material.fog = false
-  material.side = THREE.DoubleSide
+  // The patch grid's outward direction is its BACK-facing winding: culling front faces leaves the
+  // ground the camera sees, and culling back faces removes it (measured per frame band in
+  // scripts/terrain-side-overdraw-ab-witness.mjs, pinned by terrain-side-single-witness.mjs).
+  material.side = THREE.BackSide
   return { material, uniforms: u, lighting, spec, makeHeightSpec, faceU, faceV, faceC, sculpt }
 }
