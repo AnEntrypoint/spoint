@@ -720,6 +720,42 @@ async function main() {
       for (const line of eyeOut.split('\n')) if (eyeKeep(line) && /RESULT:/.test(line)) console.log(`check: ${line}`)
     }
   }
+  // PERF-fill-overdraw-deep-bucket-1013. The frame is fill-bound and the AGGREGATE is already
+  // measured (pixels x2.25 -> wall x2.18 while draws moved x1.02; 18.375 fragments/screen px front,
+  // 20.807 back; the 33+ bucket is 550,158 / 816,279 px; terrain is ~8% of the frame and
+  // single-siding it removed 0.2%, inside noise), so the open question is not how much overdraw the
+  // frame has but WHICH draws stack 33+ deep on those half-million pixels, and that is a per-band
+  // question. The witness separates bands by rendering each one SOLO into an additive RGBA16F target
+  // with depthTest/depthWrite off, which makes the per-pixel stack additive, so SUM of bands ==
+  // composite pixel by pixel and the shares are a decomposition rather than a guess. It reaches
+  // cdp-browser, so like every other browser witness it rides SPOINT_GPU_WITNESS and gpulock and
+  // never the gpu-free arm, which refuses it by name. The `must` is the second half of the witness:
+  // a run that named no top band, one whose top band's share neither LEFT the bucket when hidden nor
+  // came BACK when restored, or one whose fullscreen control quad never rasterized one fragment per
+  // screen pixel, must read as a failure rather than as silence that passes.
+  if (process.env.SPOINT_GPU_WITNESS) {
+    const odFile = 'overdraw-deep-bucket-attribution-witness.mjs'
+    const odMust = /\[overdraw-deep\] TOP \S+: [1-9]\d* deep fragment\(s\) = [\d.]+% of the [1-9]\d* px deep bucket[\s\S]*\[overdraw-deep\] MEASURED hide \S+: its deep share [1-9]\d* -> \d+, deep bucket [1-9]\d* -> \d+ px[\s\S]*\[overdraw-deep\] MEASURED restore \S+: its deep share \d+ -> [1-9]\d*[\s\S]*\[overdraw-deep\] MEASURED control \(fullscreen quad\): [1-9]\d* fragment\(s\) against [1-9]\d* screen pixel\(s\)[\s\S]*RESULT: PASS overdraw-deep-bucket-attribution top=\S+ share=[\d.]+% deepFragments=[1-9]\d* deepPx=[1-9]\d* identityL1=\d+ control=[1-9]\d*\/[1-9]\d* viewport=\d+x\d+ rasterizer=\S+/
+    const odKeep = (line) => /^(RESULT:|\[overdraw-deep\])/.test(line)
+    const odStarted = Date.now()
+    let odOut = ''
+    let odCode = 0
+    try {
+      const done = await execFileAsync(process.execPath, [join('scripts', odFile), `--gpu=${gpuArms[0] || 'amd'}`, '--settle=18000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      odOut = done.stdout
+    } catch (e) {
+      odOut = (e && e.stdout) || ''
+      odCode = Number.isInteger(e.code) ? e.code : 1
+    }
+    const odMs = Date.now() - odStarted
+    if (odCode !== 0 || !odMust.test(odOut)) {
+      gateFailures.push(`${odFile}: exit ${odCode} in ${(odMs / 1000).toFixed(1)}s${odMust.test(odOut) ? '' : ', printed no line pinning a top band, its share leaving and returning, and a control quad at one fragment per pixel'}`)
+      for (const line of echoLines(odOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
+    } else {
+      console.log(`check: gpu-arm witness ${odFile} ${(odMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(odOut).line}`)
+      for (const line of odOut.split('\n')) if (odKeep(line) && /RESULT:/.test(line)) console.log(`check: ${line}`)
+    }
+  }
   // Owner-reported hard hitches when the landscape changes (row
   // PERF-landscape-change-hitch-r270-74). This witness boots a real browser, so it rides the same
   // opt-in GPU arm as the veg witness and never the gpu-free one. Its `must` is the second half of
