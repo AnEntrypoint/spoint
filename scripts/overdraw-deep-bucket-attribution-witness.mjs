@@ -93,24 +93,36 @@ const INSTALL = `(() => {
       try { W = await import('three/webgpu') } catch (e) { W = null }
       let TSL = null
       try { TSL = await import('three/tsl') } catch (e) { TSL = null }
+      // The app ships as a PREBUILT BUNDLE with three inlined, so a three/webgpu loaded by a dynamic
+      // import from the page is a SECOND module instance: a node material built from it carries node
+      // objects the renderer's own node system does not recognise, its pipeline fails validation, and
+      // a WebGPU pipeline that fails validation dispatches NOTHING and surfaces NOTHING -- which is
+      // why the calibration below read 0 pixels covered out of 2,073,600. So when the page already
+      // holds an overdraw instrument built from the renderer's own three, ADOPT its material and
+      // target rather than building a foreign one; the self-built path is only the fallback.
+      const probe = window.__overdrawProbe
+      const adopted = !!(probe && probe.accumulateMaterial && probe.target)
       const C = (window.__app && window.__app.THREE) || null
-      const M = W || C
+      const M = adopted ? (C || W) : (W || C)
       if (!M) throw new Error('neither the three/webgpu module nor window.__app.THREE is reachable from the page')
       const renderer = window.__renderer, scene = window.__scene, camera = window.__camera
       if (!renderer || !scene || !camera) throw new Error('window.__renderer/window.__scene/window.__camera is absent')
-      const NodeMat = M.MeshBasicNodeMaterial || M.MeshBasicMaterial
-      if (!NodeMat) throw new Error('no basic material class is exported by ' + (W ? 'three/webgpu' : 'window.__app.THREE'))
-      const v = new M.Vector2()
-      renderer.getDrawingBufferSize(v)
-      const w = Math.max(4, Math.floor(v.x)), h = Math.max(4, Math.floor(v.y))
-      const mat = new NodeMat({ depthTest: false, depthWrite: false, toneMapped: false })
+      let mat = null
+      let target = null
+      if (adopted) {
+        mat = probe.accumulateMaterial
+        target = probe.target
+        mat.forceSinglePass = true
+        mat.depthTest = false
+        mat.depthWrite = false
+      } else {
+        const NodeMat = M.MeshBasicNodeMaterial || M.MeshBasicMaterial
+        if (!NodeMat) throw new Error('no basic material class is exported by ' + (W ? 'three/webgpu' : 'window.__app.THREE'))
+        mat = new NodeMat({ depthTest: false, depthWrite: false, toneMapped: false })
+      }
       if (mat.color && mat.color.setRGB) mat.color.setRGB(1, 1, 1)
-      // The accumulation value has to be an explicit constant, not the material's own colour: a node
-      // material with no colorNode falls back to reading material.color, and a class that does not
-      // declare one leaves the diffuse at 0 -- which reads back as a calibration of 0 fragments for
-      // one fragment and silently zeroes every figure below it.
-      if (TSL && TSL.vec4) mat.colorNode = TSL.vec4(1, 1, 1, 1)
-      if (TSL && TSL.float) mat.opacityNode = TSL.float(1)
+      if (!adopted && TSL && TSL.vec4) mat.colorNode = TSL.vec4(1, 1, 1, 1)
+      if (!adopted && TSL && TSL.float) mat.opacityNode = TSL.float(1)
       mat.opacity = 1
       mat.transparent = false
       mat.blending = M.CustomBlending
@@ -122,12 +134,18 @@ const INSTALL = `(() => {
       mat.blendEquationAlpha = M.AddEquation
       mat.forceSinglePass = true
       mat.side = M.FrontSide
-      const target = new M.RenderTarget(w, h, {
-        type: M.HalfFloatType, format: M.RGBAFormat,
-        minFilter: M.NearestFilter, magFilter: M.NearestFilter, depthBuffer: false,
-      })
-      window.__od = { M, renderer, scene, camera, target, mat, w, h, unit: null, runs: 0 }
-      window.__odMeta = { ok: true, w, h, mat: NodeMat.name, from: W ? 'three/webgpu' : 'window.__app.THREE', hasDataUtils: !!(M.DataUtils && M.DataUtils.fromHalfFloat) }
+      if (!target) {
+        const v = new M.Vector2()
+        renderer.getDrawingBufferSize(v)
+        const tw = Math.max(4, Math.floor(v.x)), th = Math.max(4, Math.floor(v.y))
+        target = new M.RenderTarget(tw, th, {
+          type: M.HalfFloatType, format: M.RGBAFormat,
+          minFilter: M.NearestFilter, magFilter: M.NearestFilter, depthBuffer: false,
+        })
+      }
+      const w = Math.max(4, Math.floor(target.width)), h = Math.max(4, Math.floor(target.height))
+      window.__od = { M, renderer, scene, camera, target, mat, w, h, unit: null, runs: 0, adopted }
+      window.__odMeta = { ok: true, w, h, mat: mat.constructor ? mat.constructor.name : 'material', adopted, from: adopted ? 'window.__overdrawProbe' : (W ? 'three/webgpu' : 'window.__app.THREE'), hasDataUtils: !!(M.DataUtils && M.DataUtils.fromHalfFloat) }
       window.__odBooted = true
     } catch (e) {
       window.__odBootErr = String((e && e.message) || e)
@@ -146,8 +164,15 @@ const INSTALL_RUNNER = `(() => {
     const M = od.M
     const { renderer, scene, camera, target, mat, w, h } = od
     const D = w * h
-    const fromHalf = THREE.DataUtils.fromHalfFloat.bind(THREE.DataUtils)
-    const fh = (x) => fromHalf(x)
+    const halfToFloat = (u) => {
+      const s = (u & 0x8000) ? -1 : 1, e = (u >> 10) & 0x1f, f = u & 0x03ff
+      if (e === 0) return s * Math.pow(2, -14) * (f / 1024)
+      if (e === 0x1f) return f ? NaN : s * Infinity
+      return s * Math.pow(2, e - 15) * (1 + f / 1024)
+    }
+    const fh = (THREE.DataUtils && typeof THREE.DataUtils.fromHalfFloat === 'function')
+      ? THREE.DataUtils.fromHalfFloat.bind(THREE.DataUtils)
+      : halfToFloat
     const log = []
     od.runs++
 
@@ -177,24 +202,35 @@ const INSTALL_RUNNER = `(() => {
       const saved = []
       scene.traverse((o) => { saved.push([o, o.visible]); o.visible = false })
       cq.visible = true
+      // The renderer keeps the app's user viewport and scissor test, so an accumulation pass drawn
+      // through them lands in a sub-rect of the target: the centre pixel then reads 0 while a clear
+      // of the same target still reads 1 everywhere. Force the whole target for the read that has
+      // to come back as one fragment per pixel.
+      const pv = new THREE.Vector4(); renderer.getViewport(pv)
+      const ps = renderer.getScissorTest()
+      renderer.setViewport(0, 0, w, h)
+      renderer.setScissorTest(false)
       renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setClearColor(0x000000, 0)
       mat.side = THREE.FrontSide
       scene.overrideMaterial = mat
       renderer.render(scene, camera)
       scene.overrideMaterial = null
-      const mid = await renderer.readRenderTargetPixelsAsync(target, w >> 1, h >> 1, 1, 1)
-      od.unit = fh(mid[0])
+      // Read the WHOLE target, not one pixel: the max over every pixel is one fragment's worth, and
+      // the count of covered pixel(s) says whether the quad really covered the screen.
+      const buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
+      let mx = 0, covered = 0
+      for (let i = 0; i < D; i++) { const v = fh(buf[i * 4]); if (v > mx) mx = v; if (v > 0) covered++ }
+      od.unit = mx
+      od.diag = { calibMax: mx, calibCoveredPx: covered, ofPixels: D, viewport: [renderer.getViewport(new THREE.Vector4()).toArray()] }
       if (!(od.unit > 0)) {
-        // BISECT. A white clear of the same target must read back as 1: if it does, clear + readback
-        // work and the quad itself never rasterized; if it does not, the target or the readback is
-        // the thing that is broken. Either way the failure says which instead of reporting 0.
-        const empty = new THREE.Scene()
-        const cc = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
         renderer.setClearColor(0xffffff, 1)
-        renderer.render(empty, cc)
-        const wp = await renderer.readRenderTargetPixelsAsync(target, w >> 1, h >> 1, 1, 1)
-        od.diag = { quad: [fh(mid[0]), fh(mid[1]), fh(mid[2]), fh(mid[3])], clearWhite: [fh(wp[0]), fh(wp[1]), fh(wp[2]), fh(wp[3])] }
+        renderer.render(new THREE.Scene(), camera)
+        const wb = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
+        let wm = 0
+        for (let i = 0; i < D; i++) { const v = fh(wb[i * 4]); if (v > wm) wm = v }
+        od.diag.clearWhiteMax = wm
       }
+      renderer.setViewport(pv); renderer.setScissorTest(ps)
       for (const [o, v] of saved) o.visible = v
       scene.remove(cq)
       qgeo.dispose(); qmat.dispose()
@@ -271,6 +307,18 @@ const INSTALL_RUNNER = `(() => {
       for (let i = 0; i < D; i++) out[i] = fh(buf[i * 4])
       return out
     }
+    // A render target's own size is the region the instrument is counting over, so the renderer's
+    // user viewport and scissor must not narrow it: the app leaves both set (VDRS / split view),
+    // and an accumulation pass drawn into a sub-rect reads back as 0 at the centre while a clear
+    // of the same target still reads 1 everywhere -- the exact shape of the failure this replaces.
+    const fullViewport = (fn) => {
+      const pv = new THREE.Vector4()
+      renderer.getViewport(pv)
+      const ps = renderer.getScissorTest()
+      renderer.setViewport(0, 0, w, h)
+      renderer.setScissorTest(false)
+      try { return fn() } finally { renderer.setViewport(pv); renderer.setScissorTest(ps) }
+    }
     const renderPass = (side, keep) => {
       const pT = renderer.getRenderTarget(), pA = renderer.autoClear
       const pC = new THREE.Color(); renderer.getClearColor(pC); const pAl = renderer.getClearAlpha()
@@ -284,7 +332,7 @@ const INSTALL_RUNNER = `(() => {
       mat.side = side
       scene.overrideMaterial = mat
       try {
-        renderer.render(scene, camera)
+        fullViewport(() => renderer.render(scene, camera))
       } finally {
         scene.overrideMaterial = pO
         for (let i = 0; i < all.length; i++) all[i].visible = saved[i]
