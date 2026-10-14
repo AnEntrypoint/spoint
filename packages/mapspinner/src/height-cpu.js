@@ -51,10 +51,15 @@ export function createHeightSampler(opts = {}) {
   const H = makeHeight(U, hpfSample)
   const hpfFace = (face) => _faceBuf[face] || _bakeFace(face)
   const specParams = { hpfRes: RES, landBias: U.uLandBias, beachShelfM: U.uBeachShelfM, reliefScale: 0 }
-  const compile = (carves) => compileHeightSpec({ hashVersion, carves, params: specParams, hpfFace, hpfRes: RES }).composeHeight
+  // The v1 float hash is only reproducible at the precision the GPU runs it in: its lattice
+  // coordinates are integers (so both precisions hold them exactly) but fract(p*0.1031) does not,
+  // and the domain warp turns that difference into metres of ground. The v2 integer hash is bit
+  // exact in either precision, so it keeps the exact f64 path the shipped bakes were computed on.
+  const precision = opts.precision ?? (hashVersion === HASH_VERSION_FLOAT ? 'f32' : 'f64')
+  const compile = (carves) => compileHeightSpec({ hashVersion, carves, precision, params: specParams, hpfFace, hpfRes: RES }).composeHeight
   const requestedCarves = opts.carves || []
   if (requestedCarves.length && hashVersion === HASH_VERSION_FLOAT) throw new RangeError('createHeightSampler: terrain carves need hashVersion 2 (the legacy GLSL terrain has no carve term)')
-  const naturalHeight = hashVersion === HASH_VERSION_FLOAT ? null : compile([])
+  const naturalHeight = compile([])
   const carves = requestedCarves.map((c) => resolveCarve(c, radius, naturalHeight))
   const composeSpecHeight = naturalHeight && (carves.length ? compile(carves) : naturalHeight)
 
