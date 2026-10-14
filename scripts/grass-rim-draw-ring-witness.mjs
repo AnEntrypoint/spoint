@@ -15,8 +15,11 @@
 //                     zero matrix costs a vertex invocation and paints nothing)
 //
 // So this witness reads BOTH, buckets them by distance from the player, and cross-checks them
-// against the instancer's own liveCount -- three numbers that must agree, because a zero here is
-// only worth quoting when it is proven (`proven-zero-count` / `measured`), never as a bare zero.
+// against the population the distance law itself kept -- three numbers that must agree, because a
+// zero here is only worth quoting when it is proven (`proven-zero-count` / `measured`), never as a
+// bare zero. The instancer's own `liveCount` is a lane's addition on top of three's InstancedMesh2
+// and is not on every tree this can run against, so where it is absent the cross-check is against
+// the law's keep count instead and `live` stays null rather than being read as a number.
 //
 // It boots the real client/core/Grass.js in node over the real tps-game terrain, never a browser:
 // the browser/WebGPU encoder is the boundary that would be authoritative, and in this lane it is
@@ -95,14 +98,15 @@ const isZeroSlot = (a, o) => a[o] === 0 && a[o + 1] === 0 && a[o + 2] === 0 && a
   && a[o + 12] === 0 && a[o + 13] === 0 && a[o + 14] === 0
 
 function submitProfile(grass, px, pz, maxRing) {
-  const out = { submitted: 0, live: 0, drawn: 0, zeroInRange: 0, drawnRings: [], pts: [] }
+  const out = { submitted: 0, live: null, drawn: 0, zeroInRange: 0, drawnRings: [], pts: [] }
   for (let r = 0; r <= maxRing; r++) out.drawnRings[r] = 0
-  let liveSum = 0
-  for (const im of [grass._im, grass._imMid]) {
+  const instancers = [grass._im, grass._imMid]
+  const liveVals = instancers.map((im) => im.liveCount)
+  if (liveVals.every((v) => Number.isFinite(v))) out.live = liveVals.reduce((x, y) => x + y, 0)
+  for (const im of instancers) {
     const mesh = im.mesh
     const a = mesh.instanceMatrix.array
     out.submitted += mesh.count
-    liveSum += im.liveCount
     for (let id = 0; id < mesh.count; id++) {
       const o = id * 16
       if (isZeroSlot(a, o)) { out.zeroInRange++; continue }
@@ -115,7 +119,6 @@ function submitProfile(grass, px, pz, maxRing) {
       out.pts.push(d)
     }
   }
-  out.live = liveSum
   return out
 }
 
@@ -187,7 +190,7 @@ async function arm(cfg, label) {
 
   const sub = submitProfile(grass, px, pz, maxRing)
   const pl = placedProfile(grass, px, pz, maxRing)
-  const out = { label, cfg, ringM, maxRing, sub, pl, fullR: grass.densityFullR, edgeM: grass.densityEdgeM, reachM: grass.densityReachM, cells: grass._cells.size }
+  const out = { label, cfg, ringM, maxRing, sub, pl, lawOn: pl.on.reduce((x, y) => x + y, 0), fullR: grass.densityFullR, edgeM: grass.densityEdgeM, reachM: grass.densityReachM, cells: grass._cells.size }
   grass.dispose()
   return out
 }
@@ -202,7 +205,7 @@ const fullr = await arm(FULLR, `ring ${BASE_RING_M}m, FULL_R pushed out`)
 
 console.log(`[grass-rim-draw] world=${WORLD} site=${SITE_DEG}deg band=${BAND}m  layer reached: three's InstancedMesh.count + instanceMatrix (the values that become instanceCount and the instance buffer); the WebGPU encoder itself was unreachable in this lane`)
 console.log(`[grass-rim-draw] base: ring=${base.ringM}m FULL_R=${base.fullR} EDGE_CAP_M=${base.edgeM.toFixed(1)} cells=${base.cells}`)
-console.log(`[grass-rim-draw] base submission: instanceCount submitted=${base.sub.submitted} liveCount=${base.sub.live} non-zero matrices below count=${base.sub.drawn} zero matrices below count=${base.sub.zeroInRange}`)
+console.log(`[grass-rim-draw] base submission: instanceCount submitted=${base.sub.submitted} liveCount=${base.sub.live === null ? 'unavailable (no live count on this tree; the cross-check is against the law\'s keep count)' : base.sub.live} non-zero matrices below count=${base.sub.drawn} zero matrices below count=${base.sub.zeroInRange}`)
 
 const printTable = (a) => {
   console.log(`[grass-rim-draw] ${a.label}: ring ${a.ringM}m`)
@@ -243,13 +246,14 @@ const interior = Math.floor(RIM_MID_M / BAND)
 
 console.log(`[grass-rim-draw] forcing on one band (${FILL_LO * BAND}-${(FILL_HI + 1) * BAND}m): base=${baseFill} widened=${wideFill} fullR=${fullrFill}`)
 console.log(`[grass-rim-draw] forcing: total drawn base=${base.sub.drawn} wide=${wide.sub.drawn} fullR=${fullr.sub.drawn} (delta ${fullrFar})`)
-console.log(`[grass-rim-draw] MEASURED grass-rim-draw: rim ratio ${rimRatio.toFixed(3)} (budget ${MIN_RIM_RATIO}); submitted=${base.sub.submitted} live=${base.sub.live} drawn=${base.sub.drawn}; base rim rings ${bd.map((d) => d.toFixed(3)).join('/')} blade(s)/m2; worst boundary ratio ${worstBound ? worstBound.ratio.toFixed(3) + ' at the ' + worstBound.spacing + 'm boundary @ ' + worstBound.atM + 'm' : 'n/a'}`)
+console.log(`[grass-rim-draw] MEASURED grass-rim-draw: rim ratio ${rimRatio.toFixed(3)} (budget ${MIN_RIM_RATIO}); submitted=${base.sub.submitted} drawn=${base.sub.drawn} liveCount=${base.sub.live === null ? 'unavailable' : base.sub.live}; base rim rings ${bd.map((d) => d.toFixed(3)).join('/')} blade(s)/m2; worst boundary ratio ${worstBound ? worstBound.ratio.toFixed(3) + ' at the ' + worstBound.spacing + 'm boundary @ ' + worstBound.atM + 'm' : 'n/a'}`)
 
 const sum = (a) => a.reduce((x, y) => x + y, 0)
 check('the world really carries grass', sum(base.pl.placed) > 50000,
   `${sum(base.pl.placed)} blade(s) placed in the loaded cells`)
-check('the submission boundary is self-consistent: non-zero matrices below count == liveCount',
-  base.sub.drawn === base.sub.live, `drawn=${base.sub.drawn} live=${base.sub.live} submitted=${base.sub.submitted}`)
+check('the submission boundary is self-consistent: the instancer submits exactly what the law kept',
+  base.sub.drawn === base.lawOn && (base.sub.live === null || base.sub.live === base.sub.drawn),
+  `drawn=${base.sub.drawn} law kept=${base.lawOn} liveCount=${base.sub.live === null ? 'unavailable' : base.sub.live} submitted=${base.sub.submitted}`)
 check('the instancer submits at least one draw unit', base.sub.submitted > 0,
   `instanceCount submitted=${base.sub.submitted}`)
 // The silent-failure class this row is about: a blade the law keeps that never reaches the draw.

@@ -130,7 +130,7 @@ const NO_GPU_WITNESSES = [
   // can only be a draw-side loss -- a blade the distance law keeps that the instancer never hands
   // the encoder. It reads the two values that become `instanceCount` and the instance buffer --
   // InstancedMesh.count and instanceMatrix -- buckets them by distance ring, and compares them to
-  // the instancer's own liveCount, so a slot three submits whose matrix is the zero matrix (the
+  // the population the distance law kept, so a slot three submits whose matrix is the zero matrix (the
   // state setVisibleAt(id,false) and releaseId() leave behind) is counted as what it is and never
   // as a blade. The `must` is the second half: law-on has to equal drawn in every ring, the rim
   // ratio has to hold against the 0.7 budget, and BOTH forcing arms have to have MOVED one band --
@@ -139,7 +139,7 @@ const NO_GPU_WITNESSES = [
   // silence that passes. gpu-free: it boots client/core/Grass.js in node over the real tps-game
   // terrain and reaches three's submission boundary, which is the layer that owns instanceCount;
   // the WebGPU encoder itself is a browser arm this CI does not run.
-  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* live=[1-9]\d* drawn=[1-9]\d*[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
+  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* drawn=[1-9]\d* liveCount=([1-9]\d*|unavailable)[\s\S]*\[PASS\] the submission boundary is self-consistent[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
   // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
   // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a
   // different width the moment its orientation changes, and the per-blade fade can shrink width as
