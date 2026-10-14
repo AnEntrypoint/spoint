@@ -1,0 +1,130 @@
+gpulock: orch-main-perf-hitch-1013-w65b holds the GPU lock
+gpulock: orch-main-perf-hitch-1013-w65b holds the browser lease of C:\dev\spoint\.gm\browser-lease\session, so it claimed the GPU lock only once the browser was in hand
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 55ms)
+[apps-manifest] fresh world-scoped client\worlds\tps-game\apps-manifest.json (25 of 68 app(s), unchanged, 2ms)
+[server] dist/client/app.js is STALE (inputs-changed: stamped 91c724cf700edb37 vs inputs cc1f22c1a33fdac5, artifact b604f7e9b38a14ba vs b604f7e9b38a14ba, built 1791921648524.829 vs inputs 1791926225038.2214) -- falling through to raw ESM
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs 12110349c1661629, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791927310428.872) -- falling through to raw ESM worker
+(node:26848) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 9f0298c0d914) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 21ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257 (near-field floor), 100.0% of the footprint is frozen at 0.17us a sample, 11.4ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 52ms(sample 42ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 59.4ms over 1 cluster batch(es) of 8 (pool prewarm 3.4ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 6.2ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[combat] 4 spawn point(s), 37 saved record(s)
+[placed-model] loaded 4 saved entities
+[world-persistence] restored snapshot: tick=57600 entities=10 bodies=0
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[hmr] dev hot module replacement on: 580 modules graphed, serving live ESM; events at /__hmr/events
+[hmr] [::1]:58926 bridged to 127.0.0.1 so http://localhost:58926 connects without the IPv6 fallback delay
+[server] http://localhost:58926 @ 64 TPS
+[identity] pid=26848 sha=d4d44e23 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[static] precompressed 5120 asset(s)
+[one-fps-pathology] arm=hmr-on server up on 58926; /dev/HmrRuntime.js injected=true
+[one-fps-pathology] arm=hmr-on navigating to http://127.0.0.1:58926/?singleplayer&world=tps-game
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] asset client/assets/grass/clump-mask-256.png (0.7ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/rock-color.jpg (0.3ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/grass-color.jpg (0.2ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/grass-displacement.jpg (0.1ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/grass-normals.jpg (0.1ms, 1 client(s))
+  [page] [hmr] client/assets/grass/clump-mask-256.png -> reload (asset re-fetched into the HTTP cache; no in-place consumer registered for it) in 443ms
+  [page] [hmr] packages/mapspinner/textures/rock-color.jpg -> ignored (a page reload is already ordered; this update lands with it) in 477ms
+  [page] [hmr] packages/mapspinner/textures/grass-color.jpg -> ignored (a page reload is already ordered; this update lands with it) in 440ms
+  [page] [hmr] packages/mapspinner/textures/grass-displacement.jpg -> ignored (a page reload is already ordered; this update lands with it) in 440ms
+  [page] [hmr] packages/mapspinner/textures/grass-normals.jpg -> ignored (a page reload is already ordered; this update lands with it) in 432ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] asset packages/mapspinner/textures/rock-displacement.jpg (0.2ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/ground-normals.jpg (0.1ms, 1 client(s))
+  [page] [hmr] packages/mapspinner/textures/rock-displacement.jpg -> reload (asset re-fetched into the HTTP cache; no in-place consumer registered for it) in 79ms
+  [page] [hmr] packages/mapspinner/textures/ground-normals.jpg -> ignored (a page reload is already ordered; this update lands with it) in 87ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] asset packages/mapspinner/textures/sand-color.jpg (0.1ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/sand-displacement.jpg (0.1ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/sand-normals.jpg (0.1ms, 1 client(s))
+  [page] [hmr] packages/mapspinner/textures/sand-color.jpg -> reload (asset re-fetched into the HTTP cache; no in-place consumer registered for it) in 117ms
+  [page] [hmr] packages/mapspinner/textures/sand-displacement.jpg -> ignored (a page reload is already ordered; this update lands with it) in 220ms
+  [page] [hmr] packages/mapspinner/textures/sand-normals.jpg -> ignored (a page reload is already ordered; this update lands with it) in 219ms
+[hmr] asset packages/mapspinner/textures/snow-color.jpg (0.2ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/snow-displacement.jpg (0.1ms, 1 client(s))
+[hmr] asset packages/mapspinner/textures/snow-normals.jpg (0.1ms, 1 client(s))
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[one-fps-pathology] arm=hmr-on renderer={"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"} hmrRuntime=true instrument={"installed":true,"patched":true}
+[one-fps-pathology] arm=hmr-on BOOT compiles=370 byKind={"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2}
+[one-fps-pathology] arm=hmr-on SETTLED {"label":"settled","ms":6000,"wall":6011,"measured":true,"frames":342,"playFrames":342,"playFps":56.9,"compiles":0,"fps":56.9,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":0,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2}}
+[one-fps-pathology] arm=hmr-on WALK movedM=0 {"label":"walk","ms":6000,"wall":6013,"measured":true,"frames":361,"playFrames":361,"playFps":60.04,"compiles":0,"fps":60.04,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":0,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2}}
+[hmr] module client/core/SceneSetup.js -> /core/SceneSetup.js (2.1ms, 1 client(s))
+  [page] [hmr] client/core/SceneSetup.js -> reload (no accept boundary up to the app root) in 20ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] module client/core/SceneSetup.js -> /core/SceneSetup.js (1.5ms, 1 client(s))
+  [page] [hmr] client/core/SceneSetup.js -> reload (no accept boundary up to the app root) in 52ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] module client/core/SceneSetup.js -> /core/SceneSetup.js (1.4ms, 1 client(s))
+  [page] [hmr] client/core/SceneSetup.js -> reload (no accept boundary up to the app root) in 27ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[hmr] module client/core/SceneSetup.js -> /core/SceneSetup.js (1.3ms, 1 client(s))
+  [page] [hmr] client/core/SceneSetup.js -> reload (no accept boundary up to the app root) in 31ms
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[one-fps-pathology] arm=hmr-on STORM edits=4 {"label":"storm","ms":6000,"wall":6016,"measured":true,"frames":324,"playFrames":5,"playFps":0.83,"compiles":176,"fps":53.86,"compilesPerFrame":0.543,"maxCompilesInOneFrame":14,"pageLoads":4,"hmrLogDelta":4,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":2,"resolved":2,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":14,"createComputePipeline":12,"createRenderPipelineAsync":2}}
+[hmr] module client/core/SceneSetup.js -> /core/SceneSetup.js (1.2ms, 0 client(s))
+[physics] peak bodies 67/10240, peak active 0, contact manifolds 0/10240
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh client\apps-manifest.json (68 app(s), 137 source file(s) fingerprinted, unchanged, 1393ms)
+[apps-manifest] fresh world-scoped client\worlds\tps-game\apps-manifest.json (25 of 68 app(s), unchanged, 3ms)
+[server] dist/client/app.js is STALE (inputs-changed: stamped 91c724cf700edb37 vs inputs cc1f22c1a33fdac5, artifact b604f7e9b38a14ba vs b604f7e9b38a14ba, built 1791921648524.829 vs inputs 1791955475629.7737) -- falling through to raw ESM
+[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped caa861efaeefab0b vs inputs 12110349c1661629, artifact cc92de0aea7d3982 vs cc92de0aea7d3982, built 1791792408685.416 vs inputs 1791927310428.872) -- falling through to raw ESM worker
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 9f0298c0d914) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] collider lattice: 2m configured, down to 1.00m wherever the baked source is cheap enough to sample that finely, 2m where it is not
+[terrain] planet heightfield COARSE N=64 extent=256m built 59ms id=8388608 -> refining to N=64 off the boot path
+[terrain] collider lattice at (-128,-128): N=128 -> N=257 (near-field floor), 100.0% of the footprint is frozen at 0.98us a sample, 64.9ms of sampling for 66049 nodes
+[terrain] planet heightfield refined N=64 -> N=257 spacing=1.00m in 283ms(sample 268ms) id=8388658
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 229.6ms over 1 cluster batch(es) of 8 (pool prewarm 25.8ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 13.2ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[combat] 4 spawn point(s), 37 saved record(s)
+[placed-model] loaded 4 saved entities
+[world-persistence] restored snapshot: tick=76800 entities=10 bodies=0
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[server] http://localhost:55422 @ 64 TPS
+[identity] pid=26848 sha=d4d44e23 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[static] precompressed 5120 asset(s)
+[one-fps-pathology] arm=hmr-off server up on 55422; /dev/HmrRuntime.js injected=false
+[one-fps-pathology] arm=hmr-off navigating to http://127.0.0.1:55422/?singleplayer&world=tps-game
+  [page] [renderer] WebGPURenderer backend=webgpu gpu=nvidia ampere
+[one-fps-pathology] arm=hmr-off renderer={"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"} hmrRuntime=false instrument={"installed":true,"patched":true}
+[one-fps-pathology] arm=hmr-off BOOT compiles=123 byKind={"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}
+[one-fps-pathology] arm=hmr-off SETTLED {"label":"settled","ms":6000,"wall":6004,"measured":true,"frames":360,"playFrames":360,"playFps":59.96,"compiles":0,"fps":59.96,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}}
+[one-fps-pathology] arm=hmr-off WALK movedM=0 {"label":"walk","ms":6000,"wall":6009,"measured":true,"frames":360,"playFrames":360,"playFps":59.91,"compiles":0,"fps":59.91,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}}
+[ReloadManager] successfully reloaded client-core-SceneSetup
+[ReloadManager] successfully reloaded client-core-SceneSetup
+[ReloadManager] successfully reloaded client-core-SceneSetup
+[ReloadManager] successfully reloaded client-core-SceneSetup
+[one-fps-pathology] arm=hmr-off STORM edits=4 {"label":"storm","ms":6000,"wall":6013,"measured":true,"frames":356,"playFrames":356,"playFps":59.21,"compiles":0,"fps":59.21,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}}
+[ReloadManager] successfully reloaded client-core-SceneSetup
+[physics] peak bodies 67/10240, peak active 0, contact manifolds 0/10240
+[one-fps-pathology] A/B settled fps: hmr-on=56.9 hmr-off=59.96
+[one-fps-pathology] A/B walk fps: hmr-on=60.04 hmr-off=59.91
+[one-fps-pathology] A/B storm fps: hmr-on=53.86 hmr-off=59.21
+[one-fps-pathology] A/B storm PLAYABLE fps: hmr-on=0.83 hmr-off=59.21
+[one-fps-pathology] A/B settled PLAYABLE fps: hmr-on=56.9 hmr-off=59.96
+[one-fps-pathology] A/B page loads during storm: hmr-on=4 hmr-off=0
+[one-fps-pathology] A/B storm compiles/frame: hmr-on=0.543 hmr-off=0
+[one-fps-pathology] A/B settled compiles/frame: hmr-on=0 hmr-off=0
+[one-fps-pathology] A/B walk compiles/frame: hmr-on=0 hmr-off=0
+[one-fps-pathology] A/B recovery fires (total): hmr-on=0 hmr-off=0
+[one-fps-pathology] A/B page loads during settle+walk: hmr-on=0 hmr-off=0
+[one-fps-pathology] A/B hmr log entries during settle+walk: hmr-on=0 hmr-off=0
+[one-fps-pathology] MEASURED {"hmrOn":{"arm":"hmr-on","port":58926,"world":"tps-game","hmrOn":true,"runtimeInjected":true,"flags":{"hasApp":true,"hasEngine":true,"hasClient":true,"ready":true,"revealed":true,"hmr":true,"renderer":{"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"},"instrument":{"installed":true,"patched":true}},"renderer":{"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"},"bootCompiles":370,"bootByKind":{"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2},"settled":{"label":"settled","ms":6000,"wall":6011,"measured":true,"frames":342,"playFrames":342,"playFps":56.9,"compiles":0,"fps":56.9,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":0,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2}},"walk":{"label":"walk","ms":6000,"wall":6013,"measured":true,"frames":361,"playFrames":361,"playFps":60.04,"compiles":0,"fps":60.04,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":0,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":51,"createComputePipeline":12,"createRenderPipelineAsync":36,"createRenderPipeline":2}},"walkStart":[null,null,null],"walkEnd":[null,null,null],"walkMovedM":0,"storm":{"label":"storm","ms":6000,"wall":6016,"measured":true,"frames":324,"playFrames":5,"playFps":0.83,"compiles":176,"fps":53.86,"compilesPerFrame":0.543,"maxCompilesInOneFrame":14,"pageLoads":4,"hmrLogDelta":4,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":2,"resolved":2,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":14,"createComputePipeline":12,"createRenderPipelineAsync":2}},"stormEdits":4,"stormWriteFailed":false,"consoleSeen":22},"hmrOff":{"arm":"hmr-off","port":55422,"world":"tps-game","hmrOn":false,"runtimeInjected":false,"flags":{"hasApp":true,"hasEngine":true,"hasClient":true,"ready":true,"revealed":true,"hmr":false,"renderer":{"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"},"instrument":{"installed":true,"patched":true}},"renderer":{"class":"WebGPURenderer","backend":"webgpu","glRenderer":"nvidia ampere"},"bootCompiles":123,"bootByKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2},"settled":{"label":"settled","ms":6000,"wall":6004,"measured":true,"frames":360,"playFrames":360,"playFps":59.96,"compiles":0,"fps":59.96,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}},"walk":{"label":"walk","ms":6000,"wall":6009,"measured":true,"frames":360,"playFrames":360,"playFps":59.91,"compiles":0,"fps":59.91,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}},"walkStart":[null,null,null],"walkEnd":[null,null,null],"walkMovedM":0,"storm":{"label":"storm","ms":6000,"wall":6013,"measured":true,"frames":356,"playFrames":356,"playFps":59.21,"compiles":0,"fps":59.21,"compilesPerFrame":0,"maxCompilesInOneFrame":0,"pageLoads":0,"hmrLogDelta":null,"recoveryFires":0,"recoveryFiresTotal":0,"asyncPipelines":{"installed":true,"requested":36,"resolved":36,"rejected":0,"pending":0,"escorted":0,"rescued":0,"rescueFailed":0,"dropped":0},"byKind":{"createShaderModule":61,"createComputePipeline":24,"createRenderPipelineAsync":36,"createRenderPipeline":2}},"stormEdits":4,"stormWriteFailed":false,"consoleSeen":1}}
+RESULT: PASS arm=both label=one-fps-pathology -- settled/walk measured in both arms

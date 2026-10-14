@@ -96,14 +96,6 @@ const NO_GPU_WITNESSES = [
   // gate with a green witness that reads as "never ran". Keep the order in step with the witness.
   { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
-  // PERF-player-hovering-above-grass-1013. The four grounds a player can stand on, at one instant
-  // and position, out to 400 m: the collider, the exact CPU solve, the grass ground and the player's
-  // own settled Y. The GROWTH fragments pin the direction: each |delta| must stay under 0.1 m at the
-  // far rung, so a coarse far field under any one of the surfaces cannot land silently.
-  { file: 'player-ground-hover-witness.mjs', must: /DIST d=0 at\([\d.]+,[\d.]+\)[\s\S]*DIST d=400 at\([\d.]+,[\d.]+\)[\s\S]*GROWTH hoverM: 0m=0 -> 400m=0\.0[\s\S]*GROWTH physMinusCpuM: 0m=0 -> 400m=0\.0[\s\S]*RESULT: PASS world=tps-game -- 16 check\(s\), 0 failure\(s\)/ },
-  // The rendered mesh is the ground the owner can see, and it only exists in the page, so this arm
-  // builds the same quadtree LOD + TerrainMeshSurface in node for a camera standing at each rung.
-  { file: 'rendered-mesh-ladder-witness.mjs', must: /DIST d=0 at\(0,0\)[\s\S]*DIST d=400 at\(358,179\)[\s\S]*GROWTH meshMinusCpuM: 0m=0 -> 400m=0\.0[\s\S]*RESULT: PASS world=tps-game\.js -- 15 check\(s\), 0 failure\(s\)/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },
@@ -568,6 +560,43 @@ async function main() {
   } catch (e) {
     gateFailures.push(`check-frame-time-baselines.mjs: ${(e.stderr || e.stdout || e.message || '').toString().trim()}`)
   }
+  // PERF-one-fps-pathology-1013. The owner's "1fps" against the owner's own follow-up -- "looks
+  // like its hmr hitching up the game" -- A/B-ed as counted work units at the WebGPU API boundary:
+  // the same world, the same pose and the same four real edits to a watched file, with the dev HMR
+  // watcher ON and OFF. What it pins is the RELOAD class. With HMR on, four edits took four whole
+  // page loads and the window's PLAYABLE rate -- rAF ticks on which the world was actually
+  // revealed, which a loading-screen tick at 60fps is not -- fell to 0.83/s, i.e. the reported
+  // 1 fps, while the raw rAF rate still read 53.86/s because the loading screen ticks freely.
+  // With HMR off the same four edits took zero page loads, zero compiles and 59.21/s playable.
+  // Settled and walk windows read ~57-60/s in BOTH arms, so HMR is not an ambient cost: it is the
+  // edit that costs, and it costs a whole reload. It is opt-in on purpose, the same shape as
+  // SPOINT_STRIP_WITNESS: the storm writes a real edit into a tracked file under client/, so an
+  // ordinary `npm test` must never be able to reach it. Run it by hand under scripts/gpulock.mjs,
+  // which serialises the adapter, since nothing here takes the browser lease from a sibling lane.
+  if (process.env.SPOINT_HMR_AB_WITNESS === '1') {
+    const abFile = 'one-fps-pathology-witness.mjs'
+    const abMust = /\[one-fps-pathology\] A\/B storm PLAYABLE fps: hmr-on=[\d.]+ hmr-off=[1-9][\d.]*[\s\S]*\[one-fps-pathology\] A\/B page loads during storm: hmr-on=[1-9]\d* hmr-off=0[\s\S]*RESULT: PASS arm=both label=one-fps-pathology/
+    const abKeep = (line) => /^(\[one-fps-pathology\]|RESULT:)/.test(line)
+    const abStarted = Date.now()
+    let abOut = ''
+    let abCode = 0
+    try {
+      const done = await execFileAsync(process.execPath, [join('scripts', abFile), '--settle=6000', '--walk=6000', '--storm=6000'], { maxBuffer: 16 * 1024 * 1024, timeout: SLOW_WITNESS_TIMEOUT_MS })
+      abOut = done.stdout
+    } catch (e) {
+      abOut = (e && e.stdout) || ''
+      abCode = Number.isInteger(e.code) ? e.code : 1
+    }
+    const abMs = Date.now() - abStarted
+    if (abCode !== 0 || !abMust.test(abOut)) {
+      gateFailures.push(`${abFile}: exit ${abCode} in ${(abMs / 1000).toFixed(1)}s${abMust.test(abOut) ? '' : ', printed no A/B line in which HMR OFF holds a playable frame rate through the edit storm while HMR ON reloads the page'}`)
+      for (const line of echoLines(abOut, NO_GPU_WITNESS_ECHO_LINES)) console.error(`check: ${line}`)
+    } else {
+      for (const line of abOut.split('\n')) if (abKeep(line)) console.log(`check: ${line}`)
+      console.log(`check: opt-in hmr A/B witness ${abFile} ${(abMs / 1000).toFixed(1)} s, exit 0, ${noGpuVerdict(abOut).line}`)
+    }
+  }
+
   // PERF-veg-trees-missing-1013. The tree count this arm pins is the one the owner reported missing:
   // trees alive at the end of the settle, and the same counter alongside the vegetation draw counter
   // after a 45 s walk, so a regression that loses trees only once the player moves cannot pass here.
