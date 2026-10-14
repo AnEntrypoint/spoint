@@ -470,7 +470,7 @@ const INSTALL_RUNNER = `(() => {
 const ADD_QUAD = `(() => {
   const od = window.__od
   if (!od) return { ok: false, why: 'no instrument installed' }
-  const { THREE, scene, camera } = od
+  const { M: THREE, scene, camera } = od
   if (od.quad) { od.quad.visible = true; return { ok: true, reused: true } }
   const d = Math.max(camera.near * 4, 1)
   const hh = 2 * d * Math.tan((camera.fov * Math.PI / 180) / 2)
