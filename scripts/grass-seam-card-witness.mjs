@@ -87,7 +87,9 @@ const { createExactPatchFrame } = await import(href('client/core/ExactPatchFrame
 const { loadLatticeSurface } = await import(href('src/terrain/LatticeSurface.js'))
 const { createNearFieldLattice } = await import(href('src/terrain/NearFieldLattice.js'))
 const { colliderLatticeOf, sourceSpacingOfBake } = await import(href('src/shared/colliderLattice.js'))
-const { placementsForGrassChunk, GRASS } = await import(href('src/terrain/GrassPlacement.js'))
+const { placementsForGrassChunk, classify, blade, GRASS } = await import(href('src/terrain/GrassPlacement.js'))
+const { createPlacementCell, placementCellAt } = await import(href('src/terrain/VegPlacement.js'))
+const { latticeFor } = await import(href('src/terrain/PlacementChart.js'))
 const { createCachedAnchorField } = await import(href('src/terrain/ClimateCache.js'))
 const { createBiomeOverride } = await import(href('src/terrain/BiomeOverride.js'))
 const { createModelExclusionField } = await import(href('src/terrain/ModelExclusionField.js'))
@@ -388,6 +390,52 @@ function placeArm(k) {
   frame.renderMeshHeightAtLocal = prev
   return { arm, blades, ms }
 }
+// ------------------------------------------------- the blade's own foot: sampled, or extrapolated
+// The one number on the owner's report that placement uniformity and draw cleanliness did not clear:
+// how far a blade's foot is from the surface it was placed on. A blade is not placed at its cell
+// centre -- GRASS.CLUMP_R offsets it -- and the height it needs is the height AT THE OFFSET.
+// src/terrain/GrassPlacement.js used to extrapolate the cell ground there by a second-order Taylor
+// step and now samples; classify() hands the sampler out as p.riseAt, so putting the extrapolation
+// back is one override and not a second copy of the placer.
+//
+// Both passes run over the SAME classify() output of the SAME cells, so they share the hashes, the
+// coins and therefore the population: only the source of a blade's height differs. That is what makes
+// a fall in the residual attributable to the sample and not to a different set of blades.
+// K_JITX / K_JITZ are GrassPlacement.js's own clump-jitter keys.
+const K_JITX = 20, K_JITZ = 21
+function footPass(arm, extrapolate) {
+  const prev = frame.renderMeshHeightAtLocal
+  frame.renderMeshHeightAtLocal = arm
+  const ef = createExactPatchFrame(frame)
+  const pf = ef.placementFrame
+  const cell = createPlacementCell(pf)
+  const residual = []
+  let cells = 0, blades = 0
+  const t0 = process.hrtime.bigint()
+  for (const key of keys) {
+    const lattice = latticeFor(pf, GRASS)
+    const dec = lattice.decodeChunk(key, [0, 0, 0])
+    for (let gz = 0; gz < GRASS.GRID; gz++) {
+      for (let gx = 0; gx < GRASS.GRID; gx++) {
+        placementCellAt(pf, lattice, dec, gx, gz, (worldSeed | 0) ^ 0x6a55, GRASS.JITTER / GRASS.CELL, K_JITX, K_JITZ, cell)
+        const p = classify(pf, anchorField, cell)
+        if (!p) continue
+        cells++
+        if (extrapolate) p.riseAt = (offE, offN) => p.dHdx * offE + p.dHdz * offN + 0.5 * (p.kx * offE * offE + p.kz * offN * offN)
+        for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) {
+          const bl = blade(p, b)
+          if (!bl) continue
+          blades++
+          const y = arm(bl.x, bl.z)
+          if (Number.isFinite(y)) residual.push(Math.abs(bl.y - y))
+        }
+      }
+    }
+  }
+  frame.renderMeshHeightAtLocal = prev
+  return { cells, blades, residual, ms: Number(process.hrtime.bigint() - t0) / 1e6 }
+}
+
 // The card footprint: the centre, the two extremes along the seam normal (the two sides of the
 // step), and a ring at the footprint radius, so the highest and lowest rendered Y under one card
 // are both found.
@@ -473,6 +521,25 @@ for (const a of arms) {
   console.log(`        buried by the high side   n=${a.sink.n} mean=${f5(a.sink.mean)} p95=${f5(a.sink.p95)} max=${f5(a.sink.max)} m`)
 }
 
+// ------------------------------------------------ the blade's own foot, over every blade in the ring
+const maxOf = (a) => { let m = -Infinity; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return a.length ? m : NaN }
+const stat = (a) => ({ n: a.length, mean: mean(a), p95: p95(a), max: maxOf(a) })
+const footBefore = footPass(makeArm(1), true)
+const footAfter = footPass(makeArm(1), false)
+const fB = stat(footBefore.residual), fA = stat(footAfter.residual)
+// Counted work units. A cell costs 5 surface samples however many blades it places -- one
+// surfaceOfCell plus the jet's four probes. A blade costs nothing more while its height is
+// extrapolated from the cell, and exactly one more sample while it is sampled at its own offset.
+const CELL_SAMPLES = 5
+const sB = CELL_SAMPLES * footBefore.cells
+const sA = CELL_SAMPLES * footAfter.cells + footAfter.blades
+const perBefore = sB / Math.max(1, footBefore.blades), perAfter = sA / Math.max(1, footAfter.blades)
+console.log('--- blade foot vs the surface it was placed on (every blade in the ring)')
+console.log(`  extrapolated (cell ground, 2nd-order Taylor to the clump offset)  n=${fB.n}  mean=${f5(fB.mean)} p95=${f5(fB.p95)} max=${f5(fB.max)} m   place=${footBefore.ms.toFixed(0)}ms over ${footBefore.cells} cell(s)`)
+console.log(`  sampled      (the surface AT the blade's own offset)              n=${fA.n}  mean=${f5(fA.mean)} p95=${f5(fA.p95)} max=${f5(fA.max)} m   place=${footAfter.ms.toFixed(0)}ms over ${footAfter.cells} cell(s)`)
+console.log(`  cost: ${sB} -> ${sA} surface sample(s) over the ring (${f2(perBefore)} -> ${f2(perAfter)} per blade, +1 per blade); placement wall ${footBefore.ms.toFixed(0)} -> ${footAfter.ms.toFixed(0)} ms (x${f2(footAfter.ms / Math.max(1e-9, footBefore.ms))})`)
+console.log(`[grass-blade-foot] MEASURED grass-blade-foot: blade foot vs the surface it was placed on over ${fA.n} blade(s) -- mean ${f5(fB.mean)} -> ${f5(fA.mean)} m, p95 ${f5(fB.p95)} -> ${f5(fA.p95)} m, max ${f5(fB.max)} -> ${f5(fA.max)} m; cost ${sB} -> ${sA} surface sample(s) (${f2(perBefore)} -> ${f2(perAfter)} per blade), placement wall ${footBefore.ms.toFixed(0)} -> ${footAfter.ms.toFixed(0)} ms`)
+
 const shipped = arms.find((a) => a.k === 1) || null
 const welded = arms.find((a) => a.k === 0) || null
 const tripled = arms.find((a) => a.k === 3) || null
@@ -494,6 +561,18 @@ if (welded && shipped && tripled) {
   check('a straddling card never has to cover a visible step: p95 under 10 mm', Math.round(shipped.jump.p95 * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.01)
   check('a straddling card never has to cover a visible step: max under 50 mm', Math.round(shipped.jump.max * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.05)
 }
+
+// The pin, and the non-vacuity of the instrument in both directions: the residual has to FALL when
+// the blade's own offset is sampled and RISE when the cell-ground extrapolation is put back. A
+// residual that never moves is an instrument gap, not a measurement.
+check('both foot passes placed the same population', [footBefore.blades, footAfter.blades], (v) => Array.isArray(v) && v[0] === v[1] && v[0] > 10000)
+check('NON-VACUOUS UP: the extrapolation really carried a residual (not an instrument gap)', Math.round(fB.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v > 0.001)
+check('NON-VACUOUS DOWN: sampling the blade foot cuts the mean residual at least 5x', [Math.round(fB.mean * 1e6) / 1e6, Math.round(fA.mean * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
+check('NON-VACUOUS DOWN: sampling the blade foot cuts the p95 residual at least 5x', [Math.round(fB.p95 * 1e6) / 1e6, Math.round(fA.p95 * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
+check('a sampled blade foot sits on the surface it was placed on: mean under 1 mm', Math.round(fA.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.001)
+check('a sampled blade foot sits on the surface it was placed on: p95 under 5 mm', Math.round(fA.p95 * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.005)
+check('a sampled blade foot sits on the surface it was placed on: max under 50 mm', Math.round(fA.max * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.05)
+check('the cost is a counted number of samples per blade, not a blank cheque', Math.round(100 * (perAfter - perBefore)) / 100, (v) => Number.isFinite(v) && v > 0 && v <= 1.5)
 
 console.log('')
 for (const f of failures) console.log(`FAIL: ${f}`)

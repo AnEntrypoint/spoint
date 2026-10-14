@@ -309,6 +309,17 @@ const NO_GPU_WITNESSES = [
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
 const SLOW_NO_GPU_WITNESSES = [
+  // PERF-grass-blade-foot-sample-1013, the last unexplained number on the owner report "a ridge with
+  // no grass where terrain tiles meet". A blade is not placed at its cell centre -- GRASS.CLUMP_R
+  // offsets it -- and its height used to be a second-order Taylor extrapolation of the CELL ground to
+  // the clump offset, which put a blade's foot up to 0.24 m off the surface it was placed on; it is
+  // now sampled at the offset. The `must` is the second half of the witness: both passes place the
+  // SAME population out of the same classify() output, so the residual has to RISE when the
+  // extrapolation is put back and FALL when it is sampled -- a residual that never moves is an
+  // instrument gap, not a measurement. It runs here and not in the 120 s arm because it places the
+  // whole 112 m ring five times over: three seam-scaled arms plus the sampled and extrapolated foot
+  // passes, ~150 s.
+  { file: 'grass-seam-card-witness.mjs', must: /ok   NON-VACUOUS UP: the extrapolation really carried a residual \(not an instrument gap\)[\s\S]*ok   NON-VACUOUS DOWN: sampling the blade foot cuts the mean residual at least 5x[\s\S]*ok   NON-VACUOUS DOWN: sampling the blade foot cuts the p95 residual at least 5x[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: mean under 1 mm[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: p95 under 5 mm[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: max under 50 mm[\s\S]*ok   the cost is a counted number of samples per blade, not a blank cheque[\s\S]*RESULT: PASS/ },
 
   // PERF-tps-game-spawn-above-ground-1013 / PERF-spawn-not-touching-ground-1013. A relocation to a
   // point (`?at=<x>,<z>`) must wait for the same ground, on the same budget, as a spawn. Before

@@ -108,7 +108,7 @@ export function grassDensity(temp, humidity, slopeRatio) {
 }
 
 const _jetProbe = [0, 0, 0]
-const _jet = { dHdx: 0, dHdz: 0, kx: 0, kz: 0 }
+const _jet = { dHdx: 0, dHdz: 0, kx: 0, kz: 0, at: null }
 function grassJetAt(frame, tf, rho, stepM) {
   const d = tf.up, e = tf.east, n = tf.north
   const r = (sx, sz) => {
@@ -123,6 +123,7 @@ function grassJetAt(frame, tf, rho, stepM) {
   _jet.dHdz = (nz1 - nz0) / (2 * stepM)
   _jet.kx = (ex1 + ex0 - 2 * rho) / s2
   _jet.kz = (nz1 + nz0 - 2 * rho) / s2
+  _jet.at = r
   return _jet
 }
 
@@ -144,6 +145,18 @@ export function classify(frame, anchorField, cell) {
   const jet = grassJetAt(frame, tf, rho, GRASS.SLOPE_D)
   if (!jet) return null
   const dHdx = jet.dHdx, dHdz = jet.dHdz, kx = jet.kx, kz = jet.kz
+  // A blade is not placed at the cell centre: GRASS.CLUMP_R offsets it, and the height it needs is
+  // the height AT THE OFFSET. It is sampled, not extrapolated from the cell's own gradient and
+  // curvature -- the extrapolation is a second-order Taylor step over a clump a metre wide, and its
+  // remainder is what put blades up to 0.24 m off the surface they were placed on. The jet's own
+  // probe is already the sampler that reads whatever ground this frame carries, so a blade costs one
+  // more solve of that same function and nothing else; the Taylor step stays as the answer for an
+  // offset this frame has no ground at.
+  const sampleAt = jet.at
+  const riseAt = (offE, offN) => {
+    const at = sampleAt(offE, offN)
+    return Number.isFinite(at) ? at - rho : dHdx * offE + dHdz * offN + 0.5 * (kx * offE * offE + kz * offN * offN)
+  }
   const grad = Math.hypot(dHdx, dHdz)
   if (grad > GRASS.SLOPE_MAX) return null
   const slopeRatio = grad / (grad + 1)
@@ -164,19 +177,18 @@ export function classify(frame, anchorField, cell) {
   const surfInv = 1 / (Math.hypot(surfNx, surfNy, surfNz) || 1)
 
   return {
-    x, y: groundY, z, cellHash, density, ground, shadow: cellShadow, dHdx, dHdz, kx, kz, tf, heading: tangentHeadingInChart(tf),
+    x, y: groundY, z, cellHash, density, ground, shadow: cellShadow, dHdx, dHdz, kx, kz, tf, riseAt, heading: tangentHeadingInChart(tf),
     nx: Math.fround(surfNx * surfInv), ny: Math.fround(surfNy * surfInv), nz: Math.fround(surfNz * surfInv),
   }
 }
 
-function blade(p, bi) {
+export function blade(p, bi) {
   const h = hash3(p.cellHash | 0, bi + 1, 0)
   const coin = rand(h, K_COIN)
   if (coin >= p.density) return null
   const ang = rand(h, K_YAW) * Math.PI * 2, rad = Math.sqrt(rand(h, K_JITX)) * GRASS.CLUMP_R
   const offE = Math.cos(ang) * rad, offN = Math.sin(ang) * rad
-  const bowl = 0.5 * (p.kx * offE * offE + p.kz * offN * offN)
-  const off = tangentToLocal(p.tf, offE, p.dHdx * offE + p.dHdz * offN + bowl, offN)
+  const off = tangentToLocal(p.tf, offE, p.riseAt(offE, offN), offN)
   return {
     q: Math.fround(p.density > 0 ? coin / p.density : 1),
     x: Math.fround(p.x + off[0]), y: Math.fround(p.y + off[1]), z: Math.fround(p.z + off[2]),
