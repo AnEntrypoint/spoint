@@ -28,6 +28,23 @@ export const NEAR_FIELD_DEFAULT_GRID_STEPS = 9
 // silently covering less.
 export const NEAR_FIELD_DEFAULT_TILE_BUDGET = 64
 
+// One tile wide: the widest leaf the band's rim may abut is a leaf the SAME size as a tile, so the
+// ground past the rim is drawn at the band's own spacing instead of one quadtree level coarser. The
+// rim step is bounded by the COARSER of the two surfaces, so a rim meeting 2.00 m ground against
+// 1.00 m tiles is bounded by the 2.00 m side and no property of the band can shrink it -- that is
+// what measured 0.11113 m at every tier (scripts/nearfield-lod-lattice-witness.mjs, perimeterJump,
+// max over ~1004 samples of the footprint perimeter, identical at all 8 tiers because the band and
+// the floor-refined ground past it are identical at all 8 tiers). At one tile wide the coarse side IS
+// the band, so the step collapses onto the band's own faceting.
+export const NEAR_FIELD_FLOOR_TILES = 1
+
+// The cube-sphere map is not conformal: one face-local metre is 0.780 m of ground along u and 0.617
+// along v at the tps-game anchor, and it drifts with position on the face. The floor is a length in
+// FACE-LOCAL metres while the band's extent is metres of GROUND, so the floor's reach is the band's
+// extent divided by the SMALLEST ground-per-face-metre the map can show, or the floor stops short of
+// the rim on the part of the face where the map stretches most.
+export const MIN_GROUND_PER_FACE_METRE = 0.6
+
 function positiveFinite(v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null
 }
@@ -47,11 +64,18 @@ export function createNearFieldLattice(opts = {}) {
   // The quadtree must offer a leaf the band can cover, or there is no band. That is a floor on the
   // quadtree's near-field subdivision, derived here in metres and read by Quadtree, so the two
   // cannot disagree about how fine the near band's leaves are.
-  const maxLeafM = tileM * Math.floor(Math.sqrt(tileBudget))
+  const maxLeafM = tileM * NEAR_FIELD_FLOOR_TILES
   const requestedHalfExtentM = extentM / 2
-  // The floor has to hold across the whole band, not just the leaf under the player, or a leaf
-  // straddling the band is kept and every tile inside it is suppressed. spanLeaves is in leaf sides.
-  const floorSpanLeaves = requestedHalfExtentM / maxLeafM
+  // How wide the band can get: a whole number of tiles, capped so a step of distance tessellation
+  // cannot drag the rim outward with the LOD and migrate the ridge when quality is shed.
+  const coverageCap = Math.max(1, Math.floor(requestedHalfExtentM / tileM))
+  // The floor has to hold across the whole band AND one cell past it: a rim whose other side is
+  // ground the floor never reached is a rim that meets the far field after all. The band's footprint
+  // is a square, so its corner is sqrt(2) half-extents out, and the floor is a radius -- the reach is
+  // the corner, not the edge. measured step at the tps-game anchor with this floor: 1.34 m of ground
+  // per leaf against the band's 1.00 m.
+  const floorReachM = ((coverageCap * tileM) / 2) * Math.SQRT2 / MIN_GROUND_PER_FACE_METRE + maxLeafM
+  const floorSpanLeaves = floorReachM / maxLeafM
 
   return Object.freeze({
     spacingM,
@@ -88,7 +112,7 @@ export function createNearFieldLattice(opts = {}) {
 
       const budget = Number.isInteger(instanceBudget) && instanceBudget >= 1 ? instanceBudget : leaves.length
       const wanted = Math.ceil((2 * halfExtentLocal) / tileMLocal)
-      const perAxis = Math.max(1, Math.min(Math.floor(Math.sqrt(budget)), wanted))
+      const perAxis = Math.max(1, Math.min(Math.floor(Math.sqrt(budget)), wanted, coverageCap))
       const half = (perAxis * tileMLocal) / 2
       // The band is snapped to the collider's own grid so its vertices do not swim with the camera:
       // moving by less than a tile moves nothing, moving by a tile moves the band by a whole tile.
@@ -130,8 +154,9 @@ export function createNearFieldLattice(opts = {}) {
         tiles, drop, tileM: tileMLocal, stepM: spacingM, tileCount: tiles.length, coveredLeafCount: drop.length,
         vertexCount: tiles.length * (gs + 3) * (gs + 3),
         groundPerFaceMetre: gpf, requestedHalfExtentM, coveredHalfExtentM: half,
-        coveredHalfExtentGroundM: half * gpf, shortfallM: requestedHalfExtentM - half * gpf,
+        coveredHalfExtentGroundM: half * gpf, shortfallM: Math.max(0, requestedHalfExtentM - half * gpf),
         straddlingLeafCount: straddle.length, suppressedTiles: suppressed, tilesPerAxis: perAxis,
+        instanceBudget: budget,
         refused: null,
       }
     },

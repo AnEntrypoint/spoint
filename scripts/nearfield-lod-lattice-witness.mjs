@@ -614,6 +614,11 @@ console.log('[nearfield-lattice] near-band spacing range across all tiers: ' +
     ', collider lattice ' + collM + ' m' +
     ', near-field lattice step ' + (bootT ? bootT.lattice.stepM : 'n/a') + ' m == collider ' + collM + ' m at all ' + tiers + ' tier(s)' +
     ', measured step ' + (bootT ? bootT.lattice.measuredStepUm : 'n/a') + ' m u / ' + (bootT ? bootT.lattice.measuredStepVm : 'n/a') + ' m v' +
+    // The rim step is the owner-visible ridge, so it is pinned, not just checked: it is the height
+    // step across the band's whole perimeter, worst over every tier, and it is what grass placement
+    // refuses as too steep. It is bounded by the COARSER of the two surfaces meeting at the rim, so
+    // the floor that caps the leaf the rim abuts is what sets this number.
+    ', rim step ' + (tiers ? Math.max(...latticeReport.perTier.map((t) => (t.perimeterJumpAfter ? t.perimeterJumpAfter.max : 0))).toFixed(5) : 'n/a') + ' m at all ' + tiers + ' tier(s)' +
     '; trees placed over the near band: ' + vegCensus.trees + ' over ' + vegCensus.chunks + ' chunk(s)')
 }
 // ---- the decision ------------------------------------------------------------------------------

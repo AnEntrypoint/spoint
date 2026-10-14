@@ -176,7 +176,7 @@ const NO_GPU_WITNESSES = [
   // too, with the vegetation the same ground carries counted so a trees-missing regression cannot
   // hide behind a density figure that did not move. The re-solve arm is pinned by the counter its own
   // mutation moves: `--mutate-reseed` re-solves every node and this `must` must then fail.
-  { file: 'nearfield-lod-lattice-witness.mjs', must: /\[nearfield-lattice\] PIN near-field density boot L13: rendered 1\.2775 m, grass placement lattice 2 m, collider lattice 1 m, near-field lattice step 1 m == collider 1 m at all 8 tier\(s\), measured step [\d.]+ m u \/ [\d.]+ m v; trees placed over the near band: [1-9]\d* over [1-9]\d* chunk\(s\)[\s\S]*checks [1-9]\d* passed, 0 failed[\s\S]*RESULT: PASS/ },
+  { file: 'nearfield-lod-lattice-witness.mjs', must: /\[nearfield-lattice\] PIN near-field density boot L13: rendered 1\.2775 m, grass placement lattice 2 m, collider lattice 1 m, near-field lattice step 1 m == collider 1 m at all 8 tier\(s\), measured step [\d.]+ m u \/ [\d.]+ m v, rim step 0.06257 m at all 8 tier(s); trees placed over the near band: [1-9]\d* over [1-9]\d* chunk\(s\)[\s\S]*checks [1-9]\d* passed, 0 failed[\s\S]*RESULT: PASS/ },
   // PERF-terrain-vs-snoise-per-vertex-1013. The vertex stage's height/normal stencil: five taps
   // (four of them offsets the vertex's own grid neighbours already occupy) became three, so the
   // height tap is bit-identical and the normal is the one quality claim the change has to answer.
