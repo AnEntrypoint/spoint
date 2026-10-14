@@ -374,7 +374,11 @@ async function run() {
     'globalThis.__spointHmr?.acceptSelf?.(import.meta.url, swap)',
     '',
   ].join('\n'))
-  writeFileSync(consumerPath, ["import { read } from './target.js'", 'export const value = () => read()', ''].join('\n'))
+  // The consumer imports the target STATICALLY, so its specifier has to be a literal in the
+  // generated file. It is written as an absolute file url rather than as './target.js': this file is
+  // scanned by check-relative-imports, and a relative literal here is read as THIS witness's import
+  // of ./target.js, which resolves to nothing and aborts the gate before any witness runs.
+  writeFileSync(consumerPath, ['import { read } from ' + JSON.stringify(pathToFileURL(targetPath).href), 'export const value = () => read()', ''].join('\n'))
   let pairOk = false
   let pairDetail = 'not run'
   try {
@@ -414,7 +418,7 @@ async function run() {
     'globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapTarget)',
     '',
   ].join('\n'))
-  writeFileSync(rtConsumer, ["import { read } from './target.js'", 'export const value = () => read()', ''].join('\n'))
+  writeFileSync(rtConsumer, ['import { read } from ' + JSON.stringify(pathToFileURL(rtTarget).href), 'export const value = () => read()', ''].join('\n'))
   let rtOk = false
   let rtDetail = 'not run'
   try {
