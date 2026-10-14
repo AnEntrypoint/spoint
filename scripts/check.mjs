@@ -296,6 +296,19 @@ const NO_GPU_WITNESSES = [
   // marchRadiance, a different integrator, and the witness refuses a background node that
   // integrates with anything other than marchSteps or that carries more than one march.
   { file: 'sky-aerial-perspective-count-witness.mjs', must: /\[PASS\] background node still integrates with marchSteps[\s\S]*\[PASS\] background node no longer carries the second march: got=1 want=1[\s\S]*MEASURED single-march: expNodes=24 expOps=40 lutFetches=8 graphNodes=\d+[\s\S]*MEASURED two-marches-restored: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*RESULT: PASS label=sky-single-march-count single=\{exp:40,lut:8\} two-marches=\{exp:80,lut:16\}/ },
+  // PERF-grass-seam-height-step-1013, the third symptom of "a ridge with no grass where terrain
+  // tiles meet": the placement side and the draw side are already closed, so what is left is the
+  // STEP ITSELF and how a blade card sits on it. It rebuilds the drawn quad payload the renderer
+  // really emits (the quadtree at the world's own LOD plus the near-field lattice tiles), finds
+  // every seam geometrically, and for real blades out of placementsForGrassChunk measures the
+  // SLOPE-FREE jump the card has to cover: 2*d(e) - d(2e), because a one-sided pair is the jump
+  // plus the slope times 2e and the raw pair is what perimeterJump quotes. The `must` is the
+  // second half: both non-vacuity arms have to MOVE (welding the seam has to collapse the figure,
+  // tripling it has to triple it), the own-foot residual has to stay k-independent -- that is what
+  // separates "the card spans two heights" from "the placer is off the surface" -- and the mirror
+  // has to reconstruct THIS site, since a lattice read at a chart it does not describe answers
+  // with another place's ground and every figure would then be about that and not about a seam.
+  { file: 'grass-seam-card-witness.mjs', args: ['--ring=88'], must: /the mirror really reconstructs this site[\s\S]*footprint crossed=[1-9]\d* \([\d.]+%\)[\s\S]*NON-VACUOUS DOWN: welding the seam collapses the step a card must cover[\s\S]*NON-VACUOUS UP: tripling the step grows what a card must cover[\s\S]*the own-foot residual is k-independent[\s\S]*a straddling card never has to cover a visible step: p95 under 10 mm[\s\S]*a straddling card never has to cover a visible step: max under 50 mm[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
