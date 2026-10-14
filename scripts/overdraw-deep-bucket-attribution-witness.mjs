@@ -216,16 +216,30 @@ const INSTALL_RUNNER = `(() => {
       renderer.setViewport(0, 0, w, h)
       renderer.setScissorTest(false)
       renderer.setRenderTarget(target); renderer.autoClear = true; renderer.setClearColor(0x000000, 0)
-      mat.side = THREE.FrontSide
+      // DoubleSide for the calibration primitive only: whether the plane wound towards the camera
+      // depends on the camera basis this frame, and a quad culled for facing away rasterizes
+      // nothing, which reads as 0 covered pixels -- the same signature as a pipeline that never
+      // dispatched. One quad still contributes exactly one fragment per pixel it covers.
+      mat.side = THREE.DoubleSide
       scene.overrideMaterial = mat
       renderer.render(scene, camera)
       const calibDrawCalls = renderer.info && renderer.info.render ? renderer.info.render.calls : null
       scene.overrideMaterial = null
       // Read the WHOLE target, not one pixel: the max over every pixel is one fragment's worth, and
       // the count of covered pixel(s) says whether the quad really covered the screen.
-      const buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
+      let buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
       let mx = 0, covered = 0
-      for (let i = 0; i < D; i++) { const v = fh(buf[i * 4]); if (v > mx) mx = v; if (v > 0) covered++ }
+      const scanCalib = () => { mx = 0; covered = 0; for (let i = 0; i < D; i++) { const v = fh(buf[i * 4]); if (v > mx) mx = v; if (v > 0) covered++ } }
+      scanCalib()
+      // See readAll: on this adapter a readback can return the target as it was BEFORE the pass in
+      // front of it (a whole-scene accumulation measured 0 immediately and 1.88 per screen pixel
+      // 1.5s later), so a calibration that reads once is reading a race. Re-read while it is still
+      // empty, then stop: an empty target that stays empty for 12 rounds is a real zero.
+      for (let i = 0; i < 12 && covered === 0; i++) {
+        await new Promise(r => setTimeout(r, 400))
+        buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
+        scanCalib()
+      }
       od.unit = mx
       od.diag = { calibMax: mx, calibCoveredPx: covered, ofPixels: D, viewport: [renderer.getViewport(new THREE.Vector4()).toArray()], calibDrawCalls, sceneVisible: scene.visible, adopted: od.adopted, matClass: mat.constructor && mat.constructor.name, readbackLen: buf && buf.length, readbackCtor: buf && buf.constructor && buf.constructor.name, sameThreeAsRenderer: !!(M.WebGPURenderer && renderer.constructor && M.WebGPURenderer === renderer.constructor) }
       if (!(od.unit > 0)) {
@@ -307,11 +321,28 @@ const INSTALL_RUNNER = `(() => {
     names.sort()
 
     // ---------- pass machinery ----------
-    const readAll = async () => {
+    const readAllOnce = async () => {
       const buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
       const out = new Float32Array(D)
       for (let i = 0; i < D; i++) out[i] = fh(buf[i * 4])
       return out
+    }
+    const sigOf = (a) => { let mx = 0, covered = 0; for (let i = 0; i < D; i++) { if (a[i] > mx) mx = a[i]; if (a[i] > 0) covered++ } return mx + "/" + covered }
+    // A readback on this adapter can return the target as it stood BEFORE the pass that preceded
+    // it: a whole-scene accumulation read 0 fragments immediately after the render and 1.88 per
+    // screen pixel 1.5s later. One read is therefore not a measurement of the pass in front of
+    // it. Read until two consecutive reads agree and take the last one.
+    const readAll = async () => {
+      let prev = await readAllOnce()
+      let prevSig = sigOf(prev)
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 400))
+        const cur = await readAllOnce()
+        const curSig = sigOf(cur)
+        if (curSig === prevSig) return cur
+        prev = cur; prevSig = curSig
+      }
+      return prev
     }
     // A render target's own size is the region the instrument is counting over, so the renderer's
     // user viewport and scissor must not narrow it: the app leaves both set (VDRS / split view),
