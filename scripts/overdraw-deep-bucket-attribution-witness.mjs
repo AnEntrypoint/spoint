@@ -72,7 +72,7 @@ const LABEL = 'overdraw-deep'
 // The page-side runner is installed as source text, so its deep-bucket threshold and arm budget are
 // baked into that text at module init: they must be declared before INSTALL_RUNNER is built.
 const DEEP_LO = DEEP - 1
-const DEEP_ARM_BUDGET_MS = 420000
+const DEEP_ARM_BUDGET_MS = 900000
 const r2 = (x) => +Number(x).toFixed(2)
 const r3 = (x) => +Number(x).toFixed(3)
 
@@ -176,6 +176,15 @@ const INSTALL_RUNNER = `(() => {
     const log = []
     od.runs++
 
+    // Declared before the calibration, which drains the queue before it reads.
+    const drainGpu = async () => {
+      const q = renderer.backend && renderer.backend.device && renderer.backend.device.queue
+      const fence = () => (q && typeof q.onSubmittedWorkDone === "function") ? q.onSubmittedWorkDone() : Promise.resolve()
+      await fence()
+      await new Promise(r => requestAnimationFrame(() => r()))
+      await fence()
+    }
+
     // ---------- calibration: one fullscreen triangle is one fragment per pixel ----------
     if (od.unit == null) {
       const pT = renderer.getRenderTarget(), pA = renderer.autoClear
@@ -231,12 +240,10 @@ const INSTALL_RUNNER = `(() => {
       let mx = 0, covered = 0
       const scanCalib = () => { mx = 0; covered = 0; for (let i = 0; i < D; i++) { const v = fh(buf[i * 4]); if (v > mx) mx = v; if (v > 0) covered++ } }
       scanCalib()
-      // See readAll: on this adapter a readback can return the target as it was BEFORE the pass in
-      // front of it (a whole-scene accumulation measured 0 immediately and 1.88 per screen pixel
-      // 1.5s later), so a calibration that reads once is reading a race. Re-read while it is still
-      // empty, then stop: an empty target that stays empty for 12 rounds is a real zero.
-      for (let i = 0; i < 12 && covered === 0; i++) {
-        await new Promise(r => setTimeout(r, 400))
+      // See drainGpu: a read issued straight after render() outran the work it was meant to
+      // measure. Drain first, then re-read only while the target is still empty.
+      for (let i = 0; i < 8 && covered === 0; i++) {
+        await drainGpu()
         buf = await renderer.readRenderTargetPixelsAsync(target, 0, 0, w, h)
         scanCalib()
       }
@@ -327,22 +334,10 @@ const INSTALL_RUNNER = `(() => {
       for (let i = 0; i < D; i++) out[i] = fh(buf[i * 4])
       return out
     }
-    const sigOf = (a) => { let mx = 0, covered = 0; for (let i = 0; i < D; i++) { if (a[i] > mx) mx = a[i]; if (a[i] > 0) covered++ } return mx + "/" + covered }
-    // A readback on this adapter can return the target as it stood BEFORE the pass that preceded
-    // it: a whole-scene accumulation read 0 fragments immediately after the render and 1.88 per
-    // screen pixel 1.5s later. One read is therefore not a measurement of the pass in front of
-    // it. Read until two consecutive reads agree and take the last one.
+    // (drainGpu is declared above the calibration; see the comment there.)
     const readAll = async () => {
-      let prev = await readAllOnce()
-      let prevSig = sigOf(prev)
-      for (let i = 0; i < 12; i++) {
-        await new Promise(r => setTimeout(r, 400))
-        const cur = await readAllOnce()
-        const curSig = sigOf(cur)
-        if (curSig === prevSig) return cur
-        prev = cur; prevSig = curSig
-      }
-      return prev
+      await drainGpu()
+      return await readAllOnce()
     }
     // A render target's own size is the region the instrument is counting over, so the renderer's
     // user viewport and scissor must not narrow it: the app leaves both set (VDRS / split view),
