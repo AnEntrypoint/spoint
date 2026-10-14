@@ -230,6 +230,20 @@ for (const L of LEVELS) {
     if (r.near) continue
     if (!(r.leavesBefore > 0) || !(r.leavesAfter > 0)) { failures.push(`L${L} band ${r.band}: empty in one arm (${r.leavesBefore} -> ${r.leavesAfter}), so the band proves nothing`); continue }
     if (r.sideRatio === null) { failures.push(`L${L} band ${r.band}: no mean leaf side in one arm`); continue }
+    // A band the near-field leaf floor GOVERNS is finer than the split distance's own side, so
+    // doubling the split distance cannot halve it and the one-step claim does not apply to it: the
+    // floor, not the step, is what sets that ground. What still has to hold there is that the floor
+    // did not let the band get COARSER when the step doubled -- and the moment the floor stops
+    // governing a band (its side rises past the floor's leaf size) the band is claimed again and has
+    // to be a whole step finer, so this branch is not a band the witness stopped looking at.
+    const floorLeafM = ship.nearLeafFloor
+    const floorGoverned = r.meanSideBeforeM <= floorLeafM && r.meanSideAfterM <= floorLeafM
+    if (floorGoverned) {
+      r.floorGoverned = true
+      if (!(r.meanSideAfterM <= r.meanSideBeforeM)) failures.push(`L${L} band ${r.band}: the floor-governed band COARSENED when the step doubled (${r.meanSideBeforeM}m -> ${r.meanSideAfterM}m against a ${floorLeafM}m floor leaf)`)
+      if (!(r.leavesAfter >= r.leavesBefore)) failures.push(`L${L} band ${r.band}: the floor-governed band lost leaves (${r.leavesBefore} -> ${r.leavesAfter})`)
+      continue
+    }
     if (!(r.sideRatio <= STEP_BAR_HI)) failures.push(`L${L} band ${r.band}: the mean leaf side only fell to ${r.sideRatio} of the pre-change side (bar <= ${STEP_BAR_HI}), so the distance band is not one step finer`)
     if (!(r.sideRatio >= STEP_BAR_LO)) failures.push(`L${L} band ${r.band}: the mean leaf side fell to ${r.sideRatio} of the pre-change side (bar >= ${STEP_BAR_LO}), which is more than one subdivision step`)
     if (!(r.leavesAfter > r.leavesBefore)) failures.push(`L${L} band ${r.band}: the leaf count did not rise (${r.leavesBefore} -> ${r.leavesAfter})`)

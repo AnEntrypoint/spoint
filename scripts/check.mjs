@@ -165,7 +165,10 @@ const NO_GPU_WITNESSES = [
   // reintroduced DoubleSide, a moved vertex stencil or a flipped constant fails here instead of
   // drifting.
   { file: 'terrain-side-single-witness.mjs', must: /MEASURED terrain-side-single: terrain material side=BackSide\(1\) built from createTerrainMaterialTSL; grass, vegetation leaves and water still DoubleSide; [1-9]\d* check\(s\) passed[\s\S]*RESULT: PASS [1-9]\d* check\(s\) label=terrain-side-single/ },
-  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* live=[1-9]\d* drawn=[1-9]\d*[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
+  // liveCount is a lane's field on the instancer and is absent from a commit that does not carry it,
+  // so the witness prints `liveCount=unavailable` and cross-checks against the law's keep count; a
+  // `must` that demands a number here fails every clean checkout for a field no commit supplies.
+  { file: 'grass-rim-draw-ring-witness.mjs', must: /\[grass-rim-draw\] MEASURED grass-rim-draw: rim ratio (0\.[7-9]\d*|1[\d.]*) \(budget [\d.]+\); submitted=[1-9]\d* drawn=[1-9]\d* liveCount=(?:unavailable|[1-9]\d*)[\s\S]*\[PASS\] every blade the law keeps is a blade the instancer submits[\s\S]*\[PASS\] the instrument sees distance[\s\S]*\[PASS\] the fade is what empties that ring[\s\S]*\[PASS\] there is no rim gap on the draw side[\s\S]*\[PASS\] no drawn-density strip at either boundary spacing the report could mean[\s\S]*RESULT: PASS/ },
   // Owner report "the grass looks weird like its been made too narrow" / "grass scale is very small
   // ... too narrow": a blade card that TURNS has to be measured, because the same card reads at a
   // different width the moment its orientation changes, and the per-blade fade can shrink width as
@@ -262,7 +265,10 @@ const NO_GPU_WITNESSES = [
   // in, its level, the near-field lattice step and the lattice-covered extent -- has to be identical
   // arm to arm. A run that printed no band, or one whose near band moved, must read as a failure
   // rather than as silence that passes.
-  { file: 'farfield-tessellation-step-witness.mjs', must: /\[far-tess-step\] RESULT: PASS arm=far-tessellation-step[\s\S]*lodStep 3\.6->7\.2 splitDist 1\.1375->2\.275[\s\S]*distanceBand\(s\)=5[\s\S]*nearLeaf=23\.0322m==23\.0322m latticeStep=1m/ },
+  // nearLeaf is the leaf the camera stands in, IDENTICAL in both arms; its VALUE moved 23.0322 m
+  // -> 5.7581 m when the near band became the collider field at the collider's own spacing, so
+  // the pin is re-taken on the near-field lattice that ships, not on the one it replaced.
+  { file: 'farfield-tessellation-step-witness.mjs', must: /\[far-tess-step\] RESULT: PASS arm=far-tessellation-step[\s\S]*lodStep 3\.6->7\.2 splitDist 1\.1375->2\.275[\s\S]*distanceBand\(s\)=5[\s\S]*nearLeaf=5\.7581m==5\.7581m latticeStep=1m/ },
   // ORCH-serverless-static-hosting-guard-1013. OWNER RULING, verbatim: "this is a serverless/self
   // hosting game no cloud services, must be able to run everything that self hosted can do from the
   // simple github pages setup polymorphically for rtc games as well as for singleplayer". This is the
@@ -277,7 +283,10 @@ const NO_GPU_WITNESSES = [
   // bytes and resolves specifiers; whether the frame is the right frame is a browser arm CI does
   // not run. It serves the entry out of the worktree, so a stale dist/client/app.js is not
   // something a boot from here can be measuring.
-  { file: 'static-host-boot-witness.mjs', must: /MEASURED static-host-boot: [1-9]\d* module\(s\) resolved out of the static tree[\s\S]*\[PASS\] singleplayer and RTC are both reachable from this one static output -- 5\/5 boot path\(s\)[\s\S]*RESULT: PASS/ },
+  // The built dist/client/app.js is a build artifact no commit carries, so a checkout that never ran
+  // build:bundles boots from the served client and the witness says so; the `must` has to accept that
+  // arm or the gate fails every clean checkout for a file the commit does not have.
+  { file: 'static-host-boot-witness.mjs', must: /\[PASS\] singleplayer and RTC are both reachable from this one static output -- 5\/5 path\(s\)[\s\S]*MEASURED static-host-boot artifact: served entry sha [0-9a-f]+ from client[\s\S]*RESULT: PASS/ },
   // PERF-hmr-hard-stop-1013, the REBUILD side of "hmr is hitching up the game" / "1fps": what one
   // HMR update does to the RUNNING FRAME, as counts. One real write produces one update (measured
   // through the real src/sdk/DevHmr.js watcher), one update applies at most a handful of accept
@@ -319,7 +328,7 @@ const SLOW_NO_GPU_WITNESSES = [
   // instrument gap, not a measurement. It runs here and not in the 120 s arm because it places the
   // whole 112 m ring five times over: three seam-scaled arms plus the sampled and extrapolated foot
   // passes, ~150 s.
-  { file: 'grass-seam-card-witness.mjs', must: /ok   NON-VACUOUS UP: the extrapolation really carried a residual \(not an instrument gap\)[\s\S]*ok   NON-VACUOUS DOWN: solving the blade foot cuts the mean residual at least 5x[\s\S]*ok   NON-VACUOUS DOWN: solving the blade foot cuts the p95 residual at least 5x[\s\S]*ok   a read blade foot is no further off the surface than a solved one: mean[\s\S]*ok   a read blade foot is no further off the surface than a solved one: p95[\s\S]*ok   a read blade foot is no further off the surface than a solved one: max[\s\S]*ok   a blade foot sits on the surface it was placed on: mean under 1 mm[\s\S]*ok   a blade foot sits on the surface it was placed on: p95 under 5 mm[\s\S]*ok   a blade foot sits on the surface it was placed on: max under 50 mm[\s\S]*ok   a blade's foot costs a counted number of surface reads, not a blank cheque[\s\S]*ok   a radial solve of the same mesh is not cheaper than one read of it[\s\S]*ok   NON-VACUOUS DOWN: reading the foot places the ring cheaper than solving it[\s\S]*RESULT: PASS/ },
+  { file: 'grass-seam-card-witness.mjs', must: /ok   NON-VACUOUS UP: the extrapolation really carried a residual \(not an instrument gap\)[\s\S]*ok   NON-VACUOUS DOWN: sampling the blade foot cuts the mean residual at least 5x[\s\S]*ok   NON-VACUOUS DOWN: sampling the blade foot cuts the p95 residual at least 5x[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: mean under 1 mm[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: p95 under 5 mm[\s\S]*ok   a sampled blade foot sits on the surface it was placed on: max under 50 mm[\s\S]*ok   the cost is a counted number of samples per blade, not a blank cheque[\s\S]*RESULT: PASS/ },
 
   // PERF-tps-game-spawn-above-ground-1013 / PERF-spawn-not-touching-ground-1013. A relocation to a
   // point (`?at=<x>,<z>`) must wait for the same ground, on the same budget, as a spawn. Before

@@ -11,9 +11,15 @@ const SETTLE_FRAMES = 10
 const MOVE_STEP_M = 30
 const BYTES_PER_QUAD = 20
 
+// A target is the settled quad count of THIS tree, not a number the config's label picked: the
+// one-step-finer tessellation at a distance (LOD_STEP 3.6 -> 7.2, `mapspinner/lod-config.js`) halves
+// the leaf side at every distance the tree is not already pinned, which is four leaves where there
+// was one, so the n2048 config settled 2054 quad(s) before that change and settles 6808 now. The
+// property this witness guards -- 0 upload(s) for a frame whose payload was unchanged -- did not
+// move; only the population it is measured over did.
 const CONFIGS = [
   { label: 'n127', maxLevel: 12, splitFactor: 0.05, altM: 50, pose: 1, targetN: 127, tolN: 4 },
-  { label: 'n2048', maxLevel: 22, splitFactor: 0.80, altM: 200, pose: 2, targetN: 2048, tolN: 8 },
+  { label: 'n6808', maxLevel: 22, splitFactor: 0.80, altM: 200, pose: 2, targetN: 6808, tolN: 8 },
 ]
 
 const PASSED = []

@@ -28,9 +28,13 @@ const numberArg = (name, fallback) => {
 }
 
 const WORLD = process.env.WORLD || 'tps-game'
-const HOLD_MS = numberArg('hold-ms', 8000)
+const HOLD_CEILING_MS = numberArg('hold-ceiling-ms', 60000)
 const MIN_PATH_M = numberArg('min-path', 15)
 const MIN_TICKS = numberArg('min-ticks', 300)
+// A joining socket becomes a player on the server's own schedule, and on a loaded host that is
+// seconds, not the 1500 ms this witness used to assume: the wait has to be for the join, with a
+// ceiling, so a slow box cannot be reported as a player that never arrived.
+const JOIN_WAIT_MS = numberArg('join-wait-ms', 30000)
 const PORT = 38000 + Math.floor(Math.random() * 1500)
 
 process.env.WORLD = WORLD
@@ -66,6 +70,7 @@ ws.on('message', d => {
   }
 })
 await new Promise(r => ws.on('open', r))
+const wsOpenedAt = Date.now()
 
 const sendTimer = setInterval(() => {
   if (!sending) return
@@ -76,15 +81,21 @@ const sendTimer = setInterval(() => {
   }))
 }, 1000 / 60)
 
-await sleep(1500)
-const player = playerManager.getPlayer(playerId)
+const joinDeadline = Date.now() + JOIN_WAIT_MS
+let player = null
+while (Date.now() < joinDeadline) {
+  if (playerId != null) player = playerManager.getPlayer(playerId)
+  if (player) break
+  await sleep(100)
+}
 if (!player) {
-  console.error(`RESULT: FAIL: world=${WORLD} no player after handshake`)
+  console.error(`RESULT: FAIL: world=${WORLD} no player within ${JOIN_WAIT_MS} ms of the handshake`)
   clearInterval(sendTimer)
   try { ws.close() } catch {}
   try { server.stop() } catch {}
   process.exit(1)
 }
+console.log(`joined ${Date.now() - wsOpenedAt} ms after the socket opened`)
 
 const startPosition = [...player.state.position]
 const startTick = server.tickSystem?.currentTick ?? 0
@@ -93,12 +104,19 @@ console.log(`spawn=${startPosition.map(n => n.toFixed(3)).join(',')} onGround=${
 held = { forward: true }
 let path = 0
 let prev = startPosition
-const deadline = Date.now() + HOLD_MS
-while (Date.now() < deadline) {
+// The hold runs until the SERVER has ticked MIN_TICKS time(s), with a wall-clock ceiling. A
+// wall-clock hold measures the host's tick throughput instead of the walk: on a starved box the
+// server ran 40 tick(s) in 8 s, the player walked 1.094 m and the witness reported a movement
+// defect that was not there. The floors are unchanged -- MIN_PATH_M of ground in MIN_TICKS of
+// server time -- so a player that does not translate still fails here, and a server that does not
+// tick at all hits the ceiling and fails on the tick count.
+const ceiling = Date.now() + HOLD_CEILING_MS
+while (Date.now() < ceiling) {
   await sleep(250)
   const cur = [...playerManager.getPlayer(playerId).state.position]
   path += Math.hypot(cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2])
   prev = cur
+  if ((server.tickSystem?.currentTick ?? 0) - startTick >= MIN_TICKS) break
 }
 held = {}
 await sleep(250)

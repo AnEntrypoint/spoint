@@ -327,8 +327,13 @@ function main() {
   const report = []
   if (committed) {
     const tracked = gitTrackedScripts()
-    if (tracked === null) {
-      console.log('RESULT: FAIL witness-audit cannot list tracked files under scripts, so committed content was not audited')
+    // `git ls-files` answers status 0 with NO output when the pathspec does not resolve under the
+    // cwd it was given, which is what a `git archive` extraction into a subdirectory is: the walk
+    // up finds the parent repo, `scripts` under the extraction does not exist, and an empty file
+    // list is reported as a clean audit of zero file(s). An empty list is therefore a broken
+    // instrument, exactly like a non-zero status, and has to fail here rather than pass on silence.
+    if (tracked === null || tracked.length === 0) {
+      console.log(`RESULT: FAIL witness-audit listed ${tracked === null ? 'no' : '0'} tracked file(s) under scripts from ${REPO_ROOT}, so committed content was not audited`)
       process.exit(1)
     }
     // HEAD is not the committed tree of a shared checkout: lanes publish
