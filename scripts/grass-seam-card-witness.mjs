@@ -87,7 +87,7 @@ const { createExactPatchFrame } = await import(href('client/core/ExactPatchFrame
 const { loadLatticeSurface } = await import(href('src/terrain/LatticeSurface.js'))
 const { createNearFieldLattice } = await import(href('src/terrain/NearFieldLattice.js'))
 const { colliderLatticeOf, sourceSpacingOfBake } = await import(href('src/shared/colliderLattice.js'))
-const { placementsForGrassChunk, classify, blade, GRASS } = await import(href('src/terrain/GrassPlacement.js'))
+const { placementsForGrassChunk, classify, blade, GRASS, GRASS_FOOT_READS } = await import(href('src/terrain/GrassPlacement.js'))
 const { createPlacementCell, placementCellAt } = await import(href('src/terrain/VegPlacement.js'))
 const { latticeFor } = await import(href('src/terrain/PlacementChart.js'))
 const { createCachedAnchorField } = await import(href('src/terrain/ClimateCache.js'))
@@ -403,14 +403,18 @@ function placeArm(k) {
 // a fall in the residual attributable to the sample and not to a different set of blades.
 // K_JITX / K_JITZ are GrassPlacement.js's own clump-jitter keys.
 const K_JITX = 20, K_JITZ = 21
-function footPass(arm, extrapolate) {
+// 'solve' forces the frame's own fallback instead of copying it: a mesh read that answers nothing
+// makes riseAt pay the radial solve along the blade's direction that it paid before this change, so
+// the arm IS the previous code path and not a second copy of the placer.
+function footPass(arm, mode) {
   const prev = frame.renderMeshHeightAtLocal
   frame.renderMeshHeightAtLocal = arm
   const ef = createExactPatchFrame(frame)
   const pf = ef.placementFrame
+  if (mode === 'solve') Object.defineProperty(pf, 'renderMeshHeightAtLocal', { value: () => null, writable: true, configurable: true })
   const cell = createPlacementCell(pf)
   const residual = []
-  let cells = 0, blades = 0
+  let cells = 0, blades = 0, lastP = null
   const t0 = process.hrtime.bigint()
   for (const key of keys) {
     const lattice = latticeFor(pf, GRASS)
@@ -421,7 +425,8 @@ function footPass(arm, extrapolate) {
         const p = classify(pf, anchorField, cell)
         if (!p) continue
         cells++
-        if (extrapolate) p.riseAt = (offE, offN) => p.dHdx * offE + p.dHdz * offN + 0.5 * (p.kx * offE * offE + p.kz * offN * offN)
+        lastP = p
+        if (mode === 'extrapolate') p.riseAt = (offE, offN) => p.dHdx * offE + p.dHdz * offN + 0.5 * (p.kx * offE * offE + p.kz * offN * offN)
         for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) {
           const bl = blade(p, b)
           if (!bl) continue
@@ -433,7 +438,7 @@ function footPass(arm, extrapolate) {
     }
   }
   frame.renderMeshHeightAtLocal = prev
-  return { cells, blades, residual, ms: Number(process.hrtime.bigint() - t0) / 1e6 }
+  return { cells, blades, residual, lastP, ms: Number(process.hrtime.bigint() - t0) / 1e6 }
 }
 
 // The card footprint: the centre, the two extremes along the seam normal (the two sides of the
@@ -524,21 +529,42 @@ for (const a of arms) {
 // ------------------------------------------------ the blade's own foot, over every blade in the ring
 const maxOf = (a) => { let m = -Infinity; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return a.length ? m : NaN }
 const stat = (a) => ({ n: a.length, mean: mean(a), p95: p95(a), max: maxOf(a) })
-const footBefore = footPass(makeArm(1), true)
-const footAfter = footPass(makeArm(1), false)
-const fB = stat(footBefore.residual), fA = stat(footAfter.residual)
-// Counted work units. A cell costs 5 surface samples however many blades it places -- one
-// surfaceOfCell plus the jet's four probes. A blade costs nothing more while its height is
-// extrapolated from the cell, and exactly one more sample while it is sampled at its own offset.
+const footEx = footPass(makeArm(1), 'extrapolate')
+const footSv = footPass(makeArm(1), 'solve')
+const footRd = footPass(makeArm(1), 'read')
+const fB = stat(footEx.residual), fS = stat(footSv.residual), fA = stat(footRd.residual)
+// Counted work units. A cell pays 5 solves however many blades it places -- one surfaceOfCell plus
+// the jet's four probes. A blade's own foot is what changed: nothing while it is extrapolated from
+// the cell, one radial solve while it is solved along the blade's own direction, and
+// GRASS_FOOT_READS reads of the frame's drawn mesh now that it is read at the blade's own (x,z).
 const CELL_SAMPLES = 5
-const sB = CELL_SAMPLES * footBefore.cells
-const sA = CELL_SAMPLES * footAfter.cells + footAfter.blades
-const perBefore = sB / Math.max(1, footBefore.blades), perAfter = sA / Math.max(1, footAfter.blades)
+const sB = CELL_SAMPLES * footEx.cells
+const sS = CELL_SAMPLES * footSv.cells + footSv.blades
+const sA = CELL_SAMPLES * footRd.cells + GRASS_FOOT_READS * footRd.blades
+const perBefore = sB / Math.max(1, footEx.blades), perSolve = sS / Math.max(1, footSv.blades), perAfter = sA / Math.max(1, footRd.blades)
+const f7 = (v) => (Number.isFinite(v) ? v.toFixed(7) : 'n/a')
+// What a solve of this mesh costs against what one read of the same mesh costs, so the price of a
+// blade is measured in the same unit in both arms instead of being assumed equal per sample.
+let usRead = NaN, usSolve = NaN
+{
+  const N = 20000
+  let acc = 0
+  let t = process.hrtime.bigint()
+  for (let i = 0; i < N; i++) { const y = meshH((i % 211) * 0.5 - 50, (i % 97) * 0.5 - 25); if (Number.isFinite(y)) acc += y }
+  const readMs = Number(process.hrtime.bigint() - t) / 1e6
+  t = process.hrtime.bigint()
+  for (let i = 0; i < N; i++) { const v = footSv.lastP.riseAt(0.4, -0.6); if (Number.isFinite(v)) acc += v }
+  const solveMs = Number(process.hrtime.bigint() - t) / 1e6
+  usRead = 1000 * readMs / N
+  usSolve = 1000 * solveMs / N
+  console.log(`--- micro: ${N} reads of the drawn mesh = ${readMs.toFixed(1)} ms (${usRead.toFixed(2)} us each); ${N} radial solves = ${solveMs.toFixed(1)} ms (${usSolve.toFixed(2)} us each); solve/read = ${(solveMs / Math.max(1e-9, readMs)).toFixed(2)}x (acc=${acc.toFixed(3)})`)
+}
 console.log('--- blade foot vs the surface it was placed on (every blade in the ring)')
-console.log(`  extrapolated (cell ground, 2nd-order Taylor to the clump offset)  n=${fB.n}  mean=${f5(fB.mean)} p95=${f5(fB.p95)} max=${f5(fB.max)} m   place=${footBefore.ms.toFixed(0)}ms over ${footBefore.cells} cell(s)`)
-console.log(`  sampled      (the surface AT the blade's own offset)              n=${fA.n}  mean=${f5(fA.mean)} p95=${f5(fA.p95)} max=${f5(fA.max)} m   place=${footAfter.ms.toFixed(0)}ms over ${footAfter.cells} cell(s)`)
-console.log(`  cost: ${sB} -> ${sA} surface sample(s) over the ring (${f2(perBefore)} -> ${f2(perAfter)} per blade, +1 per blade); placement wall ${footBefore.ms.toFixed(0)} -> ${footAfter.ms.toFixed(0)} ms (x${f2(footAfter.ms / Math.max(1e-9, footBefore.ms))})`)
-console.log(`[grass-blade-foot] MEASURED grass-blade-foot: blade foot vs the surface it was placed on over ${fA.n} blade(s) -- mean ${f5(fB.mean)} -> ${f5(fA.mean)} m, p95 ${f5(fB.p95)} -> ${f5(fA.p95)} m, max ${f5(fB.max)} -> ${f5(fA.max)} m; cost ${sB} -> ${sA} surface sample(s) (${f2(perBefore)} -> ${f2(perAfter)} per blade), placement wall ${footBefore.ms.toFixed(0)} -> ${footAfter.ms.toFixed(0)} ms`)
+console.log(`  extrapolated (cell ground, 2nd-order Taylor to the clump offset)  n=${fB.n}  mean=${f7(fB.mean)} p95=${f7(fB.p95)} max=${f7(fB.max)} m   place=${footEx.ms.toFixed(0)}ms over ${footEx.cells} cell(s), 0 read(s)/blade`)
+console.log(`  solved       (radial solve along the blade's own direction)       n=${fS.n}  mean=${f7(fS.mean)} p95=${f7(fS.p95)} max=${f7(fS.max)} m   place=${footSv.ms.toFixed(0)}ms over ${footSv.cells} cell(s), 1 solve/blade`)
+console.log(`  read         (the drawn mesh at the blade's own x,z)              n=${fA.n}  mean=${f7(fA.mean)} p95=${f7(fA.p95)} max=${f7(fA.max)} m   place=${footRd.ms.toFixed(0)}ms over ${footRd.cells} cell(s), ${GRASS_FOOT_READS} read(s)/blade`)
+console.log(`  cost: ${sB} -> ${sS} -> ${sA} surface sample(s) over the ring (${f2(perBefore)} -> ${f2(perSolve)} -> ${f2(perAfter)} per blade); placement wall ${footEx.ms.toFixed(0)} -> ${footSv.ms.toFixed(0)} -> ${footRd.ms.toFixed(0)} ms (x${f2(footSv.ms / Math.max(1e-9, footEx.ms))} then x${f2(footRd.ms / Math.max(1e-9, footEx.ms))} against the extrapolated ring)`)
+console.log(`[grass-blade-foot] MEASURED grass-blade-foot: blade foot vs the surface it was placed on over ${fA.n} blade(s) -- extrapolated mean ${f7(fB.mean)} p95 ${f7(fB.p95)} max ${f7(fB.max)} m, solved ${f7(fS.mean)} / ${f7(fS.p95)} / ${f7(fS.max)} m, read ${f7(fA.mean)} / ${f7(fA.p95)} / ${f7(fA.max)} m; cost ${sB} -> ${sS} -> ${sA} surface sample(s) (${f2(perBefore)} -> ${f2(perSolve)} -> ${f2(perAfter)} per blade, ${GRASS_FOOT_READS} mesh read(s) a blade against 1 solve at ${usRead.toFixed(2)} us a read and ${usSolve.toFixed(2)} us a solve), placement wall ${footEx.ms.toFixed(0)} -> ${footSv.ms.toFixed(0)} -> ${footRd.ms.toFixed(0)} ms`)
 
 const shipped = arms.find((a) => a.k === 1) || null
 const welded = arms.find((a) => a.k === 0) || null
@@ -565,14 +591,19 @@ if (welded && shipped && tripled) {
 // The pin, and the non-vacuity of the instrument in both directions: the residual has to FALL when
 // the blade's own offset is sampled and RISE when the cell-ground extrapolation is put back. A
 // residual that never moves is an instrument gap, not a measurement.
-check('both foot passes placed the same population', [footBefore.blades, footAfter.blades], (v) => Array.isArray(v) && v[0] === v[1] && v[0] > 10000)
+check('all three foot passes placed the same population', [footEx.blades, footSv.blades, footRd.blades], (v) => Array.isArray(v) && v[0] === v[1] && v[1] === v[2] && v[0] > 10000)
 check('NON-VACUOUS UP: the extrapolation really carried a residual (not an instrument gap)', Math.round(fB.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v > 0.001)
-check('NON-VACUOUS DOWN: sampling the blade foot cuts the mean residual at least 5x', [Math.round(fB.mean * 1e6) / 1e6, Math.round(fA.mean * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
-check('NON-VACUOUS DOWN: sampling the blade foot cuts the p95 residual at least 5x', [Math.round(fB.p95 * 1e6) / 1e6, Math.round(fA.p95 * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
-check('a sampled blade foot sits on the surface it was placed on: mean under 1 mm', Math.round(fA.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.001)
-check('a sampled blade foot sits on the surface it was placed on: p95 under 5 mm', Math.round(fA.p95 * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.005)
-check('a sampled blade foot sits on the surface it was placed on: max under 50 mm', Math.round(fA.max * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.05)
-check('the cost is a counted number of samples per blade, not a blank cheque', Math.round(100 * (perAfter - perBefore)) / 100, (v) => Number.isFinite(v) && v > 0 && v <= 1.5)
+check('NON-VACUOUS DOWN: solving the blade foot cuts the mean residual at least 5x', [Math.round(fB.mean * 1e6) / 1e6, Math.round(fS.mean * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
+check('NON-VACUOUS DOWN: solving the blade foot cuts the p95 residual at least 5x', [Math.round(fB.p95 * 1e6) / 1e6, Math.round(fS.p95 * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])
+check('a read blade foot is no further off the surface than a solved one: mean', [Math.round(fS.mean * 1e9) / 1e9, Math.round(fA.mean * 1e9) / 1e9], (v) => Array.isArray(v) && v[1] <= v[0])
+check('a read blade foot is no further off the surface than a solved one: p95', [Math.round(fS.p95 * 1e9) / 1e9, Math.round(fA.p95 * 1e9) / 1e9], (v) => Array.isArray(v) && v[1] <= v[0])
+check('a read blade foot is no further off the surface than a solved one: max', [Math.round(fS.max * 1e9) / 1e9, Math.round(fA.max * 1e9) / 1e9], (v) => Array.isArray(v) && v[1] <= v[0])
+check('a blade foot sits on the surface it was placed on: mean under 1 mm', Math.round(fA.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.001)
+check('a blade foot sits on the surface it was placed on: p95 under 5 mm', Math.round(fA.p95 * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.005)
+check('a blade foot sits on the surface it was placed on: max under 50 mm', Math.round(fA.max * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.05)
+check('a blade\'s foot costs a counted number of surface reads, not a blank cheque', GRASS_FOOT_READS, (v) => Number.isInteger(v) && v >= 1 && v <= 4)
+check('a radial solve of the same mesh is not cheaper than one read of it', [Math.round(usRead * 100) / 100, Math.round(usSolve * 100) / 100], (v) => Array.isArray(v) && v[0] > 0 && v[1] >= v[0])
+check('NON-VACUOUS DOWN: reading the foot places the ring cheaper than solving it', [Math.round(footSv.ms), Math.round(footRd.ms)], (v) => Array.isArray(v) && v[1] < v[0])
 
 console.log('')
 for (const f of failures) console.log(`FAIL: ${f}`)

@@ -111,6 +111,42 @@ export function createTerrainMeshSurface(opts = {}) {
   const near = []
   const built = new Map()
   const candidates = []
+  // Every read of this mirror used to test EVERY near quad's box and winding: 1218 of them at the
+  // shipped focus, ~10 us a read, paid 5 times a placement cell and twice a grass blade. The boxes
+  // are axis-aligned in the chart, so a sync-sized uniform grid answers a read with the handful of
+  // quads that can actually cover the point. A quad too big to fan out over the grid rides the
+  // overflow list instead; both are bbox- and winding-tested exactly as before, so this changes
+  // which quads are REJECTED and never which one answers.
+  const NEAR_GRID_MAX_FAN = 64
+  const NEAR_GRID_KEY_BIAS = 32768
+  const nearGrid = new Map()
+  const nearOverflow = []
+  let nearCellM = 0
+  function rebuildNearIndex() {
+    nearGrid.clear()
+    nearOverflow.length = 0
+    if (near.length === 0) return
+    const ext = new Float64Array(near.length)
+    for (let k = 0; k < near.length; k++) { const n = near[k]; ext[k] = Math.max(n.maxX - n.minX, n.maxZ - n.minZ) }
+    const ordered = Array.prototype.slice.call(ext).sort((a, b) => a - b)
+    nearCellM = Math.max(1, ordered[ordered.length >> 1])
+    for (let k = 0; k < near.length; k++) {
+      const n = near[k]
+      n.idx = k
+      const i0 = Math.floor(n.minX / nearCellM), i1 = Math.floor(n.maxX / nearCellM)
+      const j0 = Math.floor(n.minZ / nearCellM), j1 = Math.floor(n.maxZ / nearCellM)
+      if (i0 < -NEAR_GRID_KEY_BIAS || i1 >= NEAR_GRID_KEY_BIAS || j0 < -NEAR_GRID_KEY_BIAS || j1 >= NEAR_GRID_KEY_BIAS) { nearOverflow.push(n); continue }
+      if ((i1 - i0 + 1) * (j1 - j0 + 1) > NEAR_GRID_MAX_FAN) { nearOverflow.push(n); continue }
+      for (let i = i0; i <= i1; i++) {
+        for (let j = j0; j <= j1; j++) {
+          const key = (i + NEAR_GRID_KEY_BIAS) * 65536 + (j + NEAR_GRID_KEY_BIAS)
+          let a = nearGrid.get(key)
+          if (a === undefined) { a = []; nearGrid.set(key, a) }
+          a.push(n)
+        }
+      }
+    }
+  }
   const stats = { syncs: 0, builds: 0, queries: 0, served: 0, unserved: 0, rescans: 0, nearQuads: 0, latticeVertexHits: 0, latticeVertexMisses: 0 }
   let gridSize = 0
   let flip = null
@@ -281,6 +317,7 @@ export function createTerrainMeshSurface(opts = {}) {
       near.push({ face, ox, oy, l, level, cx, cz, minX: minX - FOOTPRINT_INFLATE_M, maxX: maxX + FOOTPRINT_INFLATE_M, minZ: minZ - FOOTPRINT_INFLATE_M, maxZ: maxZ + FOOTPRINT_INFLATE_M })
     }
     stats.nearQuads = near.length
+    rebuildNearIndex()
   }
 
   // A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad
@@ -304,14 +341,26 @@ export function createTerrainMeshSurface(opts = {}) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return MESH_SURFACE_NO_GROUND
     stats.queries++
     candidates.length = 0
-    for (let k = 0; k < near.length; k++) {
-      const n = near[k]
-      if (x < n.minX || x > n.maxX || z < n.minZ || z > n.maxZ) continue
-      if (!insideQuad(n, x, z)) continue
-      candidates.push(n)
+    if (nearCellM > 0) {
+      const ci = Math.floor(x / nearCellM), cj = Math.floor(z / nearCellM)
+      const bucket = (ci > -NEAR_GRID_KEY_BIAS && ci < NEAR_GRID_KEY_BIAS && cj > -NEAR_GRID_KEY_BIAS && cj < NEAR_GRID_KEY_BIAS)
+        ? nearGrid.get((ci + NEAR_GRID_KEY_BIAS) * 65536 + (cj + NEAR_GRID_KEY_BIAS))
+        : undefined
+      for (let pass = 0; pass < 2; pass++) {
+        const list = pass === 0 ? bucket : nearOverflow
+        if (list === undefined) continue
+        for (let k = 0; k < list.length; k++) {
+          const n = list[k]
+          if (x < n.minX || x > n.maxX || z < n.minZ || z > n.maxZ) continue
+          if (!insideQuad(n, x, z)) continue
+          candidates.push(n)
+        }
+      }
     }
     if (candidates.length === 0) { stats.unserved++; return MESH_SURFACE_NO_GROUND }
-    candidates.sort((a, b) => a.l - b.l)
+    // The quad that answers is the finest one covering the point, and among equals the one the
+    // linear scan would have reached first: the index must not decide a tie by its own order.
+    candidates.sort((a, b) => a.l - b.l || a.idx - b.idx)
     for (let k = 0; k < candidates.length; k++) {
       const q = materialize(candidates[k])
       if (!q) continue

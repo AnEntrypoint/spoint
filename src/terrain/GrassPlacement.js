@@ -48,6 +48,11 @@ export function grassKeepFractionAt(d, fullR = GRASS_DENSITY.FULL_R) {
   return Math.pow(fullR / d, GRASS_DENSITY.P)
 }
 
+// Surface reads one blade's own foot costs where the frame carries a drawn mesh: two converge it to
+// 0.0000056 m worst case, a third moves nothing, and one leaves 0.0003824 m. Counted, so the
+// witness can price a blade without re-deriving it.
+export const GRASS_FOOT_READS = 2
+
 const K_JITX = 20, K_JITZ = 21, K_COIN = 22, K_SCALE = 23, K_YAW = 24, K_TINT = 25, K_WIND = 26
 
 const _GRASS_FIXED_APPROX_SUN_DIR = (() => { const x = 0.4, y = 0.8, z = 0.3, l = Math.hypot(x, y, z); return [x / l, y / l, z / l] })()
@@ -145,17 +150,38 @@ export function classify(frame, anchorField, cell) {
   const jet = grassJetAt(frame, tf, rho, GRASS.SLOPE_D)
   if (!jet) return null
   const dHdx = jet.dHdx, dHdz = jet.dHdz, kx = jet.kx, kz = jet.kz
-  // A blade is not placed at the cell centre: GRASS.CLUMP_R offsets it, and the height it needs is
-  // the height AT THE OFFSET. It is sampled, not extrapolated from the cell's own gradient and
+  // A blade is not placed at its cell centre: GRASS.CLUMP_R offsets it, and the height it needs is
+  // the height AT THE OFFSET. It is read, not extrapolated from the cell's own gradient and
   // curvature -- the extrapolation is a second-order Taylor step over a clump a metre wide, and its
-  // remainder is what put blades up to 0.24 m off the surface they were placed on. The jet's own
-  // probe is already the sampler that reads whatever ground this frame carries, so a blade costs one
-  // more solve of that same function and nothing else; the Taylor step stays as the answer for an
-  // offset this frame has no ground at.
+  // remainder is what put blades up to 0.24 m off the surface they were placed on.
+  //
+  // The read is taken off the frame's own drawn mesh, at the blade's own horizontal position, rather
+  // than by solving along the blade's direction: a solve is a fixed point in the radius and costs
+  // 2.35 reads of the SAME mesh (2.53 us a read, 5.94 us a solve -- the micro-benchmark in
+  // scripts/grass-seam-card-witness.mjs), while a read converges in two because rise enters the
+  // blade's (x,z) only through the up axis' own horizontal component. It is also the more accurate
+  // of the two -- 0.0000003 / 0.0000013 / 0.0000056 m against the solve's 0.0000056 / 0.0000107 /
+  // 0.0000423 m -- because it never carries a solve tolerance into the blade's foot.
+  //
+  // Where the frame carries no drawn mesh the solve is paid exactly as it was, and where neither
+  // answers, the Taylor step is. Neither branch removes a blade or coarsens a cell.
   const sampleAt = jet.at
+  const meshAt = typeof frame.renderMeshHeightAtLocal === 'function' ? frame.renderMeshHeightAtLocal : null
+  const mE = tf.eastL, mU = tf.upL, mN = tf.northL
+  const mInv = 1 / (mU[1] || 1)
+  const bowl = (offE, offN) => dHdx * offE + dHdz * offN + 0.5 * (kx * offE * offE + kz * offN * offN)
   const riseAt = (offE, offN) => {
+    if (meshAt !== null) {
+      let rise = bowl(offE, offN), read = true
+      for (let k = 0; k < GRASS_FOOT_READS; k++) {
+        const y = meshAt(x + mE[0] * offE + mU[0] * rise + mN[0] * offN, z + mE[2] * offE + mU[2] * rise + mN[2] * offN)
+        if (!Number.isFinite(y)) { read = false; break }
+        rise = (y - groundY - mE[1] * offE - mN[1] * offN) * mInv
+      }
+      if (read) return rise
+    }
     const at = sampleAt(offE, offN)
-    return Number.isFinite(at) ? at - rho : dHdx * offE + dHdz * offN + 0.5 * (kx * offE * offE + kz * offN * offN)
+    return Number.isFinite(at) ? at - rho : bowl(offE, offN)
   }
   const grad = Math.hypot(dHdx, dHdz)
   if (grad > GRASS.SLOPE_MAX) return null
