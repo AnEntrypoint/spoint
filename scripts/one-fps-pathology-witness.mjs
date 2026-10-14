@@ -47,6 +47,7 @@ function arg(name, dflt = null) {
 const ARM = arg('arm', 'both') // hmr-on | hmr-off | both
 const WORLD = arg('world', 'tps-game')
 const GPU_MODE = arg('gpu', 'nvidia')
+const ROOM_MODE = arg('room', 'multiplayer')
 const SETTLE_MS = Number(arg('settle', '8000'))
 const WALK_MS = Number(arg('walk', '8000'))
 const STORM_MS = Number(arg('storm', '12000'))
@@ -62,6 +63,12 @@ const STORM_FILE = arg('storm-file', 'client/core/SceneSetup.js')
 // A settled frame must compile nothing. The boot window is the positive control: it compiles
 // dozens, so a counter that reads 0 everywhere is an instrument gap, not a measurement.
 const MIN_BOOT_COMPILES = Number(arg('min-boot-compiles', '20'))
+// A walk window that does not translate the player is a settled window wearing the wrong label, and
+// its fps and compiles/frame are then a second copy of the settled figure. Measured side by side:
+// 12 s of a commanded 7 m/s is 84 m of route, ?multiplayer travels 37.7 m of it, and a
+// rubber-banded ?singleplayer arm travels 0.38 m. The floor sits under the route and an order of
+// magnitude over the stationary arm, so a walk that goes nowhere is refused instead of published.
+const MIN_WALK_MOVED_M = Number(arg('min-walk-moved', '10'))
 
 const waitMs = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -164,19 +171,16 @@ const INIT = `
 }
 `
 
+// getLocalState().position is an ARRAY [x,y,z], not {x,y,z}: reading .x off it yields undefined,
+// and Math.hypot(NaN, NaN) is NaN, so a walkMovedM that looks like a number is really a gap.
 const POS_EXPR = `(() => {
   const a = window.__app || {}
   const c = a.client || window.__client
   const p = c && typeof c.getLocalState === 'function' ? c.getLocalState() : null
-  return p && p.position ? [p.position.x, p.position.y, p.position.z] : null
+  const q = p && p.position
+  if (!q) return null
+  return Array.isArray(q) ? [q[0], q[1], q[2]] : (typeof q.x === 'number' ? [q.x, q.y, q.z] : null)
 })()`
-
-const KEY_EXPR = ({ code, down }) => {
-  const fire = (target) => target.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code.replace('Key', '').toLowerCase(), bubbles: true, cancelable: true }))
-  fire(window)
-  fire(document)
-  return true
-}
 
 const SNAP_EXPR = `(() => {
   const s = window.__onefps
@@ -305,7 +309,7 @@ async function runArm(arm) {
     })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INIT })
 
-    const url = 'http://127.0.0.1:' + port + '/?singleplayer&world=' + process.env.WORLD
+    const url = 'http://127.0.0.1:' + port + '/?' + ROOM_MODE + '&world=' + process.env.WORLD
     console.log(`[${LABEL}] arm=${arm} navigating to ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
 
@@ -346,17 +350,22 @@ async function runArm(arm) {
 
     // (c) walk: does the stream spike repeat every frame? A walk that never moved the player is a
     // second settled window wearing the wrong label, so the displacement is part of the receipt.
+    // Both key routes reach src/client/InputHandler.js (window keydown -> keys.set(e.code, true)):
+    // measured side by side, an in-page KeyboardEvent and CDP Input.dispatchKeyEvent each put the
+    // local character at velocity 7 m/s. Delivery was never what stopped the walk.
     const p0 = await page.evaluate(POS_EXPR).catch(() => null)
-    // CDP Input.dispatchKeyEvent reached no listener; the client reads keydown off window/document,
-    // so dispatch it in the page the way scripts/veg-lod-browser-witness.mjs does.
-    await page.evaluate(KEY_EXPR, { code: 'KeyW', down: true }).catch(() => null)
+    await page.keyboard.down('KeyW').catch(() => null)
     out.walk = await measure(page, WALK_MS, 'walk')
-    await page.evaluate(KEY_EXPR, { code: 'KeyW', down: false }).catch(() => null)
+    await page.keyboard.up('KeyW').catch(() => null)
     const p1 = await page.evaluate(POS_EXPR).catch(() => null)
     out.walkStart = p0
     out.walkEnd = p1
     out.walkMovedM = (p0 && p1) ? +Math.hypot(p1[0] - p0[0], p1[2] - p0[2]).toFixed(2) : null
     console.log(`[${LABEL}] arm=${arm} WALK movedM=${out.walkMovedM} ${JSON.stringify(out.walk)}`)
+    if (out.walkMovedM === null || !(out.walkMovedM >= MIN_WALK_MOVED_M)) {
+      console.error(`[${LABEL}] RESULT: FAIL arm=${arm} -- the walk window translated the player ${out.walkMovedM} m over ${WALK_MS} ms, under the ${MIN_WALK_MOVED_M} m floor; a walk that does not translate is a settled window wearing the wrong label, so this figure is refused, not published`)
+      process.exit(1)
+    }
 
     // (d) stream batch / edit storm: measured WHILE the edits land, so the window is the storm.
     const abs = join(ROOT, STORM_FILE)
