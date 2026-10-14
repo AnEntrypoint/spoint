@@ -2553,6 +2553,10 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
   if (window.__springBoneLodStats!==_springBoneLodStats) window.__springBoneLodStats=_springBoneLodStats
 }
 const _springBoneLodStats={updated:0,skipped:0}
+
+const _buildMainRenderGraph = () => _hmrFactories.createRenderGraph([..._hmrFactories.buildRenderSectionNodes(), ..._hmrFactories.buildSSAONodes(), ..._hmrFactories.buildBloomNodes(), ..._hmrFactories.buildSSRNodes(), ..._hmrFactories.buildFSR1Nodes()])
+let renderGraph = _buildMainRenderGraph()
+const _graphCtx = { res: {}, renderer, scene, camera, floatingOrigin, occlusionQueryBudget, pm }
 let overdrawProbe = _hmrFactories.createOverdrawProbe({ renderer, scene, camera })
 _graphCtx.overdrawProbe = overdrawProbe
 if (typeof window !== 'undefined' && window.__app) window.__app.overdrawProbe = overdrawProbe
@@ -2564,10 +2568,6 @@ function _rebuildOverdrawProbe() {
   if (prev && prev !== overdrawProbe) { try { prev.dispose?.() } catch (_) {} }
   return overdrawProbe
 }
-
-const _buildMainRenderGraph = () => _hmrFactories.createRenderGraph([..._hmrFactories.buildRenderSectionNodes(), ..._hmrFactories.buildSSAONodes(), ..._hmrFactories.buildBloomNodes(), ..._hmrFactories.buildSSRNodes(), ..._hmrFactories.buildFSR1Nodes()])
-let renderGraph = _buildMainRenderGraph()
-const _graphCtx = { res: {}, renderer, scene, camera, floatingOrigin, occlusionQueryBudget, pm }
 let placementScheduler = _hmrFactories.createPlacementScheduler(() => ({ vegetation, rocks, grass, camera, floatingOrigin, pm }))
 placementScheduler.start()
 _graphCtx.placementScheduler = placementScheduler
