@@ -4,10 +4,13 @@ import { DRACOLoader } from 'streaming-gltf/draco-loader'
 import { ensureSharedKtx2Loader } from 'streaming-gltf'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
-import { installUnderwaterTint, setSeaLevelY } from './UnderwaterTint.js'
+import { installUnderwaterTint as _installUnderwaterTint, setSeaLevelY as _setSeaLevelY } from './UnderwaterTint.js'
 import { RenderControls } from './RenderControls.js'
 import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
-export { installUnderwaterTint, setSeaLevelY }
+// Re-exported as `let`, not `export {}`: a hot swap re-assigns these bindings (see the hot swap
+// block at the bottom) and a re-export cannot be assigned to.
+export let installUnderwaterTint = _installUnderwaterTint
+export let setSeaLevelY = _setSeaLevelY
 
 export function createScene() {
   const scene = new THREE.Scene()
@@ -333,10 +336,10 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
   if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
-export const MAX_UNMANIFESTED_WARMUP_MESHES = 50
-export const MANIFEST_RESIDENCE_WAIT_MS = 10000
-export const MANIFEST_RESIDENCE_POLL_MS = 50
-export const MANIFEST_RESIDENCE_MAX_POLLS = Math.ceil(MANIFEST_RESIDENCE_WAIT_MS / MANIFEST_RESIDENCE_POLL_MS)
+export let MAX_UNMANIFESTED_WARMUP_MESHES = 50
+export let MANIFEST_RESIDENCE_WAIT_MS = 10000
+export let MANIFEST_RESIDENCE_POLL_MS = 50
+export let MANIFEST_RESIDENCE_MAX_POLLS = Math.ceil(MANIFEST_RESIDENCE_WAIT_MS / MANIFEST_RESIDENCE_POLL_MS)
 
 function _manifestUnresolvedUrls(entityMeshes, manifestUrls) {
   const resident = new Set()
@@ -425,3 +428,48 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     for (const obj of culled) obj.frustumCulled = true
   }
 }
+
+// --- hot swap -------------------------------------------------------------------
+// client/app.js imports this module STATICALLY, and an ESM import is a live binding to THIS
+// instance's export bindings, so no accept boundary above this file can re-point what app.js
+// holds: an acceptor sitting above a root-level static import can only re-import, and a re-import
+// is a new instance app.js never reads. The classification this file landed in was therefore
+// "no accept boundary up to the app root", and every edit to it cost a whole page load -- four
+// real edits measured 0.83 playable frames/s against 59.21 settled
+// (scripts/one-fps-pathology-witness.mjs).
+//
+// What CAN move those bindings is the module itself: re-assigning an export binding is visible to
+// every importer that is already holding it. Self-accepting here and re-assigning each binding to
+// the freshly imported copy makes the edit take effect in the running page, and the cost of a save
+// becomes one module fetch instead of a boot.
+//
+// The functions being replaced are the new copy's, so a change to anything they close over --
+// _textureSizeLimit, the STUCK_PIPELINE_* thresholds, the light setup in setupLights -- is live
+// for every call made after the swap. State the app already built (the scene, the renderer) is
+// left alone: this re-points code, it does not rebuild the world.
+const _hotSwap = (next) => {
+  installUnderwaterTint = next.installUnderwaterTint
+  setSeaLevelY = next.setSeaLevelY
+  createScene = next.createScene
+  installSkeletonUploadSkip = next.installSkeletonUploadSkip
+  probeWebGL2 = next.probeWebGL2
+  probeOffscreenCanvasWorkerRendering = next.probeOffscreenCanvasWorkerRendering
+  createRenderer = next.createRenderer
+  probeAndCreateWebGPURenderer = next.probeAndCreateWebGPURenderer
+  describeRenderer = next.describeRenderer
+  installStuckPipelineRecovery = next.installStuckPipelineRecovery
+  setupLights = next.setupLights
+  limitTextureSize = next.limitTextureSize
+  createLoaders = next.createLoaders
+  applySceneConfig = next.applySceneConfig
+  MAX_UNMANIFESTED_WARMUP_MESHES = next.MAX_UNMANIFESTED_WARMUP_MESHES
+  MANIFEST_RESIDENCE_WAIT_MS = next.MANIFEST_RESIDENCE_WAIT_MS
+  MANIFEST_RESIDENCE_POLL_MS = next.MANIFEST_RESIDENCE_POLL_MS
+  MANIFEST_RESIDENCE_MAX_POLLS = next.MANIFEST_RESIDENCE_MAX_POLLS
+  waitForManifestResidence = next.waitForManifestResidence
+  warmupShaders = next.warmupShaders
+}
+// hotSwapSceneSetup is deliberately left out of _hotSwap: it is the entry that re-binds, so it has
+// to stay the one belonging to the instance every consumer already holds.
+export function hotSwapSceneSetup(next) { _hotSwap(next) }
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwap)

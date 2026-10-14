@@ -15,13 +15,20 @@ export function ancestorsOf(parents, node) {
 // An empty result means no accept boundary was found, which the caller has to
 // treat exactly like null: `[]` is truthy, so returning it would report the
 // change as accepted while applying nothing.
+// A self-acceptor only counts AT the changed module. It re-binds the export bindings of the copy
+// this page already imported, which is the only thing that makes an edit to THAT module visible to
+// its static importers; letting it stop the walk for one of that module's dependencies would
+// report the dependency's edit as accepted while the dependency is never re-read, which is the
+// silent no-op the reload path is honest about.
 export function findBoundaries(acceptors, ev) {
   const boundaries = new Set(), seen = new Set(), stack = [ev.url]
   while (stack.length) {
     const node = stack.pop()
     if (seen.has(node)) continue
     seen.add(node)
-    if (acceptors.get(node)?.length) { boundaries.add(node); continue }
+    const handlers = acceptors.get(node) || []
+    const usable = node === ev.url ? handlers : handlers.filter((h) => !h.self)
+    if (usable.length) { boundaries.add(node); continue }
     const parents = ev.parents[node] || []
     if (!parents.length) return null
     stack.push(...parents)

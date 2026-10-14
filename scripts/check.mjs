@@ -251,6 +251,15 @@ const NO_GPU_WITNESSES = [
   // proves nothing) and to have taken NO macrotask yield, the sliced arm has to yield at least twice
   // per update, and the block has to have fallen by at least 4x and to fit inside one frame.
   { file: 'hmr-reload-block-witness.mjs', must: /LADDER entries= *[1-9]\d*  decide[\s\S]*MEASURED hmr-reload-block: longest synchronous block [\d.]+ ms -> [\d.]+ ms \(frame budget 16\.67 ms\); macrotask yield\(s\) per update 0\.00 -> [1-9][\d.]*[\s\S]*RESULT: PASS/ },
+  // PERF-hmr-reload-class-1013, the RELOAD CLASS: client/app.js imports client/core/SceneSetup.js
+  // STATICALLY, so no accept boundary above it can re-point what app.js holds and every edit to it
+  // cost a whole page load. The fix is self-accept plus re-assigning the module's own export
+  // bindings, which an ESM importer reads live. The `must` is the second half: one save has to go
+  // from 1 page reload to 0, the export bindings have to have moved to the copy the runtime
+  // imported (or "0 reloads" is what a silent no-op reports), a module with no acceptor has to
+  // still reload, and the before arm -- a second runtime instance with an empty acceptor map --
+  // has to have reloaded, or the after arm has nothing to beat.
+  { file: 'hmr-self-accept-rebind-witness.mjs', must: /MEASURED hmr-self-accept-rebind: page reload\(s\) per save for client\/core\/SceneSetup\.js 1 -> 0 \(control module \/[^ ]+ still 1\); versioned module fetch\(es\) per save 1; export binding\(s\) moved to the new copy 4 of 4[\s\S]*RESULT: PASS/ },
   // PERF-sky-aerial-perspective-share-1013. Counted work units for the sky background node: exp
   // operations and atmosphere LUT taps per pixel, measured by building the real TSL node graph in
   // node and walking it -- no adapter, no browser. The `must` is the second half of the witness: it

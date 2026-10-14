@@ -39,7 +39,16 @@ const isSingleplayer = () => !!window.__app?.client?._worker
 const listOf = (map, key) => { if (!map.has(key)) map.set(key, []); return map.get(key) }
 
 function accept(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: false }) }
-function acceptSelf(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: true }) }
+// ONE self-accept handler per module for the life of the page, and the first registration wins.
+// A self-accept handler re-assigns the export bindings of the module instance this page already
+// imported, because that is the instance every static importer's live binding reads. A copy
+// imported later would re-bind ITS OWN bindings, which nobody reads, so the registration from the
+// boot copy is the only one that can take effect and it is never replaced.
+function acceptSelf(url, fn) {
+  const list = listOf(acceptors, keyOf(url))
+  if (list.some(h => h.self)) return
+  list.push({ fn, self: true })
+}
 const assetHandlers = []
 function acceptAsset(fn) { assetHandlers.push(fn) }
 function dispose(url, fn) { listOf(disposers, keyOf(url)).push(fn) }
@@ -187,8 +196,7 @@ async function tryClassPatch(ev) {
 async function applyBoundary(ev, boundary) {
   for (const fn of disposers.get(boundary) || []) await fn(data(boundary))
   disposers.delete(boundary)
-  const handlers = acceptors.get(boundary) || []
-  acceptors.set(boundary, handlers.filter(h => !h.self))
+  const handlers = (acceptors.get(boundary) || []).filter(h => !h.self || boundary === ev.url)
   if (sliced) await macrotaskYield()
   const newMod = await import(versionedUrl(boundary, ev.v))
   trackChain(ev, boundary)
