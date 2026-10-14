@@ -118,8 +118,9 @@ const NO_GPU_WITNESSES = [
   // scenery build places (before the world is revealed) read an empty mirror and fell through to
   // the frame's own sampler, which is the state grass-terrain-shared-geometry-witness.mjs calls
   // BEFORE. The `must` pins both halves: the detached arm has to be measurably off the mesh, and
-  // the attached arm has to sit on it with no sync() from anyone.
-  { file: 'mesh-surface-read-coverage-witness.mjs', must: /\[PASS\] M01-empty-payload-refuses[\s\S]*\[PASS\] M02-unsynced-read-serves[\s\S]*band far  \[40,61\.6\)m  detached n= *[1-9]\d*[\s\S]*attached n= *[1-9]\d* mean=0\.0000m max=0\.0000m[\s\S]*\[PASS\] M03-detached-arm-is-off-the-mesh[\s\S]*\[PASS\] M04-attached-arm-sits-on-the-mesh[\s\S]*\[PASS\] M05-no-resync-storm[\s\S]*\[PASS\] M06-rebuild-once-per-version[\s\S]*RESULT: PASS/ },
+  // the attached arm has to sit on it with no sync() from anyone. M06 is the scope: a read must
+  // not re-centre the index the render loop owns, or every measurement past the focus moves.
+  { file: 'mesh-surface-read-coverage-witness.mjs', must: /\[PASS\] M01-empty-payload-refuses[\s\S]*\[PASS\] M02-unsynced-read-serves[\s\S]*band far  \[40,61\.6\)m  detached n= *[1-9]\d*[\s\S]*attached n= *[1-9]\d* mean=0\.0000m max=0\.0000m[\s\S]*\[PASS\] M03-detached-arm-is-off-the-mesh[\s\S]*\[PASS\] M04-attached-arm-sits-on-the-mesh[\s\S]*\[PASS\] M05-no-resync-storm[\s\S]*\[PASS\] M06-no-recentre-on-a-far-read[\s\S]*RESULT: PASS/ },
   { file: 'veg-lod-poly-budget-witness.mjs', args: ['--min-mid-tris=600', '--min-mid-total=18000'], must: /branchTriCap=6000 \(shipped default\)[\s\S]*RESULT: PASS -- 15 species at branchTriCap=6000, branch mid tier \d+ far \d+, 0 violation\(s\)/ },
   { file: 'veg-leaf-cap-witness.mjs', must: /RESULT: PASS -- leaf near=\d+ mid=\d+ far=\d+ triangle\(s\), cap \d+ met by \d+\/\d+ and refused by \d+, leaf vertices \d+, attribute bytes \d+, 0 violation\(s\)/ },
   { file: 'webgpu-hiz-shaders-witness.mjs', must: /CHECK C06-strides-match-wgsl-layout PASS[\s\S]*CHECK C08-packer-direct-matches-wgsl-layout PASS[\s\S]*CHECK C12-parser-to-packer-matches-wgsl-layout PASS[\s\S]*RESULT: PASS -- [1-9]\d* of [1-9]\d* checks passed/ },

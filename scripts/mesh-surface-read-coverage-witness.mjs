@@ -194,15 +194,14 @@ const surface = createTerrainMeshSurface({
     `5000 reads inside the footprint: syncs ${before} -> ${after}`)
 }
 
-// ------------------------------------------- M06: a read outside the footprint rebuilds exactly once
+// ------------------------------------- M06: a read does not re-centre the mirror the render owns
 {
-  const before = surface.stats().syncs
   surface.sync()
-  const midR = surface.stats().syncs
-  for (let k = 0; k < 200; k++) surface.heightAtLocal(1200 + k, 1200 + k)
+  const before = surface.stats().syncs
+  for (let k = 0; k < 5000; k++) surface.heightAtLocal(1200 + k, 1200 + k)
   const after = surface.stats().syncs
-  check('M06-rebuild-once-per-version', midR === before + 1 && after === midR + 1,
-    `render sync ${before} -> ${midR}, then 200 reads beyond the footprint -> ${after} (one rebuild, not 200)`)
+  check('M06-no-recentre-on-a-far-read', after === before,
+    `5000 reads past the footprint: syncs ${before} -> ${after} (which quads answer a distant point stays the render loop's decision)`)
 }
 
 const failed = results.filter((r) => !r).length

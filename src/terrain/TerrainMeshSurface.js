@@ -281,15 +281,18 @@ export function createTerrainMeshSurface(opts = {}) {
   // and rock the boot prewarm places sits on the fractal instead of on the mesh it is drawn on.
   // Scenery is built before the world is revealed (client/app.js _awaitSceneryBuild runs before
   // _revealWorld, and sync() only runs inside renderPlanet), so that window is the whole initial
-  // ring, not one frame. The mirror therefore answers for itself: a read whose point is not inside
-  // the footprint it last built rebuilds it around that point.
+  // ring, not one frame. The mirror therefore builds that index the first time it is asked for
+  // ground it has none for, around the point it was asked about. It does NOT re-centre on a read
+  // that is merely far from the render focus: which quads answer a distant point is the render
+  // loop's decision, and moving that decision here changes what every measurement past the focus
+  // reads.
   //
-  // One rebuild per render sync is the bound that keeps this from becoming per-read work -- the
-  // render loop's own sync() bumps version, so a placement burst pays at most one.
+  // One build per version is the bound that keeps this from becoming per-read work: the render
+  // loop's own sync() bumps version, so the window before the first frame pays one build.
   let syncedQuads = 0
   let lazySyncVersion = -1
   function ensureCoverage(x, z) {
-    if (syncedQuads > 0 && Math.hypot(x - focus[0], z - focus[1]) <= focusRadiusM) return
+    if (syncedQuads > 0) return
     if (lazySyncVersion === version) return
     setFocus(x, z)
     sync()
