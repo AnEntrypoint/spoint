@@ -115,6 +115,21 @@ export function groundSnapSpawnPoint(ctx, sp) {
   return groundY !== null ? [sp[0], groundY + SPAWN_CLEARANCE, sp[2]] : sp
 }
 
+// A world authors its spawn point, not the terrain under it: apps/world/tps-game.js declares
+// [-25, 8.39, -45] where the collider probes ground at -0.02 m, so the declared y authors ~8.1 m of
+// air and the player falls on every spawn and every respawn. The y is therefore resolved through the
+// same probe that decides where a held spawn is released, because a corrected literal is a number
+// that is right for today's terrain and wrong after the next terrain change. A probe that finds no
+// ground YET is not a licence to guess: the declared y stands and holdSpawnUntilGrounded places the
+// player when its field lands.
+export function resolveSpawnPointOnGround(ctx, sp) {
+  if (!Array.isArray(sp) || sp.length < 3) return sp
+  const groundY = probeSpawnGroundY(ctx, sp)
+  if (groundY === null) return [...sp]
+  const standingY = ctx.physicsIntegration?.standingCentreY?.(groundY)
+  return Number.isFinite(standingY) ? [sp[0], standingY, sp[2]] : [...sp]
+}
+
 function staticCollidersPendingNear(ctx, p) {
   const runtime = ctx.appRuntime
   if (runtime?._pendingTrimeshBuilds?.size > 0) return true

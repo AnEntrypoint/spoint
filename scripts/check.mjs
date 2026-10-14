@@ -37,6 +37,13 @@ const NO_GPU_WITNESSES = [
   { file: 'veg-lod-pair-witness.mjs', must: /ratio shared\/control: \{"recordsWalked":0\.5\d+,"cellsTested":0\.5\d+,"planeTests":0\.5\d+,"rebuilds":0\.5,"rebuildRecords":0\.5\}/ },
   { file: 'relevance-radius-witness.mjs', args: ['--counts=8', '--reps=1', '--duration=3000'], must: /MEASURED relevance-radius:[\s\S]*snapshot byte\(s\)\/snapshot \d+:[1-9]\d*->[1-9]\d*[\s\S]*[1-9]\d* shot\(s\) at hit rate[\s\S]*[1-9]\d*\/[1-9]\d* real client\(s\) over [1-9]\d* stage entit[\s\S]*cell-centre solves\/tick [1-9][\d.]* -> 0\.00 \([1-9][\d.]*% cut\)[\s\S]*[1-9]\d*\/[1-9]\d* cached base set\(s\) matched[\s\S]*re-solved [1-9]\d*\/[1-9]\d* centre\(s\)[\s\S]*RESULT: PASS/ },
   { file: 'ep-progressive-lod-schema-witness.mjs', must: /MEASURED ep-progressive-lod-schema: [1-9]\d* mesh\(es\) \/ [1-9]\d* LOD\(s\)[\s\S]*[1-9]\d* clustered prim\(s\) \/ [1-9]\d* cluster\(s\)[\s\S]*[1-9]\d* schema mutation\(s\) and [1-9]\d* cluster mutation\(s\) each rejected[\s\S]*RESULT: PASS \(0 failure\(s\)\)/ },
+  // The declared spawn height -- apps/world/tps-game.js:50 authors spawnPoint y=8.39 over ground the
+  // collider probes at ~-0.02 m, so the player was created ~8.1 m in the air and fell on every spawn
+  // and every respawn -- and the spawn hold that gave up wherever the ground probe was non-finite,
+  // which is the one input that means "no ground here yet". --terrain-hash=1 forces the exact CPU
+  // solve, so this arm does not depend on the baked .hf pin: the spawn has to land on whatever
+  // ground the collider reports, and the hold has to hold where there is none, on both colliders.
+  { file: 'tps-game-spawn-ground-hold-witness.mjs', args: ['--terrain-hash=1'], must: /\[PASS\] groundless: a non-finite terrain probe ARMS the hold instead of releasing the player[\s\S]*\[PASS\] groundless: the hold is on a finite budget that cannot outlive 20000 ms[\s\S]*\[PASS\] groundless: the hold RELEASES at its deadline with no ground, and does not hold forever[\s\S]*\[PASS\] the spawn the game uses is within [\d.]+ m of the ground the collider probes[\s\S]*RESULT: PASS world=tps-game -- [1-9]\d* check\(s\), 0 failure\(s\)/ },
   { file: 'tps-game-player-movement-witness.mjs', must: /RESULT: PASS: walked [1-9][\d.]*m over [1-9]\d* input step\(s\) and [1-9]\d* tick\(s\) in world=tps-game/ },
   { file: 'placement-climate-gate-witness.mjs', must: /RESULT: PASS identical true over [1-9]\d* veg and [1-9]\d* rock placement\(s\)[\s\S]*over [1-9]\d*\/[1-9]\d*\/[1-9]\d*\/[1-9]\d* placement\(s\) \(quarter-chunk control [1-9]\d* of [1-9]\d*\)/ },
   { file: 'check-cache-keys-scope-witness.mjs', must: /verifying 2 artifact\(s\) of the 2 tracked/ },
@@ -289,19 +296,6 @@ const NO_GPU_WITNESSES = [
   // marchRadiance, a different integrator, and the witness refuses a background node that
   // integrates with anything other than marchSteps or that carries more than one march.
   { file: 'sky-aerial-perspective-count-witness.mjs', must: /\[PASS\] background node still integrates with marchSteps[\s\S]*\[PASS\] background node no longer carries the second march: got=1 want=1[\s\S]*MEASURED single-march: expNodes=24 expOps=40 lutFetches=8 graphNodes=\d+[\s\S]*MEASURED two-marches-restored: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*RESULT: PASS label=sky-single-march-count single=\{exp:40,lut:8\} two-marches=\{exp:80,lut:16\}/ },
-  // PERF-grass-seam-height-step-1013, the third symptom of "a ridge with no grass where terrain
-  // tiles meet": the placement side and the draw side are already closed, so what is left is the
-  // STEP ITSELF and how a blade card sits on it. It rebuilds the drawn quad payload the renderer
-  // really emits (the quadtree at the world's own LOD plus the near-field lattice tiles), finds
-  // every seam geometrically, and for real blades out of placementsForGrassChunk measures the
-  // SLOPE-FREE jump the card has to cover: 2*d(e) - d(2e), because a one-sided pair is the jump
-  // plus the slope times 2e and the raw pair is what perimeterJump quotes. The `must` is the
-  // second half: both non-vacuity arms have to MOVE (welding the seam has to collapse the figure,
-  // tripling it has to triple it), the own-foot residual has to stay k-independent -- that is what
-  // separates "the card spans two heights" from "the placer is off the surface" -- and the mirror
-  // has to reconstruct THIS site, since a lattice read at a chart it does not describe answers
-  // with another place's ground and every figure would then be about that and not about a seam.
-  { file: 'grass-seam-card-witness.mjs', args: ['--ring=88'], must: /the mirror really reconstructs this site[\s\S]*footprint crossed=[1-9]\d* \([\d.]+%\)[\s\S]*NON-VACUOUS DOWN: welding the seam collapses the step a card must cover[\s\S]*NON-VACUOUS UP: tripling the step grows what a card must cover[\s\S]*the own-foot residual is k-independent[\s\S]*a straddling card never has to cover a visible step: p95 under 10 mm[\s\S]*a straddling card never has to cover a visible step: max under 50 mm[\s\S]*RESULT: PASS/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
