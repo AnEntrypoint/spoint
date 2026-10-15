@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: e41214f7a376f93867898da1b7b5ba2e755a7dc20057e4e115de3a0a6d469302
+// source digest: d1f63ef942036b19dbb145f0fc1f5df8bcb738b9abf2448ec66545d7b0eb66e1
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 export declare class AppContext {
