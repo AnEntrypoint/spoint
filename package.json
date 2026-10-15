@@ -119,7 +119,7 @@
     "nostr-tools": "^2.23.12",
     "ses": "^2.2.0",
     "sharp": "^0.35.3",
-    "wireweave": "github:AnEntrypoint/wireweave"
+    "wireweave": "git+https://github.com/AnEntrypoint/wireweave.git#a71f179cc535296bc014deea166969938705e61"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.0",
