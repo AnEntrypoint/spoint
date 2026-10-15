@@ -36,7 +36,7 @@ const host = args.host || 'http://localhost:3001'
 const gpu = args.gpu || 'amd'
 const pose = args.pose || '-2750,-750'
 const out = resolve(ROOT, args.out || '.gm/pool/veg-dusk-1013')
-const withLegacy = args.legacy === '1' || args.legacy === 'true'
+const withLegacy = args.legacy !== undefined && args.legacy !== '0'
 const minTreePx = Number(args['min-tree-px'] || 400)
 const K = Number(args.k || 3)
 const TOL = Number(args.tol || 0.12)
