@@ -396,8 +396,8 @@ const SLOW_NO_GPU_WITNESSES = [
   { file: 'tick-player-fanout-witness.mjs', args: ['--ticks=640', '--rounds=2'], must: /\[tick-player-fanout\] packed\/legacy per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+ tombstones=[\d.]+ prune=[\d.]+ trackedSweep=[\d.]+ playerWalk=[\d.]+[\s\S]*\[tick-player-fanout\] packed\/union per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+[\s\S]*\[tick-player-fanout\] spread\/union per_snapshot_tick_ms playersEncode=[\d.]+ nearby=[\d.]+ playersFilter=[\d.]+[\s\S]*\[tick-player-fanout\] MEASURED packed: encode pass [\d.]+ -> [\d.]+ player\(s\) per tick of a [\d.]+ player lobby[\s\S]*\[tick-player-fanout\] MEASURED spread: encode pass [1-9][\d.]* -> [1-9][\d.]* player\(s\) per tick of a 64\.0000 player lobby[\s\S]*\[tick-player-fanout\] MEASURED player-walk ms per snapshot tick: packed [\d.]+ -> [\d.]+, spread [\d.]+ -> [\d.]+[\s\S]*RESULT: PASS -- 10 of 10 claim\(s\)/ },
   // PERF-grass-frame-harness-friction-1013: the shared capture server starts once, records its port,
   // pid and served-root hash, and attach refuses on a dead server, a root-hash mismatch and a second start.
-  // The `must` is the second half of the witness: all 14 refusal and attach checks have to have run.
-  { file: 'capture-server-witness.mjs', must: /RESULT: PASS -- capture-server 14 of 14 check\(s\) passed/ },
+  // The `must` is the second half of the witness: all 16 refusal, bind and attach checks have to have run.
+  { file: 'capture-server-witness.mjs', must: /RESULT: PASS -- capture-server 16 of 16 check\(s\) passed/ },
 ]
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/

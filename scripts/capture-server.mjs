@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Shared capture server (PERF-grass-frame-harness-friction-1013): starts ONE long-lived server that
-// serves the built client (client-root=bundle, hash-verified) with the DevHmr channel on, and records
-// itself in .gm/capture-server.json. Captures attach with scripts/capture-attach.mjs.
-// Refuses, never double-binds: an answering server recorded in the state file, or any foreign listener
-// on the port, exits 3 with a named reason. Usage: node scripts/capture-server.mjs [--port=8790] [--world=tps-game]
+// serves the built client (client-root=bundle) with the DevHmr channel on. It binds 127.0.0.1 only, pins
+// the served bundle hash at boot, and refuses every request once the bundle on disk no longer matches
+// that pin (503, X-Spoint-Capture-Refusal). It records itself in .gm/capture-server.json. Captures
+// attach with scripts/capture-attach.mjs. Refuses, never double-binds: an answering server recorded in
+// the state file, or any foreign listener on the port, exits 3 with a named reason.
+// Usage: node scripts/capture-server.mjs [--port=8790] [--world=tps-game]
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { DEFAULT_CAPTURE_PORT, SDK_ROOT, STATE_PATH, expectedBundle, portAccepts, probeServer, readState, removeState } from './lib/capture-server.mjs'
+import { CAPTURE_HOST, DEFAULT_CAPTURE_PORT, SDK_ROOT, STATE_PATH, expectedBundle, makeRootGuard, portAccepts, probeServer, readState, removeState } from './lib/capture-server.mjs'
 import { CLIENT_ROOT_BUNDLE, rebuildIfRequested } from './lib/served-client-root.mjs'
 
 class Refusal extends Error {
@@ -34,8 +36,9 @@ async function main() {
 
   process.env.PORT = String(PORT)
   process.env.WORLD = process.env.WORLD || WORLD
+  const requestGuard = makeRootGuard({ file: bundle.fp, pinnedSha256: bundle.sha256 })
   const { boot } = await import(pathToFileURL(resolve(SDK_ROOT, 'src', 'sdk', 'server.js')).href)
-  const server = await boot()
+  const server = await boot({ host: CAPTURE_HOST, requestGuard })
 
   const probe = await probeServer(PORT, { timeoutMs: 120000 })
   if (probe.error || probe.status !== 200 || probe.kind !== CLIENT_ROOT_BUNDLE || probe.sha256 !== bundle.sha256) {
@@ -44,10 +47,10 @@ async function main() {
   }
 
   mkdirSync(dirname(STATE_PATH), { recursive: true })
-  const state = { pid: process.pid, port: PORT, world: process.env.WORLD, clientRoot: CLIENT_ROOT_BUNDLE, entrySha256: bundle.sha256, startedAt: new Date().toISOString(), hmr: !process.env.SPOINT_NO_WATCH }
+  const state = { pid: process.pid, host: CAPTURE_HOST, port: PORT, world: process.env.WORLD, clientRoot: CLIENT_ROOT_BUNDLE, entrySha256: bundle.sha256, startedAt: new Date().toISOString(), hmr: !process.env.SPOINT_NO_WATCH }
   writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
   process.on('exit', () => removeState(STATE_PATH, process.pid))
-  console.log(`RESULT: STARTED pid=${process.pid} port=${PORT} client-root=${CLIENT_ROOT_BUNDLE} sha=${bundle.sha256.slice(0, 12)} hmr=${state.hmr} state=${STATE_PATH}`)
+  console.log(`RESULT: STARTED pid=${process.pid} host=${CAPTURE_HOST} port=${PORT} client-root=${CLIENT_ROOT_BUNDLE} pinned=${bundle.sha256.slice(0, 12)} hmr=${state.hmr} state=${STATE_PATH}`)
 }
 
 try {

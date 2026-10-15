@@ -133,6 +133,7 @@ export function createServerAPI(ctx) {
         const handleAgentRoute = createAgentAuthoringHandler()
         ctx.devHmr = staticHandler && isDevHmrEnabled() ? createDevHmr({ sdkRoot: ctx.sdkRoot, staticDirs, onLibChanged: names => { for (const n of names) if (appLoader._loaded.has(n)) appLoader._debounceFileChange(n) } }) : null
         const httpHandler = (req, res) => {
+          if (config.requestGuard && config.requestGuard(req, res)) return
           if (ctx.devHmr?.handle(req, res)) return
           if (req.url.startsWith('/agent/')) { handleAgentRoute(req, res, appRuntime, ctx); return }
           if (req.method === 'POST' && req.url === '/upload-model') { handleUploadModel(req, res, uploadHandler); return }
@@ -177,7 +178,7 @@ export function createServerAPI(ctx) {
           }
           reject(err)
         })
-        ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
+        ctx.httpServer.listen(port, config.host || '0.0.0.0', 2048, () => {
           attachWSHandlers(ctx)
           resolve({ port: ctx.port, tickRate: ctx.tickRate })
         })
