@@ -322,7 +322,8 @@ export function makeGrassMaterial(wind, density) {
         float ndl = max(dot(n, uSunDir), 0.0);
         float wrap = ndl;
         vec3 viewDir = normalize(vToCamera);
-        float backlit = pow(clamp(dot(viewDir, -uSunDir), 0.0, 1.0), 3.0) * vUv.y;
+        float backlitCos = clamp(dot(viewDir, -uSunDir), 0.0, 1.0);
+        float backlit = backlitCos * backlitCos * backlitCos * vUv.y;
         vec3 lit = baseColor * (uAmbient + uSunColor * wrap * vInstShadow);
         lit += baseColor * uSunColor * backlit * 0.55 * vInstShadow;
         lit += baseColor * uGrassAmbMul + uGrassAmbAdd;

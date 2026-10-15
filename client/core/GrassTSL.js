@@ -191,7 +191,8 @@ export function makeGrassMaterialTSL(wind, density) {
     const ndl = max(dot(vWorldNormal, uSunDir), 0.0)
     const wrap = ndl
     const viewDir = normalize(cameraPosition.sub(positionWorld))
-    const backlit = pow(clamp(dot(viewDir, uSunDir.negate()), 0.0, 1.0), 3.0).mul(vUv.y)
+    const backlitCos = clamp(dot(viewDir, uSunDir.negate()), 0.0, 1.0)
+    const backlit = backlitCos.mul(backlitCos).mul(backlitCos).mul(vUv.y)
     const lit = baseColor.mul(uAmbient.add(uSunColor.mul(wrap).mul(vInstShadow)))
       .add(baseColor.mul(uSunColor).mul(backlit).mul(0.55).mul(vInstShadow))
       .add(baseColor.mul(uGrassAmbMul)).add(uGrassAmbAdd)
