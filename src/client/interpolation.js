@@ -21,3 +21,8 @@ export function slerpQuat(out, q1, q2, t) {
   const s2 = Math.sin(t * theta) / sinTheta
   out[0] = x1 * s1 + x2 * s2; out[1] = y1 * s1 + y2 * s2; out[2] = z1 * s1 + z2 * s2; out[3] = w1 * s1 + w2 * s2
 }
+
+const _hotSwapInterpolation = (next) => {
+  slerpQuat = next.slerpQuat
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapInterpolation)

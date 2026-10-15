@@ -1,17 +1,17 @@
 import { fnv1aString } from '../shared/fnv1a.js'
 
-export const KIND_PLACE = 'viz.place'
-export const KIND_UPDATE = 'viz.update'
-export const KIND_REMOVE = 'viz.remove'
-export const KIND_CLEAR = 'viz.clear'
-export const KIND_DATASET = 'viz.dataset'
-export const KIND_CAMERA = 'viz.camera'
+export let KIND_PLACE = 'viz.place'
+export let KIND_UPDATE = 'viz.update'
+export let KIND_REMOVE = 'viz.remove'
+export let KIND_CLEAR = 'viz.clear'
+export let KIND_DATASET = 'viz.dataset'
+export let KIND_CAMERA = 'viz.camera'
 
-export const ALL_KINDS = [KIND_PLACE, KIND_UPDATE, KIND_REMOVE, KIND_CLEAR, KIND_DATASET, KIND_CAMERA]
+export let ALL_KINDS = [KIND_PLACE, KIND_UPDATE, KIND_REMOVE, KIND_CLEAR, KIND_DATASET, KIND_CAMERA]
 
-export const PRIMITIVES = ['box', 'sphere', 'capsule', 'cylinder', 'plane', 'model']
+export let PRIMITIVES = ['box', 'sphere', 'capsule', 'cylinder', 'plane', 'model']
 
-export const LAYOUTS = ['grid', 'scatter', 'tree', 'graph', 'spiral']
+export let LAYOUTS = ['grid', 'scatter', 'tree', 'graph', 'spiral']
 
 export function validateMessage(msg) {
   const errors = []
@@ -109,3 +109,18 @@ export function computeLayout(items, layout, config = {}) {
 
   return positions
 }
+
+const _hotSwapFreddieBridge = (next) => {
+  validateMessage = next.validateMessage
+  computeLayout = next.computeLayout
+  KIND_PLACE = next.KIND_PLACE
+  KIND_UPDATE = next.KIND_UPDATE
+  KIND_REMOVE = next.KIND_REMOVE
+  KIND_CLEAR = next.KIND_CLEAR
+  KIND_DATASET = next.KIND_DATASET
+  KIND_CAMERA = next.KIND_CAMERA
+  ALL_KINDS = next.ALL_KINDS
+  PRIMITIVES = next.PRIMITIVES
+  LAYOUTS = next.LAYOUTS
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapFreddieBridge)

@@ -81,3 +81,13 @@ export function mapEmotionsV1(bs) {
     surprised: clamp(browUp * 0.6 + wide * 0.3 + jawOpen * 0.1)
   }
 }
+
+const _hotSwapFacialMappings = (next) => {
+  detectVRMVersion = next.detectVRMVersion
+  clamp = next.clamp
+  mapVisemes = next.mapVisemes
+  mapEyes = next.mapEyes
+  mapEmotionsV0 = next.mapEmotionsV0
+  mapEmotionsV1 = next.mapEmotionsV1
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapFacialMappings)

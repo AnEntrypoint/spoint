@@ -78,3 +78,8 @@ export async function whenSettled({ idleFrames, idleMs = DEFAULT_IDLE_MS, timeou
   error.report = { ...last, frames, ms: Math.round(performance.now() - t0), timedOut: true, stillChanging: drifting }
   throw error
 }
+
+const _hotSwapRelocationSettle = (next) => {
+  whenSettled = next.whenSettled
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapRelocationSettle)

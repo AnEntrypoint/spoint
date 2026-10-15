@@ -49,3 +49,8 @@ export function listBookmarks(worldDef, frame, fromBase = null) {
   }
   return list
 }
+
+const _hotSwapBookmarks = (next) => {
+  listBookmarks = next.listBookmarks
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapBookmarks)

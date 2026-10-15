@@ -146,7 +146,7 @@ export function generateLSystemTree({ axiom, rules = {}, iterations = 1, seed = 
   return { symbolString: result, segments, maxDepth, turtleEnd, lengths }
 }
 
-export const PRESETS = {
+export let PRESETS = {
   kochCurve: {
     axiom: 'F',
     rules: { F: 'F+F-F-F+F' },
@@ -177,3 +177,11 @@ export const PRESETS = {
     angleDeg: 25,
   },
 }
+
+const _hotSwapLSystem = (next) => {
+  expandLSystem = next.expandLSystem
+  interpretTurtle = next.interpretTurtle
+  generateLSystemTree = next.generateLSystemTree
+  PRESETS = next.PRESETS
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapLSystem)

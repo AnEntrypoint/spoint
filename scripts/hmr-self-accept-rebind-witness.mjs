@@ -170,6 +170,10 @@ const SCENE_SETUP = join(CLIENT, 'core', 'SceneSetup.js')
 //     resolves, so this witness cannot import them under node and therefore cannot show a single
 //     binding moved. An unwitnessed self-accept is exactly the silent no-op this row refuses, so
 //     they stay RELOAD until a resolver this witness can run makes the claim provable.
+// Pin-bearing modules left RELOAD: BAKE_INPUTS_SNAPSHOT_ENTITY_ENC lists SnapshotBinFormat.js,
+// groundNormalWire.js, inputDepthWire.js and wallPlaneWire.js, so converting them moves a pin.
+// destructibleSpec.js and fireKeyframe.js are in the AppContext import closure, so converting them
+// moves client/editor/sdk-typings.generated.d.ts and is deferred to its own row.
 const CONVERTED = [
   '/src/terrain/PlanetFrame.js',
   '/src/terrain/PlacementLattice.js',
@@ -265,6 +269,14 @@ const CONVERTED = [
   '/src/sdk/Relocation.js',
   '/src/netcode/RollbackGameLoop.js',
   '/src/netcode/LockstepGameLoop.js',
+  '/src/math.js',
+  '/src/terrain/CubeSphereCells.js',
+  '/src/client/interpolation.js',
+  '/FacialMappings.js',
+  '/src/shared/bookmarks.js',
+  '/src/procgen/LSystem.js',
+  '/src/sdk/FreddieBridge.js',
+  '/core/RelocationSettle.js',
 ]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)

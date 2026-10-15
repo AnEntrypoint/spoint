@@ -151,3 +151,14 @@ export function verifyCubeSphereAdjacency() {
   }
   return true
 }
+
+const _hotSwapCubeSphereCells = (next) => {
+  pickFace = next.pickFace
+  worldToFaceLocal = next.worldToFaceLocal
+  worldToCell = next.worldToCell
+  packCellKey = next.packCellKey
+  resolveCell = next.resolveCell
+  neighborCells = next.neighborCells
+  verifyCubeSphereAdjacency = next.verifyCubeSphereAdjacency
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapCubeSphereCells)

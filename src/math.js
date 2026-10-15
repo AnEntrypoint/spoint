@@ -19,3 +19,9 @@ export function rotVec(v, q) {
     iz*qw + iw*-qz + ix*-qy - iy*-qx
   ]
 }
+
+const _hotSwapMath = (next) => {
+  mulQuat = next.mulQuat
+  rotVec = next.rotVec
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapMath)
