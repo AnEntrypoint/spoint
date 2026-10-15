@@ -1,7 +1,7 @@
 import { placementsForChunk, VEG } from './VegPlacement.js'
 import { createColliderStreamer } from './ColliderStreamer.js'
 
-export const TRUNK = Object.freeze([
+export let TRUNK = Object.freeze([
   { r: 0.35, h: 3.2 },
   { r: 0.28, h: 4.0 },
   { r: 0.30, h: 3.4 },
@@ -19,7 +19,7 @@ export const TRUNK = Object.freeze([
   { r: 0.34, h: 5.2 },
 ])
 
-export const TRUNK_SCALE_BUCKETS = Object.freeze([0.6, 0.75, 0.9, 1.05, 1.2, 1.35, 1.5])
+export let TRUNK_SCALE_BUCKETS = Object.freeze([0.6, 0.75, 0.9, 1.05, 1.2, 1.35, 1.5])
 export function trunkScaleBucket(scale) {
   let bi = 0, best = Infinity
   for (let i = 0; i < TRUNK_SCALE_BUCKETS.length; i++) { const d = Math.abs(TRUNK_SCALE_BUCKETS[i] - scale); if (d < best) { best = d; bi = i } }
@@ -62,3 +62,21 @@ export function createTrunkColliderStreamer(opts = {}) {
     },
   })
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapVegPhysics = (next) => {
+  TRUNK = next.TRUNK
+  TRUNK_SCALE_BUCKETS = next.TRUNK_SCALE_BUCKETS
+  trunkScaleBucket = next.trunkScaleBucket
+  trunkShapeKey = next.trunkShapeKey
+  createTrunkColliderStreamer = next.createTrunkColliderStreamer
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapVegPhysics)

@@ -1,12 +1,12 @@
 import { brushPrecondition, brushApplied, STRENGTH_REQUIRES } from './brushResult.js'
 import { heightStrokeReplay, replayStrokes } from './brushStroke.js'
 
-export const CELL_M = 1
+export let CELL_M = 1
 
-export const RAISE_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and non-zero'])
-export const FLATTEN_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'radius is finite and positive', 'targetHeight is finite'])
-export const CARVE_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'halfWidth is finite and positive', 'halfDepth is finite and positive', 'targetDepth is finite'])
-export const SMOOTH_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and positive'])
+export let RAISE_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and non-zero'])
+export let FLATTEN_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'radius is finite and positive', 'targetHeight is finite'])
+export let CARVE_REQUIRES = Object.freeze(['baseHeightFn is a function', 'x is finite', 'z is finite', 'halfWidth is finite and positive', 'halfDepth is finite and positive', 'targetDepth is finite'])
+export let SMOOTH_REQUIRES = Object.freeze(['x is finite', 'z is finite', 'radius is finite and positive', 'strength is finite and positive'])
 
 function cellKey(cx, cz) {
   const BIG = 1 << 23, OFF = BIG >> 1
@@ -179,3 +179,23 @@ export function createHeightDelta(strokes, baseHeightFn) {
 export function loadHeightDelta(json, baseHeightFn) {
   return createHeightDelta(json && json.strokes, baseHeightFn)
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapHeightDelta = (next) => {
+  CELL_M = next.CELL_M
+  RAISE_REQUIRES = next.RAISE_REQUIRES
+  FLATTEN_REQUIRES = next.FLATTEN_REQUIRES
+  CARVE_REQUIRES = next.CARVE_REQUIRES
+  SMOOTH_REQUIRES = next.SMOOTH_REQUIRES
+  createHeightDelta = next.createHeightDelta
+  loadHeightDelta = next.loadHeightDelta
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapHeightDelta)

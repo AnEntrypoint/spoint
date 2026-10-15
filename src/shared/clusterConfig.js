@@ -4,24 +4,24 @@ import { CLUSTER_STAY_FACTOR, CLUSTER_JOIN_FACTOR } from './clusterAssignment.js
 import { DEFAULT_JOLT_LIMITS, joltReservationBytes } from '../physics/joltLimits.js'
 import { DEFAULT_COMBAT } from '../behaviours/combat.js'
 
-export const CLUSTER_DEFAULT_LINK_M = 1000
-export const CLUSTER_DEFAULT_HZ = 2.05
-export const JOLT_WASM_HEAP_BYTES = 134217728
-export const JOLT_WASM_RESIDENT_BYTES = 1157976
-export const JOLT_MIRROR_MARGINAL_BYTES = 11278387
-export const CLUSTER_HEAP_MIRROR_RESERVE = 2
-export const CLUSTER_SERVER_JOLT_LIMITS = Object.freeze({ maxBodies: 8192, maxBodyPairs: 8192, maxContactConstraints: 2048 })
-export const JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES = 20238432
-export const JOLT_WORLD_MARGINAL_BYTES = JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES
+export let CLUSTER_DEFAULT_LINK_M = 1000
+export let CLUSTER_DEFAULT_HZ = 2.05
+export let JOLT_WASM_HEAP_BYTES = 134217728
+export let JOLT_WASM_RESIDENT_BYTES = 1157976
+export let JOLT_MIRROR_MARGINAL_BYTES = 11278387
+export let CLUSTER_HEAP_MIRROR_RESERVE = 2
+export let CLUSTER_SERVER_JOLT_LIMITS = Object.freeze({ maxBodies: 8192, maxBodyPairs: 8192, maxContactConstraints: 2048 })
+export let JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES = 20238432
+export let JOLT_WORLD_MARGINAL_BYTES = JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES
   - joltReservationBytes(DEFAULT_JOLT_LIMITS)
   + joltReservationBytes(CLUSTER_SERVER_JOLT_LIMITS)
-export const CLUSTER_HEAP_RESERVE_FRACTION = 0.1
-export const CLUSTER_HEAP_WORLD_CEILING = Math.floor(
+export let CLUSTER_HEAP_RESERVE_FRACTION = 0.1
+export let CLUSTER_HEAP_WORLD_CEILING = Math.floor(
   (JOLT_WASM_HEAP_BYTES - JOLT_WASM_RESIDENT_BYTES - CLUSTER_HEAP_MIRROR_RESERVE * JOLT_MIRROR_MARGINAL_BYTES)
   / (JOLT_WORLD_MARGINAL_BYTES * (1 + CLUSTER_HEAP_RESERVE_FRACTION)),
 )
-export const CLUSTER_DEFAULT_IDLE_GRACE_MS = 5000
-export const CLUSTER_RELEVANCE_RING_CELLS = 3
+export let CLUSTER_DEFAULT_IDLE_GRACE_MS = 5000
+export let CLUSTER_RELEVANCE_RING_CELLS = 3
 const MIN_HZ = 0.5, MAX_HZ = 10
 
 export class ClusterConfigError extends Error {
@@ -78,3 +78,32 @@ export function declaredWeaponRangeM(worldDef, appDefs = null) {
   }
   return longest
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapclusterConfig = (next) => {
+  CLUSTER_DEFAULT_LINK_M = next.CLUSTER_DEFAULT_LINK_M
+  CLUSTER_DEFAULT_HZ = next.CLUSTER_DEFAULT_HZ
+  JOLT_WASM_HEAP_BYTES = next.JOLT_WASM_HEAP_BYTES
+  JOLT_WASM_RESIDENT_BYTES = next.JOLT_WASM_RESIDENT_BYTES
+  JOLT_MIRROR_MARGINAL_BYTES = next.JOLT_MIRROR_MARGINAL_BYTES
+  CLUSTER_HEAP_MIRROR_RESERVE = next.CLUSTER_HEAP_MIRROR_RESERVE
+  CLUSTER_SERVER_JOLT_LIMITS = next.CLUSTER_SERVER_JOLT_LIMITS
+  JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES = next.JOLT_WORLD_MARGINAL_AT_DEFAULT_LIMITS_BYTES
+  JOLT_WORLD_MARGINAL_BYTES = next.JOLT_WORLD_MARGINAL_BYTES
+  CLUSTER_HEAP_RESERVE_FRACTION = next.CLUSTER_HEAP_RESERVE_FRACTION
+  CLUSTER_HEAP_WORLD_CEILING = next.CLUSTER_HEAP_WORLD_CEILING
+  CLUSTER_DEFAULT_IDLE_GRACE_MS = next.CLUSTER_DEFAULT_IDLE_GRACE_MS
+  CLUSTER_RELEVANCE_RING_CELLS = next.CLUSTER_RELEVANCE_RING_CELLS
+  ClusterConfigError = next.ClusterConfigError
+  resolveClusterConfig = next.resolveClusterConfig
+  declaredWeaponRangeM = next.declaredWeaponRangeM
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapclusterConfig)

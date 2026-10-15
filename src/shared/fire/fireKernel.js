@@ -1,14 +1,14 @@
 import { FIRE_DIR_COUNT, FIRE_DIR_DI, FIRE_DIR_DJ } from './fireLattice.js'
 
-export const FIRE_STATE = Object.freeze({ UNBURNT: 0, BURNING: 1, BURNT: 2 })
-export const FIRE_EVENT = Object.freeze({ IGNITE: 0, EXTINGUISH: 1, WIND: 2, MOISTURE: 3, RAIN: 4, IGNITE_AREA: 5 })
-export const FIRE_MAX_WIND_COMPONENT = 16
+export let FIRE_STATE = Object.freeze({ UNBURNT: 0, BURNING: 1, BURNT: 2 })
+export let FIRE_EVENT = Object.freeze({ IGNITE: 0, EXTINGUISH: 1, WIND: 2, MOISTURE: 3, RAIN: 4, IGNITE_AREA: 5 })
+export let FIRE_MAX_WIND_COMPONENT = 16
 
 const UNBURNT = 0
 const BURNING = 1
 const BURNT = 2
 const TILE_SHIFT = 3
-export const TILE_AXIS_CELLS = 1 << TILE_SHIFT
+export let TILE_AXIS_CELLS = 1 << TILE_SHIFT
 const TILE_SIZE = TILE_AXIS_CELLS
 const TILE_MASK = TILE_SIZE - 1
 const TILE_CELLS = TILE_SIZE * TILE_SIZE
@@ -16,8 +16,8 @@ const TILE_CELL_SHIFT = 6
 const HALF_TILE_CELLS = TILE_CELLS >> 1
 const NBR_UNKNOWN = -2
 const NBR_NONE = -1
-export const FACE_FREE = 255
-export const FACE_COUNT = 6
+export let FACE_FREE = 255
+export let FACE_COUNT = 6
 const MAX_U16 = 65535
 const ORTHOGONAL_BASE_WEIGHT = 64
 const DIAGONAL_BASE_WEIGHT = 40
@@ -1081,3 +1081,23 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     get memoryBytes() { return state.byteLength + cls.byteLength + fuel.byteLength + heat.byteLength + timer.byteLength + scarRing.byteLength + scarAt.byteLength + tileNbr.byteLength + table.byteLength + maskLo.byteLength * 2 + activeTiles.byteLength },
   }
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapfireKernel = (next) => {
+  FIRE_STATE = next.FIRE_STATE
+  FIRE_EVENT = next.FIRE_EVENT
+  FIRE_MAX_WIND_COMPONENT = next.FIRE_MAX_WIND_COMPONENT
+  TILE_AXIS_CELLS = next.TILE_AXIS_CELLS
+  FACE_FREE = next.FACE_FREE
+  FACE_COUNT = next.FACE_COUNT
+  createFireKernel = next.createFireKernel
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapfireKernel)

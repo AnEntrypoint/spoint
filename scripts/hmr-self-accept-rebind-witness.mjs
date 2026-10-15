@@ -144,7 +144,28 @@ const SCENE_SETUP = join(CLIENT, 'core', 'SceneSetup.js')
 //     and calls installVehiclePhysics(PhysicsWorld) at import time. A re-import starts a SECOND
 //     count at zero while the page's worlds are counted in the first, so livePhysicsWorldCount()
 //     would read 0 for a page that still has worlds: the swap cannot retire that state.
-//   client/editor/EditPanelDOM.js, client/editor/wm/ui.js -- refused as WITNESSES, not as shapes:
+//   client/core/ProgramReadiness.js -- `warmWait` / `asyncPipelineState` / `firstUseState` are three
+//     module-level objects the install functions patch and the readers drain, so a re-import starts
+//     three empty ones the swap cannot refill: the deferred draws the page recorded live in copy 1.
+//   client/core/QualityPresets.js, client/core/WetnessTint.js, client/core/UnderwaterTint.js --
+//     install-time state: each installs into a renderer/scene from a module-level `_installed` /
+//     `_current` / `_seaUniform`, so the swapped-in copy writes a uniform the installed copy reads
+//     nowhere.
+//   client/ModelCache.js -- a module-level manifest cache (`_manifestMem`, `_pendingTouches`) that a
+//     re-import starts empty while the page's cache lives in copy 1.
+//   src/netcode/CollisionSystem.js -- a module-level prune counter (`_pruneTick`) shared by every
+//     caller, which a re-import restarts at zero.
+//   src/shared/fire/fireWire.js -- `export { FIRE_MAX_WIND_COMPONENT }` of a binding it IMPORTS from
+//     ./fireKernel.js, so it is not assignable here.
+//   src/behaviours/health.js, src/behaviours/steering.js -- `export default` alongside a component
+//     pool built at import time (`createComponentPool(...)` + `registerComponentSchema(...)`), which
+//     is both refusal shapes at once.
+//   client/WireweaveBridge.js -- imports the bare specifiers 'wireweave' / 'nostr-tools' / 'xstate',
+//     which only the browser import map resolves, so this witness cannot import it under node.
+//   src/terrain/TerrainMeshSurface.js -- a TOP-LEVEL `await import()` of the bare specifier
+//     'mapspinner/...'; same class, so the claim is not witnessable here.
+//   src/shared/cacheCodeVersions.js -- the code-version PIN file; its three constants are compared
+//     against hashes of the bake inputs, so it is deliberately left out of this conversion.
 //     both import the bare specifier 'anentrypoint-design', which only the browser's import map
 //     resolves, so this witness cannot import them under node and therefore cannot show a single
 //     binding moved. An unwitnessed self-accept is exactly the silent no-op this row refuses, so
@@ -210,6 +231,29 @@ const CONVERTED = [
   '/src/terrain/RockShapes.js',
   '/src/sdk/appEventSender.js',
   '/src/shared/characterStep.js',
+  '/hud/ensureStyle.js',
+  '/src/shared/vecGuard.js',
+  '/src/transport/TransportWrapper.js',
+  '/src/netcode/controlFrame.js',
+  '/src/netcode/OutlierDetector.js',
+  '/src/sdk/chartWire.js',
+  '/src/shared/relocation.js',
+  '/src/netcode/TeleportHold.js',
+  '/src/terrain/GrassDecal.js',
+  '/src/shared/fire/fireKernel.js',
+  '/src/apps/AppPhysics.js',
+  '/core/TileExtent.js',
+  '/core/PlacementRing.js',
+  '/core/TreeTextureBudget.js',
+  '/core/PlayerVATBake.js',
+  '/core/MeshDebug.js',
+  '/src/shared/clusterConfig.js',
+  '/src/shared/clusterAssignment.js',
+  '/src/terrain/VegPhysics.js',
+  '/src/terrain/RockPhysics.js',
+  '/src/terrain/HeightDelta.js',
+  '/src/terrain/CaveSDF.js',
+  '/src/terrain/FieldLattice.js',
 ]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)

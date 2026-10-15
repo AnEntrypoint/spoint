@@ -5,12 +5,12 @@
 // resolveTreeTextureBudget: a value that is supplied but cannot be honoured is
 // refused there, never coerced into the default.
 
-export const TREE_TEXTURE_SOURCE_PX = 1024
-export const TREE_TEXTURE_MIN_PX = 64
-export const TREE_TEXTURE_MAX_PX = 1024
-export const LEAF_TEXTURE_MAX_PX_DEFAULT = 128
-export const BARK_TEXTURE_MAX_PX_DEFAULT = 64
-export const TREE_TEXTURE_HALVING_LIMIT = 16
+export let TREE_TEXTURE_SOURCE_PX = 1024
+export let TREE_TEXTURE_MIN_PX = 64
+export let TREE_TEXTURE_MAX_PX = 1024
+export let LEAF_TEXTURE_MAX_PX_DEFAULT = 128
+export let BARK_TEXTURE_MAX_PX_DEFAULT = 64
+export let TREE_TEXTURE_HALVING_LIMIT = 16
 
 export class TreeTextureBudgetError extends Error {
   constructor(reasonCode, detail) {
@@ -98,3 +98,30 @@ export function mipChainBytes(widthPx, heightPx) {
   }
   return total
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapTreeTextureBudget = (next) => {
+  TREE_TEXTURE_SOURCE_PX = next.TREE_TEXTURE_SOURCE_PX
+  TREE_TEXTURE_MIN_PX = next.TREE_TEXTURE_MIN_PX
+  TREE_TEXTURE_MAX_PX = next.TREE_TEXTURE_MAX_PX
+  LEAF_TEXTURE_MAX_PX_DEFAULT = next.LEAF_TEXTURE_MAX_PX_DEFAULT
+  BARK_TEXTURE_MAX_PX_DEFAULT = next.BARK_TEXTURE_MAX_PX_DEFAULT
+  TREE_TEXTURE_HALVING_LIMIT = next.TREE_TEXTURE_HALVING_LIMIT
+  TreeTextureBudgetError = next.TreeTextureBudgetError
+  treeTextureQueryValue = next.treeTextureQueryValue
+  parseTreeTextureMaxPx = next.parseTreeTextureMaxPx
+  resolveTreeTextureBudget = next.resolveTreeTextureBudget
+  assertTreeTextureMaxPx = next.assertTreeTextureMaxPx
+  halvingsFor = next.halvingsFor
+  decodedRgbaBytes = next.decodedRgbaBytes
+  mipChainBytes = next.mipChainBytes
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapTreeTextureBudget)

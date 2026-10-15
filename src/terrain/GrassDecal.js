@@ -1,5 +1,5 @@
-export const DECAL_CELL_M = 2
-export const DEFAULT_HALF_LIFE_S = 120
+export let DECAL_CELL_M = 2
+export let DEFAULT_HALF_LIFE_S = 120
 const PRUNE_EPS = 0.02
 
 function cellKey(cx, cz) {
@@ -145,3 +145,20 @@ export function loadGrassDecal(json, opts) {
   }
   return gd
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapGrassDecal = (next) => {
+  DECAL_CELL_M = next.DECAL_CELL_M
+  DEFAULT_HALF_LIFE_S = next.DEFAULT_HALF_LIFE_S
+  createGrassDecal = next.createGrassDecal
+  loadGrassDecal = next.loadGrassDecal
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapGrassDecal)

@@ -1,8 +1,8 @@
 import { elevationAtLocal } from '../terrain/PlanetFrame.js'
 
-export const DEFAULT_CLEARANCE_M = 2
-export const MAX_CLEARANCE_M = 500
-export const MAX_ABS_COORD_M = 1e7
+export let DEFAULT_CLEARANCE_M = 2
+export let MAX_CLEARANCE_M = 500
+export let MAX_ABS_COORD_M = 1e7
 const MIN_UP_DOT = 0.05
 const ELEVATION_REFINE_TOL_M = 1e-3
 const ELEVATION_BRACKET_PASSES = 16
@@ -117,3 +117,25 @@ export function resolveTarget(spec, { frame, heightAt } = {}) {
   const snap = spec.snap === 'first' ? 'first' : 'terrain'
   return { x, y, z, clearance, snap, standNearY }
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwaprelocation = (next) => {
+  DEFAULT_CLEARANCE_M = next.DEFAULT_CLEARANCE_M
+  MAX_CLEARANCE_M = next.MAX_CLEARANCE_M
+  MAX_ABS_COORD_M = next.MAX_ABS_COORD_M
+  latLonToDir = next.latLonToDir
+  parseDir3 = next.parseDir3
+  dirToLatLon = next.dirToLatLon
+  angleFromAnchorDeg = next.angleFromAnchorDeg
+  dirToLocalXZ = next.dirToLocalXZ
+  resolveTarget = next.resolveTarget
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwaprelocation)

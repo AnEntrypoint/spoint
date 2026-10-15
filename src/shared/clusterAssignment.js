@@ -1,13 +1,13 @@
 import { chartAnchorForDir } from './chartAnchor.js'
 import { chartAnchorDecision, CHART_REANCHOR_HYSTERESIS_DEG } from './chartReanchorPolicy.js'
 
-export const CLUSTER_STAY_FACTOR = 1.25
-export const CLUSTER_JOIN_FACTOR = 0.8
+export let CLUSTER_STAY_FACTOR = 1.25
+export let CLUSTER_JOIN_FACTOR = 0.8
 
-export const ASSIGNER_RADIUS_NOT_POSITIVE_FINITE = 'assigner-radius-not-positive-finite'
-export const ASSIGNER_LINK_M_NOT_POSITIVE = 'assigner-link-m-not-positive'
-export const ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE = 'assigner-member-radius-m-not-positive'
-export const ASSIGNER_FACTORS_NOT_BRACKETING_ONE = 'assigner-factors-not-bracketing-one'
+export let ASSIGNER_RADIUS_NOT_POSITIVE_FINITE = 'assigner-radius-not-positive-finite'
+export let ASSIGNER_LINK_M_NOT_POSITIVE = 'assigner-link-m-not-positive'
+export let ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE = 'assigner-member-radius-m-not-positive'
+export let ASSIGNER_FACTORS_NOT_BRACKETING_ONE = 'assigner-factors-not-bracketing-one'
 
 export class ClusterAssignerConfigError extends Error {
   constructor(code, message) {
@@ -206,3 +206,24 @@ export function createClusterAssigner({ radius, linkM, memberRadiusM, lattice = 
 
   return { assign, state }
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapclusterAssignment = (next) => {
+  CLUSTER_STAY_FACTOR = next.CLUSTER_STAY_FACTOR
+  CLUSTER_JOIN_FACTOR = next.CLUSTER_JOIN_FACTOR
+  ASSIGNER_RADIUS_NOT_POSITIVE_FINITE = next.ASSIGNER_RADIUS_NOT_POSITIVE_FINITE
+  ASSIGNER_LINK_M_NOT_POSITIVE = next.ASSIGNER_LINK_M_NOT_POSITIVE
+  ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE = next.ASSIGNER_MEMBER_RADIUS_M_NOT_POSITIVE
+  ASSIGNER_FACTORS_NOT_BRACKETING_ONE = next.ASSIGNER_FACTORS_NOT_BRACKETING_ONE
+  ClusterAssignerConfigError = next.ClusterAssignerConfigError
+  createClusterAssigner = next.createClusterAssigner
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapclusterAssignment)

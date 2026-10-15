@@ -1,9 +1,9 @@
 import { createPlanetFrame } from './PlanetFrame.js'
 import { snapshotChart, createChartTransfer } from '../shared/chartAnchor.js'
 
-export const LATTICE_RESET_FORCED_TILT_DEG = 12
-export const LATTICE_FOLLOW_TILT_DEG = 7.5
-export const RESET_SURFACE_STEP_BOUND_M = 0.02
+export let LATTICE_RESET_FORCED_TILT_DEG = 12
+export let LATTICE_FOLLOW_TILT_DEG = 7.5
+export let RESET_SURFACE_STEP_BOUND_M = 0.02
 const RAD_TO_DEG = 180 / Math.PI
 const GROUND_FALLBACK_Y = 0
 
@@ -54,3 +54,21 @@ export function createFieldLattice({ sampler, offsetY, reliefScale, anchor, live
     },
   }
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapFieldLattice = (next) => {
+  LATTICE_RESET_FORCED_TILT_DEG = next.LATTICE_RESET_FORCED_TILT_DEG
+  LATTICE_FOLLOW_TILT_DEG = next.LATTICE_FOLLOW_TILT_DEG
+  RESET_SURFACE_STEP_BOUND_M = next.RESET_SURFACE_STEP_BOUND_M
+  tiltDegBetween = next.tiltDegBetween
+  createFieldLattice = next.createFieldLattice
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapFieldLattice)

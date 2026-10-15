@@ -1,6 +1,6 @@
-export const LOCKSTEP_CTRL_PREFIX = 'wwlockstep:'
-export const ROLLBACK_CTRL_PREFIX = 'wwrollback:'
-export const CONSENSUS_CTRL_PREFIX = 'wwconsensus:'
+export let LOCKSTEP_CTRL_PREFIX = 'wwlockstep:'
+export let ROLLBACK_CTRL_PREFIX = 'wwrollback:'
+export let CONSENSUS_CTRL_PREFIX = 'wwconsensus:'
 
 const integer = (v) => Number.isInteger(v)
 const positiveInteger = (v) => Number.isInteger(v) && v >= 1
@@ -66,18 +66,18 @@ export function controlFrameHandlers(prefix, handlers) {
   return arms
 }
 
-export const countReject = (stats) => (parsed) => {
+export let countReject = (stats) => (parsed) => {
   const rejects = stats.rejects ?? (stats.rejects = {})
   rejects[parsed.status] = (rejects[parsed.status] ?? 0) + 1
   if (parsed.status === 'unknown-kind') stats.unknownKind = (stats.unknownKind ?? 0) + 1
 }
 
-export const countOrder = (stats) => (order) => {
+export let countOrder = (stats) => (order) => {
   const counts = stats.order ?? (stats.order = {})
   counts[order] = (counts[order] ?? 0) + 1
 }
 
-export const createFrameClock = () => new Map()
+export let createFrameClock = () => new Map()
 
 export function advanceFrameClock(clock, sender, tick) {
   const last = clock.get(sender)
@@ -116,3 +116,28 @@ export function dispatchControlFrame(prefix, arms, data, onReject = null, origin
   }
   return { frame, apply: arms.get(frame.type), from, order }
 }
+
+// --- hot swap ----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapcontrolFrame = (next) => {
+  LOCKSTEP_CTRL_PREFIX = next.LOCKSTEP_CTRL_PREFIX
+  ROLLBACK_CTRL_PREFIX = next.ROLLBACK_CTRL_PREFIX
+  CONSENSUS_CTRL_PREFIX = next.CONSENSUS_CTRL_PREFIX
+  controlFrameKinds = next.controlFrameKinds
+  encodeControlFrame = next.encodeControlFrame
+  parseControlFrame = next.parseControlFrame
+  controlFrameHandlers = next.controlFrameHandlers
+  countReject = next.countReject
+  countOrder = next.countOrder
+  createFrameClock = next.createFrameClock
+  advanceFrameClock = next.advanceFrameClock
+  dispatchControlFrame = next.dispatchControlFrame
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapcontrolFrame)
