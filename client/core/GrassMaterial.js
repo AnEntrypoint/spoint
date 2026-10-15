@@ -318,7 +318,7 @@ export function makeGrassMaterial(wind, density) {
         baseColor *= mix(0.78, 1.1, smoothstep(0.55, 1.0, blade));
         baseColor *= 0.62 + 0.38 * smoothstep(0.0, 0.3, vUv.y);
         baseColor = mix(baseColor, uGrassScorchColor, vScorch);
-        vec3 n = normalize(vWorldNormal);
+        vec3 n = vWorldNormal;
         float ndl = max(dot(n, uSunDir), 0.0);
         float wrap = ndl;
         vec3 viewDir = normalize(vToCamera);
