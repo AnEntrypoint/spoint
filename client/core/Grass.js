@@ -148,16 +148,17 @@ export async function createGrass(opts = {}) {
   function writeInstanceUniforms(mesh, cell, i) {
     const id = cell.entries[i].id
     const o = i * PF_FLOATS, pf = cell.pf
+    const edgeRankPow = Math.fround(Math.pow(Math.max(pf[o], 1e-4), Math.fround(1 / GRASS_DENSITY.P)))
     _windShadowArr[0] = pf[o + 1]; _windShadowArr[1] = pf[o + 3]
     _groundTintArr[0] = pf[o + 4]; _groundTintArr[1] = pf[o + 5]; _groundTintArr[2] = pf[o + 6]; _groundTintArr[3] = pf[o + 2]
     if (isWebGPU) {
       mesh.setUniformAt(id, 'windShadow', _windShadowArr)
       mesh.setUniformAt(id, 'groundTint', _groundTintArr)
-      mesh.setUniformAt(id, 'clumpRank', pf[o])
+      mesh.setUniformAt(id, 'clumpRank', edgeRankPow)
     } else {
       mesh.setUniformAt(id, 'windShadow', _windShadowVec.fromArray(_windShadowArr))
       mesh.setUniformAt(id, 'groundTint', _groundTintVec.fromArray(_groundTintArr))
-      mesh.setUniformAt(id, 'clumpRank', pf[o])
+      mesh.setUniformAt(id, 'clumpRank', edgeRankPow)
     }
   }
 

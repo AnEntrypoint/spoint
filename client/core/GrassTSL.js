@@ -138,7 +138,7 @@ export function makeGrassMaterialTSL(wind, density) {
     // The law in the vertex stage, where it costs nothing per frame: a blade owns the radius at
     // which it stops being drawn and grows across FADE_M metres of the approach. Far blades are
     // also grown and turned to face the camera, which pays for the density they no longer have.
-    const gEdge = min(float(d.fullR).div(max(clumpRank, float(1e-4)).pow(float(1 / d.p))).add(float(d.fadeM)), uGrassRing)
+    const gEdge = min(float(d.fullR).div(clumpRank).add(float(d.fadeM)), uGrassRing)
     const gIn = clamp(gEdge.sub(gDist).div(float(d.fadeM)), 0.0, 1.0)
     const gGrow = min(float(d.growMax), float(1.0).add(float(d.growK).mul(max(gDist.sub(float(d.fullR)), 0.0))))
     // The distance enlargement stays uniform: a blade covering for the density its neighbours no

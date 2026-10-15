@@ -262,7 +262,7 @@ export function makeGrassMaterial(wind, density) {
         float scorchScale = mix(1.0, uGrassScorchShrink, scorch);
         transformed.y *= scorchScale; transformed.x *= scorchScale; transformed.z *= scorchScale;
         float gDist = length(gWXZ - uCamPosXZ);
-        float gEdge = min(${glslFloat(d.fullR)} / pow(max(clumpRank, 1e-4), ${glslFloat(1 / d.p)}) + ${glslFloat(d.fadeM)}, uGrassRing);
+        float gEdge = min(${glslFloat(d.fullR)} / clumpRank + ${glslFloat(d.fadeM)}, uGrassRing);
         float gIn = clamp((gEdge - gDist) / ${glslFloat(d.fadeM)}, 0.0, 1.0);
         float gGrow = min(${glslFloat(d.growMax)}, 1.0 + ${glslFloat(d.growK)} * max(gDist - ${glslFloat(d.fullR)}, 0.0));
         // The distance enlargement stays uniform; the fade takes the card's HEIGHT to zero the way
