@@ -133,21 +133,51 @@ const probed = hold && typeof hold.probeGroundY === 'function' ? hold.probeGroun
 expect('while the field is missing the relocation hold probes no ground, instead of trusting a ray that misses',
   probed === null, `probeGroundY()=${JSON.stringify(probed)}`)
 const outcome = teleportMod.probeSpawnHoldGround(ctx, [TARGET[0], placedY, TARGET[1]])
-expect('while the field is missing the relocation finds no ground to release the player onto',
-  outcome.y === null && outcome.reason !== null,
+expect('while the field is missing the relocation names the missing field as the reason, not a ray miss',
+  outcome.y === null && (!uncovered || outcome.reason === SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED),
   `probeSpawnHoldGround -> y=${JSON.stringify(outcome.y)} reason=${JSON.stringify(outcome.reason)} (${uncovered ? 'the target is uncovered, so a null y is the waiting answer' : 'target covered'})`)
 
-await sleep(1200)
-const after = ctx.playerManager.getPlayer(playerId)
-const st = after?.state
-const fell = st ? placedY - st.position[1] : NaN
-expect('one second later the uncovered player is still held and has not fallen',
-  !!after?.teleportHold && Number.isFinite(fell) && Math.abs(fell) < 0.5,
-  `held=${!!after?.teleportHold} fell=${Number.isFinite(fell) ? fell.toFixed(3) : 'n/a'} m from ${placedY.toFixed(2)} (onGround=${st?.onGround})`)
+// The contract is observed, not timed. While no field covers the target the player must stay held and
+// must not fall. The moment a field lands the hold may release the player, and then it must stand on
+// that ground. A wall-clock "still held after 1 s" was a race against the field's own build time: the
+// field is a live CPU solve whose duration depends on the host, so it could land inside the window.
+const HOLD_WINDOW_MS = 1200
+const OBSERVE_STEP_MS = 50
+const violations = []
+let uncoveredSamples = 0
+let landedAt = -1
+for (let t = 0; t <= HOLD_WINDOW_MS; t += OBSERVE_STEP_MS) {
+  const covered = streamer.coversPosition(TARGET[0], TARGET[1])
+  const cur = ctx.playerManager.getPlayer(playerId)
+  const held = !!cur?.teleportHold
+  const y = cur?.state?.position?.[1]
+  const fell = Number.isFinite(y) ? placedY - y : NaN
+  if (!covered) {
+    uncoveredSamples++
+    if (!held || !(Math.abs(fell) < 0.5)) violations.push(`t=${t}ms held=${held} fell=${Number.isFinite(fell) ? fell.toFixed(3) : 'n/a'}`)
+  } else if (landedAt < 0) landedAt = t
+  await sleep(OBSERVE_STEP_MS)
+}
+expect('while no collider field covers the target the player is held and does not fall',
+  uncoveredSamples > 0 && violations.length === 0,
+  `uncovered samples=${uncoveredSamples}, violations=${violations.length}${violations.length ? ' first: ' + violations[0] : ''}`)
+
+let postLanding = 'field did not land inside the window'
+if (landedAt >= 0) {
+  await sleep(1500)
+  const later = ctx.playerManager.getPlayer(playerId)
+  const y = later?.state?.position?.[1]
+  const groundNow = groundAt(TARGET[0], TARGET[1])
+  postLanding = `held=${!!later?.teleportHold} y=${Number.isFinite(y) ? y.toFixed(3) : 'n/a'} ground=${Number.isFinite(groundNow) ? groundNow.toFixed(3) : 'n/a'}`
+  expect('once its field landed the hold released the player onto that ground',
+    !later?.teleportHold && Number.isFinite(y) && y > groundNow - 0.5,
+    `landed at ~${landedAt} ms; ${postLanding}`)
+}
+const st = ctx.playerManager.getPlayer(playerId)?.state
 expect('the held player is still alive', st?.health === undefined || st.health === 100 || st.health > 0,
   `health=${st?.health}`)
 
-console.log(`MEASURED relocation-ground-wait: target=(${TARGET[0]},${TARGET[1]}) groundY=${Number(groundY).toFixed(2)} placedY=${placedY.toFixed(2)} budget=${budgetMs} ms (teleport ceiling ${TELEPORT_HOLD_MAX_MS} ms) probe=${JSON.stringify(probed)} reason=${JSON.stringify(outcome.reason)}`)
+console.log(`MEASURED relocation-ground-wait: target=(${TARGET[0]},${TARGET[1]}) groundY=${Number(groundY).toFixed(2)} placedY=${placedY.toFixed(2)} budget=${budgetMs} ms (teleport ceiling ${TELEPORT_HOLD_MAX_MS} ms) probe=${JSON.stringify(probed)} reason=${JSON.stringify(outcome.reason)} landedAt=${landedAt}ms`)
 const failed = checks.filter((c) => !c.ok).length
 console.log(`RESULT: ${failed ? 'FAIL' : 'PASS'} relocation-ground-wait -- ${checks.length} check(s), ${failed} failure(s), budget=${budgetMs}ms`)
 try { ws.close() } catch {}

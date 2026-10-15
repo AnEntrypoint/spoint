@@ -161,6 +161,14 @@ const WARMUP_RELOADS = 2
 const MEASURED_RELOADS = 8
 const RELOADS_PER_SEED = WARMUP_RELOADS + MEASURED_RELOADS
 const LADDER_APPLIES = SEEDS.length * RELOADS_PER_SEED
+// A save writes K files. The unsliced arm never yields, so one save of K writes is one block of about K
+// decides long. The session-age axis is capped by the browser's resource buffer (20000 entries, see
+// setResourceTimingBufferSize in HmrRuntime.js), so the axis that can keep growing is how many writes one
+// save carries: a branch switch writes many files at once. The save ladder doubles K until the unsliced
+// block reaches a frame on the running machine, so the claim is measured here, not assumed.
+const SAVE_WRITES_CAP = 512
+let saveVersion = 1e12 + 700000
+const nextSaveVersion = () => (saveVersion += 1000)
 
 if (failures.length) {
   say('RESULT: FAIL (' + failures.length + ' of ' + checks.length + ' claim(s) failed)')
@@ -314,7 +322,7 @@ async function run() {
   const snapshot = () => ({ imports: versionedImports, handlers: handlerRuns, reloads: reloaded, yields: channelsOpened, timeouts: setTimeoutCalls })
   const delta = (a, b) => ({ imports: b.imports - a.imports, handlers: b.handlers - a.handlers, reloads: b.reloads - a.reloads, yields: b.yields - a.yields, timeouts: b.timeouts - a.timeouts })
 
-  const arm = async (name, sliced, coalesced) => {
+  const arm = async (name, sliced, coalesced, saveWrites = null) => {
     const opened = await openRuntime(name)
     if (!opened) { check(name + ': the runtime connected an event source', false, 'no EventSource was constructed'); return null }
     const { hmr, source, dataRef } = opened
@@ -385,17 +393,35 @@ async function run() {
     const burst = delta(seg1, snapshot())
     burst.applies = (dataRef.first || 0) - appliesBeforeBurst
 
+    // The save ladder runs BEFORE the doomed burst: a page reload already ordered makes the coalesced arm
+    // ignore every later update (HmrRuntime enqueue), so a save measured after a reload measures nothing.
+    // --- one save of K writes to ONE module, in one turn -----------------------
+    // The before arm searches K upward until its block reaches a frame; the after arm replays the same K.
+    const saveRungs = []
+    let k = saveWrites || BURST
+    for (;;) {
+      const seg = snapshot()
+      const t0 = performance.now()
+      for (let i = 0; i < k; i++) fire(source, eventFor(changed, nextSaveVersion()))
+      await hmr.settled()
+      saveRungs.push({ writes: k, ms: performance.now() - t0, yields: snapshot().yields - seg.yields })
+      if (saveWrites !== null || saveRungs[saveRungs.length - 1].ms > FRAME_MS || k >= SAVE_WRITES_CAP) break
+      k *= 2
+    }
+
     // --- burst: one save that writes BURST modules no boundary covers -----------
     const seg2 = snapshot()
     for (let i = 0; i < doomed.length; i++) fire(source, eventFor(doomed[i], stamp + 500000 + i * 1000))
     await hmr.settled()
     const doomedBurst = delta(seg2, snapshot())
 
-    return { name, rows, worst, ladder, burst, doomedBurst, dataRef, hmr, ladderGaps }
+    return { name, rows, worst, ladder, burst, doomedBurst, dataRef, hmr, ladderGaps, saveRungs }
   }
 
   const before = await arm('before', false, false)
-  const after = await arm('after', true, true)
+  const finalSave = before.saveRungs[before.saveRungs.length - 1]
+  const after = await arm('after', true, true, finalSave.writes)
+  const saveWritesRun = before.saveRungs.reduce((n, r) => n + r.writes, 0)
   if (!before || !after) return
 
   for (let i = 0; i < before.rows.length; i++) {
@@ -417,15 +443,17 @@ async function run() {
     ', apply(ies) ' + before.burst.applies + ' -> ' + after.burst.applies)
   say('COUNT one save, ' + BURST + ' module(s) with no accept boundary: module fetch(es) ' + before.doomedBurst.imports + ' -> ' + after.doomedBurst.imports +
     ', page reload(s) ' + before.doomedBurst.reloads + ' -> ' + after.doomedBurst.reloads)
+  for (const r of before.saveRungs) say('SAVE rung: one save of ' + r.writes + ' write(s) to one module, unsliced ' + r.ms.toFixed(2) + ' ms in one turn (' + r.yields + ' yield(s))')
+  say('SAVE after: the same ' + finalSave.writes + ' write(s), sliced ' + after.saveRungs[0].ms.toFixed(2) + ' ms (' + after.saveRungs[0].yields + ' yield(s))')
   say('MEASURED hmr-reload-block: longest synchronous block ' + longest(before.worst).toFixed(2) + ' ms -> ' + longest(after.worst).toFixed(2) +
-    ' ms (frame budget ' + FRAME_MS + ' ms); macrotask yield(s) per update ' +
-    (before.ladder.yields / LADDER_APPLIES).toFixed(2) + ' -> ' + (after.ladder.yields / LADDER_APPLIES).toFixed(2))
+    ' ms (frame budget ' + FRAME_MS + ' ms); one save of ' + finalSave.writes + ' writes ' + finalSave.ms.toFixed(2) + ' ms -> ' + after.saveRungs[0].ms.toFixed(2) +
+    ' ms; macrotask yield(s) per update ' + (before.ladder.yields / LADDER_APPLIES).toFixed(2) + ' -> ' + (after.ladder.yields / LADDER_APPLIES).toFixed(2))
 
   // --- claims -----------------------------------------------------------------
   check('the before arm produced a measurement', before.worst.decide > 0 && before.worst.swap > 0,
     'the unsliced arm measured decide=' + before.worst.decide.toFixed(2) + ' swap=' + before.worst.swap.toFixed(2))
-  check('the before arm blocked for more than a frame in the decide phase', before.worst.decide > FRAME_MS,
-    'the longest unsliced decide is ' + before.worst.decide.toFixed(2) + ' ms, under the ' + FRAME_MS + ' ms frame budget, so the fix proves nothing')
+  check('the unsliced arm blocks for more than a frame in one save on this machine', finalSave.ms > FRAME_MS,
+    'one unsliced save of ' + finalSave.writes + ' write(s) took ' + finalSave.ms.toFixed(2) + ' ms, under the ' + FRAME_MS + ' ms frame budget at the ' + SAVE_WRITES_CAP + '-write cap, so the fix proves nothing')
   check('the before arm took no macrotask yield', before.ladder.yields === 0,
     'the unsliced arm yielded ' + before.ladder.yields + ' time(s), so it is not the pre-fix path')
   check('the after arm yields at least twice per update',
@@ -438,8 +466,8 @@ async function run() {
     'indexed ' + after.worst.lookupMs.toFixed(3) + ' ms vs loadedByPath ' + before.worst.scanMs.toFixed(2) + ' ms over ' + before.worst.entries + ' entr(ies)')
   check('the decide phase fits inside one frame after the fix', after.worst.decide <= FRAME_MS,
     'decide ' + after.worst.decide.toFixed(2) + ' ms, frame budget ' + FRAME_MS + ' ms')
-  check('the decide phase fell by at least 4x', after.worst.decide * 4 <= before.worst.decide,
-    'decide ' + before.worst.decide.toFixed(2) + ' ms -> ' + after.worst.decide.toFixed(2) + ' ms')
+  check('one save of the same writes is at least 4x shorter sliced than unsliced', after.saveRungs[0].ms * 4 <= finalSave.ms,
+    'save of ' + finalSave.writes + ' writes: ' + finalSave.ms.toFixed(2) + ' ms -> ' + after.saveRungs[0].ms.toFixed(2) + ' ms')
   // The ladder is a ladder of session AGES, and the unsliced arm only clears a frame at the older
   // ones: at the youngest age the whole pre-fix update costs about 4 ms on this box, so demanding
   // the sliced arm halve THAT is demanding it beat the box's noise floor -- one macrotask turn
@@ -481,9 +509,9 @@ async function run() {
       'first=' + a.dataRef.first + ' second=' + a.dataRef.second)
   }
   check('every update the queue was handed, it applied',
-    after.dataRef.first === LADDER_APPLIES + 1 && before.dataRef.first === LADDER_APPLIES + BURST,
+    after.dataRef.first === LADDER_APPLIES + 2 && before.dataRef.first === LADDER_APPLIES + BURST + saveWritesRun,
     'apply count after=' + after.dataRef.first + ' before=' + before.dataRef.first +
-    ' (want ' + (LADDER_APPLIES + 1) + ' and ' + (LADDER_APPLIES + BURST) + ')')
+    ' (want ' + (LADDER_APPLIES + 2) + ' and ' + (LADDER_APPLIES + BURST + saveWritesRun) + ')')
 
   const runtimeSrc = readFileSync(RUNTIME, 'utf8')
   check('HmrRuntime.js yields through macrotaskYield, not requestAnimationFrame',

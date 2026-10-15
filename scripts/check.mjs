@@ -3,7 +3,7 @@ import { extname, join } from 'node:path'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkAppImports } from './check-app-imports.mjs'
-import { ensureWorkspaceLinks } from './ensure-workspace-links.mjs'
+import { ensureWorkspaceLinks, formatReport } from './ensure-workspace-links.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -322,7 +322,7 @@ const NO_GPU_WITNESSES = [
   // The `must` is the second half: the unsliced arm has to block for MORE than a frame (or the fix
   // proves nothing) and to have taken NO macrotask yield, the sliced arm has to yield at least twice
   // per update, and the block has to have fallen by at least 4x and to fit inside one frame.
-  { file: 'hmr-reload-block-witness.mjs', must: /LADDER entries= *[1-9]\d*  decide[\s\S]*MEASURED hmr-reload-block: longest synchronous block [\d.]+ ms -> [\d.]+ ms \(frame budget 16\.67 ms\); macrotask yield\(s\) per update 0\.00 -> [1-9][\d.]*[\s\S]*RESULT: PASS/ },
+  { file: 'hmr-reload-block-witness.mjs', must: /LADDER entries= *[1-9]\d*  decide[\s\S]*SAVE rung: one save of [1-9]\d* write\(s\)[\s\S]*MEASURED hmr-reload-block: longest synchronous block [\d.]+ ms -> [\d.]+ ms \(frame budget 16\.67 ms\); one save of [1-9]\d* writes [\d.]+ ms -> [\d.]+ ms[\s\S]*RESULT: PASS/ },
   // PERF-sky-single-march-1013. Counted work units for the sky background node: exp operations
   // and atmosphere LUT taps per pixel, measured by building the real TSL node graph in node and
   // walking it -- no adapter, no browser. The shipped node runs ONE march whose end distance is
@@ -375,7 +375,7 @@ const SLOW_NO_GPU_WITNESSES = [
   // again on every respawn. The `must` is the second half of the witness: a run that never armed a
   // hold, one that kept the 8 s ceiling, or one whose uncovered player still fell, must read as a
   // failure rather than as silence that passes.
-  { file: 'relocation-ground-wait-witness.mjs', must: /\[PASS\] the relocation hold waits on the spawn ground budget[\s\S]*\[PASS\] while the field is missing the relocation hold probes no ground[\s\S]*\[PASS\] one second later the uncovered player is still held and has not fallen[\s\S]*RESULT: PASS relocation-ground-wait/ },
+  { file: 'relocation-ground-wait-witness.mjs', must: /\[PASS\] the relocation hold waits on the spawn ground budget[\s\S]*\[PASS\] while the field is missing the relocation hold probes no ground[\s\S]*\[PASS\] while the field is missing the relocation names the missing field as the reason[\s\S]*\[PASS\] while no collider field covers the target the player is held and does not fall[\s\S]*RESULT: PASS relocation-ground-wait/ },
   { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- [1-9]\d* of [1-9]\d* check\(s\) passed/ },
   { file: 'collider-ring-scale-witness.mjs', must: /\[ring-scale\] [1-9]\d* passed, 0 failed[\s\S]*\[ring-scale\] RESULT: PASS/ },
   { file: 'collider-ring-boot-batches-witness.mjs', must: /ms per 1k operation\(s\) over [1-9]\d* operation\(s\)/ },
@@ -483,6 +483,11 @@ async function main() {
   // because one workspace package occupies several (packages/mapspinner declares the UNSCOPED name
   // "mapspinner", so both node_modules/mapspinner and node_modules/@spoint/mapspinner are its).
   const links = ensureWorkspaceLinks()
+  if (links.refused.length) {
+    for (const line of formatReport(links)) console.error(line)
+    console.error(`check: workspace-link repair refused ${links.refused.length} link(s) that resolve outside this tree; the gate stopped before writing`)
+    process.exit(1)
+  }
   for (const c of links.created) console.log(`check: workspace link node_modules/${c.name} was missing and is now created -> packages/${c.dir}`)
   for (const r of links.repaired) {
     const kept = r.movedTo === null ? '' : ` -- the install it displaced is kept at ${r.movedTo}`

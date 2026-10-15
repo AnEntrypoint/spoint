@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,6 +15,18 @@ export class WorkspaceTargetMissingError extends Error {
     super(message)
     this.name = 'WorkspaceTargetMissingError'
     this.code = 'WorkspaceTargetMissingError'
+    this.detail = detail ?? {}
+  }
+}
+
+// Raised BEFORE any write when a repair would touch a path that does not resolve inside the tree being
+// repaired. An archive whose node_modules is a junction onto another tree would otherwise rename and
+// relink that tree's packages (the shared C:/dev/spoint/node_modules @spoint links).
+export class WorkspaceLinkOutsideTreeError extends Error {
+  constructor(message, detail) {
+    super(message)
+    this.name = 'WorkspaceLinkOutsideTreeError'
+    this.code = 'WorkspaceLinkOutsideTreeError'
     this.detail = detail ?? {}
   }
 }
@@ -139,7 +151,52 @@ function keepsakePath(path) {
   return candidate
 }
 
-export function ensureWorkspaceLink({ root = ROOT, name, target, dir }) {
+const caseKey = (p) => (process.platform === 'win32' ? p.toLowerCase() : p)
+
+function isInside(real, tree) {
+  const r = caseKey(real)
+  const t = caseKey(tree)
+  return r === t || r.startsWith(t.endsWith(sep) ? t : t + sep)
+}
+
+// Realpath of the nearest existing ancestor, so a path not yet created still reports where it would land.
+function realAnchor(path) {
+  let cur = path
+  for (;;) {
+    try {
+      return realpathSync.native(cur)
+    } catch {
+      const up = dirname(cur)
+      if (up === cur) return null
+      cur = up
+    }
+  }
+}
+
+function assertWritesStayInTree({ root, name, link, state }) {
+  const treeReal = realpathSync.native(root)
+  const refuse = (reason, message) => {
+    throw new WorkspaceLinkOutsideTreeError(`${message} -- the tree being repaired is ${treeReal}`, { name, link, reason, treeReal })
+  }
+  const parentReal = realAnchor(dirname(link))
+  if (parentReal === null || !isInside(parentReal, treeReal)) {
+    refuse('node-modules-outside-tree', `node_modules/${name} would be written under ${dirname(link)}, which resolves to ${parentReal ?? 'nothing'}, outside the tree`)
+  }
+  if (state.kind === 'link-elsewhere') {
+    const real = realAnchor(link)
+    if (real === null || !isInside(real, treeReal)) {
+      refuse('link-target-outside-tree', `node_modules/${name} is a link to ${real ?? 'nothing'}, outside the tree, so it is refused and left unchanged`)
+    }
+  }
+  if (state.kind === 'broken-link') {
+    const abs = resolve(dirname(link), readlinkSync(link))
+    if (!isInside(abs, treeReal)) {
+      refuse('link-target-outside-tree', `node_modules/${name} is a broken link to ${abs}, outside the tree, so it is refused and left unchanged`)
+    }
+  }
+}
+
+function planLink({ root, name, target, dir }) {
   let targetReal
   try {
     targetReal = realpathSync(target)
@@ -148,6 +205,12 @@ export function ensureWorkspaceLink({ root = ROOT, name, target, dir }) {
   }
   const link = join(root, NODE_MODULES, ...name.split('/'))
   const state = classifyInstall(link, targetReal)
+  if (state.kind !== 'linked') assertWritesStayInTree({ root, name, link, state })
+  return { link, state }
+}
+
+export function ensureWorkspaceLink({ root = ROOT, name, target, dir }) {
+  const { link, state } = planLink({ root, name, target, dir })
   if (state.kind === 'linked') return { name, dir, path: link, action: 'present', kind: state.kind }
   let movedTo = null
   if (state.kind === 'real-directory' || state.kind === 'file') {
@@ -175,25 +238,40 @@ export function ensureWorkspaceLinks({ root = ROOT } = {}) {
   const repaired = []
   const present = []
   const failed = []
+  const refused = []
   const { packages, skipped } = workspacePackages({ root })
+  // Plan every link before writing any: one refused link stops the whole repair with nothing written.
+  const plan = []
   for (const pkg of packages) {
     for (const name of installPaths({ root, pkg })) {
       try {
-        const r = ensureWorkspaceLink({ root, name, target: pkg.target, dir: pkg.dir })
-        if (r.action === 'present') present.push(r)
-        else if (r.action === 'created') created.push(r)
-        else repaired.push(r)
+        planLink({ root, name, target: pkg.target, dir: pkg.dir })
+        plan.push({ pkg, name })
       } catch (e) {
-        const code = e instanceof Error ? (e.code ?? e.name) : 'Error'
-        failed.push(`${name}: ${code}: ${e.message}`)
+        if (e instanceof WorkspaceLinkOutsideTreeError) refused.push({ name, reason: e.detail.reason, message: e.message })
+        else failed.push(`${name}: ${e instanceof Error ? (e.code ?? e.name) : 'Error'}: ${e.message}`)
       }
     }
   }
-  return { created, repaired, present, failed, skipped }
+  if (refused.length) return { created, repaired, present, failed, skipped, refused }
+  for (const { pkg, name } of plan) {
+    try {
+      const r = ensureWorkspaceLink({ root, name, target: pkg.target, dir: pkg.dir })
+      if (r.action === 'present') present.push(r)
+      else if (r.action === 'created') created.push(r)
+      else repaired.push(r)
+    } catch (e) {
+      const code = e instanceof Error ? (e.code ?? e.name) : 'Error'
+      failed.push(`${name}: ${code}: ${e.message}`)
+    }
+  }
+  return { created, repaired, present, failed, skipped, refused }
 }
 
 export function formatReport(report, { root = ROOT } = {}) {
   const rel = (p) => relative(root, p).split(sep).join('/')
+  const refused = report.refused ?? []
+  if (refused.length) return refused.map((r) => `[workspace-links] REFUSED (${r.reason}) ${r.message} -- nothing was written`)
   const lines = []
   for (const c of report.created) lines.push(`[workspace-links] created ${rel(c.path)} -> packages/${c.dir}`)
   for (const r of report.repaired) {
@@ -220,8 +298,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const report = ensureWorkspaceLinks()
   for (const line of formatReport(report)) console.log(line)
   for (const detail of report.failed) console.error(`[workspace-links] FAILED ${detail}`)
-  if (report.failed.length) {
-    console.error('[workspace-links] run `npm install` if this persists, then re-run `node scripts/ensure-workspace-links.mjs`')
+  if (report.refused.length || report.failed.length) {
+    if (report.failed.length) console.error('[workspace-links] run `npm install` if this persists, then re-run `node scripts/ensure-workspace-links.mjs`')
     process.exit(1)
   }
 }

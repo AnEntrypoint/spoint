@@ -114,21 +114,63 @@ function publishedText(cwd, tree, rel) {
  */
 export function committedSource(cwd) {
   if (headIsWorktree(cwd)) {
-    return {
-      label: 'HEAD (the work tree and the index both match HEAD, so HEAD is the tree under test)',
-      text: (rel) => headText(cwd, rel) ?? indexText(cwd, rel),
-    }
+    return batchedSource(cwd, 'HEAD (the work tree and the index both match HEAD, so HEAD is the tree under test)',
+      (rel) => `HEAD:${rel}`, (rel) => headText(cwd, rel) ?? indexText(cwd, rel))
   }
   const tree = publishedTree(cwd)
   if (tree === null) {
-    return {
-      label: 'stage 0 of the index (remote main did not answer, so the published tree is unavailable)',
-      text: (rel) => indexText(cwd, rel),
-    }
+    return batchedSource(cwd, 'stage 0 of the index (remote main did not answer, so the published tree is unavailable)',
+      (rel) => `:${rel}`, (rel) => indexText(cwd, rel))
   }
-  return {
-    label: `remote main ${tree.tip.slice(0, 12)}`,
-    tip: tree.tip,
-    text: (rel) => publishedText(cwd, tree, rel) ?? indexText(cwd, rel),
+  return batchedSource(cwd, `remote main ${tree.tip.slice(0, 12)}`,
+    (rel) => tree.blobs.get(rel) ?? null, (rel) => publishedText(cwd, tree, rel) ?? indexText(cwd, rel), tree.tip)
+}
+
+/**
+ * Every object a scan needs, read in one `git cat-file --batch` process. The
+ * per-path `git show`/`cat-file` this replaces was one process creation per
+ * tracked script, and on Windows that is most of the audit's wall time. A name
+ * git cannot resolve comes back as null, so a caller falls back exactly as it
+ * did before.
+ */
+export function catFileBatch(cwd, names) {
+  const out = new Map()
+  if (names.length === 0) return out
+  const done = spawnSync('git', ['cat-file', '--batch'], { cwd, input: `${names.join('\n')}\n`, maxBuffer: MAX_BUFFER, windowsHide: true })
+  if (done.status !== 0) return out
+  const buf = done.stdout
+  let pos = 0
+  for (const name of names) {
+    const nl = buf.indexOf(0x0a, pos)
+    if (nl < 0) break
+    const last = buf.toString('utf8', pos, nl).split(' ').pop()
+    pos = nl + 1
+    if (last === 'missing' || last === 'ambiguous') { out.set(name, null); continue }
+    const size = Number(last)
+    out.set(name, buf.toString('utf8', pos, pos + size))
+    pos += size + 1
   }
+  return out
+}
+
+function batchedSource(cwd, label, nameOf, fallback, tip) {
+  const prefetched = new Map()
+  const source = {
+    label,
+    prefetch(rels) {
+      const named = []
+      for (const rel of rels) {
+        const name = nameOf(rel)
+        if (name) named.push([rel, name])
+      }
+      const got = catFileBatch(cwd, named.map(([, name]) => name))
+      for (const [rel, name] of named) {
+        const text = got.get(name)
+        if (typeof text === 'string') prefetched.set(rel, text)
+      }
+    },
+    text: (rel) => (prefetched.has(rel) ? prefetched.get(rel) : fallback(rel)),
+  }
+  if (tip !== undefined) source.tip = tip
+  return source
 }

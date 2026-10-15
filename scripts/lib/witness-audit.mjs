@@ -344,10 +344,13 @@ function main() {
     // run is silent about which one answered.
     const source = committedSource(REPO_ROOT)
     console.log(`witness-audit: committed content read from ${source.label}`)
-    for (const rel of tracked) {
-      if (rel.split('/')[1] !== undefined && SKIP_DIRS.has(rel.split('/')[1])) continue
-      if (rel.split('/').some(seg => seg.startsWith('.') && seg !== '.')) continue
-      if (!allFiles && !DEFAULT_NAME_FILTER.test(rel)) continue
+    const scanned = tracked.filter(rel => {
+      if (rel.split('/')[1] !== undefined && SKIP_DIRS.has(rel.split('/')[1])) return false
+      if (rel.split('/').some(seg => seg.startsWith('.') && seg !== '.')) return false
+      return allFiles || DEFAULT_NAME_FILTER.test(rel)
+    })
+    source.prefetch(scanned)
+    for (const rel of scanned) {
       const text = source.text(rel)
       if (text === null) {
         console.log(`RESULT: FAIL witness-audit cannot read the committed copy of ${rel} (${source.label}), so committed content was not fully audited`)

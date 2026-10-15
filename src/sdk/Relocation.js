@@ -142,15 +142,23 @@ function staticCollidersPendingNear(ctx, p) {
   return false
 }
 
+// The collider streamer belongs to the physics world (TerrainPhysics sets physics._terrainStreamer);
+// the server boot also mirrors it onto its internal ctx. A relocation is handed the PUBLIC server API,
+// which carries neither, so reading only ctx._terrainStreamer answered "covered" for every field and the
+// hold trusted the surface ray, which released the player the moment the ray first hit a field.
+function streamerOf(ctx) {
+  return ctx._terrainStreamer || ctx.physics?._terrainStreamer || null
+}
+
 function terrainFieldMissingAt(ctx, p) {
-  const streamer = ctx._terrainStreamer
+  const streamer = streamerOf(ctx)
   if (!streamer || typeof streamer.coversPosition !== 'function') return false
   return !streamer.coversPosition(p[0], p[2])
 }
 
 function holdReasonText(ctx, playerId, sp, reason) {
   const at = `(${sp[0].toFixed(0)}, ${sp[2].toFixed(0)})`
-  if (reason === SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED) return `[terrain] holding player ${playerId} at chart-local ${at}: no heightfield collider covers it yet, so it is held until its field lands (groundless players now: ${JSON.stringify(ctx._terrainStreamer.groundlessPlayers.map(p => [Math.round(p[0]), Math.round(p[1])]))})`
+  if (reason === SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED) return `[terrain] holding player ${playerId} at chart-local ${at}: no heightfield collider covers it yet, so it is held until its field lands (groundless players now: ${JSON.stringify(streamerOf(ctx).groundlessPlayers.map(p => [Math.round(p[0]), Math.round(p[1])]))})`
   if (reason === SPAWN_HOLD_REASON.STATIC_COLLIDERS_PENDING) return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- static colliders are still pending within ${SPAWN_STATIC_WAIT_RADIUS} m, so the ground under it is not final yet`
   if (reason === SPAWN_HOLD_REASON.NO_RAYCAST) return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- physics exposes no raycast, so no ground height can be probed`
   return `[spawn-hold] holding player ${playerId} at chart-local ${at}: ${reason} -- the ground probe found no walkable surface under it`
