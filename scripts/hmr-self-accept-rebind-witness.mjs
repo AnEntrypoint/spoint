@@ -277,6 +277,7 @@ const CONVERTED = [
   '/src/procgen/LSystem.js',
   '/src/sdk/FreddieBridge.js',
   '/core/RelocationSettle.js',
+  '/src/client/PredictionChart.js',
 ]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)
