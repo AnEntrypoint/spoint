@@ -1,5 +1,5 @@
-export const CTRL_INTS_PER_SLOT = 2
-export const PAYLOAD_FLOATS_PER_SLOT = 10
+export let CTRL_INTS_PER_SLOT = 2
+export let PAYLOAD_FLOATS_PER_SLOT = 10
 const GEN_OFF = 0, PID_OFF = 1
 const POS_OFF = 0, ROT_OFF = 3, VEL_OFF = 7
 
@@ -8,7 +8,7 @@ export function isRingAvailable() {
     typeof SharedArrayBuffer !== 'undefined' && typeof Atomics !== 'undefined'
 }
 
-export const RING_HEADER_INTS = 4
+export let RING_HEADER_INTS = 4
 const RING_MAGIC = 0x54524e47
 const MAGIC_OFF = 0, HEADER_CAPACITY_OFF = 1, HEADER_GEN_OFF = 2, HEADER_EPOCH_OFF = 3
 
@@ -181,3 +181,24 @@ export class TransformRingReader {
     return this.readCut(maxRetries).players
   }
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapTransformRing = (next) => {
+  CTRL_INTS_PER_SLOT = next.CTRL_INTS_PER_SLOT
+  PAYLOAD_FLOATS_PER_SLOT = next.PAYLOAD_FLOATS_PER_SLOT
+  isRingAvailable = next.isRingAvailable
+  RING_HEADER_INTS = next.RING_HEADER_INTS
+  allocateRingBuffer = next.allocateRingBuffer
+  assertRingLayout = next.assertRingLayout
+  TransformRingWriter = next.TransformRingWriter
+  TransformRingReader = next.TransformRingReader
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapTransformRing)

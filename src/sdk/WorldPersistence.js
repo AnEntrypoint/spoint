@@ -5,7 +5,7 @@ import { snapshotChart, createChartTransfer } from '../shared/chartAnchor.js'
 import { sameChart, createReexpressPass } from '../shared/chartReexpress.js'
 import { createChecksumFold } from '../netcode/LockstepChecksum.js'
 
-export const WORLD_SNAPSHOT_FORMAT_VERSION = 1
+export let WORLD_SNAPSHOT_FORMAT_VERSION = 1
 
 function reexpressSnapshotEntity(pass, state, body) {
   pass.point(state.position); pass.rotation(state.rotation); pass.vector(state.velocity)
@@ -129,3 +129,22 @@ export async function restoreWorldSnapshot(ctx) {
   console.log(`[world-persistence] restored snapshot: tick=${snap.tick} entities=${entities.size} bodies=${bodiesRestored}${bodiesSkippedNotFound ? ` (skipped ${bodiesSkippedNotFound}, body not yet created)` : ''}`)
   return { restored: true, tick: snap.tick, entityCount: entities.size, bodiesRestored, bodiesSkippedNotFound }
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapWorldPersistence = (next) => {
+  WORLD_SNAPSHOT_FORMAT_VERSION = next.WORLD_SNAPSHOT_FORMAT_VERSION
+  worldDefFingerprint = next.worldDefFingerprint
+  resolveWorldName = next.resolveWorldName
+  buildWorldSnapshot = next.buildWorldSnapshot
+  saveWorldSnapshot = next.saveWorldSnapshot
+  restoreWorldSnapshot = next.restoreWorldSnapshot
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapWorldPersistence)

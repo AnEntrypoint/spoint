@@ -134,6 +134,16 @@ const SCENE_SETUP = join(CLIENT, 'core', 'SceneSetup.js')
 //     constructs a second one and the swap cannot retire the first.
 //   src/shared/chartAnchor.js, src/netcode/NetcodeProfile.js -- re-export an imported binding
 //     (`export { X }`), which is not an assignable binding here.
+//   src/sdk/TickHandler.js -- the same shape for six of its twelve exports: it imports
+//     PRIORITY_ENTITY_BUDGET / PRIORITY_DECAY / BANDWIDTH_BUDGET_BYTES_PER_TICK /
+//     trimEntitiesToBudget / estimateEntityBytes / getPlayerPriorityIds and puts them straight
+//     back out with `export { ... }`, so they are not bindings this module can re-assign.
+//   src/terrain/TerrainPhysics.js -- `export { createBakedHeightField } from './LatticeSurface.js'`
+//     is a pass-through of another module's binding.
+//   src/physics/World.js -- holds `let liveWorlds`, the count every `PhysicsWorld` registers into,
+//     and calls installVehiclePhysics(PhysicsWorld) at import time. A re-import starts a SECOND
+//     count at zero while the page's worlds are counted in the first, so livePhysicsWorldCount()
+//     would read 0 for a page that still has worlds: the swap cannot retire that state.
 const CONVERTED = [
   '/src/terrain/PlanetFrame.js',
   '/src/terrain/PlacementLattice.js',
@@ -153,6 +163,28 @@ const CONVERTED = [
   '/src/shared/equipment.js',
   '/src/shared/relevanceRadius.js',
   '/core/debug-log.js',
+  '/src/sdk/ServerHandlers.js',
+  '/src/terrain/BakedSourceAdapter.js',
+  '/src/stage/StageLoader.js',
+  '/src/netcode/PeerSimSession.js',
+  '/src/sdk/chartState/index.js',
+  '/src/sdk/WorldPersistence.js',
+  '/src/connection/ConnectionManager.js',
+  '/src/netcode/PlayerManager.js',
+  '/src/netcode/PhysicsIntegration.js',
+  '/src/transport/WorkerTransport.js',
+  '/src/transport/NetworkSimTransport.js',
+  '/src/netcode/EventLog.js',
+  '/src/connection/SessionStore.js',
+  '/src/debug/Inspector.js',
+  '/src/netcode/TickSystem.js',
+  '/src/netcode/NetworkState.js',
+  '/src/netcode/LagCompensator.js',
+  '/src/apps/AppLoader.js',
+  '/src/storage/IDBAdapter.js',
+  '/src/protocol/EventEmitter.js',
+  '/src/apps/EventBus.js',
+  '/src/transport/TransformRing.js',
 ]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)
