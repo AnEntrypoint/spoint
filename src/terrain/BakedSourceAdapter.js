@@ -15,8 +15,15 @@ export function nodeBakedSource() {
   return {
     async readBytes(url) {
       const fs = await import('node:fs')
+      const path = await import('node:path')
+      // A bake url is a served path ('/worlds/x.hf', relative to the repo root) or an absolute
+      // filesystem path. A rooted url that exists as itself is the filesystem path; anything else is
+      // served-relative. Stripping the slash unconditionally read a POSIX absolute path as cwd-relative,
+      // so an existing artifact came back ENOENT and was taken for an absent bake.
+      const file = String(url)
+      const filePath = path.isAbsolute(file) && fs.existsSync(file) ? file : file.replace(/^\//, '')
       let raw
-      try { raw = fs.readFileSync(String(url).replace(/^\//, '')) }
+      try { raw = fs.readFileSync(filePath) }
       catch (e) {
         if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null
         throw bakedFieldError(url, `cannot be read: ${e?.message || e}`, e)
