@@ -5,9 +5,9 @@ const FACE_COUNT = 6
 const AXIS_U = 0
 const AXIS_V = 1
 
-export const FIRE_DIR_COUNT = 8
-export const FIRE_DIR_DI = Int8Array.of(1, 1, 0, -1, -1, -1, 0, 1)
-export const FIRE_DIR_DJ = Int8Array.of(0, 1, 1, 1, 0, -1, -1, -1)
+export let FIRE_DIR_COUNT = 8
+export let FIRE_DIR_DI = Int8Array.of(1, 1, 0, -1, -1, -1, 0, 1)
+export let FIRE_DIR_DJ = Int8Array.of(0, 1, 1, 1, 0, -1, -1, -1)
 
 export function createFireLattice(placement, cellsPerFireCell = 2) {
   const F = cellsPerFireCell
@@ -117,3 +117,20 @@ export function createFireLattice(placement, cellsPerFireCell = 2) {
     walk, cellOfPlacementId, cellOfDir, cellCentreDir, windInFaceAxes,
   }
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapFireLattice = (next) => {
+  FIRE_DIR_COUNT = next.FIRE_DIR_COUNT
+  FIRE_DIR_DI = next.FIRE_DIR_DI
+  FIRE_DIR_DJ = next.FIRE_DIR_DJ
+  createFireLattice = next.createFireLattice
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapFireLattice)

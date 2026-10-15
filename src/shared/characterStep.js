@@ -1,6 +1,6 @@
 import { applyMovement } from './movement.js'
 
-export const GROUND_FOLLOW_STEP_M = 0.35
+export let GROUND_FOLLOW_STEP_M = 0.35
 const MIN_WALKABLE_NORMAL_Y = 0.5
 
 export function verticalVelocity(vy, wasGrounded, gravityY, dt) {
@@ -12,8 +12,8 @@ function slopeRise(n, dx, dz) {
   return -(n[0] * dx + n[2] * dz) / n[1]
 }
 
-export const WALL_HEIGHT_REACH_M = 1.5
-export const WALL_UNPROVEN_REACH_M = 0.3
+export let WALL_HEIGHT_REACH_M = 1.5
+export let WALL_UNPROVEN_REACH_M = 0.3
 
 function slideAlongWalls(p, walls, extentM) {
   for (let i = 0; i < walls.length; i++) {
@@ -59,3 +59,21 @@ export function predictCharacterStep(state, input, movement, dt, env) {
   if (state.onGround) state.groundY = p[1]
   return result
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapCharacterStep = (next) => {
+  GROUND_FOLLOW_STEP_M = next.GROUND_FOLLOW_STEP_M
+  verticalVelocity = next.verticalVelocity
+  WALL_HEIGHT_REACH_M = next.WALL_HEIGHT_REACH_M
+  WALL_UNPROVEN_REACH_M = next.WALL_UNPROVEN_REACH_M
+  predictCharacterStep = next.predictCharacterStep
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapCharacterStep)

@@ -1,8 +1,8 @@
 import { chartAnchorForDir, chartAnchorAngleDeg } from './chartAnchor.js'
 import { DEFAULT_MAX_SLOPE_ANGLE_RAD } from '../physics/CharacterManager.js'
 
-export const CHART_REANCHOR_HYSTERESIS_DEG = 0.75
-export const WALKABLE_CHART_LIMIT_DEG = DEFAULT_MAX_SLOPE_ANGLE_RAD * 180 / Math.PI
+export let CHART_REANCHOR_HYSTERESIS_DEG = 0.75
+export let WALKABLE_CHART_LIMIT_DEG = DEFAULT_MAX_SLOPE_ANGLE_RAD * 180 / Math.PI
 
 export class ChartAnchorDecisionError extends Error {
   constructor(reason, message) {
@@ -59,3 +59,22 @@ export function chartAnchorDecision({ lattice, frame, dirs, hysteresisDeg = CHAR
   if (gainDeg < hysteresisDeg) return { kind: 'stay', reason: 'gain-below-hysteresis', gainDeg }
   return { kind: 'reanchor', anchorDir, centroidDir, gainDeg, worstPlayerAngleDeg }
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapChartReanchorPolicy = (next) => {
+  CHART_REANCHOR_HYSTERESIS_DEG = next.CHART_REANCHOR_HYSTERESIS_DEG
+  WALKABLE_CHART_LIMIT_DEG = next.WALKABLE_CHART_LIMIT_DEG
+  ChartAnchorDecisionError = next.ChartAnchorDecisionError
+  PlayersStraddlePlanetError = next.PlayersStraddlePlanetError
+  playerCentroidDir = next.playerCentroidDir
+  chartAnchorDecision = next.chartAnchorDecision
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapChartReanchorPolicy)

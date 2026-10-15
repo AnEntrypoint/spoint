@@ -3,7 +3,7 @@ import {
 } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
-export const VEG = Object.freeze({
+export let VEG = Object.freeze({
   CHUNK: 32,
   CELL: 4,
   GRID: 8,
@@ -15,7 +15,7 @@ export const VEG = Object.freeze({
   TREELINE_FADE: 120,
 })
 
-export const SPECIES = Object.freeze([
+export let SPECIES = Object.freeze([
   'Oak Large', 'Pine Medium', 'Aspen Medium', 'Ash Medium', 'Bush',
   'Ash Small', 'Ash Large', 'Aspen Small', 'Aspen Large', 'Bush 2',
   'Bush 3', 'Oak Small', 'Oak Medium', 'Pine Small', 'Pine Large',
@@ -27,7 +27,7 @@ const SP_BUSH3 = 10, SP_OAK_S = 11, SP_OAK_M = 12, SP_PINE_S = 13, SP_PINE_L = 1
 const K_JITX = 0, K_JITZ = 1, K_COIN = 2, K_VARIANT = 3, K_YAW = 4, K_SCALE = 5, K_WIND = 6, K_SPECIESH = 7, K_SIZE = 8
 const K_SHAPE = 9, K_TINT_HUE = 10, K_TINT_SAT = 11, K_TINT_VAL = 12, K_LEAN = 13, K_LEAN_DIR = 14, K_UNDERSTORY = 15, K_COMPANION = 16
 
-export const VEG_SHAPE_VARIANTS = 3
+export let VEG_SHAPE_VARIANTS = 3
 
 const GROVE_SEED = 0x67a0e5, PATCH_T_SEED = 0x51a7c1, PATCH_H_SEED = 0x2b3c4d, SEASON_SEED = 0x5ea50a
 const GROVE_CELL_M = 96, GROVE_DETAIL_CELL_M = 37, PATCH_CELL_M = 64, SEASON_CELL_M = 420
@@ -105,16 +105,16 @@ export function rand(h, k) {
   return (x >>> 0) / 4294967296
 }
 
-export const ARIDITY_LINE = 0.28
+export let ARIDITY_LINE = 0.28
 
-export const RELIEF_CALIBRATION_BASELINE = 0.01
+export let RELIEF_CALIBRATION_BASELINE = 0.01
 
 export function reliefMarginScaleOf(frame) {
   return ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
 }
 
-export const RENDERED_BEACH_TOP_M = 15
-export const RENDERED_SAND_ONLY_BELOW_M = RENDERED_BEACH_TOP_M * 0.3
+export let RENDERED_BEACH_TOP_M = 15
+export let RENDERED_SAND_ONLY_BELOW_M = RENDERED_BEACH_TOP_M * 0.3
 
 export function renderedSoilWeight(elevAboveSea) {
   const t = (elevAboveSea - RENDERED_SAND_ONLY_BELOW_M) / (RENDERED_BEACH_TOP_M - RENDERED_SAND_ONLY_BELOW_M)
@@ -264,3 +264,38 @@ export function placementsForChunk(key, frame, anchorField, worldSeed) {
   }
   return out
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapVegPlacement = (next) => {
+  VEG = next.VEG
+  SPECIES = next.SPECIES
+  VEG_SHAPE_VARIANTS = next.VEG_SHAPE_VARIANTS
+  seaNoise = next.seaNoise
+  groveAt = next.groveAt
+  tintMultiplier = next.tintMultiplier
+  leanQuat = next.leanQuat
+  hash3 = next.hash3
+  rand = next.rand
+  ARIDITY_LINE = next.ARIDITY_LINE
+  RELIEF_CALIBRATION_BASELINE = next.RELIEF_CALIBRATION_BASELINE
+  reliefMarginScaleOf = next.reliefMarginScaleOf
+  RENDERED_BEACH_TOP_M = next.RENDERED_BEACH_TOP_M
+  RENDERED_SAND_ONLY_BELOW_M = next.RENDERED_SAND_ONLY_BELOW_M
+  renderedSoilWeight = next.renderedSoilWeight
+  speciesFor = next.speciesFor
+  baseDensity = next.baseDensity
+  createPlacementCell = next.createPlacementCell
+  placementCellAt = next.placementCellAt
+  surfaceOfCell = next.surfaceOfCell
+  classify = next.classify
+  placementsForChunk = next.placementsForChunk
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapVegPlacement)

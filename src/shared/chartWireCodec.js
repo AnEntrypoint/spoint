@@ -1,6 +1,6 @@
 const CHART_FLOATS = 12
 const FLOAT_BYTES = 8
-export const CHART_WIRE_BYTES = CHART_FLOATS * FLOAT_BYTES
+export let CHART_WIRE_BYTES = CHART_FLOATS * FLOAT_BYTES
 
 export function encodeChart(chart) {
   const bytes = new Uint8Array(CHART_WIRE_BYTES)
@@ -22,3 +22,19 @@ export function decodeChart(wire) {
     east: [v(3), v(4), v(5)], up: [v(6), v(7), v(8)], north: [v(9), v(10), v(11)]
   }
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapChartWireCodec = (next) => {
+  CHART_WIRE_BYTES = next.CHART_WIRE_BYTES
+  encodeChart = next.encodeChart
+  decodeChart = next.decodeChart
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapChartWireCodec)

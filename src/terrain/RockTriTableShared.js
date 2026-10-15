@@ -1,4 +1,4 @@
-export const TRI_TABLE = [
+export let TRI_TABLE = [
   [-1],[0,8,3,-1],[0,1,9,-1],[1,8,3,9,8,1,-1],
   [1,2,10,-1],[0,8,3,1,2,10,-1],[9,2,10,0,2,9,-1],[2,8,3,2,10,8,10,9,8,-1],
   [3,11,2,-1],[0,11,2,8,11,0,-1],[1,9,0,2,3,11,-1],[1,11,2,1,9,11,9,8,11,-1],
@@ -64,3 +64,17 @@ export const TRI_TABLE = [
   [2,3,8,2,8,10,10,8,9,-1],[9,10,2,0,9,2,-1],[2,3,8,2,8,10,0,1,8,1,10,8,-1],[1,10,2,-1],
   [1,3,8,9,1,8,-1],[0,9,1,-1],[0,3,8,-1],[-1]
 ]
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapRockTriTableShared = (next) => {
+  TRI_TABLE = next.TRI_TABLE
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapRockTriTableShared)

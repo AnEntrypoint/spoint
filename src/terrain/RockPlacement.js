@@ -4,7 +4,7 @@ import {
 import { latticeFor, tangentFrame, tangentFrameQuat, tangentToLocal, quatMulF32, radialSlopeAt, climateAt } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
-export const ROCK = Object.freeze({
+export let ROCK = Object.freeze({
   CHUNK: 32,
   CELL: 8,
   GRID: 4,
@@ -20,8 +20,8 @@ export const ROCK = Object.freeze({
   SQUASH_SPAN: 0.55,
 })
 
-export const ROCK_SCALE_LEVELS = 10
-export const ROCK_SQUASH_LEVELS = 3
+export let ROCK_SCALE_LEVELS = 10
+export let ROCK_SQUASH_LEVELS = 3
 
 function logStepOf(lo, hi, n) {
   return Math.log(hi / lo) / n
@@ -41,8 +41,8 @@ function logLevelOf(value, lo, step, n) {
 const SCALE_STEP = logStepOf(ROCK.SCALE_MIN, ROCK.SCALE_MIN + ROCK.SCALE_SPAN, ROCK_SCALE_LEVELS)
 const SQUASH_STEP = logStepOf(ROCK.SQUASH_MIN, ROCK.SQUASH_MIN + ROCK.SQUASH_SPAN, ROCK_SQUASH_LEVELS)
 
-export const ROCK_SCALE_TABLE = logTableOf(ROCK.SCALE_MIN, SCALE_STEP, ROCK_SCALE_LEVELS)
-export const ROCK_SQUASH_TABLE = logTableOf(ROCK.SQUASH_MIN, SQUASH_STEP, ROCK_SQUASH_LEVELS)
+export let ROCK_SCALE_TABLE = logTableOf(ROCK.SCALE_MIN, SCALE_STEP, ROCK_SCALE_LEVELS)
+export let ROCK_SQUASH_TABLE = logTableOf(ROCK.SQUASH_MIN, SQUASH_STEP, ROCK_SQUASH_LEVELS)
 
 export function rockScaleLevel(scale) {
   return logLevelOf(scale, ROCK.SCALE_MIN, SCALE_STEP, ROCK_SCALE_LEVELS)
@@ -176,3 +176,26 @@ export function placementsForRockChunk(key, frame, anchorField, worldSeed) {
   }
   return out
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapRockPlacement = (next) => {
+  ROCK = next.ROCK
+  ROCK_SCALE_LEVELS = next.ROCK_SCALE_LEVELS
+  ROCK_SQUASH_LEVELS = next.ROCK_SQUASH_LEVELS
+  ROCK_SCALE_TABLE = next.ROCK_SCALE_TABLE
+  ROCK_SQUASH_TABLE = next.ROCK_SQUASH_TABLE
+  rockScaleLevel = next.rockScaleLevel
+  rockSquashLevel = next.rockSquashLevel
+  rockDensity = next.rockDensity
+  classify = next.classify
+  placementsForRockChunk = next.placementsForRockChunk
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapRockPlacement)

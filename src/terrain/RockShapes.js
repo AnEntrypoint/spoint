@@ -126,7 +126,7 @@ export function marchRockSurface(res, sdf) {
   return { positions: positions.subarray(0, vc*3), vc, indices: indices.subarray(0, ic), ic }
 }
 
-export const ROCK_MESH_RES = 16
+export let ROCK_MESH_RES = 16
 
 export function generateRockHullData(numShapes = 6, baseSeed = 1337, hullRes = ROCK_MESH_RES) {
   const out = []
@@ -156,3 +156,20 @@ export function generateRockHullData(numShapes = 6, baseSeed = 1337, hullRes = R
   }
   return out
 }
+
+// --- hot swap -----------------------------------------------------------------------------
+// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
+// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
+// fix that, because a re-import is a new module instance and every importer keeps reading the
+// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
+// instance's export bindings, so re-assigning them here is visible to every importer already
+// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
+// This re-points code only. It does not rebuild state the page already built, and every export
+// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
+const _hotSwapRockShapes = (next) => {
+  makeRockSDF = next.makeRockSDF
+  marchRockSurface = next.marchRockSurface
+  ROCK_MESH_RES = next.ROCK_MESH_RES
+  generateRockHullData = next.generateRockHullData
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapRockShapes)

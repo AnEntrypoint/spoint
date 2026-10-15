@@ -144,6 +144,11 @@ const SCENE_SETUP = join(CLIENT, 'core', 'SceneSetup.js')
 //     and calls installVehiclePhysics(PhysicsWorld) at import time. A re-import starts a SECOND
 //     count at zero while the page's worlds are counted in the first, so livePhysicsWorldCount()
 //     would read 0 for a page that still has worlds: the swap cannot retire that state.
+//   client/editor/EditPanelDOM.js, client/editor/wm/ui.js -- refused as WITNESSES, not as shapes:
+//     both import the bare specifier 'anentrypoint-design', which only the browser's import map
+//     resolves, so this witness cannot import them under node and therefore cannot show a single
+//     binding moved. An unwitnessed self-accept is exactly the silent no-op this row refuses, so
+//     they stay RELOAD until a resolver this witness can run makes the claim provable.
 const CONVERTED = [
   '/src/terrain/PlanetFrame.js',
   '/src/terrain/PlacementLattice.js',
@@ -185,6 +190,26 @@ const CONVERTED = [
   '/src/protocol/EventEmitter.js',
   '/src/apps/EventBus.js',
   '/src/transport/TransformRing.js',
+  '/src/terrain/VegPlacement.js',
+  '/src/physics/CharacterManager.js',
+  '/core/RenderControls.js',
+  '/src/physics/DracoDecompressor.js',
+  '/src/physics/GLBMath.js',
+  '/src/physics/MeshoptDecompressor.js',
+  '/src/physics/GLBLoader.js',
+  '/src/terrain/brushResult.js',
+  '/src/terrain/brushStroke.js',
+  '/src/terrain/ClimateCache.js',
+  '/src/terrain/RockPlacement.js',
+  '/src/shared/chartWireCodec.js',
+  '/src/shared/fire/fireLattice.js',
+  '/src/shared/movement.js',
+  '/src/terrain/RockTriTableShared.js',
+  '/src/shared/chartReanchorPolicy.js',
+  '/src/terrain/ChartLocalPoint.js',
+  '/src/terrain/RockShapes.js',
+  '/src/sdk/appEventSender.js',
+  '/src/shared/characterStep.js',
 ]
 for (const [label, p] of [['DevHmrGraph.js', GRAPH], ['hmr-decide.js', DECIDE], ['HmrRuntime.js', RUNTIME], ['SceneSetup.js', SCENE_SETUP]]) {
   if (!existsSync(p)) check(label + ' exists', false, label + ' missing at ' + p)
@@ -478,19 +503,24 @@ async function run() {
   check('the runtime swap of a real on-disk edit is what a static importer observes', rtOk, rtDetail)
 
   // --- non-vacuity: the reload counter does move when it should -----------------
-  const doomed = sample.find((u) => {
-    if (u === SCENE_SETUP_URL || selfAccepting.includes(u)) return false
-    return findBoundaries(reachAll, { url: u, parents: g.ancestors(u) }) === null
-  })
+  // src/protocol/msgpack.js is the control and it is PINNED, not found: it builds a packer at import
+  // time, so it is deliberately refused (a re-import builds a second one the swap cannot retire), and
+  // a save of it must still cost exactly one page reload. Pinning it is what makes the "0 reloads"
+  // above evidence rather than a coincidence of whichever module sample.find happened to pick.
+  const CONTROL = '/src/protocol/msgpack.js'
+  const controlIsReload = findBoundaries(reachAll, { url: CONTROL, parents: g.ancestors(CONTROL) }) === null
+  check('the control module ' + CONTROL + ' is still RELOAD and still refuses to self-accept',
+    !selfAccepting.includes(CONTROL) && controlIsReload,
+    CONTROL + ' left the reload class, so the control no longer controls anything')
   const seg2 = reloaded
-  if (doomed) source.onmessage({ data: JSON.stringify({
-    kind: 'module', seq: 9000, t: Date.now(), path: doomed.slice(1), url: doomed, v: 9000,
-    parents: g.ancestors(doomed), client: true, worker: false, eager: true,
+  source.onmessage({ data: JSON.stringify({
+    kind: 'module', seq: 9000, t: Date.now(), path: CONTROL.slice(1), url: CONTROL, v: 9000,
+    parents: g.ancestors(CONTROL), client: true, worker: false, eager: true,
   }) })
   await hmr.settled()
   const control = reloaded - seg2
-  check('a module with no acceptor at all still reloads the page', !!doomed && control === 1,
-    'control ' + (doomed || 'no such module') + ' produced ' + control + ' reload(s), so "0 reloads" above proves nothing')
+  check('a save of the control module ' + CONTROL + ' still costs exactly one page reload', control === 1,
+    'control ' + CONTROL + ' produced ' + control + ' reload(s), so "0 reloads" above proves nothing')
 
   // --- the before arm: the same save, in a runtime that holds no acceptor --------
   // Both arms have to run inside one process, so the before arm is a SECOND instance of the real
@@ -514,7 +544,7 @@ async function run() {
     'the before arm produced ' + beforeArm.reloads + ' reload(s), so the after arm has nothing to beat')
 
   say('MEASURED hmr-self-accept-rebind: page reload(s) per save for client/core/SceneSetup.js ' +
-    beforeArm.reloads + ' -> ' + first.reloads + ' (control module ' + (doomed || 'none') + ' still ' + control + '); versioned module fetch(es) per save ' +
+    beforeArm.reloads + ' -> ' + first.reloads + ' (control ' + CONTROL + ' still ' + control + '); versioned module fetch(es) per save ' +
     first.imports + '; export binding(s) moved to the new copy ' + moved + ' of ' + movedFns.length +
     '; reload class of the real graph ' + before.reload + '/' + sample.length + ' -> ' + after.reload + '/' + sample.length +
     '; self-accepting module(s) ' + selfAccepting.length + ', converted in this slice ' + CONVERTED.length)

@@ -323,6 +323,19 @@ const NO_GPU_WITNESSES = [
   // marchRadiance, a different integrator, and the witness refuses a background node that
   // integrates with anything other than marchSteps or that carries more than one march.
   { file: 'sky-aerial-perspective-count-witness.mjs', must: /\[PASS\] background node still integrates with marchSteps[\s\S]*\[PASS\] background node no longer carries the second march: got=1 want=1[\s\S]*MEASURED single-march: expNodes=24 expOps=40 lutFetches=8 graphNodes=\d+[\s\S]*MEASURED two-marches-restored: expNodes=48 expOps=80 lutFetches=16[\s\S]*MEASURED both-marches-removed: expNodes=0 expOps=0 lutFetches=0[\s\S]*RESULT: PASS label=sky-single-march-count single=\{exp:40,lut:8\} two-marches=\{exp:80,lut:16\}/ },
+  // PERF-hmr-reload-class-1013 / PERF-hmr-reload-class-rest-1013. The RELOAD class: a module the
+  // app imports STATICALLY has no accept boundary above it, so a save of it cost a whole page load
+  // (0.83 playable frames/s against 59.21 settled). A module leaves the class by self-accepting and
+  // re-assigning its own export bindings, because an ESM import is a live binding to them, so the
+  // cost of a save becomes one versioned fetch. The `must` is the second half of the witness and
+  // deliberately pins NO count: which modules are converted changes with every slice, so it pins
+  // the SHAPE of the measurement instead -- one save of client/core/SceneSetup.js costing 1 page
+  // reload before and 0 after, the refused control src/protocol/msgpack.js still costing exactly 1
+  // (so "0 reloads" is not a dead counter), and every claim passing. The per-module facts -- each
+  // was RELOAD and now accepts at itself, 0 reloads and 1 fetch per save, every export binding
+  // pointing at the freshly imported copy with at least one provably re-assigned -- are asserted
+  // inside the witness, where they cannot silently stop being checked.
+  { file: 'hmr-self-accept-rebind-witness.mjs', must: /MEASURED hmr-self-accept-rebind: page reload\(s\) per save for client\/core\/SceneSetup\.js 1 -> 0 \(control \/src\/protocol\/msgpack\.js still 1\)[\s\S]*RESULT: PASS \((\d+) of \1 claim\(s\) passed\)/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
