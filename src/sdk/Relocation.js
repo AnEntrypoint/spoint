@@ -42,7 +42,7 @@ export function snapToGround(ctx, x, hintY, z, clearance, snap = 'first') {
   return Number.isFinite(hintY) ? [x, hintY, z] : null
 }
 
-export const SPAWN_HOLD_REASON = {
+export let SPAWN_HOLD_REASON = {
   HEIGHTFIELD_NOT_LANDED: 'heightfield-collider-not-landed',
   STATIC_COLLIDERS_PENDING: 'static-colliders-pending-near',
   NO_RAYCAST: 'no-raycast-capability',
@@ -276,3 +276,22 @@ export function createRelocationHandlers(ctx) {
 
   return { [MSG.TELEPORT]: handle }
 }
+
+// --- hot swap -----
+// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
+// so importers already holding the live binding read the edited code without a page reload.
+const _hotSwapExports = (next) => {
+  snapToGround = next.snapToGround
+  SPAWN_HOLD_REASON = next.SPAWN_HOLD_REASON
+  probeSpawnHoldGround = next.probeSpawnHoldGround
+  probeSpawnGroundY = next.probeSpawnGroundY
+  spawnClearanceM = next.spawnClearanceM
+  rankSpawnPointsByWalkingRoom = next.rankSpawnPointsByWalkingRoom
+  groundSnapSpawnPoint = next.groundSnapSpawnPoint
+  resolveSpawnPointOnGround = next.resolveSpawnPointOnGround
+  holdSpawnUntilGrounded = next.holdSpawnUntilGrounded
+  probeGround = next.probeGround
+  teleportPlayer = next.teleportPlayer
+  createRelocationHandlers = next.createRelocationHandlers
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapExports)

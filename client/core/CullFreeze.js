@@ -51,3 +51,13 @@ export function createCullFreeze(applyAutoUpdate) {
 
   return { step, get frozen() { return frozen } }
 }
+
+// --- hot swap -----
+// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
+// so importers already holding the live binding read the edited code without a page reload.
+const _hotSwapExports = (next) => {
+  setInstancedCullAuto = next.setInstancedCullAuto
+  setBatchedMeshCullAuto = next.setBatchedMeshCullAuto
+  createCullFreeze = next.createCullFreeze
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapExports)

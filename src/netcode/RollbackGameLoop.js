@@ -4,7 +4,7 @@ const DESYNC_LOG_LIMIT = 16
 const TIME_SYNC_SLACK_TICKS = 2
 const TIME_SYNC_YIELD_EVERY = 4
 
-export const ROLLBACK_DEFAULTS = Object.freeze({ inputDelayTicks: 1, maxRollbackTicks: 12, checksumIntervalTicks: 30 })
+export let ROLLBACK_DEFAULTS = Object.freeze({ inputDelayTicks: 1, maxRollbackTicks: 12, checksumIntervalTicks: 30 })
 
 export function createRollbackGameLoop({ tickSystem, transport, rollback, roster, localPeerId, simulate, getLocalInput, checksumOf = null, observeRollback = null, options = {} } = {}) {
   if (!tickSystem || typeof tickSystem.onTick !== 'function') throw new Error('[RollbackGameLoop] tickSystem is required')
@@ -176,3 +176,12 @@ export function createRollbackGameLoop({ tickSystem, transport, rollback, roster
     getStats() { return { ...stats, desyncLog: [...desyncLog], simTick, runAhead: simTick - minRemoteConfirmed(), localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage), avgRollbackDepth: stats.rollbacks ? stats.rollbackTicks / stats.rollbacks : 0 } }
   }
 }
+
+// --- hot swap -----
+// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
+// so importers already holding the live binding read the edited code without a page reload.
+const _hotSwapExports = (next) => {
+  ROLLBACK_DEFAULTS = next.ROLLBACK_DEFAULTS
+  createRollbackGameLoop = next.createRollbackGameLoop
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapExports)

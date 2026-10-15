@@ -1,7 +1,7 @@
 import { canonicalJSON } from '../shared/canonicalJSON.js'
 
-export const LOCKSTEP_DEFAULTS = Object.freeze({ inputDelayTicks: 3, checksumIntervalTicks: 30, stallTicks: 600, maxCatchUpTicks: 4 })
-export const INPUT_RETAIN_TICKS = 240
+export let LOCKSTEP_DEFAULTS = Object.freeze({ inputDelayTicks: 3, checksumIntervalTicks: 30, stallTicks: 600, maxCatchUpTicks: 4 })
+export let INPUT_RETAIN_TICKS = 240
 const LATENCY_RING = 1024
 const DROP_LOG_LIMIT = 16
 const TIME_SYNC_SLACK_TICKS = 2
@@ -243,3 +243,13 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     }
   }
 }
+
+// --- hot swap -----
+// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
+// so importers already holding the live binding read the edited code without a page reload.
+const _hotSwapExports = (next) => {
+  LOCKSTEP_DEFAULTS = next.LOCKSTEP_DEFAULTS
+  INPUT_RETAIN_TICKS = next.INPUT_RETAIN_TICKS
+  createLockstepGameLoop = next.createLockstepGameLoop
+}
+globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwapExports)
