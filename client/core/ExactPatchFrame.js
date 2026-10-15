@@ -1,5 +1,5 @@
 import { NoGroundHeightError } from '../../src/terrain/PlanetFrame.js'
-import { isMeshSurfaceNoGround } from '../../src/terrain/TerrainMeshSurface.js'
+import { isMeshSurfaceNoGround, renderMeshHeightAt } from '../../src/terrain/TerrainMeshSurface.js'
 
 const MESH_SOLVE_ITERS = 4
 const MESH_SOLVE_TOL_M = 1e-6
@@ -57,31 +57,49 @@ function meshElevationAtDir(frame, meshAt, fallback) {
 }
 
 export function createExactPatchFrame(frame) {
-  const meshAt = typeof frame.renderMeshHeightAtLocal === 'function' ? frame.renderMeshHeightAtLocal : null
-  const exact = !!meshAt || typeof frame._patchHeightOrNull === 'function'
   let missing = false
+  // The drawn-mesh surface is resolved per call, never captured: it is the frame's own port and the
+  // port is re-attached whenever the planet is rebuilt, so whatever this frame was built against is
+  // not necessarily what is drawn now. The resolved FUNCTION is memoised, not its answer, so the
+  // elevation solver is rebuilt only when the frame actually points at a different surface -- and
+  // where no surface is attached at all the frame's own sampler is read live, because that one is
+  // swapped too (a ground-source registration replaces frame.elevationAtDir).
+  let meshAt = null
+  let meshElev = null
+  const meshAtNow = () => {
+    const at = renderMeshHeightAt(frame)
+    if (at !== meshAt) {
+      meshAt = at
+      meshElev = at === null ? null : meshElevationAtDir(frame, at, frame.cpuElevationAtDir)
+    }
+    return at
+  }
   // frame.groundHeightLocal is an ACCESSOR with a setter that installs the assigned function as
   // the whole frame's ground source, so a plain assignment on a derived object would retarget
   // every reader of the frame, not just placement. Own data properties keep the override local.
-  const placementFrame = exact ? Object.create(frame) : frame
-  if (exact) {
-    Object.defineProperty(placementFrame, 'elevationAtDir', { value: meshAt ? meshElevationAtDir(frame, meshAt, frame.cpuElevationAtDir) : frame.elevationAtDir, writable: true, configurable: true })
-    Object.defineProperty(placementFrame, 'groundHeightLocal', {
-      value: (x, z) => {
-        if (meshAt) {
-          const y = meshAt(x, z)
-          if (!isMeshSurfaceNoGround(y)) return y
-        }
-        if (typeof frame._patchHeightOrNull === 'function') {
-          const y = frame._patchHeightOrNull(x, z)
-          if (y === null) { missing = true; throw new NoGroundHeightError(x, z) }
-          return y
-        }
-        return frame.groundHeightLocal(x, z)
-      },
-      writable: true, configurable: true,
-    })
-  }
+  const placementFrame = Object.create(frame)
+  Object.defineProperty(placementFrame, 'elevationAtDir', {
+    value: (d) => {
+      const at = meshAtNow()
+      return at === null ? frame.elevationAtDir(d) : meshElev(d)
+    }, writable: true, configurable: true,
+  })
+  Object.defineProperty(placementFrame, 'groundHeightLocal', {
+    value: (x, z) => {
+      const at = meshAtNow()
+      if (at !== null) {
+        const y = at(x, z)
+        if (!isMeshSurfaceNoGround(y)) return y
+      }
+      if (typeof frame._patchHeightOrNull === 'function') {
+        const y = frame._patchHeightOrNull(x, z)
+        if (y === null) { missing = true; throw new NoGroundHeightError(x, z) }
+        return y
+      }
+      return frame.groundHeightLocal(x, z)
+    },
+    writable: true, configurable: true,
+  })
   return {
     placementFrame,
     beginChunk() { missing = false },

@@ -112,6 +112,19 @@ const NO_GPU_WITNESSES = [
   // gate with a green witness that reads as "never ran". Keep the order in step with the witness.
   { file: 'grass-coherent-wind-witness.mjs', must: /MEASURED grass-coherent-wind: neighbour coherence[\s\S]*before \(per-blade phase\)  0\.5m 0\.[0-7]\d*[\s\S]*after  \(shared gust field\) 0\.5m 0\.9\d*[\s\S]*\[PASS\] the gust is computed once per group[\s\S]*\[PASS\] the turbulence reads MORE, not less[\s\S]*\[PASS\] the shared field is what makes them move together[\s\S]*\[PASS\] a recentre recomputes only the cells it no longer has[\s\S]*RESULT: PASS/ },
   { file: 'grass-terrain-shared-geometry-witness.mjs', must: /field relief over a 30m ring: [1-9][\d.]*m[\s\S]*CELL ground vs rendered mesh, BEFORE \(frame as shipped\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=[\d.]*m  p95=[\d.]*m  max=[\d.]*m[\s\S]*CELL ground vs rendered mesh, AFTER  \(shared mesh surface\)[\s\S]*band far  \[40,61\.6\)m  n= *[1-9]\d*  mean=0\.0000m  p95=0\.0000m  max=0\.0000m[\s\S]*surface stats: \{[^\n]*"served":[1-9]\d*[\s\S]*RESULT: PASS/ },
+  // PERF-exact-patch-attachment-resolution-1013. Two latent defects on one attachment,
+  // client/core/TerrainBackdrop.js:130: (1) client/core/ExactPatchFrame.js captured
+  // frame.renderMeshHeightAtLocal BY VALUE while src/terrain/GrassPlacement.js read the same
+  // property live per cell, so after a late attach or a rebuild (the mirror is re-attached with the
+  // planet, and a quality tier change moves it a whole maxLevel) the ground a blade was placed
+  // against and the mesh it was drawn on were two surfaces -- 1.3300m apart in the far band,
+  // measured against the pre-fix source; (2) src/terrain/TerrainMeshSurface.js ensureCoverage
+  // latched lazySyncVersion after a sync that had produced ZERO quads, so the boot ring's first
+  // read claimed the version covered and every read behind it answered no ground even once the
+  // quads existed. The `must` is the second half of the witness: the control that the two
+  // attachments really are different meshes (without it arm A could not fail and would prove
+  // nothing), the fixed arm in every band, and the latch arm's before/after reads.
+  { file: 'exact-patch-attachment-resolution-witness.mjs', must: /\[PASS\] the two attachments are different meshes[\s\S]*\[PASS\] band mid[\s\S]*\[PASS\] band far[\s\S]*\[PASS\] the frame's ground port and the drawn mesh are one authority[\s\S]*\[PASS\] a read before the renderer has drawn answers no ground[\s\S]*\[PASS\] a read after the renderer drew is answered from the drawn mesh[\s\S]*RESULT: PASS label=exact-patch-attachment-resolution -- [1-9]\d* check\(s\), 0 failure\(s\)/ },
   // PERF-exact-surface-not-attached-1013. The rendered-mesh mirror is ATTACHED to the frame at
   // client/core/TerrainBackdrop.js:130 and only SERVED once sync() has built its near-quad index,
   // and sync() used to be reachable only from renderPlanet -- so every blade, tree and rock the

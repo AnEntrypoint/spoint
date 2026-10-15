@@ -1,6 +1,7 @@
 import { hash3, rand, renderedSoilWeight, createPlacementCell, placementCellAt, surfaceOfCell } from './VegPlacement.js'
 import { latticeFor, tangentFrame, tangentToLocal, tangentHeadingInChart, surfaceAlongDir, climateAt } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
+import { renderMeshHeightAt } from './TerrainMeshSurface.js'
 
 const _isNode = typeof process !== 'undefined' && process.versions?.node
 const _mapspinnerFile = (p) => (_isNode ? `mapspinner/${p}` : `/node_modules/mapspinner/src/${p}`)
@@ -166,7 +167,10 @@ export function classify(frame, anchorField, cell) {
   // Where the frame carries no drawn mesh the solve is paid exactly as it was, and where neither
   // answers, the Taylor step is. Neither branch removes a blade or coarsens a cell.
   const sampleAt = jet.at
-  const meshAt = typeof frame.renderMeshHeightAtLocal === 'function' ? frame.renderMeshHeightAtLocal : null
+  // The same authority client/core/ExactPatchFrame.js reads: the frame's drawn-mesh port, resolved
+  // per cell. A local `typeof` test here is what let the two sides drift apart -- this side read the
+  // port live while the placement frame held a capture of it -- so both call one resolver now.
+  const meshAt = renderMeshHeightAt(frame)
   const mE = tf.eastL, mU = tf.upL, mN = tf.northL
   const mInv = 1 / (mU[1] || 1)
   const bowl = (offE, offN) => dHdx * offE + dHdz * offN + 0.5 * (kx * offE * offE + kz * offN * offN)

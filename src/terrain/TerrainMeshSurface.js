@@ -6,6 +6,18 @@ const { FACE_FRAME, worldToFaceLocal } = await import(_msFile('planet-orchestrat
 export const MESH_SURFACE_NO_GROUND = null
 export function isMeshSurfaceNoGround(v) { return v === MESH_SURFACE_NO_GROUND }
 
+// The ONE authority for "the mesh the renderer drew, at a chart-local (x,z)": the frame's own port,
+// read at the moment it is asked for. Two readers used to resolve it differently --
+// client/core/ExactPatchFrame.js captured the property by value when its frame was built, while
+// src/terrain/GrassPlacement.js read the same property live, per cell -- so after a late attach or a
+// rebuild (the mirror is rebuilt with the planet, and a quality tier change re-attaches it) the two
+// answered from different meshes: the ground a blade was placed against came from one and the
+// surface the blade was drawn on from the other. Both sides call this now, so a capture cannot
+// survive an attach and there is nothing left to disagree about.
+export function renderMeshHeightAt(frame) {
+  return typeof frame.renderMeshHeightAtLocal === 'function' ? frame.renderMeshHeightAtLocal : null
+}
+
 const QUARTER_PI = Math.PI / 4
 // The fixed point a direction's height is solved to, and the test that an answer is the surface's
 // rather than the seed's: the same two numbers client/core/ExactPatchFrame.js uses for the mesh
@@ -289,14 +301,33 @@ export function createTerrainMeshSurface(opts = {}) {
   //
   // One build per version is the bound that keeps this from becoming per-read work: the render
   // loop's own sync() bumps version, so the window before the first frame pays one build.
+  //
+  // That bound is on the ATTEMPT, never on the coverage: the version latch below is set only by a
+  // sync that actually earned quads. A sync that earned nothing is bounded by the payload it ran on
+  // instead -- the same drawn quads cannot cover what they did not cover, so repeating it per read
+  // would buy nothing and would cost a sync per read, while a payload that has GROWN since the
+  // attempt is a different question and is re-asked. Latched unconditionally, the boot ring's first
+  // read -- the one made before the renderer had drawn anything -- claimed the whole version as
+  // covered, and every read after it in that version answered "no ground" and fell through to the
+  // CPU sampler even once the quads existed.
   let syncedQuads = 0
   let lazySyncVersion = -1
+  let lazySyncDrawn = -1
+
+  function drawnCount() {
+    const q = quadsFn()
+    if (!q || !q.offsets || !q.faces || !Number.isFinite(q.count) || q.count <= 0) return 0
+    return Math.min(q.count | 0, (q.offsets.length / 4) | 0)
+  }
+
   function ensureCoverage(x, z) {
     if (syncedQuads > 0) return
     if (lazySyncVersion === version) return
+    if (lazySyncDrawn === drawnCount()) return
     setFocus(x, z)
     sync()
-    lazySyncVersion = version
+    if (syncedQuads > 0) lazySyncVersion = version
+    else lazySyncDrawn = drawnCount()
   }
 
   function sync() {
