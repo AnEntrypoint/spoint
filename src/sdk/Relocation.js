@@ -244,10 +244,15 @@ export function teleportPlayer(ctx, playerId, spec, { onGrounded = null } = {}) 
   // which is what ?terrainhash=<n> forces, because the shipped bake is rejected for the other hash
   // version -- it released the player into the air long before its field landed and the fall kill
   // took it again on every respawn. One question, one probe, one budget.
+  let groundlessReason = null
   beginTeleportHold(player, {
     maxMs: SPAWN_HOLD_MAX_MS,
-    probeGroundY: () => probeSpawnHoldGround(ctx, position).y,
-    onRelease: (release) => onGrounded?.(release),
+    probeGroundY: () => {
+      const outcome = probeSpawnHoldGround(ctx, position)
+      groundlessReason = outcome.reason
+      return outcome.y
+    },
+    onRelease: (release) => onGrounded?.({ ...release, reason: release.groundY !== null ? null : groundlessReason }),
   })
   return { position, tick: ctx.tickSystem.currentTick }
 }
