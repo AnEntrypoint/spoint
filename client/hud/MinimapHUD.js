@@ -245,7 +245,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
         // rather than inheriting a NaN it might not deserve a second time.
         if (filled[idx] && Number.isFinite(heights[idx])) { w.rowGuess = heights[idx]; continue }
         try {
-          heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb, w.rowGuess)
+          heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb, w.rowGuess) ?? NaN
         } catch (e) {
           reportSampleFailure(e)
           heights[idx] = NaN

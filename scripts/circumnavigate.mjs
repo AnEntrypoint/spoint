@@ -241,7 +241,7 @@ export function createChartWalker({ frame, sampler, anchorField, lattice, anchor
         const xz = dirToLocalXZ(f, d, heightAtF)
         const idx = iz * N + ix
         if (!xz) { heights[idx] = NaN; land[idx] = 0; continue }
-        const h = sampleMinimapCell(f, anchorField, xz[0], xz[1], cell)
+        const h = sampleMinimapCell(f, anchorField, xz[0], xz[1], cell) ?? NaN
         if (Number.isFinite(h)) finite++
         heights[idx] = h
         land[idx] = cell[3]

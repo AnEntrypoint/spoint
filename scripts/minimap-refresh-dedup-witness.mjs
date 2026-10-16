@@ -99,7 +99,7 @@ function runTerrainPhase({ frame, sampleMinimapCell, cells, cellMeters, left, to
       if (filled && filled[idx] && Number.isFinite(heights[idx])) { rowGuess = heights[idx]; continue }
       let h = NaN
       try {
-        h = sampleMinimapCell(frame, null, left + (i + 0.5) * cellMeters, z, cellRgb, rowGuess)
+        h = sampleMinimapCell(frame, null, left + (i + 0.5) * cellMeters, z, cellRgb, rowGuess) ?? NaN
       } catch (e) {
         h = NaN
       }
@@ -245,7 +245,7 @@ async function main() {
       cmp++
       if (gB.raw[di] === g1.raw[si]) exact++
       const cellRgb = [0, 0, 0, 0, NaN]
-      const fresh = sampleMinimapCell(frame, null, x, z, cellRgb, NaN)
+      const fresh = sampleMinimapCell(frame, null, x, z, cellRgb, NaN) ?? NaN
       if (Number.isFinite(fresh) && Number.isFinite(gB.raw[di])) deltas.push(Math.abs(fresh - gB.raw[di]))
     }
   }

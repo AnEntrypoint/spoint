@@ -35,10 +35,10 @@ export function sampleMinimapCell(frame, anchorField, x, z, out, yGuess) {
   if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz, pg) => frame.groundHeightLocal(px, pz, pg), NaN); _guardedMinimapHeight.set(frame, guarded) }
   const h = guarded(x, z, yGuess)
   out[4] = h
-  if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
+  if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return null }
   const dir = frame.localToDir(x, z, h)
   const elevation = elevationAtLocal(frame, x, h, z)
-  if (!Number.isFinite(elevation)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
+  if (!Number.isFinite(elevation)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return null }
   const climate = anchorField && anchorField.sampleDir ? anchorField.sampleDir(dir) : NEUTRAL_CLIMATE
   const rgb = biomeColor(elevation, climate.temp || 0, climate.humidity || 0, 0)
   out[0] = rgb[0] | 0; out[1] = rgb[1] | 0; out[2] = rgb[2] | 0
@@ -60,7 +60,6 @@ export function reliefShade(dhdx, dhdz) {
   const lit = 1 + LIGHT_GAIN * (lambert / SUN_Y - 1)
   const t = Math.max(0, Math.min(1, (Math.hypot(dhdx, dhdz) - STEEP_FROM) / (STEEP_TO - STEEP_FROM)))
   const shade = lit * (1 - STEEP_DARKEN * t * t * (3 - 2 * t))
-  if (!Number.isFinite(shade)) return 1
   return shade < SHADE_MIN ? SHADE_MIN : shade > SHADE_MAX ? SHADE_MAX : shade
 }
 
@@ -75,7 +74,7 @@ export function shadeHeightGrid(heights, rows, cols, spacingM, land, rgbIn, rgbO
         const lf = c > 0 ? c - 1 : c, rt = c < cols - 1 ? c + 1 : c
         const dhdx = rt > lf ? (heights[r * cols + rt] - heights[r * cols + lf]) / ((rt - lf) * spacingM) : 0
         const dhdz = dn > up ? (heights[dn * cols + c] - heights[up * cols + c]) / ((dn - up) * spacingM) : 0
-        m = reliefShade(dhdx, dhdz)
+        m = Number.isFinite(dhdx) && Number.isFinite(dhdz) ? reliefShade(dhdx, dhdz) : 1
       }
       if (shadeOut) shadeOut[i] = m
       rgbOut[oc] = Math.min(255, rgbIn[ic] * m); rgbOut[oc + 1] = Math.min(255, rgbIn[ic + 1] * m); rgbOut[oc + 2] = Math.min(255, rgbIn[ic + 2] * m)

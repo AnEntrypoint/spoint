@@ -128,7 +128,7 @@ export async function bakeMinimap(config) {
     for (let ix = 0; ix < N; ix++) {
       const x = center[0] - half + (ix + 0.5) * step
       const guess = Number.isFinite(prevY) && Number.isFinite(prevY2) ? prevY + (prevY - prevY2) : prevY
-      const h = sampleMinimapCell(frame, anchorField, x, z, cell, guess)
+      const h = sampleMinimapCell(frame, anchorField, x, z, cell, guess) ?? NaN
       prevY2 = prevY
       prevY = cell[4]
       const idx = iz * N + ix
