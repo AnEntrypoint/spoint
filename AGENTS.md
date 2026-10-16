@@ -149,6 +149,8 @@ Skills encode environment-specific constraints that override general knowledge.
 - Authoritative path: prediction off by default (`?predict` only). `processPlayerMovement` takes ONE input per tick, catching up only while `inputs.length > INPUT_BUFFER_CATCHUP_DEPTH` 8. A 0 or NaN checksum interval makes `isChecksumTick` false every tick, so `DesyncDetector` silently passes.
 - Health is attested, not defaulted: `readHealth` returns a frozen `{known:false}` whose `hp` getter throws, so an omitted health must not read as full.
 
+- MSG ids in `src/protocol/MessageTypes.js` need only be unique: `nameMap` throws at module load on a duplicate (`:140-144`). Declaration order carries no meaning (`PEER_RTT_TABLE` 0xc1 sits between 0xac and 0xad, `:96-97`).
+
 ## Rendering
 
 - `WebGPURenderer` is DEFAULT (`?legacygl=1` opts out); unavailable WebGPU retries `forceWebGL=true` before legacy, so TSL is the only shader path. `ClusterLodMesh._render` fires once PER GROUP per frame: keep the `_lastRenderFrame===frame` early-return.
