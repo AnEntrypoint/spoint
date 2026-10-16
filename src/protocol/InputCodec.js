@@ -21,6 +21,7 @@ const EPOCH_BYTES = 4
 export const INPUT_CASE = Object.freeze({
   ACCEPTED: 'input_packet_accepted',
   CLAMPED: 'input_field_clamped',
+  WRAPPED: 'input_field_wrapped',
   DROPPED: 'input_records_dropped',
   SCHEMA: 'input_schema_undeclared',
   ENTRIES: 'input_entries_not_array',
@@ -47,6 +48,7 @@ export const INPUT_CASE_CODES = Object.freeze(Object.values(INPUT_CASE))
 function renderCase(c) {
   switch (c.code) {
     case INPUT_CASE.CLAMPED: return `input record field "${c.field}" is outside ${c.lo}..${c.hi} and was clamped, not sent as given (got ${c.got})`
+    case INPUT_CASE.WRAPPED: return `input record field "${c.field}" is outside ${c.lo}..${c.hi} and was wrapped into the range (got ${c.got})`
     case INPUT_CASE.DROPPED: return `input packet was given ${c.got} records and holds ${c.kept}, so the oldest ${c.dropped} were not sent`
     case INPUT_CASE.SCHEMA: return 'input packet schema is not a declared input schema'
     case INPUT_CASE.ENTRIES: return `input packet entries is not an array (got ${c.gotType})`
@@ -124,8 +126,9 @@ function finiteField(name, value) {
   throw throwableRejection(INPUT_CASE.FIELD, { field: name, gotType: typeof value, got: String(value) })
 }
 
-function quantYaw(yaw) {
+function quantYaw(yaw, cases) {
   const y = finiteField('yaw', yaw)
+  if (y < 0 || y >= TAU) cases.push(inputCase(INPUT_CASE.WRAPPED, { field: 'yaw', lo: 0, hi: TAU, got: y }))
   return Math.round(((y % TAU + TAU) % TAU) / TAU * YAW_STEPS) % YAW_STEPS
 }
 
@@ -162,7 +165,7 @@ function writeRecord(view, off, schema, sequence, input, cases) {
   const hasAnalog = input.analogForward !== undefined || input.analogRight !== undefined
   view.setUint32(off, sequence, true)
   view.setUint32(off + 4, bits >>> 0, true)
-  view.setUint16(off + 8, quantYaw(input.yaw), true)
+  view.setUint16(off + 8, quantYaw(input.yaw, cases), true)
   view.setInt16(off + 10, quantPitch(input.pitch, cases), true)
   view.setUint8(off + 12, bounds('expr', finiteField('expr', input.expr), 0, 255, cases))
   view.setUint8(off + 13, hasAnalog ? FLAG_ANALOG : 0)

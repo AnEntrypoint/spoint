@@ -157,6 +157,10 @@ quantizeInput(schema, { pitch: 2.0, analogForward: 4 }, qCases)
 expect('quantizeInput reports the fields it clamps as typed cases instead of clamping them silently',
   isDeepStrictEqual(caseKeys(qCases), [`${INPUT_CASE.CLAMPED}:pitch`, `${INPUT_CASE.CLAMPED}:analogForward`]),
   JSON.stringify(qCases))
+const wCases = []
+quantizeInput(schema, { yaw: 7.5 }, wCases)
+expect('quantizeInput reports an out-of-range yaw as a typed WRAPPED case instead of wrapping it silently',
+  isDeepStrictEqual(caseKeys(wCases), [`${INPUT_CASE.WRAPPED}:yaw`]), JSON.stringify(wCases))
 const clampedPitch = decodeInputPacket(schema, outOfRange.bytes)
 expect('a clamped record decodes to exactly the quantization of its own input, so the clamp is the only loss',
   clampedPitch.accepted === true && isDeepStrictEqual(clampedPitch.entries[0].data, quantizeInput(schema, { pitch: 2.0, analogForward: 4, analogRight: -4, expr: 300 })),

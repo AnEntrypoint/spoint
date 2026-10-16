@@ -220,7 +220,7 @@ export class BaseClient {
     const { code } = c
     const error = Object.assign(new Error(c.reason ?? `input packet case ${code} has no rendering`), c)
     this.callbacks.onMessageError('inputReject', error)
-    if (code !== INPUT_CASE.CLAMPED && code !== INPUT_CASE.DROPPED) console.error('[client] input packet refused:', error.message)
+    if (code !== INPUT_CASE.CLAMPED && code !== INPUT_CASE.DROPPED && code !== INPUT_CASE.WRAPPED) console.error('[client] input packet refused:', error.message)
   }
 
   _onSnapshot(data, msgType) {
