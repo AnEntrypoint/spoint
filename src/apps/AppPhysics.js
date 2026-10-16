@@ -10,6 +10,25 @@ function scaleOf(ent) {
   return ent.scale || [1, 1, 1]
 }
 
+export function parseInteractable(config = {}) {
+  const radius = config.radius ?? 3
+  const cooldown = config.cooldown ?? 500
+  const prompt = config.prompt ?? 'Press E'
+  nonNeg(radius, 'interactable: radius')
+  nonNeg(cooldown, 'interactable: cooldown')
+  if (typeof prompt !== 'string') throw new TypeError('interactable: prompt must be a string')
+  return { prompt, radius, cooldown }
+}
+
+export function reifyInteractable(ent, runtime, cfg) {
+  ent._interactable = true
+  ent._interactRadius = cfg.radius
+  ent._interactCooldown = cfg.cooldown
+  if (!ent.custom) ent.custom = {}
+  ent.custom._interactable = { prompt: cfg.prompt, radius: cfg.radius, cooldown: cfg.cooldown }
+  runtime._interactableIds?.add(ent.id)
+}
+
 function scaledPoints(raw, sc) {
   return (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
 }
@@ -88,10 +107,7 @@ export function liveBodyIdOf(runtime, ent) {
 export function buildPhysicsAPI(ent, runtime) {
   const liveBodyId = () => liveBodyIdOf(runtime, ent)
   const api = {
-    setInteractable: (radius = 3) => {
-      nonNeg(radius, 'physics.setInteractable: radius')
-      ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id)
-    },
+    setInteractable: (radius = 3) => reifyInteractable(ent, runtime, parseInteractable({ radius })),
     setStatic: (v) => { if (v) setBodyType(ent, runtime, 'static') },
     setDynamic: (v) => { if (v) setBodyType(ent, runtime, 'dynamic') },
     setKinematic: (v) => { if (v) setBodyType(ent, runtime, 'kinematic') },
