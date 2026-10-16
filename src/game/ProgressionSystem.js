@@ -68,8 +68,8 @@ export function createProgressionSystem(config = {}) {
     return playerProgression.get(playerId)
   }
 
-  function addXp(playerId, amount) {
-    if (!Number.isFinite(amount) || amount < 0) return false
+  function addXpResult(playerId, amount) {
+    if (!Number.isFinite(amount) || amount < 0) return { ok: false, reason: 'invalid-amount', leveledUp: false }
 
     const state = getPlayerState(playerId)
     const newTotalXp = state.totalXp + amount
@@ -78,7 +78,7 @@ export function createProgressionSystem(config = {}) {
       state.totalXp = 0xFFFFFFFF
       state.level = levelForTotalXp(state.totalXp)
       state.xp = state.totalXp - calculateXpThreshold(state.level)
-      return false
+      return { ok: false, reason: 'xp-saturated', leveledUp: false }
     }
 
     state.totalXp = newTotalXp
@@ -104,7 +104,11 @@ export function createProgressionSystem(config = {}) {
     const currentLevelThreshold = calculateXpThreshold(state.level)
     state.xp = state.totalXp - currentLevelThreshold
 
-    return leveledUp
+    return { ok: true, reason: null, leveledUp }
+  }
+
+  function addXp(playerId, amount) {
+    return addXpResult(playerId, amount).leveledUp
   }
 
   function getProgress(playerId) {
@@ -199,6 +203,7 @@ export function createProgressionSystem(config = {}) {
     calculateXpThreshold,
     getPlayerState,
     addXp,
+    addXpResult,
     getProgress,
     getState,
     getAllStates,
