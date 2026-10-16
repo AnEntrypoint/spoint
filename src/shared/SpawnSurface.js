@@ -51,8 +51,19 @@ function hasHeadroom(raycast, x, surfaceY, z, headroom, radius) {
   return true
 }
 
+function argumentFault(raycast, pose, standingOffset, headroom, radius) {
+  if (typeof raycast !== 'function') return 'raycast must be a function'
+  if (!Number.isFinite(pose?.[1])) return 'pose[1] must be finite'
+  if (!(standingOffset > 0)) return 'standingOffset must be > 0'
+  if (!(headroom > 0)) return 'headroom must be > 0'
+  if (!(radius >= 0)) return 'radius must be >= 0'
+  if (!(headroom > radius)) return 'headroom must exceed radius'
+  return null
+}
+
 export function spawnSurfaceY(raycast, pose, { standingOffset, headroom = 2 * standingOffset, terrainY = null, radius = 0 }) {
-  if (typeof raycast !== 'function' || !Number.isFinite(pose?.[1]) || !(standingOffset > 0) || !(headroom > 0) || !(radius >= 0) || !(headroom > radius)) return null
+  const bad = argumentFault(raycast, pose, standingOffset, headroom, radius)
+  if (bad) throw new RangeError(`spawnSurfaceY: ${bad}`)
   const x = pose[0], z = pose[2]
   const poseY = Number.isFinite(terrainY) ? Math.max(pose[1], terrainY) : pose[1]
   const feetY = poseY - standingOffset
