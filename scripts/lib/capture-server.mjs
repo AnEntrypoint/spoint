@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
 import { connect } from 'node:net'
+import { request } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CLIENT_ENTRY_SHA_HEADER, CLIENT_ENTRY_URL, CLIENT_ROOT_BUNDLE, CLIENT_ROOT_HEADER, clientRootCandidates, sha256OfFile } from './served-client-root.mjs'
@@ -64,19 +65,20 @@ export function makeRootGuard({ file, pinnedSha256 }) {
   }
 }
 
-export async function probeServer(port, { timeoutMs = 3000, host = CAPTURE_HOST } = {}) {
-  try {
-    const res = await fetch(`http://${host}:${port}${CLIENT_ENTRY_URL}`, { cache: 'no-store', headers: { Connection: 'close' }, signal: AbortSignal.timeout(timeoutMs) })
-    await res.arrayBuffer()
-    return {
-      status: res.status,
-      kind: res.headers.get(CLIENT_ROOT_HEADER),
-      sha256: res.headers.get(CLIENT_ENTRY_SHA_HEADER),
-      refusal: res.headers.get(REFUSAL_HEADER),
-    }
-  } catch (e) {
-    return { error: (e && (e.cause?.code || e.name || e.message)) || 'unreachable' }
-  }
+export function probeServer(port, { timeoutMs = 3000, host = CAPTURE_HOST } = {}) {
+  return new Promise((done) => {
+    const fail = (e) => done({ error: (e && (e.code || e.name || e.message)) || 'unreachable' })
+    const req = request({ host, port, path: CLIENT_ENTRY_URL, headers: { Connection: 'close' }, timeout: timeoutMs })
+    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })))
+    req.on('error', fail)
+    req.on('response', (res) => {
+      const header = (name) => res.headers[name.toLowerCase()] ?? null
+      res.on('error', fail)
+      res.on('data', () => {})
+      res.on('end', () => done({ status: res.statusCode, kind: header(CLIENT_ROOT_HEADER), sha256: header(CLIENT_ENTRY_SHA_HEADER), refusal: header(REFUSAL_HEADER) }))
+    })
+    req.end()
+  })
 }
 
 export function portAccepts(port, { host = CAPTURE_HOST, timeoutMs = 1000 } = {}) {
