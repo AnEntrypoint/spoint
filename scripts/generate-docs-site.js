@@ -48,27 +48,45 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+const BLOCK_START = /^(```|#{1,4} |- )/
+
+function inline(text) {
+  return text.split(/(`[^`]+`)/).map((part, i) => i % 2
+    ? `<code>${part.slice(1, -1)}</code>`
+    : part.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>')
+  ).join('')
+}
+
 function markdownToHtml(md) {
   if (!md) return ''
-  let html = escapeHtml(md)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`
-  })
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
-  html = html.replace(/\n\n+/g, '</p><p>')
-  html = '<p>' + html + '</p>'
-  html = html.replace(/<p>\s*<\/p>/g, '')
-  html = html.replace(/<ul><p>/g, '<ul>')
-  html = html.replace(/<\/p><\/ul>/g, '</ul>')
-  return html
+  const lines = escapeHtml(md).split('\n')
+  const blocks = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      const code = []
+      for (i++; i < lines.length && !lines[i].startsWith('```'); i++) code.push(lines[i])
+      i++
+      blocks.push(`<pre><code class="language-${lang}">${code.join('\n')}</code></pre>`)
+    } else if (/^#{1,4} /.test(line)) {
+      const level = line.match(/^#+/)[0].length
+      blocks.push(`<h${level}>${inline(line.slice(level + 1))}</h${level}>`)
+      i++
+    } else if (line.startsWith('- ')) {
+      const items = []
+      for (; i < lines.length && lines[i].startsWith('- '); i++) items.push(`<li>${inline(lines[i].slice(2))}</li>`)
+      blocks.push(`<ul>${items.join('')}</ul>`)
+    } else if (line.trim() === '') {
+      i++
+    } else {
+      const para = []
+      for (; i < lines.length && lines[i].trim() !== '' && !BLOCK_START.test(lines[i]); i++) para.push(lines[i])
+      blocks.push(`<p>${inline(para.join(' '))}</p>`)
+    }
+  }
+  return blocks.join('\n')
 }
 
 async function collectRepoDocs(repo) {
