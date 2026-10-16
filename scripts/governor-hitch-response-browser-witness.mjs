@@ -175,7 +175,7 @@ async function browserArm() {
   let prs = []
   let sizes = []
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(`${base}/?singleplayer&dprOff=true`, { waitUntil: 'domcontentloaded' })

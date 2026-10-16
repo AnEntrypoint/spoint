@@ -385,8 +385,8 @@ const GATE_PROBE_REPO = resolve(__dirname, 'perf-run-gate.ps1')
 const GPU_PROBE_FALLBACK = `$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine
 $s = 0
 foreach ($x in $e) { if ($x.Name -match 'engtype_3D') { $s += [double]$x.UtilizationPercentage } }
-$t = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chrome-headless-shell.exe'" | Where-Object { $_.CommandLine -match 'dev.train' }).Count
-$all = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chrome-headless-shell.exe'").Count
+$t = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match 'dev.train' }).Count
+$all = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'").Count
 $c = [int](Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
 Write-Output "gpu3d=$s train=$t chrome=$all cpu=$c"`
 const GPU_PROBE_SRC = existsSync(GATE_PROBE_REPO) ? readFileSync(GATE_PROBE_REPO, 'utf8') : GPU_PROBE_FALLBACK
@@ -545,7 +545,7 @@ async function main() {
   let browser
   const gpuSamples = []
   try {
-    browser = await chromium.launch({ headless: true, args })
+    browser = await chromium.launch({ args })
     spawnedChromePid = browser.pid
     const pidRecord = { label: LABEL, nodePid: process.pid, chromePid: browser.pid, profileDir: browser.profileDir, startedAt: new Date().toISOString() }
     writeFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), JSON.stringify(pidRecord))

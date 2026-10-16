@@ -95,7 +95,7 @@ async function main() {
   const server = await boot()
   console.log(`[minimap-live] server up on ${port} world=${process.env.WORLD}`)
 
-  const browser = await chromium.launch({ headless: true, args: [...vendorLaunchArgs(GPU)] })
+  const browser = await chromium.launch({ args: [...vendorLaunchArgs(GPU)] })
   try {
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', (e) => console.log('[minimap-live] pageerror: ' + String((e && e.message) || e).slice(0, 300)))

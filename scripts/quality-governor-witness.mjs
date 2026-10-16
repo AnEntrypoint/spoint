@@ -260,7 +260,7 @@ async function browserArm() {
   let convergedAt = null
   let convergedFrames = null
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(`${base}/?${params}`, { waitUntil: 'domcontentloaded' })

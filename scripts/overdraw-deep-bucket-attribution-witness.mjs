@@ -635,7 +635,7 @@ async function main() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
+    browser = await chromium.launch({ args: LAUNCH_ARGS })
     const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

@@ -692,7 +692,7 @@ async function main() {
   let browser = null
   const results = []
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const scratchPage = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const walk = ONLY ? ARMS.filter(a => a.name === ONLY) : ARMS
     if (ONLY && walk.length !== 1) {

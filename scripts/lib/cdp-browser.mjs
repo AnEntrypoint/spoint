@@ -85,7 +85,7 @@ export function findChrome() {
   for (const p of candidates) { try { if (fs.existsSync(p)) return p } catch (_) {} }
   for (const base of [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers', path.join(os.homedir(), 'AppData/Local/ms-playwright'), path.join(os.homedir(), '.cache/ms-playwright')].filter(Boolean)) {
     try {
-      const dirs = fs.readdirSync(base).filter(d => /^chromium(_headless_shell)?-\d+$/.test(d))
+      const dirs = fs.readdirSync(base).filter(d => /^chromium-\d+$/.test(d))
         .sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()))
       for (const d of dirs) {
         for (const rel of ['chrome-win64/chrome.exe', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
@@ -454,6 +454,9 @@ async function removeProfileDir(dir) {
 }
 
 export async function launch(opts = {}) {
+  if (Object.prototype.hasOwnProperty.call(opts, 'headless')) {
+    throw new Error('cdp-browser refuses a headless launch: CDP browsing is headful only; drop the headless option')
+  }
   const chrome = findChrome()
   if (!chrome) {
     throw new Error('no chromium/chrome binary found. Set CHROME=/path/to/chrome (this repo does not depend on playwright).')

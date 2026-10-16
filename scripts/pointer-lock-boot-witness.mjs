@@ -36,7 +36,7 @@ async function main() {
   let observedMs = 0
   let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
+    browser = await chromium.launch({ args: GPU_ARGS })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const consoleEvents = []
     const pageErrors = []

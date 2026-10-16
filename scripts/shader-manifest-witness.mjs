@@ -65,7 +65,7 @@ async function main() {
   const requests = []
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

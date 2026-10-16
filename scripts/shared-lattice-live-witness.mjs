@@ -48,7 +48,7 @@ const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.
 const server = await boot()
 console.log(`[shared-lattice-live] server up on ${PORT} world=${process.env.WORLD}`)
 
-const browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU)] })
+const browser = await chromium.launch({ args: [...vendorLaunchArgs(GPU)] })
 try {
   const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const terrainLines = []

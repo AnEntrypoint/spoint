@@ -218,7 +218,7 @@ async function main() {
   const server = await boot()
   console.log(`[terrain-memo] server up on ${port} world=${process.env.WORLD}`)
 
-  const browser = await chromium.launch({ headless: true, args: [...vendorLaunchArgs(GPU)] })
+  const browser = await chromium.launch({ args: [...vendorLaunchArgs(GPU)] })
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     page.on('pageerror', (e) => console.log('[terrain-memo] pageerror: ' + String((e && e.message) || e).slice(0, 300)))

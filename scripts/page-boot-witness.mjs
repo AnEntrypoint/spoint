@@ -23,7 +23,6 @@ const TIMEOUT_MS = flagNumber(flag, 'timeout', 180000, process.argv.slice(2))
 const OBSERVE_MS = flagNumber(flag, 'observe', 0, process.argv.slice(2))
 const PROXY = flag('proxy', null)
 const WORLD = flag('world', 'tps-game')
-const HEADLESS = !has('headed')
 const GPU_MODE = gpuModeFlag()
 const GPU_VENDOR = flag('gpu', null)
 const SHOT = flag('screenshot', null)
@@ -125,7 +124,7 @@ async function main() {
     const args = GPU_VENDOR
       ? await adapterLuidArgs(GPU_VENDOR)
       : vendorLaunchArgs(GPU_MODE)
-    browser = await chromium.launch({ headless: HEADLESS, args })
+    browser = await chromium.launch({ args })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const consoleEntries = []
     const pageErrors = []

@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
-import WebSocket from 'ws'
+import { launch as launchCdp } from '../../../scripts/lib/cdp-browser.mjs'
 import { resolveLaunchArgs, assertLiveBackend } from './backend-guard.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -87,7 +87,7 @@ async function cmdBuild(args) {
   const gen = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'gen-height.mjs')], { cwd: ROOT, encoding: 'utf8' })
   process.stdout.write(gen.stdout || ''); if (gen.stderr) process.stderr.write(gen.stderr)
   if (gen.status !== 0) { console.log(JSON.stringify({ ok: false, step: 'gen-height', status: gen.status })); return 1 }
-  console.log('[lab] compile-checking the GLSL (headless SwiftShader)')
+  console.log('[lab] compile-checking the GLSL (CDP browser, SwiftShader)')
   return await cmdGlslCheck(args)
 }
 
@@ -121,41 +121,28 @@ function labLuids() {
   return vendor && luid ? { [String(vendor).toLowerCase()]: luid } : {}
 }
 
-async function withHeadless(fn) {
+async function withBrowser(fn) {
   const chrome = findChrome()
   if (!chrome) return { ok: false, err: 'no chromium found (set CHROME=/path/to/chrome); CPU heightmap/parity still work GPU-free' }
   const launch = resolveLaunchArgs(process.env.LAB_ANGLE || 'swiftshader', process.env.LAB_GPU || null, labLuids())
   const procs = []
+  let browser = null
   try {
     if (!(await serverUp())) {
       const srv = spawn(process.execPath, [path.join(ROOT, 'server.js')], { cwd: ROOT, env: { ...process.env, PORT: '8080' }, stdio: 'ignore' })
       procs.push(srv)
       await waitFor(serverUp, 15000)
     }
-    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mapspinner-lab-'))
-    const cr = spawn(chrome, ['--headless=new', ...launch.args,
-      '--disable-gpu-sandbox', '--no-sandbox', '--remote-debugging-port=0',
-      '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' })
-    procs.push(cr)
-    const portFile = path.join(profile, 'DevToolsActivePort')
-    const port = await waitFor(() => fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null, 15000)
-    const ver = await (await fetch(`http://localhost:${port}/json/version`)).json()
-    const ws = new WebSocket(ver.webSocketDebuggerUrl)
-    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej })
-    let seq = 0; const pending = new Map()
-    ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { const { res, rej } = pending.get(m.id); pending.delete(m.id); m.error ? rej(new Error(m.error.message)) : res(m.result) } }
-    const send = (method, params = {}, sessionId) => new Promise((res, rej) => { const id = ++seq; pending.set(id, { res, rej }); ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params })) })
-    const { targetId } = await send('Target.createTarget', { url: 'http://localhost:8080/planet.html' })
-    const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true })
-    await send('Runtime.enable', {}, sessionId)
-    await send('Page.enable', {}, sessionId)
-    const screenshot = async (p) => { const sr = await send('Page.captureScreenshot', { format: 'png' }, sessionId); fs.writeFileSync(p, Buffer.from(sr.data, 'base64')) }
+    browser = await launchCdp({ args: launch.args, owner: 'mapspinner-lab', root: ROOT })
+    const page = await browser.newPage()
+    await page.goto('http://localhost:8080/planet.html')
+    const screenshot = async (p) => { const sr = await page._send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(p, Buffer.from(sr.data, 'base64')) }
     const evalIn = async (expr, awaitPromise = true) => {
-      const r = await send('Runtime.evaluate', { expression: `(async()=>{ return (${expr}); })()`, awaitPromise, returnByValue: true }, sessionId)
+      const r = await page._send('Runtime.evaluate', { expression: `(async()=>{ return (${expr}); })()`, awaitPromise, returnByValue: true })
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.text)
       return r.result.value
     }
-    const gpu = await assertLiveBackend(evalIn, launch, 'lab.mjs headless session')
+    const gpu = await assertLiveBackend(evalIn, launch, 'lab.mjs cdp session')
     const orchDeadline = Date.now() + (Number(process.env.LAB_ORCH_TIMEOUT_MS) || 8 * 60 * 1000)
     let st = 'init', pageErr = null
     while (Date.now() < orchDeadline) {
@@ -165,15 +152,14 @@ async function withHeadless(fn) {
       await new Promise(r => setTimeout(r, 3000))
     }
     if (st !== 'ready') {
-      try { ws.close() } catch {}
       return { ok: false, reason: pageErr ? 'page-error' : (st === 'error' ? 'orch-error' : 'orch-not-ready'),
         status: st, pageErr, ...gpu,
         note: 'SwiftShader software cold-compile of the full terrain shader is slow (minutes); raise LAB_ORCH_TIMEOUT_MS, or set LAB_ANGLE=d3d11 (plus CHROME env) for a fast compile-check.' }
     }
     const result = await fn(evalIn, screenshot)
-    try { ws.close() } catch {}
     return { ok: true, ...gpu, ...result }
   } finally {
+    if (browser) await browser.close().catch(() => {})
     for (const p of procs) { try { p.kill() } catch {} }
   }
 }
@@ -191,7 +177,7 @@ async function cmdShot(args) {
   const altKm = num(args.alt, 4.0)
   const pitch = num(args.pitch, 0.4)
   const dir = args.dir ? ('[' + String(args.dir) + ']') : 'null'
-  const r = await withHeadless(async (evalIn, screenshot) => {
+  const r = await withBrowser(async (evalIn, screenshot) => {
     const parked = await evalIn(`(async()=>{
       const d = window.__diag || {}, p = window.__planet;
       window.__landDir = ${JSON.stringify(PARK_ABOVE_GROUND_DEFAULT_LAND_DIR)};
@@ -225,7 +211,7 @@ async function cmdAbFs(args) {
     ['nrmFade0', 0], ['nrmFade1', 90], ['colorVar', 2.0], ['biomeSat', 0], ['texTile', 8.0],
   ]
   const FR = 'const f=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); for(let i=0;i<5;i++) await f();'
-  const r = await withHeadless(async (evalIn, screenshot) => {
+  const r = await withBrowser(async (evalIn, screenshot) => {
     await evalIn(`(async()=>{ window.__landDir=${JSON.stringify(PARK_ABOVE_GROUND_DEFAULT_LAND_DIR)}; const d=window.__diag; if(d&&d.parkAboveGround) await d.parkAboveGround(${num(args.alt, 4)}, null, 0.4); const f=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); for(let i=0;i<10;i++) await f(); return 1; })()`)
     await screenshot(tmp); const base = hashFile()
     const changed = [], noEffect = []
@@ -252,7 +238,7 @@ async function cmdAbFs(args) {
 }
 
 async function cmdGlslCheck() {
-  const r = await withHeadless(async (evalIn) => {
+  const r = await withBrowser(async (evalIn) => {
     const probe = await waitFor(async () => {
       const h = await evalIn('(()=>{ const o=window.__planetOrch, p=o&&o.render&&o.render.sampleGroundMSync; if(!p) return null; const h=p([0,1,0]); return (h!=null&&isFinite(h))?h:null; })()').catch(() => null)
       return (h != null && Number.isFinite(Number(h))) ? { h: Number(h) } : null
@@ -273,7 +259,7 @@ async function cmdParity(args) {
     const th = i * GOLDEN_ANGLE_RAD
     dirs.push([r * Math.cos(th), y, r * Math.sin(th)])
   }
-  const r = await withHeadless(async (evalIn) => {
+  const r = await withBrowser(async (evalIn) => {
     const pageR = Number(await evalIn('window.__WEBGL2_TERRAIN_R_M || 63600')) || 63600
     const sampler = createHeightSampler({ radius: pageR })
     const sg = 'window.__planetOrch && window.__planetOrch.render && window.__planetOrch.render.sampleGroundM'
@@ -314,13 +300,13 @@ function cmdHelp() {
             [--hillshade] [--seed N] [--out file.png]
                  Render the CPU height field (src/height-cpu.js) to a grayscale PNG + print stats.
   build          Regenerate the CPU height (gen-height.mjs) + compile-check the GLSL (SwiftShader).
-  glsl-check     Headless SwiftShader Chromium: assert terrain.glsl compiles, report the GL backend.
+  glsl-check     CDP SwiftShader Chromium: assert terrain.glsl compiles, report the GL backend.
   parity [--n N=64] [--tol m=50] [--soft]
                  CPU heightAt vs GPU _PROBE_ sampleGroundM divergence sweep (the parity gate). Exits
                  non-zero when maxAbsM exceeds --tol (a real CI-failing gate); pass --soft to report
                  only (exit 0 whenever the sweep ran, regardless of withinTol -- old behavior).
   shot [--alt km=4] [--pitch 0..1=0.4] [--dir x,y,z] [--d3d11] [--angle B] [--gpu V] [--out f.png]
-                 Headless RENDER of the terrain over land at an oblique pitch (parkAboveGround: ground
+                 CDP RENDER of the terrain over land at an oblique pitch (parkAboveGround: ground
                  fills the frame) -> PNG to inspect. --d3d11 = real AMD/FXC backend (else SwiftShader).
                  --angle B = any ANGLE backend name; --gpu V = pin a DirectX adapter by vendor.
   ab-fs [--d3d11] [--alt km=4]
@@ -329,7 +315,7 @@ function cmdHelp() {
                  Needs LAND in frame (run warm; changedCount high = good frame).
   help
 
-Backend: CPU heights = pure node (no GPU). GLSL = headless Chromium whose ANGLE backend is pinned
+Backend: CPU heights = pure node (no GPU). GLSL = CDP-driven Chromium whose ANGLE backend is pinned
 through scripts/backend-guard.mjs -> scripts/lib/gpu-probe.mjs, never by a hand-written flag
 literal. LAB_ANGLE selects the backend (default swiftshader = GPU-free software WebGL2);
 LAB_GPU=nvidia|amd|intel pins a DirectX adapter by LUID and exits non-zero naming the vendor when
@@ -355,7 +341,7 @@ async function cmdParityPatch(args) {
   const east = nrm(cross(ref, up)); const north = cross(east, up)
   const localToDir = (R, x, z) => nrm([ up[0] + (east[0]*x + north[0]*z)/R, up[1] + (east[1]*x + north[1]*z)/R, up[2] + (east[2]*x + north[2]*z)/R ])
   const detail = (args.detail != null) ? num(args.detail, 50) : null
-  const r = await withHeadless(async (evalIn) => {
+  const r = await withBrowser(async (evalIn) => {
     const R = Number.isFinite(explicitR) ? explicitR : ((Number(await evalIn('window.__WEBGL2_TERRAIN_R_M || 6360'))) || 6360)
     const samples = []
     for (let i = 0; i < grid; i++) for (let j = 0; j < grid; j++) {

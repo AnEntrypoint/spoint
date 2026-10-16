@@ -146,7 +146,7 @@ export async function gpuControlProbe({ iterations, args, probeMs = GPU_CONTROL_
   const file = controlFile(iterations, tag)
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args })
+    browser = await chromium.launch({ args })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page.goto(pathToFileURL(file).href, { waitUntil: 'domcontentloaded' })
     await waitForControlFrames(page)

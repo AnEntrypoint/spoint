@@ -258,12 +258,10 @@ async function main() {
   // half.
   args.push('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-features=CalculateNativeWinOcclusion')
   console.log('[maxlevel] unlock-raf=' + UNLOCK + ' args=' + JSON.stringify(args.slice(-2)))
-  // Headless, not headful: a headful window on a box running several browser arms gets occluded or
-  // backgrounded, and a backgrounded page stops presenting frames -- rAF never fires and a "median"
-  // over zero frames is not a measurement (observed both ways on this box: the same arm read 0
-  // frames headful and 12-19 frames per 1.5s probe headless). frame-time-gate.mjs unlocks rAF the
-  // same way and measures real frame deltas headless, so headless is the proven configuration.
-  const browser = await chromium.launch({ headless: true, args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
+  // CDP browsing is headful (scripts/lib/cdp-browser.mjs refuses a headless launch). A headful window
+  // that gets occluded or backgrounded stops presenting frames, and a "median" over zero frames is not
+  // a measurement, so the occlusion flags above keep the page presenting.
+  const browser = await chromium.launch({ args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
   await page._send('Page.bringToFront').catch(() => {})
   await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })

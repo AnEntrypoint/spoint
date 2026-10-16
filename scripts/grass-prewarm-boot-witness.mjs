@@ -282,7 +282,7 @@ async function main() {
   let gpuName = null
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const want = process.argv.includes('--require-raw-esm') ? CLIENT_ROOT_RAW : CLIENT_ROOT_BUNDLE
 
     for (let i = 0; i < REPS; i++) {

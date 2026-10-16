@@ -55,7 +55,7 @@ async function main() {
   let browser
   let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
+    browser = await chromium.launch({ args: GPU_ARGS })
     const ctxA = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const ctxB = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const pageA = await ctxA.newPage()

@@ -84,7 +84,7 @@ async function main() {
   let browser
   try {
     const args = vendorLaunchArgs(GPU_MODE)
-    browser = await chromium.launch({ headless: true, args })
+    browser = await chromium.launch({ args })
     const a = await makeClient(browser, base, 'clientA')
     const b = await makeClient(browser, base, 'clientB')
 

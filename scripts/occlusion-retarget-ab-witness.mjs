@@ -368,7 +368,7 @@ async function main() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS, owner: 'occ-ab-r270', leaseWaitMs: numeric('lease-wait', '150000'), leaseTtlMs: 600000 })
+    browser = await chromium.launch({ args: LAUNCH_ARGS, owner: 'occ-ab-r270', leaseWaitMs: numeric('lease-wait', '150000'), leaseTtlMs: 600000 })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: DRAW_API_HOOK })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE })

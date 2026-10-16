@@ -4,7 +4,7 @@ const PORT = process.env.PORT || 5180;
 const N = Number(process.argv[2] || 500);
 const URL = `http://127.0.0.1:${PORT}/stress.html?cb=${Date.now()}`;
 const angle = process.env.ANGLE || 'd3d11';
-const launchOpts = { headless: true, args: angle === 'none' ? [] : [`--use-angle=${angle}`, '--use-gl=angle'] };
+const launchOpts = { args: angle === 'none' ? [] : [`--use-angle=${angle}`, '--use-gl=angle'] };
 if (process.env.CHANNEL) launchOpts.channel = process.env.CHANNEL;
 const browser = await chromium.launch(launchOpts);
 const page = await browser.newPage();

@@ -257,7 +257,7 @@ async function main() {
   const UNLOCK = !has('lock-raf')
   if (UNLOCK) args.push('--disable-frame-rate-limit', '--disable-gpu-vsync')
   args.push('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-features=CalculateNativeWinOcclusion')
-  const browser = await chromium.launch({ headless: true, args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
+  const browser = await chromium.launch({ args, owner: LABEL, root: ROOT, leaseWaitMs: LEASE_WAIT_MS })
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
   await page._send('Page.bringToFront').catch(() => {})
   await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })

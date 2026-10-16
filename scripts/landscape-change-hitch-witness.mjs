@@ -521,7 +521,7 @@ async function browserArm() {
   let report = null
   let travelled = 0
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', e => pageErrors.push(String(e)))
     // The mutation has to be live BEFORE the boot warmup, not after it: with the fix installed,

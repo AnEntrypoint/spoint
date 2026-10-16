@@ -131,7 +131,7 @@ async function main() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: false, args: LAUNCH_ARGS })
+    browser = await chromium.launch({ args: LAUNCH_ARGS })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE })
     const query = BACKEND === 'webgpu' ? `${PARAMS}&webgpu=1` : (BACKEND === 'webgl' ? `${PARAMS}&legacygl=1` : PARAMS)

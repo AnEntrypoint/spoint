@@ -334,7 +334,7 @@ async function main() {
     server = await boot()
     console.log('[pipeline-hitch] server up.')
 
-    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: true }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
+    browser = await chromium.launch({ args: [...gpuArgs({ accelerated: true }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_INSTRUMENT })
 

@@ -339,7 +339,7 @@ async function measureRealFrameTimes() {
     server = await boot()
     console.log('[frame-time-gate] server up.')
 
-    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
+    browser = await chromium.launch({ args: [...gpuArgs({ accelerated: ACCELERATED }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
     if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []

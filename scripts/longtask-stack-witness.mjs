@@ -362,7 +362,6 @@ async function main() {
     console.log('[longtask-stack] server up.')
 
     browser = await chromium.launch({
-      headless: false,
       owner: 'r270-74-ltstack',
       root: ROOT,
       leaseWaitMs: LEASE_WAIT_MS,

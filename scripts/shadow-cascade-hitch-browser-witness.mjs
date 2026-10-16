@@ -131,7 +131,7 @@ async function browserArm() {
   const results = []
   let gpuName = null
   try {
-    browser = await chromium.launch({ headless: false, args: vendorLaunchArgs(GPU_MODE, UNLOCKED_RAF_ARGS) })
+    browser = await chromium.launch({ args: vendorLaunchArgs(GPU_MODE, UNLOCKED_RAF_ARGS) })
     for (const cascades of ARMS) {
       const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const pageErrors = []

@@ -111,7 +111,6 @@ async function main() {
     console.log('[vs-ladder] server up.')
 
     browser = await chromium.launch({
-      headless: true,
       args: [...gpuArgs({ accelerated: GPU_MODE.accelerated }), ...vendorPinArgs(VENDOR), ...UNLOCKED_RAF_ARGS],
     })
     const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } })

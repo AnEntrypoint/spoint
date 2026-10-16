@@ -78,14 +78,14 @@ async function measureOne(page, n) {
 
 async function main() {
   const angle = process.env.ANGLE || 'd3d11';
-  const launchOpts = { headless: true, args: angle === 'none' ? [] : [`--use-angle=${angle}`, '--use-gl=angle'] };
+  const launchOpts = { args: angle === 'none' ? [] : [`--use-angle=${angle}`, '--use-gl=angle'] };
   if (process.env.CHANNEL) launchOpts.channel = process.env.CHANNEL;
   let browser;
   try {
     browser = await chromium.launch(launchOpts);
   } catch (e) {
     console.warn(`[measure-fps] launch with channel="${process.env.CHANNEL}" args=${JSON.stringify(launchOpts.args)} failed (${e.message}); falling back to bundled Chromium default args`);
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({});
   }
   const page = await browser.newPage();
   let renderer = 'unknown';

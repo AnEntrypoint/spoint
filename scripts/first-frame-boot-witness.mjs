@@ -320,7 +320,7 @@ async function main() {
     say(`server up on ${base} (world=${process.env.WORLD})`)
 
     const args = GPU_VENDOR ? vendorPinArgs(GPU_VENDOR) : []
-    browser = await chromium.launch({ headless: true, args: [...args, ...UNLOCKED_RAF_ARGS] })
+    browser = await chromium.launch({ args: [...args, ...UNLOCKED_RAF_ARGS] })
 
     const worker = await workerArm(browser, base, SHIPPED_WORKER_URL, 'worker-cold-start')
     // The same instrument against the pre-fix gate, so the before/after is one box, one bundle and

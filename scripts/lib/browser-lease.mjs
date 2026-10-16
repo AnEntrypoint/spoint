@@ -62,9 +62,9 @@ function reapProfileOwners(profile) {
   spawnSync('pkill', ['-f', `--user-data-dir=${profile}`], { stdio: 'ignore' })
 }
 
-export function sessionFingerprint({ args = [], headless = false } = {}) {
+export function sessionFingerprint({ args = [] } = {}) {
   return crypto.createHash('sha1')
-    .update(JSON.stringify({ headless: headless === true, args: [...args].map(String).sort() }))
+    .update(JSON.stringify({ args: [...args].map(String).sort() }))
     .digest('hex')
     .slice(0, 16)
 }

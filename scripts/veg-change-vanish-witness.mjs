@@ -553,7 +553,7 @@ async function main() {
   let browser = null
   const reports = []
   try {
-    browser = await chromium.launch({ headless: false, args: vendorPinArgs(GPU_MODE) })
+    browser = await chromium.launch({ args: vendorPinArgs(GPU_MODE) })
     for (const params of PARAMS) {
       const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
       const pageErrors = []

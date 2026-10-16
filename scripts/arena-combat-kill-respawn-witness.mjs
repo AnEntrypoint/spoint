@@ -248,7 +248,7 @@ async function main() {
   let browser
   try {
     const launchArgs = vendorLaunchArgs({ mode: GPU_MODE })
-    browser = await chromium.launch({ headless: true, args: launchArgs })
+    browser = await chromium.launch({ args: launchArgs })
     const shooter = await makeClient(browser, 'shooter')
     const victim = await makeClient(browser, 'victim')
     const observer = await makeClient(browser, 'observer')

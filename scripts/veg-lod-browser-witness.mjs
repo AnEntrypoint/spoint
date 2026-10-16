@@ -435,7 +435,7 @@ async function main() {
   console.log('[veg-lod-browser] server up on ' + port)
 
   const args = [...gpuArgs({ accelerated: true }), ...LAUNCH_VENDOR_ARGS]
-  const browser = await chromium.launch({ headless: true, args })
+  const browser = await chromium.launch({ args })
   const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   const failures = []
   try {

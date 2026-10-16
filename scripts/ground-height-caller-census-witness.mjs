@@ -262,7 +262,7 @@ async function main() {
   const server = await boot()
   console.log(`[ground-census] server up on ${port} world=${process.env.WORLD}`)
 
-  const browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU)] })
+  const browser = await chromium.launch({ args: [...vendorLaunchArgs(GPU)] })
   try {
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     page.on('pageerror', (e) => console.log('[ground-census] pageerror: ' + String((e && e.message) || e).slice(0, 300)))

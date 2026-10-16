@@ -93,7 +93,7 @@ lift. A future session attempting this should budget for the port, not expect an
 WITNESS HEADLESS WITHOUT A FRAMED SCREENSHOT: don't judge "flat render" from a close-zoom shot whose
 camera you can't aim. Use the DATA diagnostics — `__diag.pxPerPoly()` (on-screen quads/tris rasterized),
 `__diag.assertElevLinear()`, `__diag.landWitness()`, and `window.__terrainConfig`/`__tcEvictRate`. Start
-`node server.js` (port 8080) yourself if it's down, then drive a fresh headless session to it.
+`node server.js` (port 8080) yourself if it's down, then drive a fresh CDP session to it.
 
 ---
 
@@ -183,10 +183,10 @@ confirm `dbg.quads()>0` — a frozen `__altM`+0-quads+overlay-up is a CRASHED re
 Full numbers, the live `__splitFactor` sweep method, the crash class, and gotchas in recall
 "tv8-fps-splitfactor-peak-cut-2026-06-04b". Workflow `.claude/workflows/fps-perf.js`.
 
-## Headless shader verification (USE scripts/verify.mjs)
+## Shader verification (USE scripts/verify.mjs)
 
 The render/lint/watch CLI toolchain and src/lab (terrain-lab mirrors, glslang lint) were DELETED
-2026-06-12 (user: "get rid of the lab and glslang"). The single headless verification surface is
+2026-06-12 (user: "get rid of the lab and glslang"). The single browser verification surface is
 `node scripts/verify.mjs [probeName|expr]` (raw CDP against the live planet.html -- see the
 PERMANENT VERIFY POLICY at the top): shader compile errors surface as orch 'error'/ready-timeout
 on the real two-stage compile, and the in-page `__diag` probes assert behavior. The lab's LOD
@@ -203,7 +203,7 @@ byte-sync-drift class stays dead). It composes the REAL surfaces, no parallel re
   node, no GPU: `node scripts/lab.mjs heightmap [--res N] [--center lat,lon] [--span deg]
   [--radius m] [--hillshade] [--out f.png]` -> grayscale PNG (no-dep, node zlib) + min/max/relief/
   landFrac stats. `npm run lab:heightmap`.
-- GLSL build/validate = headless Chromium with `LAB_ANGLE=swiftshader` (GPU-free software WebGL2,
+- GLSL build/validate = CDP Chromium with `LAB_ANGLE=swiftshader` (GPU-free software WebGL2,
   self-launches chrome + the dev server, tears both down): `glsl-check` asserts terrain.glsl COMPILES
   + reports the GL backend; `parity [--n N] [--tol m]` sweeps CPU heightAt vs the GPU _PROBE_
   sampleGroundM (the standing parity gate for shader height edits); `build` = gen-height + glsl-check.
@@ -215,11 +215,11 @@ half needs a chrome (auto-detected) + degrades cleanly when absent. Surfaced the
 variance finding (scale-coastal-absolute-width: uBeachShelfM absolute width breaks exact 1/100 scale).
 - Backend/GPU selection lives in `scripts/backend-guard.mjs` alone -- no launch path hand-writes
   `--use-angle=`/`--use-adapter-luid=`. Knobs: `LAB_ANGLE`/`LAB_GPU`/`LAB_GPU_LUID`/
-  `LAB_GLSL_PROBE_TIMEOUT_MS` (lab.mjs), `GPU_VENDOR`/`GPU_LUID` (needle-ab, backend-ab),
+  `LAB_GLSL_PROBE_TIMEOUT_MS` (lab.mjs), `GPU_VENDOR`/`GPU_LUID` (backend-ab),
   `VERIFY_ANGLE`/`VERIFY_GPU` (verify.mjs), and `dev-chrome.cmd <backend>` exits 1 on an unknown
   one. Adapter LUIDs here: nvidia 1503521746, amd 62340, NO Intel adapter -- a request it cannot
   honour exits non-zero naming what it could not satisfy instead of running on whatever Chrome
-  picked. `backend-ab`/`needle-ab` assert each arm's live rasterizer before measuring.
+  picked. `backend-ab` asserts each arm's live rasterizer before measuring.
 
 ## The efficient terrain-debug loop (USE THIS, never restart-and-eyeball)
 

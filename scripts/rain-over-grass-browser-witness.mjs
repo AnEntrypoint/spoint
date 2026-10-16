@@ -332,7 +332,7 @@ async function main() {
     // for a dozen other lanes gets backgrounded or occluded -- requestAnimationFrame then stops,
     // every probe reads the state from before the change and the whole arm stalls. Push back on
     // the throttling instead of measuring a browser that is not rendering.
-    browser = await chromium.launch({ headless: false, args: [...vendorLaunchArgs(GPU_MODE), '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'] })
+    browser = await chromium.launch({ args: [...vendorLaunchArgs(GPU_MODE), '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'] })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e)))

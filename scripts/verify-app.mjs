@@ -81,7 +81,7 @@ async function main() {
         `live=[${Array.from(liveIds).slice(0, 20).join(',')}]`)
     }
 
-    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
+    browser = await chromium.launch({ args: GPU_ARGS })
     const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const page = await context.newPage()
     const pageErrors = []
@@ -99,7 +99,7 @@ async function main() {
     const servedRoot = await assertServedClientRoot(page, { label: 'verify-app' })
     console.log(`[verify-app] served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
     const playerId = await waitForEval(page, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'client connect', timeoutMs: 120000 })
-    check('headless client connected with a playerId', !!playerId, `playerId=${JSON.stringify(playerId)}`)
+    check('browser client connected with a playerId', !!playerId, `playerId=${JSON.stringify(playerId)}`)
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer

@@ -56,7 +56,7 @@ async function measureRealColdLoadMs() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
+    browser = await chromium.launch({ args: GPU_ARGS })
     const ctx = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
     const page = await ctx.newPage()
     const pageErrors = []

@@ -22,7 +22,6 @@ const WORLD = flag('world', 'empty')
 const OBSERVE_MS = flagNumber(flag, 'observe', 10000, process.argv.slice(2))
 const TIMEOUT_MS = flagNumber(flag, 'timeout', 240000, process.argv.slice(2))
 const SHOTS = flagNumber(flag, 'shots', 0, process.argv.slice(2))
-const HEADLESS = !has('headed')
 const GPU_VENDOR = flag('gpu', null)
 const VIEW = String(flag('viewport', DEFAULT_VIEWPORT.width + 'x' + DEFAULT_VIEWPORT.height)).split('x').map(Number)
 const OUT = flag('out', null)
@@ -218,7 +217,7 @@ async function main() {
   let browser
   try {
     const args = GPU_VENDOR ? vendorGpuArgs(GPU_VENDOR) : vendorLaunchArgs(gpuModeFlag())
-    browser = await chromium.launch({ headless: HEADLESS, args })
+    browser = await chromium.launch({ args })
     const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INIT })
     const url = `${base}/?${PARAMS}`
