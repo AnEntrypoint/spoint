@@ -45,7 +45,7 @@ function checkSlices(w) {
     if (!isObj(w.terrain)) return reject('terrain', 'must be a terrain config object, false or null')
     const t = parseTerrainConfig(w.terrain)
     if (!t.ok) return reject(t.path ? `terrain.${t.path}` : 'terrain', t.reason)
-    terrain = { ...t.config, ...w.terrain, carves: w.terrain.carves }
+    terrain = t.config
   }
   if (w.planetRadius !== undefined && !(isNum(w.planetRadius) && w.planetRadius >= 0)) return reject('planetRadius', 'must be a finite number >= 0 (0 declares a flat world)')
   if (w.iceServers !== undefined) {

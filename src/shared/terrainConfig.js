@@ -61,6 +61,7 @@ export function parseTerrainConfig(tcfg) {
   try { hashVersion = terrainHashVersionOf(tcfg) } catch (e) { return { ok: false, path: 'hashVersion', reason: e.message } }
   try { carves = terrainCarvesOf(tcfg) } catch (e) { return { ok: false, path: 'carves', reason: e.message } }
   const config = {
+    ...tcfg,
     seed: tcfg.seed,
     radius: tcfg.radius,
     reliefScale: tcfg.reliefScale,
