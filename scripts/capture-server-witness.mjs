@@ -39,7 +39,7 @@ const startServer = () => new Promise((done, fail) => {
   })
   let errBuf = ''
   child.stderr.on('data', (d) => { errBuf += d })
-  child.on('exit', (code) => { clearTimeout(timer); fail(new Error(`capture server exited ${code} before RESULT: ${buf.slice(-300)} stderr: ${errBuf.slice(-800)}`)) })
+  child.on('exit', (code) => { clearTimeout(timer); fail(new Error(`capture server exited ${code} before RESULT: ${buf.slice(-300)} stderr: ${errBuf.slice(-800).replace(/\n/g, ' | ')}`)) })
 })
 const exited = (child) => new Promise((done) => { if (child.exitCode !== null || child.signalCode) return done(); child.once('exit', done) })
 
