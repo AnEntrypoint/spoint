@@ -85,7 +85,7 @@ function canCastAbility(ctx, abilityId) {
   if (!ability) return false
   if (ability.unlockLevel > ctx.progression.getLevel()) return false
   if (ctx.state.mana < ability.manaCost) return false
-  if (!ctx.progression.abilityTree.canCastAbility(ctx.entity.id, abilityId)) return false
+  if (!ctx.progression.abilityTree.canCastAbility(ctx.entity.id, abilityId).ok) return false
   return true
 }
 
@@ -108,7 +108,7 @@ export default {
         const ability = ctx.progression.abilityTree.getAbility(abilityId)
         ctx.state.mana -= ability.manaCost
 
-        if (ctx.progression.abilityTree.castAbility(ctx.entity.id, abilityId, ctx.progression.getLevel())) {
+        if (ctx.progression.abilityTree.castAbility(ctx.entity.id, abilityId, ctx.progression.getLevel()).ok) {
           const baseDamage = getPlayerDamage(ctx.progression.getLevel())
           const totalDamage = baseDamage + ability.damage
 

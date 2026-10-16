@@ -205,15 +205,18 @@ function runSuite(mod, check, source) {
   check('unlocked ability ids by player level', () => [0, 1, 4, 5, 25].map(level => tree.getUnlockedAbilities(level).map(a => a.id)), [[], [1], [1], [1, 2], [1, 2, 3, 4, 5]])
   check('lookup returns definition or null', () => [tree.getAbility(1).name, tree.getAbility(99)], ['Fireball', null])
 
-  check('cast of unknown ability refused', () => tree.castAbility('p1', 99, 25), false)
-  check('cast of locked ability refused', () => tree.castAbility('p1', 2, 4), false)
+  check('refusal reasons name the cause: unknown, locked, cooling', () => { const t = createAbilityTree(); t.castAbility('p1', 1, 1); return [t.castAbility('p1', 99, 25).reason, t.castAbility('p1', 2, 4).reason, t.castAbility('p1', 1, 1).reason] }, ['unknown-ability', 'locked', 'cooling'])
+  check('refusal reasons on bindHotkey: slot and unknown ability', () => { const t = createAbilityTree(); return [t.bindHotkey(0, 1).reason, t.bindHotkey(7, 99).reason] }, ['slot-out-of-range', 'unknown-ability'])
+  check('an accepted cast reports ok with a null reason', () => { const r = createAbilityTree().castAbility('p1', 1, 1); return [r.ok, r.reason] }, [true, null])
+  check('cast of unknown ability refused', () => tree.castAbility('p1', 99, 25).ok, false)
+  check('cast of locked ability refused', () => tree.castAbility('p1', 2, 4).ok, false)
   check('refused cast leaves no cooldown', () => tree.getAbilityCooldown('p1', 2), 0)
-  check('cast of unlocked ability accepted', () => tree.castAbility('p1', 2, 5), true)
+  check('cast of unlocked ability accepted', () => tree.castAbility('p1', 2, 5).ok, true)
   check('cast sets cooldown to the ability cooldown', () => tree.getAbilityCooldown('p1', 2), 5)
-  check('recast while cooling refused', () => tree.castAbility('p1', 2, 25), false)
-  check('canCastAbility false while cooling', () => tree.canCastAbility('p1', 2), false)
-  check('canCastAbility false for unknown ability', () => tree.canCastAbility('p1', 99), false)
-  check('canCastAbility true when ready', () => tree.canCastAbility('p1', 1), true)
+  check('recast while cooling refused', () => tree.castAbility('p1', 2, 25).ok, false)
+  check('canCastAbility false while cooling', () => tree.canCastAbility('p1', 2).ok, false)
+  check('canCastAbility false for unknown ability', () => tree.canCastAbility('p1', 99).ok, false)
+  check('canCastAbility true when ready', () => tree.canCastAbility('p1', 1).ok, true)
   check('active abilities list the cooling ability', () => tree.getPlayerAbilityInfo('p1', 25).activeAbilities, [2])
   check('tick reduces cooldown by dt', () => {
     tree.tick(1.5)
@@ -221,11 +224,11 @@ function runSuite(mod, check, source) {
   }, 3.5)
   check('tick to zero frees the ability and clears its active flag', () => {
     tree.tick(3.5)
-    return [tree.getAbilityCooldown('p1', 2), tree.canCastAbility('p1', 2), tree.getPlayerAbilityInfo('p1', 25).activeAbilities]
+    return [tree.getAbilityCooldown('p1', 2), tree.canCastAbility('p1', 2).ok, tree.getPlayerAbilityInfo('p1', 25).activeAbilities]
   }, [0, true, []])
-  check('recast after expiry accepted', () => tree.castAbility('p1', 2, 5), true)
-  check('cooldowns are per player', () => [tree.castAbility('p2', 1, 1), tree.getAbilityCooldown('p1', 1), tree.getAbilityCooldown('p2', 1)], [true, 0, 2])
-  check('second cooldown for p2 accepted at level 10', () => tree.castAbility('p2', 3, 10), true)
+  check('recast after expiry accepted', () => tree.castAbility('p1', 2, 5).ok, true)
+  check('cooldowns are per player', () => [tree.castAbility('p2', 1, 1).ok, tree.getAbilityCooldown('p1', 1), tree.getAbilityCooldown('p2', 1)], [true, 0, 2])
+  check('second cooldown for p2 accepted at level 10', () => tree.castAbility('p2', 3, 10).ok, true)
   check('tick expires only the elapsed cooldowns', () => {
     tree.tick(2.5)
     return [tree.getAbilityCooldown('p1', 2), tree.getAbilityCooldown('p2', 1), tree.getAbilityCooldown('p2', 3), tree.getPlayerAbilityInfo('p2', 10).activeAbilities]
@@ -233,10 +236,10 @@ function runSuite(mod, check, source) {
 
   const hotkeys = createAbilityTree()
   check('hotkey bindings read back, empty slots read null', () => [hotkeys.getHotkeyBinding(1), hotkeys.getHotkeyBinding(6), hotkeys.getHotkeyBinding(0), hotkeys.getHotkeyBinding(10)], [1, null, null, null])
-  check('empty slot accepts a known ability', () => [hotkeys.bindHotkey(6, 4), hotkeys.getHotkeyBinding(6)], [true, 4])
-  check('out-of-range slot refused', () => [hotkeys.bindHotkey(0, 1), hotkeys.bindHotkey(10, 1)], [false, false])
-  check('unknown ability refused and binding unchanged', () => [hotkeys.bindHotkey(7, 99), hotkeys.getHotkeyBinding(7)], [false, null])
-  check('null unbinds a slot', () => [hotkeys.bindHotkey(6, null), hotkeys.getHotkeyBinding(6)], [true, null])
+  check('empty slot accepts a known ability', () => [hotkeys.bindHotkey(6, 4).ok, hotkeys.getHotkeyBinding(6)], [true, 4])
+  check('out-of-range slot refused', () => [hotkeys.bindHotkey(0, 1).ok, hotkeys.bindHotkey(10, 1).ok], [false, false])
+  check('unknown ability refused and binding unchanged', () => [hotkeys.bindHotkey(7, 99).ok, hotkeys.getHotkeyBinding(7)], [false, null])
+  check('null unbinds a slot', () => [hotkeys.bindHotkey(6, null).ok, hotkeys.getHotkeyBinding(6)], [true, null])
   check('binding view is a copy', () => {
     const view = hotkeys.getAllHotkeyBindings()
     view[1] = 77
@@ -245,9 +248,9 @@ function runSuite(mod, check, source) {
   check('default hotkey map untouched by tree bindings', () => HOTKEY_MAP[6], null)
 
   const source_tree = createAbilityTree()
-  source_tree.castAbility('pA', 1, 1)
+  source_tree.castAbility('pA', 1, 1).ok
   source_tree.tick(0.5)
-  source_tree.bindHotkey(9, 3)
+  source_tree.bindHotkey(9, 3).ok
   const snapshot = source_tree.buildSnapshot()
   const wire = JSON.parse(JSON.stringify(snapshot))
   check('snapshot lists player cooldowns', () => snapshot.playerStates.map(s => [s.playerId, s.cooldowns]), [['pA', [[1, 1.5]]]])
@@ -259,7 +262,7 @@ function runSuite(mod, check, source) {
   }, [1.5, 3, 1])
   const overwritten = createAbilityTree()
   check('applySnapshot replaces existing cooldowns', () => {
-    overwritten.castAbility('pA', 2, 5)
+    overwritten.castAbility('pA', 2, 5).ok
     overwritten.applySnapshot(wire)
     return [overwritten.getAbilityCooldown('pA', 2), overwritten.getAbilityCooldown('pA', 1)]
   }, [0, 1.5])
@@ -270,7 +273,7 @@ function runSuite(mod, check, source) {
 
   const network = createAbilityTree()
   check('no network cooldowns without player state', () => network.getCooldownsForNetwork('nobody'), [])
-  check('cast of Meteor Shower accepted at level 25', () => network.castAbility('pD', 5, 25), true)
+  check('cast of Meteor Shower accepted at level 25', () => network.castAbility('pD', 5, 25).ok, true)
   check('network cooldowns rounded to three decimals', () => {
     network.tick(8.76544)
     return network.getCooldownsForNetwork('pD')
@@ -287,31 +290,31 @@ function runSuite(mod, check, source) {
   check('getAllAbilities has five entries', () => network.getAllAbilities().length, 5)
 
   const lockedTree = createAbilityTree()
-  check('canCastAbility with a level refuses a locked ability', () => [lockedTree.canCastAbility('g1', 2, 4), lockedTree.getAbilityCooldown('g1', 2)], [false, 0])
-  check('canCastAbility with a level accepts an unlocked ready ability', () => createAbilityTree().canCastAbility('g1', 2, 5), true)
-  check('canCastAbility without a level is cooldown readiness only', () => [createAbilityTree().canCastAbility('g1', 2), createAbilityTree().canCastAbility('g1', 1)], [true, true])
+  check('canCastAbility with a level refuses a locked ability', () => [lockedTree.canCastAbility('g1', 2, 4).ok, lockedTree.getAbilityCooldown('g1', 2)], [false, 0])
+  check('canCastAbility with a level accepts an unlocked ready ability', () => createAbilityTree().canCastAbility('g1', 2, 5).ok, true)
+  check('canCastAbility without a level is cooldown readiness only', () => [createAbilityTree().canCastAbility('g1', 2).ok, createAbilityTree().canCastAbility('g1', 1).ok], [true, true])
   check('canCastAbility without a level refuses a cooling ability', () => {
     const tree = createAbilityTree()
-    tree.castAbility('g1', 1, 1)
-    return tree.canCastAbility('g1', 1)
+    tree.castAbility('g1', 1, 1).ok
+    return tree.canCastAbility('g1', 1).ok
   }, false)
   check('castAbility and canCastAbility agree on a locked ability', () => {
     const tree = createAbilityTree()
-    return [tree.canCastAbility('g1', 2, 4), tree.castAbility('g1', 2, 4), tree.canCastAbility('g1', 2, 4)]
+    return [tree.canCastAbility('g1', 2, 4).ok, tree.castAbility('g1', 2, 4).ok, tree.canCastAbility('g1', 2, 4).ok]
   }, [false, false, false])
   check('castAbility and canCastAbility agree on an unlocked ability', () => {
     const tree = createAbilityTree()
-    return [tree.canCastAbility('g1', 2, 5), tree.castAbility('g1', 2, 5), tree.canCastAbility('g1', 2, 5)]
+    return [tree.canCastAbility('g1', 2, 5).ok, tree.castAbility('g1', 2, 5).ok, tree.canCastAbility('g1', 2, 5).ok]
   }, [true, true, false])
   check('castAbility without a level refuses a level-gated ability', () => {
     const tree = createAbilityTree()
-    return [tree.castAbility('pU', 2), tree.castAbility('pU', 1), tree.getAbilityCooldown('pU', 2)]
+    return [tree.castAbility('pU', 2).ok, tree.castAbility('pU', 1).ok, tree.getAbilityCooldown('pU', 2)]
   }, [false, false, 0])
   check('cooldown 0 is clamped to the 0.1 floor, not replaced by 1.0', () => createAbilityTree([{ id: 11, cooldown: 0 }]).getAbility(11).cooldown, 0.1)
   check('an absent cooldown still defaults to 1.0', () => createAbilityTree([{ id: 12 }]).getAbility(12).cooldown, 1)
 
   const coolingSource = createAbilityTree()
-  coolingSource.castAbility('pX', 1, 1)
+  coolingSource.castAbility('pX', 1, 1).ok
   coolingSource.tick(0.5)
   const coolingWire = JSON.parse(JSON.stringify(coolingSource.buildSnapshot()))
   check('applySnapshot restores activeAbilities from the restored cooldowns', () => {
@@ -321,26 +324,26 @@ function runSuite(mod, check, source) {
   }, [1])
   check('applySnapshot replacing cooldowns drops the stale activeAbilities', () => {
     const replaced = createAbilityTree()
-    replaced.castAbility('pX', 2, 5)
+    replaced.castAbility('pX', 2, 5).ok
     replaced.applySnapshot(coolingWire)
     return replaced.getPlayerAbilityInfo('pX', 25).activeAbilities
   }, [1])
   check('stale activeAbilities do not survive the next tick', () => {
     const replaced = createAbilityTree()
-    replaced.castAbility('pX', 2, 5)
+    replaced.castAbility('pX', 2, 5).ok
     replaced.applySnapshot(coolingWire)
     replaced.tick(5)
     return [replaced.getPlayerAbilityInfo('pX', 25).activeAbilities, replaced.getAbilityCooldown('pX', 2), replaced.getAbilityCooldown('pX', 1)]
   }, [[], 0, 0])
   check('applySnapshot refuses a hotkey bound to an unknown ability and keeps the slot', () => {
     const tree = createAbilityTree()
-    tree.bindHotkey(8, 3)
+    tree.bindHotkey(8, 3).ok
     tree.applySnapshot({ hotkeys: { 7: 999, 8: 999 } })
     return [tree.getHotkeyBinding(7), tree.getHotkeyBinding(8)]
   }, [null, 3])
   check('applySnapshot binds a known ability and unbinds a slot with null', () => {
     const tree = createAbilityTree()
-    tree.bindHotkey(8, 3)
+    tree.bindHotkey(8, 3).ok
     tree.applySnapshot({ hotkeys: { 7: 2, 8: null } })
     return [tree.getHotkeyBinding(7), tree.getHotkeyBinding(8)]
   }, [2, null])
@@ -367,13 +370,13 @@ function runSuite(mod, check, source) {
   }, 8)
   check('a hotkey map that is not an object is refused, not silently ignored', () => {
     const tree = createAbilityTree()
-    tree.bindHotkey(8, 3)
+    tree.bindHotkey(8, 3).ok
     const result = tree.applySnapshot({ hotkeys: 'nope' })
     return [result.dropped, result.hotkeys, tree.getHotkeyBinding(8)]
   }, [[{ field: 'hotkeys', reason: 'hotkeys-not-an-object' }], 0, 3])
   check('playerStates that is not an array is refused, not silently ignored', () => {
     const tree = createAbilityTree()
-    tree.castAbility('pQ', 1, 1)
+    tree.castAbility('pQ', 1, 1).ok
     const result = tree.applySnapshot({ playerStates: { pQ: [[1, 9]] } })
     return [result.dropped, result.players, tree.getAbilityCooldown('pQ', 1)]
   }, [[{ field: 'playerStates', reason: 'player-states-not-an-array' }], 0, 2])
@@ -394,7 +397,7 @@ function runSuite(mod, check, source) {
   ], 1, 4])
   check('a hotkey slot key that is not one digit 1-9 is refused, not parsed loosely', () => {
     const tree = createAbilityTree()
-    tree.bindHotkey(3, 1)
+    tree.bindHotkey(3, 1).ok
     const result = tree.applySnapshot({ hotkeys: { '3abc': 4, 0: 1, 10: 2, 7: 2 } })
     return [result.dropped, result.hotkeys, tree.getHotkeyBinding(3), tree.getHotkeyBinding(7)]
   }, [[
@@ -420,7 +423,7 @@ function runSuite(mod, check, source) {
   ])
   check('a tree built from its own table round-trips its hotkeys through a snapshot', () => {
     const restored = createAbilityTree(ALT_ABILITIES)
-    restored.bindHotkey(1, 11)
+    restored.bindHotkey(1, 11).ok
     const result = createAbilityTree(ALT_ABILITIES).applySnapshot(restored.buildSnapshot())
     return [result.dropped, result.hotkeys]
   }, [[], 9])
@@ -509,7 +512,7 @@ function runInvariantRun(mod, check) {
           const abilityId = pick([...ABILITY_IDS, 99])
           const before = cooldownTable(tree)
           const wantAccepted = Number.isFinite(level) && UNLOCK.get(abilityId) <= level && tree.getAbilityCooldown(playerId, abilityId) <= 0
-          const accepted = tree.castAbility(playerId, abilityId, level)
+          const accepted = tree.castAbility(playerId, abilityId, level).ok
           const after = cooldownTable(tree)
           if (accepted !== wantAccepted) note('gate', [config.label, trial, step, playerId, abilityId, String(level), accepted, wantAccepted])
           if (accepted) {
@@ -620,12 +623,12 @@ function runInvariantRun(mod, check) {
           const slot = 1 + Math.floor(rand() * 9)
           const abilityId = pick([...ABILITY_IDS, null])
           const wantBound = abilityId === null || COOLDOWN.has(abilityId)
-          if (tree.bindHotkey(slot, abilityId) !== wantBound) note('gate', [config.label, trial, step, slot, abilityId, 'bind'])
+          if (tree.bindHotkey(slot, abilityId).ok !== wantBound) note('gate', [config.label, trial, step, slot, abilityId, 'bind'])
         } else {
           const playerId = pick(PLAYERS)
           const abilityId = pick(ABILITY_IDS)
-          const predicted = tree.canCastAbility(playerId, abilityId, level)
-          const accepted = tree.castAbility(playerId, abilityId, level)
+          const predicted = tree.canCastAbility(playerId, abilityId, level).ok
+          const accepted = tree.castAbility(playerId, abilityId, level).ok
           const want = Number.isFinite(level) ? accepted : tree.getAbilityCooldown(playerId, abilityId) === 0
           if (predicted !== want) note('disagree', [config.label, trial, step, playerId, abilityId, String(level), predicted, want])
         }
@@ -728,13 +731,13 @@ function runProperties(mod, check) {
     const tree = createAbilityTree()
     for (let step = 0; step < 6; step++) {
       if (rand() < 0.4) {
-        tree.bindHotkey(1 + Math.floor(rand() * 9), pick([...ABILITY_IDS, null]))
+        tree.bindHotkey(1 + Math.floor(rand() * 9), pick([...ABILITY_IDS, null])).ok
       }
       if (rand() < 0.5) {
         const playerId = pick(PLAYERS)
         const abilityId = pick([...ABILITY_IDS, 99])
         const before = observable(tree, level)
-        const accepted = tree.castAbility(playerId, abilityId, level)
+        const accepted = tree.castAbility(playerId, abilityId, level).ok
         if (!accepted && observable(tree, level) !== before) partial.push([trial, step, abilityId])
       } else {
         const dt = rand() * 6 - 3
@@ -776,7 +779,7 @@ function runProperties(mod, check) {
     const tree = createAbilityTree()
     const abilityId = pick(ABILITY_IDS)
     const cooldown = tree.getAbility(abilityId).cooldown
-    if (!tree.castAbility('pE', abilityId, 25)) {
+    if (!tree.castAbility('pE', abilityId, 25).ok) {
       expiry.push([trial, 'refused'])
       continue
     }
@@ -789,7 +792,7 @@ function runProperties(mod, check) {
       ticks++
     }
     const info = tree.getPlayerAbilityInfo('pE', 25)
-    if (!(tree.getAbilityCooldown('pE', abilityId) === 0 && info.activeAbilities.length === 0 && tree.canCastAbility('pE', abilityId, 25))) {
+    if (!(tree.getAbilityCooldown('pE', abilityId) === 0 && info.activeAbilities.length === 0 && tree.canCastAbility('pE', abilityId, 25).ok)) {
       expiry.push([trial, abilityId, elapsed])
     }
   }

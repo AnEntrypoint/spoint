@@ -62,12 +62,12 @@ const drive = (mod) => {
     obs.sentMessages = sent.map((entry) => entry.message)
 
     obs.unlockedAtLevelFour = p.getUnlockedAbilities().map((ability) => ability.id)
-    obs.castFirst = p.castAbility(1)
-    obs.castFirstAgain = p.castAbility(1)
-    obs.castLockedSecond = p.castAbility(2)
+    obs.castFirst = p.castAbility(1).ok
+    obs.castFirstAgain = p.castAbility(1).ok
+    obs.castLockedSecond = p.castAbility(2).ok
     obs.cooldownAfterCast = p.getAbilityCooldown(1)
-    obs.canCastWhileCooling = p.canCastAbility(1)
-    obs.bindings = [p.bindHotkey(6, 2), p.bindHotkey(6, 99), p.bindHotkey(0, 1), p.bindHotkey(10, 1), p.bindHotkey(7, null)]
+    obs.canCastWhileCooling = p.canCastAbility(1).ok
+    obs.bindings = [p.bindHotkey(6, 2).ok, p.bindHotkey(6, 99).ok, p.bindHotkey(0, 1).ok, p.bindHotkey(10, 1).ok, p.bindHotkey(7, null).ok]
     obs.statScalingLevelFour = p.getStatScaling(100)
     const network = system.getNetworkState('p1')
     obs.network = [
@@ -81,8 +81,8 @@ const drive = (mod) => {
     obs.cooldownAfterOneTick = p.getAbilityCooldown(1)
     system.tick(ctx, 1.0)
     obs.cooldownAfterTwoTicks = p.getAbilityCooldown(1)
-    obs.canCastAfterCooldown = p.canCastAbility(1)
-    obs.castLockedFifth = p.castAbility(5)
+    obs.canCastAfterCooldown = p.canCastAbility(1).ok
+    obs.castLockedFifth = p.castAbility(5).ok
 
     system.onPlayerLeave('p1')
     obs.afterLeave = [p.getLevel(), p.getTotalXp(), p.getAbilityCooldown(1)]

@@ -34,7 +34,10 @@ const progression = createProgressionSystem({
 ### Core API
 
 #### addXp(playerId, amount): boolean
-Adds XP to a player. Returns true when the call produced at least one level-up event, false otherwise.
+Adds XP to a player. Returns true when the call produced at least one level-up event, false otherwise. Use `addXpResult` when the refusal reason matters.
+
+#### addXpResult(playerId, amount): {ok, reason, leveledUp}
+Same mutation as `addXp`, with the three cases separated: `{ok:false, reason:'invalid-amount', leveledUp:false}` (no mutation), `{ok:false, reason:'xp-saturated', leveledUp:false}` (saturated, state pinned as below), `{ok:true, reason:null, leveledUp}` (accepted; `leveledUp` tells whether a level-up event was pushed). `addXp(p, a)` is exactly `addXpResult(p, a).leveledUp`.
 
 Two inputs are rejected without touching state: a non-finite amount, and a negative one.
 
@@ -129,9 +132,9 @@ mapping[2] === 2  // Hotkey 2 casts ability 2
 Attempts to cast an ability. Returns true if successful, false if on cooldown or not unlocked.
 
 ```javascript
-if (abilityTree.castAbility(playerId, abilityId, currentLevel)) {
+if (abilityTree.castAbility(playerId, abilityId, currentLevel).ok) {
   broadcastAbilityCast(playerId, abilityId)
-} else if (!abilityTree.canCastAbility(playerId, abilityId)) {
+} else if (!abilityTree.canCastAbility(playerId, abilityId).ok) {
   showMessage('Ability not ready')
 }
 ```
@@ -218,7 +221,7 @@ export default {
 
     onMessage(ctx, msg) {
       if (msg.type === 'cast-ability') {
-        if (ctx.progression.castAbility(msg.abilityId)) {
+        if (ctx.progression.castAbility(msg.abilityId).ok) {
           ctx.world.sendToEntity(ctx.entity.id, {
             type: 'ability',
             abilityId: msg.abilityId,
