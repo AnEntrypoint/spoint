@@ -51,11 +51,11 @@ export function defineQuestSystem(spec = {}, appCtx) {
   const questSystem = {
     startQuest(pid, questId) {
       const data = _getPlayerData(pid)
-      if (!quests[questId]) return false
+      if (!quests[questId]) return { ok: false, reason: 'unknown-quest' }
 
       const existing = data.get(questId)
       const replayable = existing?.state === 'claimed' && quests[questId].repeatable === true
-      if (existing && !replayable) return false
+      if (existing && !replayable) return { ok: false, reason: 'already-started' }
 
       const questDef = quests[questId]
       const progress = questDef.objectives.map(() => 0)
@@ -68,23 +68,27 @@ export function defineQuestSystem(spec = {}, appCtx) {
 
       _fire('onQuestStart', { playerId: String(pid), questId })
       _pushToClient(pid, questId)
-      return true
+      return { ok: true }
     },
 
     completeObjective(pid, questId, objectiveIndex, amount = 1) {
       const data = _getPlayerData(pid)
       const quest = data.get(questId)
 
-      if (!quest || quest.state !== 'active') return false
+      if (!quest) return { ok: false, reason: 'unknown-quest' }
+      if (quest.state !== 'active') return { ok: false, reason: 'not-active' }
 
       const questDef = quests[questId]
-      if (!questDef || !questDef.objectives[objectiveIndex]) return false
+      if (!questDef) return { ok: false, reason: 'unknown-quest' }
+      if (!questDef.objectives[objectiveIndex]) return { ok: false, reason: 'bad-objective' }
 
-      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return false
+      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) {
+        return { ok: false, reason: 'bad-amount' }
+      }
 
       const objective = questDef.objectives[objectiveIndex]
       const target = objective.count || 1
-      if (quest.progress[objectiveIndex] >= target) return false
+      if (quest.progress[objectiveIndex] >= target) return { ok: false, reason: 'already-at-target' }
 
       quest.progress[objectiveIndex] = Math.min(target, quest.progress[objectiveIndex] + amount)
 
@@ -111,17 +115,18 @@ export function defineQuestSystem(spec = {}, appCtx) {
         _pushToClient(pid, questId)
       }
 
-      return true
+      return { ok: true }
     },
 
     claimReward(pid, questId) {
       const data = _getPlayerData(pid)
       const quest = data.get(questId)
 
-      if (!quest || quest.state !== 'complete') return null
+      if (!quest) return { ok: false, reason: 'unknown-quest' }
+      if (quest.state !== 'complete') return { ok: false, reason: 'not-complete' }
 
       const questDef = quests[questId]
-      if (!questDef) return null
+      if (!questDef) return { ok: false, reason: 'unknown-quest' }
 
       const rewards = questDef.rewards
       quest.state = 'claimed'
@@ -147,7 +152,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
       }
 
       _pushToClient(pid, questId)
-      return { xp: rewards.xp || 0, items: rewards.items || {}, statBonuses: rewards.statBonuses || {} }
+      return { ok: true, xp: rewards.xp || 0, items: rewards.items || {}, statBonuses: rewards.statBonuses || {} }
     },
 
     push(pid) {

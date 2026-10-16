@@ -115,7 +115,7 @@ const turnInIfComplete = (ctx, playerId, questId) => {
 }
 
 const beginQuest = (ctx, playerId, questId) => {
-  if (!ctx.quests.startQuest(playerId, questId)) return
+  if (!ctx.quests.startQuest(playerId, questId).ok) return
   QUEST_DEFINITIONS[questId].objectives.forEach((objective, index) => {
     if (objective.type !== 'collectX') return
     const held = Math.min(ctx.inventory.count(playerId, objective.itemId), objective.count)
