@@ -79,11 +79,10 @@ under a subpath host -- the same reason spoint's own demo export passes `--base=
 npx spoint-static-export dist-static --base=/repo-name
 ```
 
-Then push `dist-static/`'s contents to a `gh-pages` branch (or configure Pages to serve from a
-`docs/` folder / GitHub Actions deploy, whichever this repo already uses). This repo has no
-`.github/workflows/` at all: spoint's own demo deploy is the same command run by hand and the
-export pushed to the `gh-pages` branch. Add your own workflow if you want it to run on every
-push.
+Then deploy `dist-static/` to Pages. spoint's own demo does this from
+`.github/workflows/pages.yml` on every push to `main`: it runs the export with `--base=/spoint`,
+adds the docs under `docs/`, and deploys through `actions/deploy-pages`. Copy that workflow for
+your own project.
 
 **User/org root site** (`username.github.io`, this repo IS the pages source) -- no `--base` needed,
 same as itch.io.
@@ -110,10 +109,10 @@ Visit the printed URL with no query string -- `index.html`'s own inline script a
 
 ## Limits of this mode
 
-- **No real multiplayer.** Each visitor's BrowserServer instance is theirs alone. For actual
-  multiplayer you need a real Node host (`npm start` / `server.js`) or a P2P room via wireweave
-  (`?wwjoin=...` / `?room=...`) -- static hosting covers neither of those transports, only the
-  in-Worker singleplayer path.
+- **Multiplayer is P2P only.** A bare URL runs singleplayer (a BrowserServer per visitor). A
+  wireweave room runs multiplayer with no server of ours: `?room=<id>` hosts, `?wwjoin&room=<id>`
+  joins. Signaling goes over public nostr relays, and game data goes peer-to-peer over WebRTC. A
+  Node host (`npm start` / `server.js`) is still needed for a server-authoritative game.
 - **Asset size.** Everything under `apps/` (including any `.glb`/`.vrm` models) ships as static
   files in the export -- there is no server-side asset optimization pipeline running at request
   time (the live dev server's on-demand GLB transform/quantize pipeline only runs under Node). Run
