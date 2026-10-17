@@ -18,17 +18,9 @@ import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
-import { resolveCCD } from './AppPhysics.js'
+import { resolveCCD, parseInteractable, reifyInteractable } from './AppPhysics.js'
 import { extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
-const _nonNegOrDefault = (fallback, v, name) => {
-  if (v == null) return fallback
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
-    console.warn(`[AppRuntime] ${name} must be a non-negative finite number, got ${String(v)}: using ${fallback}`)
-    return fallback
-  }
-  return v
-}
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
 
@@ -489,11 +481,13 @@ export class AppRuntime {
     const e = entity || this.entities.get(entityId); if (!e) return
     const flag = e.custom && e.custom._interactable
     if (flag) {
-      const cfg = (typeof flag === 'object') ? flag : {}
-      e._interactable = true
-      e._interactRadius = _nonNegOrDefault(e._interactRadius ?? 3, cfg.radius, 'interactable: radius')
-      e._interactCooldown = _nonNegOrDefault(e._interactCooldown ?? 500, cfg.cooldown, 'interactable: cooldown')
-      this._interactableIds.add(entityId)
+      const stored = (typeof flag === 'object') ? flag : {}
+      const cfg = parseInteractable({
+        radius: stored.radius ?? e._interactRadius ?? 3,
+        cooldown: stored.cooldown ?? e._interactCooldown ?? 500,
+        prompt: stored.prompt ?? 'Press E'
+      })
+      reifyInteractable(e, this, cfg)
     } else {
       e._interactable = false
       this._interactableIds.delete(entityId)
