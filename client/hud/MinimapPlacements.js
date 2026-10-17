@@ -175,7 +175,10 @@ export function createPlacementScanner() {
   const scanners = KINDS.map(createKindScanner)
   const active = new Uint8Array(scanners.length)
   let s = 0
+  let generation = 0
 
+  // begin returns the armed scan, or null on refusal. A refused window hands back
+  // no handle, so its step cannot be reached and cannot report a finished empty scan.
   function begin(frame, anchorField, sources, worldSeed, cx, cz, halfM) {
     s = 0
     const breach = beginInputsBreach(frame, sources, worldSeed, cx, cz, halfM)
@@ -183,7 +186,7 @@ export function createPlacementScanner() {
       reportContractBreach('begin', breach)
       active.fill(0)
       for (const sc of scanners) sc.cache.clear()
-      return false
+      return null
     }
     for (let i = 0; i < scanners.length; i++) {
       const source = sources[scanners[i].sourceKey]
@@ -192,15 +195,17 @@ export function createPlacementScanner() {
       scanners[i].bind(frame, anchorField, source, worldSeed)
       scanners[i].begin(cx, cz, halfM)
     }
-    return true
-  }
-
-  function step(deadline, onChunk) {
-    while (s < scanners.length) {
-      if (active[s] && !scanners[s].step(deadline, onChunk)) return false
-      s++
+    const mine = ++generation
+    return {
+      step(deadline, onChunk) {
+        if (mine !== generation) throw new Error('placement scan superseded by a newer begin')
+        while (s < scanners.length) {
+          if (active[s] && !scanners[s].step(deadline, onChunk)) return false
+          s++
+        }
+        return true
+      },
     }
-    return true
   }
 
   function glyphSnapshot() {
@@ -209,5 +214,5 @@ export function createPlacementScanner() {
     return out
   }
 
-  return { begin, step, glyphSnapshot, get cachedChunks() { return scanners.map(x => x.cachedChunks) } }
+  return { begin, glyphSnapshot, get cachedChunks() { return scanners.map(x => x.cachedChunks) } }
 }

@@ -223,7 +223,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
     }
     w.carried = carryPreviousGrid(w)
     if (w.carried > 0) { stats.cellsCarried += w.carried; stats.refreshesWithCarry++ }
-    w.placementArmed = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
+    w.placement = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
     state.work = w
   }
 
@@ -283,8 +283,8 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
       return
     }
     if (w.phase === 1) { finishTerrain(w); w.phase = 2; return }
-    if (!w.placementArmed) { state.work = null; return }
-    const done = scanner.step(deadline, paintGlyphChunk)
+    if (!w.placement) { state.work = null; return }
+    const done = w.placement.step(deadline, paintGlyphChunk)
     if (w.progressive) state.version++
     if (!done) return
     if (!w.progressive) swapLayers(w)
