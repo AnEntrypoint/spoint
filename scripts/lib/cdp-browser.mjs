@@ -346,8 +346,7 @@ class Browser {
 
   async close() {
     try { this._conn.close() } catch (_) {}
-    try { this._proc.kill() } catch (_) {}
-    if (process.platform === 'win32' && this._proc && this._proc.pid) spawnSync('taskkill', ['/PID', String(this._proc.pid), '/T', '/F'], { stdio: 'ignore' })
+    killGroup(this._proc, 'SIGKILL')
     await wait(150)
     try { fs.rmSync(this._profileDir, { recursive: true, force: true }) } catch (_) {}
     if (this._lease) this._lease.release()
@@ -440,10 +439,29 @@ export function sweepStaleProfiles() {
   return removed
 }
 
-function killProcessTree(proc) {
+const liveBrowserProcs = new Set()
+
+function killGroup(proc, signal = 'SIGTERM') {
   if (!proc || !proc.pid) return
-  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
-  try { proc.kill() } catch (_) {}
+  liveBrowserProcs.delete(proc)
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
+    return
+  }
+  try { process.kill(-proc.pid, signal) } catch (_) { try { proc.kill(signal) } catch (_) {} }
+}
+
+function reapLiveBrowsers() {
+  for (const proc of [...liveBrowserProcs]) killGroup(proc, 'SIGKILL')
+}
+
+process.once('exit', reapLiveBrowsers)
+for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
+  process.once(sig, () => { reapLiveBrowsers(); process.exit(code) })
+}
+
+function killProcessTree(proc) {
+  killGroup(proc, 'SIGKILL')
 }
 
 async function removeProfileDir(dir) {
@@ -488,7 +506,8 @@ export async function launch(opts = {}) {
       ...(opts.args || []),
       'about:blank',
     ]
-    proc = spawn(chrome, args, { stdio: 'ignore' })
+    proc = spawn(chrome, args, { stdio: 'ignore', detached: process.platform !== 'win32' })
+    liveBrowserProcs.add(proc)
     const portFile = path.join(profileDir, 'DevToolsActivePort')
     const dport = await waitFor(
       () => (fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null),
