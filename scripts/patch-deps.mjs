@@ -214,6 +214,24 @@ patch(
 )
 
 patch(
+  'node_modules/msgpackr/dist/node.cjs',
+  'value >>> 0 === value && !Object.is(value, -0)',
+  `\t\t\t\tif (value >>> 0 === value) {// positive integer, 32-bit or less`,
+  `\t\t\t\tif (value >>> 0 === value && !Object.is(value, -0)) {// positive integer, 32-bit or less`,
+  'msgpackr -0 escapes the positive fixint branch (node CJS build)',
+  true
+)
+
+patch(
+  'node_modules/msgpackr/dist/node.cjs',
+  'value >> 0 === value && !Object.is(value, -0)',
+  `\t\t\t\t} else if (value >> 0 === value) { // negative integer`,
+  `\t\t\t\t} else if (value >> 0 === value && !Object.is(value, -0)) { // negative integer`,
+  'msgpackr -0 escapes the negative fixint branch (node CJS build)',
+  true
+)
+
+patch(
   'node_modules/three/build/three.webgpu.js',
   '\n\t\t\tdevice.popErrorScope().catch( () => null ).then( ( err ) => {',
   '\n\t\t\tdevice.popErrorScope().then( ( err ) => {',
