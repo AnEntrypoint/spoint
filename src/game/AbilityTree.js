@@ -1,3 +1,5 @@
+import { parsePlayerId, tryParsePlayerId } from './playerId.js'
+
 export const DEFAULT_ABILITIES = [
   {
     id: 1,
@@ -104,14 +106,15 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function getPlayerAbilityState(playerId) {
-    if (!playerAbilityStates.has(playerId)) {
-      playerAbilityStates.set(playerId, {
-        playerId,
+    const key = parsePlayerId(playerId)
+    if (!playerAbilityStates.has(key)) {
+      playerAbilityStates.set(key, {
+        playerId: key,
         cooldowns: new Map(),
         activeAbilities: new Set()
       })
     }
-    return playerAbilityStates.get(playerId)
+    return playerAbilityStates.get(key)
   }
 
   function getUnlockedAbilities(playerLevel) {
@@ -284,15 +287,16 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
     if (playerStatesUsable) {
       const seenPlayers = new Set()
       for (const [playerIndex, snap] of playerStatesIn.entries()) {
-        if (!snap || !snap.playerId) {
+        const playerKey = snap ? tryParsePlayerId(snap.playerId) : null
+        if (playerKey === null) {
           dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'missing' })
           continue
         }
-        if (seenPlayers.has(snap.playerId)) {
+        if (seenPlayers.has(playerKey)) {
           dropped.push({ field: `playerStates[${playerIndex}].playerId`, reason: 'duplicate-player' })
           continue
         }
-        seenPlayers.add(snap.playerId)
+        seenPlayers.add(playerKey)
         if (!Array.isArray(snap.cooldowns)) {
           dropped.push({ field: `playerStates[${playerIndex}].cooldowns`, reason: 'not-an-array' })
           continue
@@ -323,7 +327,7 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
           if (remaining > 0) active.add(abilityId)
         }
 
-        const state = getPlayerAbilityState(snap.playerId)
+        const state = getPlayerAbilityState(playerKey)
         state.cooldowns.clear()
         state.activeAbilities.clear()
         for (const [abilityId, remaining] of cooldowns) state.cooldowns.set(abilityId, remaining)
@@ -346,11 +350,11 @@ export function createAbilityTree(abilityDefs = DEFAULT_ABILITIES, hotkeyMap = H
   }
 
   function removePlayer(playerId) {
-    playerAbilityStates.delete(playerId)
+    playerAbilityStates.delete(parsePlayerId(playerId))
   }
 
   function getCooldownsForNetwork(playerId) {
-    const state = playerAbilityStates.get(playerId)
+    const state = playerAbilityStates.get(parsePlayerId(playerId))
     if (!state) return []
 
     const cooldowns = []

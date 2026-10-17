@@ -1,3 +1,5 @@
+import { parsePlayerId, tryParsePlayerId } from './playerId.js'
+
 export const CURVE_LINEAR = 'linear'
 export const CURVE_EXPONENTIAL = 'exponential'
 export const CURVE_QUADRATIC = 'quadratic'
@@ -55,9 +57,10 @@ export function createProgressionSystem(config = {}) {
   }
 
   function getPlayerState(playerId) {
-    if (!playerProgression.has(playerId)) {
-      playerProgression.set(playerId, {
-        id: playerId,
+    const key = parsePlayerId(playerId)
+    if (!playerProgression.has(key)) {
+      playerProgression.set(key, {
+        id: key,
         xp: 0,
         level: 1,
         totalXp: 0,
@@ -65,7 +68,7 @@ export function createProgressionSystem(config = {}) {
         levelUpEvents: []
       })
     }
-    return playerProgression.get(playerId)
+    return playerProgression.get(key)
   }
 
   function addXpResult(playerId, amount) {
@@ -130,7 +133,7 @@ export function createProgressionSystem(config = {}) {
   }
 
   function getState(playerId) {
-    return playerProgression.get(playerId) || null
+    return playerProgression.get(parsePlayerId(playerId)) || null
   }
 
   function getAllStates() {
@@ -147,13 +150,14 @@ export function createProgressionSystem(config = {}) {
     if (!snapshotData || !Array.isArray(snapshotData.progressions)) return
 
     for (const snap of snapshotData.progressions) {
-      if (!snap || !snap.id) continue
+      const snapKey = snap ? tryParsePlayerId(snap.id) : null
+      if (snapKey === null) continue
       const declaredTotalXp = Number.isFinite(snap.totalXp) ? snap.totalXp : 0
       const totalXp = Math.min(0xFFFFFFFF, Math.max(0, declaredTotalXp))
       const level = levelForTotalXp(totalXp)
       const declaredTick = Number.isFinite(snap.lastLevelUpTick) ? Math.floor(snap.lastLevelUpTick) : 0
-      playerProgression.set(snap.id, {
-        id: snap.id,
+      playerProgression.set(snapKey, {
+        id: snapKey,
         xp: totalXp - calculateXpThreshold(level),
         level,
         totalXp,
@@ -192,7 +196,7 @@ export function createProgressionSystem(config = {}) {
   }
 
   function removePlayer(playerId) {
-    playerProgression.delete(playerId)
+    playerProgression.delete(parsePlayerId(playerId))
   }
 
   function getConfig() {
