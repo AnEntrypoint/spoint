@@ -275,9 +275,13 @@ export function tryEncodeInputPacket(schema, entries, chartEpoch = 0) {
   return Object.freeze({ accepted: true, code: INPUT_CASE.ACCEPTED, bytes: out, count: n, dropped: first, cases })
 }
 
+// The legacy entry keeps the newest MAX_INPUTS_PER_PACKET records and returns bytes only, so a
+// dropped-records case is announced on the console rather than lost. Callers that branch on it use
+// tryEncodeInputPacket, which returns the case.
 export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   const r = tryEncodeInputPacket(schema, entries, chartEpoch)
   if (!r.accepted) throw new RangeError(r.reason)
+  if (r.dropped > 0) console.warn(r.cases.find(c => c.code === INPUT_CASE.DROPPED).reason)
   return r.bytes
 }
 
