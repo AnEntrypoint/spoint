@@ -301,6 +301,8 @@ export function buildPhysicsAPI(ent, runtime) {
 // This re-points code only. It does not rebuild state the page already built, and every export
 // below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
 const _hotSwapAppPhysics = (next) => {
+  parseInteractable = next.parseInteractable
+  reifyInteractable = next.reifyInteractable
   resolveCCD = next.resolveCCD
   liveBodyIdOf = next.liveBodyIdOf
   buildPhysicsAPI = next.buildPhysicsAPI

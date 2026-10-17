@@ -125,7 +125,8 @@ export function minimapBakeParams(tcfg) {
 
 function reseedTerrainConfig(cfg, seed) {
   const { bakedHeightfield, ...rest } = cfg
-  const reseeded = seed === cfg.seed ? { ...cfg } : { ...rest, seed }
+  const raw = isParsedTerrainConfig(cfg) ? { ...rest, carves: cfg.carveInputs } : rest
+  const reseeded = seed === cfg.seed ? { ...raw } : { ...raw, seed }
   if (cfg.vegetation && typeof cfg.vegetation === 'object') reseeded.vegetation = { ...cfg.vegetation, seed }
   return reseeded
 }
