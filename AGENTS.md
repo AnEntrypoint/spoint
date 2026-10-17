@@ -55,6 +55,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `design` ships as pinned CDN URLs in `client/{index,landing/index,editor/thebird-host}.html` + `scripts/bundle-client.mjs`; `vendor/*` = editing-only submodules.
 - `apps/*` never imports `client/*` (singleplayer Worker resolves relative specifiers vs a virtual root); expose utilities on `engineCtx`. `apps/world/index.js` is the default-world authority.
 - Node-only dynamic import specifiers stay opaque to esbuild/wrangler: IIFE, e.g. `src/sdk/EditorHandlers.js`. `edge/cf-do/spoint-do.js` imports `jolt-edge-init.js` BEFORE `WorkerEntry.js`.
+- `src/protocol/msgpack.js` `_ensurePackr` builds its browser `msgpackr` specifier through an IIFE; never flatten it to a literal. A literal `import('msgpackr')` bundles msgpackr into the browser build (esbuild: 86 KB flat vs 187 B with the IIFE). The node branch's literal import is the one that bundles, by design.
 
 ## Browsers
 
