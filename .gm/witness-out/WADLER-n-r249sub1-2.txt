@@ -1,0 +1,5 @@
+reified_custom: {"prompt":"Open","radius":5,"cooldown":1500}
+hydrated: {"radius":5,"cooldown":1500,"block":{"prompt":"Open","radius":5,"cooldown":1500}}
+cooldownSurvivesRoundTrip: true
+prompt42_error: {"name":"TypeError","message":"interactable: prompt must be a string"}
+RESULT: PASS

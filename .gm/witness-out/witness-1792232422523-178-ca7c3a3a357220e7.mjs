@@ -1,0 +1,10 @@
+import { createRequire as __gmCreateRequire } from 'node:module';
+const require = __gmCreateRequire(process.cwd() + '/');
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const r = cp.spawnSync('node', ['scripts/ground-source-port-witness.mjs'], { encoding: 'utf8', cwd: '/home/user/spoint', timeout: 170000 });
+const out = (r.stdout || '') + (r.stderr || '');
+fs.mkdirSync('.gm/witness-out', { recursive: true });
+fs.writeFileSync('.gm/witness-out/CHARTEST-est-s1-1.txt', out);
+const result = out.split('\n').filter(l => l.startsWith('RESULT:')).pop() || 'RESULT: NONE';
+return { exit_code: r.status, result };

@@ -1,0 +1,28 @@
+witness: witness-gap-GroundSourcePort
+script: scripts/ground-source-port-witness.mjs
+run: honest
+ts: 2026-10-17T10:21:06.254Z
+module: /home/user/spoint/src/terrain/PlanetFrame.js
+module_sha256: 120750e575ed9e1c0933e38b30832f83cb051709a9c3b79fbf07d5bc516a45e8
+module: /home/user/spoint/client/core/ExactPatchFrame.js
+module_sha256: 86f76e973b25cdc75ce48683f543dc45b75b8169e3f424e9266a9cb314b39206
+check M00-port-module-path: ok present /home/user/spoint/src/terrain/PlanetFrame.js
+check M01-patch-module-path: ok present /home/user/spoint/client/core/ExactPatchFrame.js
+check M02-port-module-import: ok imported under node
+check M03-patch-module-import: ok imported under node
+check P01-port-names-the-cpu-source-at-construction: ok groundSource=cpu-solve groundSources=["cpu-solve"]
+check P02-cpu-source-solves-a-real-height: ok y=-0.00041594726101922263
+check P03-cpu-source-throws-SurfaceSolveError-beyond-the-chart-radius: ok threw=ChartRangeError instanceof SurfaceSolveError=true
+check P04-port-installs-a-source-that-drops-yGuess-and-never-notices: ok installed=patch-1arg groundSource=patch-1arg y(yGuess=12)=1.5 arity=2
+check P05-port-installs-a-source-that-returns-a-non-number: ok y=NaN (no throw)
+check P06-assignment-through-the-port-setter-names-the-source-substituted: ok groundSource=substituted groundSourceOf('substituted')===fn=true
+check P07-assigning-the-original-cpu-source-restores-cpu-solve: ok swapped=substituted restored=cpu-solve identity=true
+check P08-a-second-anonymous-source-clobbers-the-first-under-the-same-name: ok groundSourceOf('substituted')===second=true names=["cpu-solve","substituted"]
+check P09-a-prototype-linked-install-keeps-the-override-off-the-shared-frame: ok own_property=true shared_frame_swapped=false substituted_names=0 frame.groundSource=cpu-solve derived_y=3 shared_y=-0.00041594726101922263
+check P10-the-patch-adapter-throws-NoGroundHeightError-and-marks-missing: ok threw=NoGroundHeightError instanceof SurfaceSolveError=true instanceof NoGroundHeightError=true missing=true
+check P11-guardedGroundHeight-converts-a-thrown-solve-error-to-null-but-passes-NaN-through: ok throwing(1,2)=null nanning(1,2)=NaN
+check P12-guardedGroundHeight-ignores-a-caller-supplied-fallback: ok declared_arity=2 got=null (caller asked for 0)
+check P13-groundSourceOf-rejects-a-name-the-port-never-served: ok threw=true message=this frame serves no ground source named "patch"; it names cpu-solve
+check P14-the-registry-keeps-every-name-it-ever-served: ok names=["cpu-solve","a","b","substituted"] current=substituted
+check P15-the-guarded-port-converts-the-patch-adapter-throw-to-NO_GROUND_HEIGHT: ok guarded(0,0)=null missing=true
+RESULT: PASS checks=19 failed=0

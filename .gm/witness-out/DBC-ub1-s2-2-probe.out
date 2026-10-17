@@ -1,0 +1,12 @@
+PASS reject null with TypeError [chain]
+PASS reject undefined with TypeError [chain]
+PASS reject 42 with TypeError [chain]
+PASS reject x with TypeError [chain]
+PASS input spec not mutated (no id written)
+PASS generated id on returned chain
+PASS first add reports replaced:false
+PASS explicit id kept
+PASS same id re-add reports replaced:true
+PASS chain count is 2 distinct ids after replace
+eventLog entries: 3
+RESULT: PASS

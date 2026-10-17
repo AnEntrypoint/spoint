@@ -253,7 +253,7 @@ if (define) {
       },
       8: { level: 0, xp: 0 },
     })
-    check('restore clamps level to maxLevel', restored.getLevel(9), 50)
+    check('restore derives level from clamped xp, not declared level', restored.getLevel(9), 1)
     check('restore clamps negative xp to zero', restored.getStats(9).xp, 0)
     check('restore keeps only known equipment', restored.getEquipment(9), { weapon: { id: 'sword', name: 'Sword', bonuses: { damage: 5 } } })
     check('restore keeps only known numeric bonuses', restored.getBonuses(9), { health: 5 })
