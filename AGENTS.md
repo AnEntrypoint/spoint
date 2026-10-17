@@ -90,6 +90,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Per-cell initial fuel isn't recomputable in the kernel: a per-tile array in `snapshot()`/`restore()` joins `TILE_ARRAYS` + VERSION bump.
 - A tampered keyframe is rejected at DECODE. `G` = ignition step mod 256, not age; IGNITE_AREA kind 5. `fireKeyframe.js` raises `[fireKeyframe]`; `rewindTo` verifies against `counters`, never `delta`, which at a boundary rolls back the step BEFORE it.
 - A fire record promising work with no sampler is refused at construction (`src/behaviours/fireTerrain.js`): `firebreaks.kinds` defaults `['road','river']` while `kindAt` is null; `firebreaks.water` defaults true while `heightAt`/`seaLevelAt` are null.
+- Weather contract (`src/behaviours/fireWeather.js parseWeather`): a `type` other than `rain` or `snow` is dry, so unknown type means dry and yields rain 0. Absent weather, a non-finite intensity and a non-array wind each yield rain 0 too; `reading.kind` keeps them distinct (`no-weather`, `unreadable-weather`, `dry-other`). `scripts/fireWeather-witness.mjs` pins this.
 
 ## Planet-wide multiplayer
 
