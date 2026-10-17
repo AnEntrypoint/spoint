@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: 5d6264a60bd46d9aef145e38c046afac12170ccf8c17de9c2aeee5ecf8fff563
+// source digest: e4ed467500351dab89ced7671e3db69d22dde715c16ba6175a87a2d35efb224e
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 export declare class AppContext {
@@ -33,13 +33,13 @@ export declare class AppContext {
         setStatic: (v: any) => void;
         setDynamic: (v: any) => void;
         setKinematic: (v: any) => void;
-        setMass: (v: any) => void;
-        setLinearDamping: (v: any) => void;
-        setAngularDamping: (v: any) => void;
+        setMass: (v: number) => void;
+        setLinearDamping: (v: number) => void;
+        setAngularDamping: (v: number) => void;
         setCCDPolicy: (v: any) => void;
         addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: any) => void;
-        addCapsuleCollider: (r: any, h: any) => void;
+        addSphereCollider: (r: number) => void;
+        addCapsuleCollider: (r: number, h: number) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
@@ -104,13 +104,13 @@ export declare class AppContext {
         setStatic: (v: any) => void;
         setDynamic: (v: any) => void;
         setKinematic: (v: any) => void;
-        setMass: (v: any) => void;
-        setLinearDamping: (v: any) => void;
-        setAngularDamping: (v: any) => void;
+        setMass: (v: number) => void;
+        setLinearDamping: (v: number) => void;
+        setAngularDamping: (v: number) => void;
         setCCDPolicy: (v: any) => void;
         addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: any) => void;
-        addCapsuleCollider: (r: any, h: any) => void;
+        addSphereCollider: (r: number) => void;
+        addCapsuleCollider: (r: number, h: number) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
@@ -277,10 +277,10 @@ export declare class AppContext {
             event: string;
             state: any;
         } | {
+            reason?: undefined;
             ok: boolean;
             event: string;
             state: any;
-            reason?: undefined;
         };
         onTransition(fn: any): () => void;
         tick(dt: any): void;
@@ -557,10 +557,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
+            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
-            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};

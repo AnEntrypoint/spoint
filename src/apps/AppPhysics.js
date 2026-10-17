@@ -111,8 +111,11 @@ export function buildPhysicsAPI(ent, runtime) {
     setStatic: (v) => { if (v) setBodyType(ent, runtime, 'static') },
     setDynamic: (v) => { if (v) setBodyType(ent, runtime, 'dynamic') },
     setKinematic: (v) => { if (v) setBodyType(ent, runtime, 'kinematic') },
+    /** @param {number} v */
     setMass: (v) => { ent.mass = nonNeg(v, 'physics.setMass: mass') },
+    /** @param {number} v */
     setLinearDamping: (v) => { ent._linearDamping = nonNeg(v, 'physics.setLinearDamping: linearDamping') },
+    /** @param {number} v */
     setAngularDamping: (v) => { ent._angularDamping = nonNeg(v, 'physics.setAngularDamping: angularDamping') },
     setCCDPolicy: (v) => {
       if (v != null && v !== 'auto' && v !== 'always' && v !== 'off') throw new TypeError('physics.setCCDPolicy: policy must be one of auto, always, off')
@@ -131,6 +134,7 @@ export function buildPhysicsAPI(ent, runtime) {
         registerBody(ent, runtime, bid, mt)
       }
     },
+    /** @param {number} r */
     addSphereCollider: (r) => {
       nonNeg(r, 'physics.addSphereCollider: radius')
       ent.collider = { type: 'sphere', radius: r }
@@ -144,6 +148,7 @@ export function buildPhysicsAPI(ent, runtime) {
         registerBody(ent, runtime, bid, mt)
       }
     },
+    /** @param {number} r @param {number} h */
     addCapsuleCollider: (r, h) => {
       nonNeg(r, 'physics.addCapsuleCollider: radius')
       nonNeg(h, 'physics.addCapsuleCollider: height')
