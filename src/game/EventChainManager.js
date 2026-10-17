@@ -17,13 +17,14 @@ export class EventChainManager {
   }
 
   addChain(chainSpec) {
-    if (!chainSpec.id) {
-      chainSpec.id = this._nextId('chain')
-    } else {
-      this._observeId(chainSpec.id)
+    if (!chainSpec || typeof chainSpec !== 'object') {
+      throw new TypeError('[chain] addChain requires a spec object')
     }
+    const id = chainSpec.id ? chainSpec.id : this._nextId('chain')
+    if (chainSpec.id) this._observeId(chainSpec.id)
+    const replaced = this.chains.has(id)
     const chain = {
-      id: chainSpec.id,
+      id,
       name: chainSpec.name || 'Event Chain ' + chainSpec.id,
       enabled: chainSpec.enabled !== false,
       trigger: chainSpec.trigger || { type: 'onInteract', entityId: '*' },
@@ -32,7 +33,7 @@ export class EventChainManager {
       metadata: chainSpec.metadata || {}
     }
     this.chains.set(chain.id, chain)
-    this._log('chain_added', { chainId: chain.id, name: chain.name })
+    this._log('chain_added', { chainId: chain.id, name: chain.name, replaced })
     return chain
   }
 
