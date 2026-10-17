@@ -12,8 +12,12 @@ export const DEFAULT_CONFIG = {
   xpPerKill: 10
 }
 
+function isLegalCurve(v) {
+  return v === CURVE_LINEAR || v === CURVE_EXPONENTIAL || v === CURVE_QUADRATIC
+}
+
 const CONFIG_VALIDATORS = {
-  curve: (v) => v === CURVE_LINEAR || v === CURVE_EXPONENTIAL || v === CURVE_QUADRATIC,
+  curve: isLegalCurve,
   baseXpPerLevel: (v) => Number.isFinite(v) && v >= 0,
   curveScalar: (v) => Number.isFinite(v),
   maxLevel: (v) => Number.isInteger(v) && v >= 1,
@@ -41,6 +45,7 @@ export function createProgressionSystem(config = {}) {
   let ticksElapsed = 0
 
   function calculateXpThreshold(level, curve = cfg.curve) {
+    if (!isLegalCurve(curve)) throw new TypeError(`[progression] curve = ${String(curve)} is not a legal value`)
     if (level <= 1) return 0
     const base = cfg.baseXpPerLevel
 
