@@ -221,10 +221,14 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
       progressive: !state.current || state.current.span !== span,
       seed: seedOf(sources, terrain),
     }
+    // begin's verdict is recorded on the work item: a refused window (null handle) is terminal, so
+    // it touches no cache and reaches no layer swap or refresh count in advanceRefresh.
+    w.placement = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
+    w.refused = w.placement === null
+    state.work = w
+    if (w.refused) return
     w.carried = carryPreviousGrid(w)
     if (w.carried > 0) { stats.cellsCarried += w.carried; stats.refreshesWithCarry++ }
-    w.placement = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
-    state.work = w
   }
 
   function swapLayers(w) {
@@ -276,6 +280,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   function advanceRefresh() {
     const w = state.work
     const deadline = performance.now() + SLICE_MS
+    if (w.refused) { state.work = null; return }
     if (w.phase === 0) {
       if (!advanceTerrain(w, deadline)) return
       w.phase = 1
