@@ -650,7 +650,9 @@ async function main() {
   // gpu-free witness runs in a pool. One witness still reports its own line atomically.
   const NO_GPU_JOBS = Math.max(1, Number(process.env.SPOINT_CHECK_JOBS) || 4)
   const FIXED_RESOURCE = /\.listen\(\s*\d{2,5}|\blisten\(\s*\d{2,5}|\b(?:port|PORT)\s*[:=]\s*\d{2,5}|\btmpdir\(|\/tmp\//
-  const isolated = (spec) => { try { return !FIXED_RESOURCE.test(readFileSync(join("scripts", spec.file), "utf8")) } catch { return false } }
+  // A witness that reads a clock measures CPU time, and sharing the runner with others skews it.
+  const TIMED_MEASUREMENT = /performance\.now\(|hrtime|cpuUsage|\bMEASURED\b/
+  const isolated = (spec) => { try { const src = readFileSync(join("scripts", spec.file), "utf8"); return !FIXED_RESOURCE.test(src) && !TIMED_MEASUREMENT.test(src) } catch { return false } }
   const plan = [
     ...NO_GPU_WITNESSES.map(spec => ({ spec, timeoutMs: NO_GPU_WITNESS_TIMEOUT_MS })),
     ...SLOW_NO_GPU_WITNESSES.map(spec => ({ spec, timeoutMs: SLOW_WITNESS_TIMEOUT_MS })),
