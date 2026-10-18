@@ -127,6 +127,11 @@ export function terrainBakeKey(tcfg) {
   return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
 }
 
+// The exact text terrainBakeKey hashes, so a key mismatch can be compared field by field.
+export function terrainBakeSliceText(tcfg) {
+  return canonicalJSON(terrainBakeSlice(parsedTerrainOf(tcfg)))
+}
+
 export function minimapBakeParams(tcfg) {
   const c = parsedTerrainOf(tcfg)
   return { radius: c.radius, reliefScale: c.reliefScale ?? null, hashVersion: c.hashVersion, carves: c.carves, anchorDir: c.anchorDir, extent: c.extent, res: c.res, center: c.center }

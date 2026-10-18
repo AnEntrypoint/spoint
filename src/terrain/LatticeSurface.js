@@ -14,7 +14,7 @@
 //
 // Nothing here computes a height: the only height that exists is the one the bake carries.
 
-import { terrainBakeKey, terrainHashVersionOf, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
+import { terrainBakeKey, terrainBakeSliceText, terrainHashVersionOf, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 const _isNode = typeof process !== 'undefined' && !!process.versions && !!process.versions.node
 const _codecSpec = _isNode ? 'mapspinner/heightfield-codec' : '/node_modules/mapspinner/src/heightfield-codec.js'
@@ -92,7 +92,7 @@ export function bakedTerrainMismatch(artifact, tcfg, frame) {
   const bakedEpoch = artifact.chartEpoch ?? 0
   const liveEpoch = (frame && Number.isFinite(frame.chartEpoch)) ? frame.chartEpoch : 0
   if (bakedEpoch !== liveEpoch) return `baked at chartEpoch ${bakedEpoch}, world frame is at chartEpoch ${liveEpoch}: the chart was reanchored, so its chart-local heights name different ground`
-  if (artifact.terrainKey !== undefined) return artifact.terrainKey === terrainBakeKey(tcfg) ? null : `terrain key ${artifact.terrainKey} != world ${terrainBakeKey(tcfg)}`
+  if (artifact.terrainKey !== undefined) return artifact.terrainKey === terrainBakeKey(tcfg) ? null : `terrain key ${artifact.terrainKey} != world ${terrainBakeKey(tcfg)} (slice ${terrainBakeSliceText(tcfg)})`
   const unit = v => { const l = Math.hypot(...v); return v.map(c => c / l) }
   const sameDir = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === 3 && b.length === 3 && unit(a).every((v, i) => Math.abs(v - unit(b)[i]) < 1e-6)
   if (artifact.radius !== tcfg.radius) return `radius ${artifact.radius} != world ${tcfg.radius}`
