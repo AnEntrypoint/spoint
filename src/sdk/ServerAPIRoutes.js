@@ -103,7 +103,8 @@ export function handleDebugServer(req, res, ctx) {
     entities: appRuntime.entities.size,
     connections: connections.getAllStats(),
     sessions: sessions.getActiveCount(),
-    heap: process.memoryUsage()
+    heap: process.memoryUsage(),
+    bootTiming: ctx.config?.bootTiming ?? null
   })
   res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(data)
 }
