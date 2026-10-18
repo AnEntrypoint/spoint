@@ -79,7 +79,9 @@ export function parseTerrainConfig(tcfg) {
     enabled: tcfg.enabled !== false,
     hashVersion,
     carves,
-    carveInputs: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []),
+    // A config that crossed the wire already carries its raw carves in carveInputs; its carves
+    // field then holds the parsed {dir, innerM, outerM} form, which must not be hashed as input.
+    carveInputs: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carveInputs || tcfg.carves || []),
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),
   }
