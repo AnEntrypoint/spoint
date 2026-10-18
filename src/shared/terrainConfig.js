@@ -199,6 +199,7 @@ const _hotSwapTerrainConfig = (next) => {
   minimapResOf = next.minimapResOf
   minimapDescriptor = next.minimapDescriptor
   terrainBakeKey = next.terrainBakeKey
+  terrainBakeSliceText = next.terrainBakeSliceText
   minimapBakeParams = next.minimapBakeParams
   withTerrainSeed = next.withTerrainSeed
   withTerrainHashVersion = next.withTerrainHashVersion
