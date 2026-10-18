@@ -38,6 +38,14 @@ export function terrainHashVersionOf(tcfg) {
   return assertTerrainHashVersion(tcfg?.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION)
 }
 
+// A carve already in parsed form ({dir, innerM, outerM}) arrives here after a world def crosses
+// the wire, where the parse marker is lost. Accept it only when its shape is valid, so a
+// re-parse is an identity rather than a refusal.
+function isParsedCarve(c) {
+  return !!c && Array.isArray(c.dir) && c.dir.length === 3 && c.dir.every(Number.isFinite)
+    && Number.isFinite(c.innerM) && c.innerM >= 0 && Number.isFinite(c.outerM) && c.outerM > c.innerM
+}
+
 export function terrainCarvesOf(tcfg) {
   if (isParsedTerrainConfig(tcfg)) return tcfg.carves
   const carves = tcfg?.carves
@@ -47,6 +55,7 @@ export function terrainCarvesOf(tcfg) {
   if (!(radius > 0)) throw new RangeError(`terrain carves need a positive terrain radius, got ${JSON.stringify(radius)}`)
   const basis = anchorBasis(tcfg.anchorDir || [0, 1, 0])
   return carves.map((c) => {
+    if (isParsedCarve(c)) return c
     const [x, z] = c?.center || []
     if (!Number.isFinite(x) || !Number.isFinite(z) || !(c.radius >= 0) || !(c.falloff > 0)) throw new RangeError(`terrain carve needs center [x, z], radius >= 0 and falloff > 0, got ${JSON.stringify(c)}`)
     return { dir: tangentLocalToDir(basis, radius, x, z), innerM: c.radius, outerM: c.radius + c.falloff }
