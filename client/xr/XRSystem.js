@@ -33,7 +33,7 @@ export function createXRSystem(renderer, scene, camera) {
   let xrRebaseTimer = 0
   let arButton = null
   let arHold = null
-  let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
+  const settingsLatched = new Map()
   let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: STAND_EYE_HEIGHT_M, teleportEnabled: false }
   const widgets = createXRWidgets(scene, camera, vrSettings, offsetXROrigin)
 
@@ -208,14 +208,18 @@ export function createXRSystem(renderer, scene, camera) {
     inputHandler?.setSnapTurnAngle(vrSettings.snapTurnAngle)
   }
 
+  const SETTINGS_BUTTONS = [
+    ['shoot', () => setVRSettings({ teleportEnabled: !vrSettings.teleportEnabled })],
+    ['sprint', (inputHandler) => cycleSmooth(inputHandler)],
+    ['reload', (inputHandler) => cycleSnap(inputHandler)],
+  ]
+
   function handleSettingsInput(input, inputHandler) {
-    if (!widgets.settingsVisible) { settingsTriggerCooldown = false; settingsSmoothCooldown = false; settingsSnapCooldown = false; return }
-    if (input.shoot && !settingsTriggerCooldown) { setVRSettings({ teleportEnabled: !vrSettings.teleportEnabled }); settingsTriggerCooldown = true }
-    if (input.sprint && !settingsSmoothCooldown) { cycleSmooth(inputHandler); settingsSmoothCooldown = true }
-    if (input.reload && !settingsSnapCooldown) { cycleSnap(inputHandler); settingsSnapCooldown = true }
-    if (!input.shoot) settingsTriggerCooldown = false
-    if (!input.sprint) settingsSmoothCooldown = false
-    if (!input.reload) settingsSnapCooldown = false
+    if (!widgets.settingsVisible) { settingsLatched.clear(); return }
+    for (const [key, action] of SETTINGS_BUTTONS) {
+      if (!input[key]) { settingsLatched.set(key, false); continue }
+      if (!settingsLatched.get(key)) { action(inputHandler); settingsLatched.set(key, true) }
+    }
   }
 
   function syncVRPosition(local) {

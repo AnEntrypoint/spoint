@@ -79,12 +79,13 @@ function mostCommon(values) {
 }
 
 function drive(scanner, { frame, field, cx, cz, halfM, sources, seed, sliced }) {
-  scanner.begin(frame, field, sources, seed, cx, cz, halfM)
+  const armed = scanner.begin(frame, field, sources, seed, cx, cz, halfM)
+  if (armed === null) throw new Error('drive: a valid window was refused')
   const packedSizes = []
   let steps = 0
   for (;;) {
     steps++
-    if (scanner.step(sliced ? performance.now() : Infinity, packed => packedSizes.push(packed.length))) break
+    if (armed.step(sliced ? performance.now() : Infinity, packed => packedSizes.push(packed.length))) break
     if (steps > 1000000) throw new Error('scanner.step did not complete')
   }
   return { steps, packedSizes, glyphs: scanner.glyphSnapshot() }
@@ -243,20 +244,14 @@ async function main() {
     tweak(args)
     const scanner = createPlacementScanner()
     let threw = null
-    let armed = null
-    let steps = 0
+    let armed = undefined
     try {
       armed = scanner.begin(args.frame, args.field, args.sources, args.seed, args.cx, args.cz, args.halfM)
-      for (;;) {
-        steps++
-        if (scanner.step(Infinity, () => {})) break
-        if (steps > 1000000) throw new Error('scanner.step did not complete')
-      }
     } catch (err) {
       threw = err
     }
     const glyphs = scanner.glyphSnapshot().length
-    check(`precondition ${name}: begin refuses without throwing and the scan emits no glyph`, threw === null && armed === false && glyphs === 0, threw ? threw.message : `begin returned ${armed}, steps ${steps}, glyphs ${glyphs}`)
+    check(`precondition ${name}: begin refuses without throwing, returns no scan handle and the scan emits no glyph`, threw === null && armed === null && glyphs === 0, threw ? threw.message : `begin returned ${armed}, glyphs ${glyphs}`)
   }
   refused('sources absent', a => { a.sources = null })
   refused('sources not an object', a => { a.sources = 'vegetation' })
@@ -271,11 +266,16 @@ async function main() {
 
   const armedScanner = createPlacementScanner()
   const armedArgs = validWindow()
-  check('precondition held: a valid window is armed', armedScanner.begin(armedArgs.frame, armedArgs.field, armedArgs.sources, armedArgs.seed, armedArgs.cx, armedArgs.cz, armedArgs.halfM) === true)
+  check('precondition held: a valid window is armed', armedScanner.begin(armedArgs.frame, armedArgs.field, armedArgs.sources, armedArgs.seed, armedArgs.cx, armedArgs.cz, armedArgs.halfM) !== null)
   const armedRun = drive(armedScanner, { frame, field: anchorField, cx: site.cx, cz: site.cz, halfM: WINDOW_HALF_M, sources: sourcesAll, seed: SEED, sliced: false })
   check('precondition held: the armed scan still matches the placement oracle', sameGlyphs(armedRun.glyphs.filter(g => within(g, roi)), [...expected.trees.map(t => t.g), ...expected.rocks]), `glyphs ${armedRun.glyphs.length}`)
+  const staleHandle = armedScanner.begin(armedArgs.frame, armedArgs.field, armedArgs.sources, armedArgs.seed, armedArgs.cx, armedArgs.cz, armedArgs.halfM)
+  armedScanner.begin(armedArgs.frame, armedArgs.field, armedArgs.sources, armedArgs.seed, armedArgs.cx, armedArgs.cz, armedArgs.halfM)
+  let staleErr = null
+  try { staleHandle.step(Infinity, () => {}) } catch (err) { staleErr = err }
+  check('precondition: a handle superseded by a newer begin refuses to step', staleErr !== null && /superseded/.test(staleErr.message), staleErr ? staleErr.message : 'stale handle stepped without error')
   const armBreach = { vegetation: { _meshes: SPECIES.map(name => ({ name })), biomeOverride: { strokeCount: 2, wrapClimateField: f => f } }, rocks: {} }
-  check('precondition: a source with a whole stroke count is accepted', armedScanner.begin(frame, anchorField, armBreach, SEED, site.cx, site.cz, WINDOW_HALF_M) === true)
+  check('precondition: a source with a whole stroke count is accepted', armedScanner.begin(frame, anchorField, armBreach, SEED, site.cx, site.cz, WINDOW_HALF_M) !== null)
 
   const brokenField = { sampleDir() { throw new Error('witness climate failure') } }
   let brokenRun = null

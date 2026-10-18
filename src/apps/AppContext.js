@@ -1,5 +1,5 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
-import { buildPhysicsAPI } from './AppPhysics.js'
+import { buildPhysicsAPI, parseInteractable, reifyInteractable } from './AppPhysics.js'
 import { vec3 as _vec3, vec4 as _vec4, vecOK, nonNeg } from '../shared/vecGuard.js'
 import { waterlineLocalY } from '../terrain/PlanetFrame.js'
 import { defineGameFSM } from '../behaviours/game-fsm.js'
@@ -299,20 +299,9 @@ export class AppContext {
   get debug() { return this._debugger }
 
   interactable(config = {}) {
-    const ent = this._entity
-    if (config.radius != null) nonNeg(config.radius, 'interactable: radius')
-    if (config.cooldown != null) nonNeg(config.cooldown, 'interactable: cooldown')
-    if (config.prompt != null && typeof config.prompt !== 'string') throw new TypeError('interactable: prompt must be a string')
+    const cfg = parseInteractable(config)
     if (!this._admitsRegistration('interactable')) return
-    const radius = config.radius ?? 3
-    const prompt = config.prompt ?? 'Press E'
-    const cooldown = config.cooldown ?? 500
-    ent._interactable = true
-    ent._interactRadius = radius
-    ent._interactCooldown = cooldown
-    if (!ent.custom) ent.custom = {}
-    ent.custom._interactable = { prompt, radius, cooldown }
-    this._runtime._interactableIds.add(ent.id)
+    reifyInteractable(this._entity, this._runtime, cfg)
   }
 
   onPlayerProximity(radius, callback) {

@@ -1,0 +1,63 @@
+[InputCodec] input packet was given 10 records and holds 8, so the oldest 2 were not sent
+ok   epoch-tagged packet decodes accepted
+ok   epoch-tagged packet carries chartEpoch 7
+ok   epoch-tagged packet keeps the newest 8 of 10 entries
+ok   decoded sequences are the last 8 in order
+ok   decoded data equals quantizeInput of the sent data for every record
+ok   epoch tag sets bit 0x80 on the count byte
+[InputCodec] input packet was given 10 records and holds 8, so the oldest 2 were not sent
+ok   chartEpoch 0 packet decodes accepted
+ok   chartEpoch 0 packet decodes chartEpoch 0
+ok   chartEpoch 0 packet clears the epoch flag bit 0x80
+ok   chartEpoch 0 packet keeps the newest 8 entries
+ok   empty record count byte [0] is refused
+ok   record count 9 (one above MAX_INPUTS_PER_PACKET) is refused
+ok   valid packet with one appended trailing byte is refused
+ok   truncated chart epoch (flag set, 2 epoch bytes) is refused
+ok   truncated record (count 1, header short) is refused
+ok   flagged packet with count 0 is refused
+ok   plain array instead of Uint8Array is refused
+ok   every declared input case code is distinct, so no two causes share a discriminant
+ok   a clamped field, a dropped record and an out-of-domain sequence are three distinct codes
+ok   a refusal throws exactly "RangeError: [InputCodec] input record field "yaw" is not a finite number (got number NaN)"
+ok   a refusal throws exactly "RangeError: [InputCodec] input record field "pitch" is not a finite number (got number Infinity)"
+ok   a refusal throws exactly "RangeError: [InputCodec] input record field "analogForward" is not a finite number (got number NaN)"
+ok   a refusal throws exactly "RangeError: [InputCodec] input record field "throttle" is not a finite number (got number NaN)"
+ok   a refusal throws exactly "RangeError: [InputCodec] input record field "expr" is not a finite number (got number NaN)"
+ok   an omitted yaw is absent, not out of domain, and still encodes
+ok   an omitted extra axis is absent, not out of domain, and still encodes
+ok   a NaN sequence is refused instead of re-keyed to 0 where it collides with genuine sequence 0
+ok   genuine sequence 0 still encodes while NaN sequence is refused
+ok   a negative sequence is refused instead of wrapping to 4294967295
+ok   a fractional sequence is refused instead of re-keyed by >>> 0
+ok   a sequence at the uint32 ceiling is refused instead of wrapping to 0
+ok   a string sequence is refused instead of re-keyed to 0
+ok   an undefined sequence is refused instead of re-keyed to 0
+ok   a NaN chartEpoch is refused instead of silently untagging the packet
+ok   a negative chartEpoch is refused instead of silently untagging the packet
+ok   a fractional chartEpoch is refused instead of silently truncating the tag
+ok   a chartEpoch at the uint32 ceiling is refused instead of wrapping to 0
+ok   entries that are not an array are refused
+ok   an empty entries array is refused instead of encoding a count byte of 0
+ok   a record with no data object is refused
+ok   a non-finite field is refused by the total entry without throwing
+ok   a 10-entry packet reports 2 dropped records instead of dropping them silently
+ok   the total entry and the legacy entry emit byte-identical packets
+ok   an out-of-range pitch, analog pair and expr are reported as typed clamp cases, not clamped silently
+ok   a clamp case carries the domain it was clamped into, the value given and the value sent
+ok   a clamp case is not a refusal: the packet is still accepted and still carries bytes
+ok   in-domain pitch, analog and expr report no cases
+ok   quantizeInput reports the fields it clamps as typed cases instead of clamping them silently
+ok   quantizeInput reports an out-of-range yaw as a typed WRAPPED case instead of wrapping it silently
+ok   a clamped record decodes to exactly the quantization of its own input, so the clamp is the only loss
+ok   a dropped record is a typed case a receiver can branch on, not a silent truncation
+ok   an out-of-domain sequence is a rejection carrying the record index, the value and the domain
+ok   the three cases a receiver must not confuse are three distinct codes on three distinct results
+ok   the client routes a clamped field to the receiver as a typed case on one channel, not as English to parse
+[client] input packet refused: [InputCodec] input packet record 0 sequence -1 outside 0..4294967295
+ok   the client routes an out-of-domain sequence as a typed rejection and sends no packet
+ok   the client routes a dropped record as a typed case and still sends the newest records
+ok   the client sends a packet the codec decodes back to the input it was given
+ok   a refusal throws exactly "RangeError: [InputCodec] input packet record 0 sequence NaN outside 0..4294967295"
+ok   the legacy entry still returns the bytes for an accepted packet
+RESULT: PASS

@@ -143,19 +143,14 @@ for (const [name, id] of Object.entries(MSG)) {
   nameMap.set(id, name)
 }
 
+// An unregistered id answers a named string, never null: a null leaks into logs and comparisons
+// as an absent value, and `=== false` tests in callers never match it.
 export function isRegisteredMessage(id) {
   return nameMap.has(id)
 }
 
-function unregisteredMessage(id) {
-  const err = new RangeError(`[MessageTypes] message id ${String(id)} is not registered in MSG`)
-  err.reasonCode = 'unknown-message-id'
-  return err
-}
-
 export function msgName(id) {
-  if (!nameMap.has(id)) throw unregisteredMessage(id)
-  return nameMap.get(id)
+  return nameMap.has(id) ? nameMap.get(id) : `unknown(0x${Number(id).toString(16)})`
 }
 
 export let UNRELIABLE_MSGS = new Set([
@@ -163,9 +158,10 @@ export let UNRELIABLE_MSGS = new Set([
   MSG.PLAYER_INPUT, MSG.CLIENT_PERF, MSG.CLIENT_STATE, MSG.FREDDIE_MESSAGE, MSG.TIME_OF_DAY_SYNC, MSG.PEER_RTT_TABLE
 ])
 
+// An unregistered id is not unreliable: it answers a strict false, so `=== false` and a truthiness
+// test agree on it. The unknown id itself is reported by msgName.
 export function isUnreliable(type) {
-  if (!nameMap.has(type)) throw unregisteredMessage(type)
-  return UNRELIABLE_MSGS.has(type)
+  return nameMap.has(type) && UNRELIABLE_MSGS.has(type)
 }
 
 export let DISCONNECT_REASONS = Object.freeze({

@@ -1,3 +1,5 @@
+import { parsePlayerId } from './playerId.js'
+
 export function defineQuestSystem(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[quest] appCtx is required')
 
@@ -16,7 +18,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
   const _playerQuests = new Map()
 
   const _getPlayerData = (pid) => {
-    const key = String(pid)
+    const key = parsePlayerId(pid)
     let data = _playerQuests.get(key)
     if (!data) {
       data = new Map()
@@ -66,7 +68,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
         startedAt: Date.now(),
       })
 
-      _fire('onQuestStart', { playerId: String(pid), questId })
+      _fire('onQuestStart', { playerId: parsePlayerId(pid), questId })
       _pushToClient(pid, questId)
       return { ok: true }
     },
@@ -93,7 +95,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
       quest.progress[objectiveIndex] = Math.min(target, quest.progress[objectiveIndex] + amount)
 
       _fire('onObjectiveProgress', {
-        playerId: String(pid),
+        playerId: parsePlayerId(pid),
         questId,
         objectiveIndex,
         progress: quest.progress[objectiveIndex],
@@ -108,7 +110,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
         quest.state = 'complete'
         quest.completedAt = Date.now()
         _fire('onQuestComplete', {
-          playerId: String(pid),
+          playerId: parsePlayerId(pid),
           questId,
           rewards: questDef.rewards,
         })

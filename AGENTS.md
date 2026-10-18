@@ -55,6 +55,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `design` ships as pinned CDN URLs in `client/{index,landing/index,editor/thebird-host}.html` + `scripts/bundle-client.mjs`; `vendor/*` = editing-only submodules.
 - `apps/*` never imports `client/*` (singleplayer Worker resolves relative specifiers vs a virtual root); expose utilities on `engineCtx`. `apps/world/index.js` is the default-world authority.
 - Node-only dynamic import specifiers stay opaque to esbuild/wrangler: IIFE, e.g. `src/sdk/EditorHandlers.js`. `edge/cf-do/spoint-do.js` imports `jolt-edge-init.js` BEFORE `WorkerEntry.js`.
+- `src/protocol/msgpack.js` `_ensurePackr` builds its browser `msgpackr` specifier through an IIFE; never flatten it to a literal. A literal `import('msgpackr')` bundles msgpackr into the browser build (esbuild: 86 KB flat vs 187 B with the IIFE). The node branch's literal import is the one that bundles, by design.
 
 ## Browsers
 
@@ -90,6 +91,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Per-cell initial fuel isn't recomputable in the kernel: a per-tile array in `snapshot()`/`restore()` joins `TILE_ARRAYS` + VERSION bump.
 - A tampered keyframe is rejected at DECODE. `G` = ignition step mod 256, not age; IGNITE_AREA kind 5. `fireKeyframe.js` raises `[fireKeyframe]`; `rewindTo` verifies against `counters`, never `delta`, which at a boundary rolls back the step BEFORE it.
 - A fire record promising work with no sampler is refused at construction (`src/behaviours/fireTerrain.js`): `firebreaks.kinds` defaults `['road','river']` while `kindAt` is null; `firebreaks.water` defaults true while `heightAt`/`seaLevelAt` are null.
+- Weather contract (`src/behaviours/fireWeather.js parseWeather`): a `type` other than `rain` or `snow` is dry, so unknown type means dry and yields rain 0. Absent weather, a non-finite intensity and a non-array wind each yield rain 0 too; `reading.kind` keeps them distinct (`no-weather`, `unreadable-weather`, `dry-other`). `scripts/fireWeather-witness.mjs` pins this.
 
 ## Planet-wide multiplayer
 

@@ -38,6 +38,14 @@ export function terrainHashVersionOf(tcfg) {
   return assertTerrainHashVersion(tcfg?.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION)
 }
 
+// A carve already in parsed form ({dir, innerM, outerM}) arrives here after a world def crosses
+// the wire, where the parse marker is lost. Accept it only when its shape is valid, so a
+// re-parse is an identity rather than a refusal.
+function isParsedCarve(c) {
+  return !!c && Array.isArray(c.dir) && c.dir.length === 3 && c.dir.every(Number.isFinite)
+    && Number.isFinite(c.innerM) && c.innerM >= 0 && Number.isFinite(c.outerM) && c.outerM > c.innerM
+}
+
 export function terrainCarvesOf(tcfg) {
   if (isParsedTerrainConfig(tcfg)) return tcfg.carves
   const carves = tcfg?.carves
@@ -47,6 +55,7 @@ export function terrainCarvesOf(tcfg) {
   if (!(radius > 0)) throw new RangeError(`terrain carves need a positive terrain radius, got ${JSON.stringify(radius)}`)
   const basis = anchorBasis(tcfg.anchorDir || [0, 1, 0])
   return carves.map((c) => {
+    if (isParsedCarve(c)) return c
     const [x, z] = c?.center || []
     if (!Number.isFinite(x) || !Number.isFinite(z) || !(c.radius >= 0) || !(c.falloff > 0)) throw new RangeError(`terrain carve needs center [x, z], radius >= 0 and falloff > 0, got ${JSON.stringify(c)}`)
     return { dir: tangentLocalToDir(basis, radius, x, z), innerM: c.radius, outerM: c.radius + c.falloff }
@@ -70,7 +79,9 @@ export function parseTerrainConfig(tcfg) {
     enabled: tcfg.enabled !== false,
     hashVersion,
     carves,
-    carveInputs: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []),
+    // A config that crossed the wire already carries its raw carves in carveInputs; its carves
+    // field then holds the parsed {dir, innerM, outerM} form, which must not be hashed as input.
+    carveInputs: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carveInputs || tcfg.carves || []),
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),
   }
@@ -116,6 +127,11 @@ function terrainBakeSlice(c) {
 export function terrainBakeKey(tcfg) {
   const slice = terrainBakeSlice(parsedTerrainOf(tcfg))
   return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
+}
+
+// The exact text terrainBakeKey hashes, so a key mismatch can be compared field by field.
+export function terrainBakeSliceText(tcfg) {
+  return canonicalJSON(terrainBakeSlice(parsedTerrainOf(tcfg)))
 }
 
 export function minimapBakeParams(tcfg) {
@@ -185,6 +201,7 @@ const _hotSwapTerrainConfig = (next) => {
   minimapResOf = next.minimapResOf
   minimapDescriptor = next.minimapDescriptor
   terrainBakeKey = next.terrainBakeKey
+  terrainBakeSliceText = next.terrainBakeSliceText
   minimapBakeParams = next.minimapBakeParams
   withTerrainSeed = next.withTerrainSeed
   withTerrainHashVersion = next.withTerrainHashVersion

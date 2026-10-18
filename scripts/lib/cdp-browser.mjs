@@ -336,10 +336,12 @@ class Browser {
     await this._conn.send('Runtime.enable', {}, sessionId)
     await this._conn.send('Page.enable', {}, sessionId)
     await this._conn.send('Page.setLifecycleEventsEnabled', { enabled: true }, sessionId).catch(() => {})
+    await this._conn.send('Log.enable', {}, sessionId).catch(() => {})
     if (RELAY_EXTERNAL) await page._installExternalRelay()
     const viewport = opts.viewport || DEFAULT_VIEWPORT
     await fitWindowToViewport(this._conn, targetId, viewport)
     await page.setViewport(viewport)
+    await this._conn.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId).catch(() => {})
     this._pages.push(page)
     return page
   }

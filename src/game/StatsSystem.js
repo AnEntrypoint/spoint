@@ -1,3 +1,5 @@
+import { parsePlayerId, tryParsePlayerId } from './playerId.js'
+
 export function defineStatsSystem(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[stats] appCtx is required')
 
@@ -50,7 +52,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
   const _playerData = new Map()
 
   const _getPlayerData = (pid) => {
-    const key = String(pid)
+    const key = parsePlayerId(pid)
     let data = _playerData.get(key)
     if (!data) {
       const floor = Math.min(startLevel, maxLevel)
@@ -75,11 +77,11 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return { ok: false, reason: 'not-an-object', player: null, dropped: [] }
     }
 
+    // level is derived from the restored xp, the same invariant addXP keeps; the xp floor matches _getPlayerData
     const declaredXP = typeof record.xp === 'number' && !Number.isNaN(record.xp) ? record.xp : 0
-    const declaredLevel = typeof record.level === 'number' && !Number.isNaN(record.level) ? record.level : startLevel
-    const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(0, declaredXP))
+    const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(_xpForLevel(Math.min(startLevel, maxLevel)), declaredXP))
     const player = {
-      level: _levelForXP(xp, Math.max(startLevel, declaredLevel)),
+      level: _levelFromXP(xp),
       xp,
       equipment: new Map(),
       loadouts: new Map(),
@@ -168,7 +170,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
       data.level = _levelForXP(data.xp, data.level)
 
       if (data.level > oldLevel) {
-        _fire('onLevelUp', { playerId: String(pid), level: data.level, stats: statsSystem.getStats(pid) })
+        _fire('onLevelUp', { playerId: parsePlayerId(pid), level: data.level, stats: statsSystem.getStats(pid) })
       }
 
       _pushToClient(pid)
@@ -305,7 +307,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
         }
       }
 
-      _fire('onLoadoutSwap', { playerId: String(pid), loadout: data.loadouts.get(loadoutName) })
+      _fire('onLoadoutSwap', { playerId: parsePlayerId(pid), loadout: data.loadouts.get(loadoutName) })
       _pushToClient(pid)
       return true
     },
@@ -346,13 +348,18 @@ export function defineStatsSystem(spec = {}, appCtx) {
       const dropped = []
 
       for (const [pid, record] of Object.entries(data)) {
+        const key = tryParsePlayerId(pid)
+        if (key === null) {
+          dropped.push({ playerId: pid, reason: 'invalid-player-id' })
+          continue
+        }
         const parsed = _parseRestoredPlayer(record)
         if (!parsed.ok) {
           dropped.push({ playerId: pid, reason: parsed.reason })
           continue
         }
         for (const entry of parsed.dropped) dropped.push({ playerId: pid, ...entry })
-        parsedPlayers.set(String(pid), parsed.player)
+        parsedPlayers.set(key, parsed.player)
       }
 
       _playerData.clear()

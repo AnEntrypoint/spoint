@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { createMachine, createActor } from '/node_modules/xstate/dist/xstate.esm.js'
 import { createRayLine } from './XRRayLine.js'
 
 const FADE_SPEED = 5
@@ -17,24 +16,12 @@ const FADE_IN = 'fadeIn'
 const FADE_DELAY = 'delay'
 const FADE_OUT = 'fadeOut'
 
-const fadeMachine = createMachine({
-  id: 'fade',
-  initial: FADE_IDLE,
-  states: {
-    [FADE_IDLE]: { on: { START: FADE_IN } },
-    [FADE_IN]: { on: { FULL: FADE_DELAY, CANCEL: FADE_IDLE } },
-    [FADE_DELAY]: { on: { RESUME: FADE_OUT, CANCEL: FADE_IDLE } },
-    [FADE_OUT]: { on: { DONE: FADE_IDLE } }
-  }
-})
-
 export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   let settings = { ...initialSettings }
   let wristUI = null
   let vrSettingsPanel = null
   let teleportArc = null, teleportMarker = null, teleportPending = null, teleportTimer = 0
-  let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0
-  const _fadeActor = createActor(fadeMachine); _fadeActor.start()
+  let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0, fadePhase = FADE_IDLE
   let vignetteMesh = null, vignetteOpacity = 0, vignetteTargetOpacity = 0
 
   function createScreenQuad({ renderOrder, z, material }) {
@@ -123,7 +110,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function executeTeleport(pt) {
     if (teleportPending) return
     teleportPending = { pt }
-    _fadeActor.send({ type: 'START' })
+    if (fadePhase === FADE_IDLE) fadePhase = FADE_IN
     teleportTimer = setTimeout(moveTeleport, TELEPORT_MOVE_MS)
   }
 
@@ -137,7 +124,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function endTeleport(aborted) {
     clearTimeout(teleportTimer); teleportTimer = 0
     teleportPending = null
-    if (aborted) { fadeOpacity = 0; fadeDelayElapsed = 0; _fadeActor.send({ type: 'CANCEL' }) }
+    if (aborted) { fadeOpacity = 0; fadeDelayElapsed = 0; if (fadePhase === FADE_IN || fadePhase === FADE_DELAY) fadePhase = FADE_IDLE }
   }
 
   function computeParabolicArc(origin, direction) {
@@ -165,10 +152,10 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
 
   function updateFade(dt) {
     if (!fadeQuad) fadeQuad = createScreenQuad({ renderOrder: 9999, z: -0.1, material: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }) })
-    const fs = _fadeActor.getSnapshot().value
-    if (fs === FADE_IN) { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; _fadeActor.send({ type: 'FULL' }) } }
-    else if (fs === FADE_DELAY) { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; _fadeActor.send({ type: 'RESUME' }) } }
-    else if (fs === FADE_OUT) { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; _fadeActor.send({ type: 'DONE' }) } }
+    const fs = fadePhase
+    if (fs === FADE_IN) { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; fadePhase = FADE_DELAY } }
+    else if (fs === FADE_DELAY) { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; fadePhase = FADE_OUT } }
+    else if (fs === FADE_OUT) { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; fadePhase = FADE_IDLE } }
     setQuadOpacity(fadeQuad, fadeOpacity)
   }
 

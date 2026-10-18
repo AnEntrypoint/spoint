@@ -646,8 +646,24 @@ async function main() {
       }
     }
   }
-  await runNoGpuWitnesses(NO_GPU_WITNESSES, NO_GPU_WITNESS_TIMEOUT_MS)
-  await runNoGpuWitnesses(SLOW_NO_GPU_WITNESSES, SLOW_WITNESS_TIMEOUT_MS)
+  // Witnesses that bind a fixed port or use a shared temp path run one at a time; every other
+  // gpu-free witness runs in a pool. One witness still reports its own line atomically.
+  const NO_GPU_JOBS = Math.max(1, Number(process.env.SPOINT_CHECK_JOBS) || 4)
+  const FIXED_RESOURCE = /\.listen\(\s*\d{2,5}|\blisten\(\s*\d{2,5}|\b(?:port|PORT)\s*[:=]\s*\d{2,5}|\btmpdir\(|\/tmp\//
+  // A witness that reads a clock measures CPU time, and sharing the runner with others skews it.
+  const TIMED_MEASUREMENT = /performance\.now\(|hrtime|cpuUsage|\bMEASURED\b/
+  const isolated = (spec) => { try { const src = readFileSync(join("scripts", spec.file), "utf8"); return !FIXED_RESOURCE.test(src) && !TIMED_MEASUREMENT.test(src) } catch { return false } }
+  const plan = [
+    ...NO_GPU_WITNESSES.map(spec => ({ spec, timeoutMs: NO_GPU_WITNESS_TIMEOUT_MS })),
+    ...SLOW_NO_GPU_WITNESSES.map(spec => ({ spec, timeoutMs: SLOW_WITNESS_TIMEOUT_MS })),
+  ]
+  const pooled = plan.filter(p => isolated(p.spec))
+  const serialPlan = plan.filter(p => !isolated(p.spec))
+  let nextPooled = 0
+  const poolWorker = async () => { while (nextPooled < pooled.length) { const p = pooled[nextPooled++]; await runNoGpuWitnesses([p.spec], p.timeoutMs) } }
+  await Promise.all(Array.from({ length: Math.min(NO_GPU_JOBS, pooled.length) }, poolWorker))
+  for (const p of serialPlan) await runNoGpuWitnesses([p.spec], p.timeoutMs)
+  console.log(`check: gpu-free witnesses: ${pooled.length} concurrent (jobs ${NO_GPU_JOBS}), ${serialPlan.length} serial (fixed port or shared temp path)`)
   const noGpuCount = NO_GPU_WITNESSES.length + SLOW_NO_GPU_WITNESSES.length
   console.log(`check: ${noGpuCount} gpu-free witness(es) ran in ${(noGpuMs / 1000).toFixed(1)} s with no GPU required`)
 

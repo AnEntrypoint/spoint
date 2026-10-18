@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
       - run: npm ci
       - run: node scripts/static-export.mjs dist-static --base=/spoint
       - run: mkdir -p dist-static/docs && node scripts/generate-docs-site.js --out dist-static/docs/index.html

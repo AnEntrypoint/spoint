@@ -5,7 +5,7 @@ import { createEcsEntityMap } from './EcsEntityMap.js'
 import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
-import { vecOK, nonNeg } from '../shared/vecGuard.js'
+import { vecOK, vec3, nonNeg } from '../shared/vecGuard.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { equipResolve } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
@@ -18,17 +18,9 @@ import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
-import { resolveCCD } from './AppPhysics.js'
+import { resolveCCD, parseInteractable, reifyInteractable } from './AppPhysics.js'
 import { extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
-const _nonNegOrDefault = (fallback, v, name) => {
-  if (v == null) return fallback
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
-    console.warn(`[AppRuntime] ${name} must be a non-negative finite number, got ${String(v)}: using ${fallback}`)
-    return fallback
-  }
-  return v
-}
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
 
@@ -489,10 +481,13 @@ export class AppRuntime {
     const e = entity || this.entities.get(entityId); if (!e) return
     const flag = e.custom && e.custom._interactable
     if (flag) {
-      const cfg = (typeof flag === 'object') ? flag : {}
-      e._interactable = true
-      e._interactRadius = _nonNegOrDefault(e._interactRadius ?? 3, cfg.radius, 'interactable: radius')
-      e._interactCooldown = _nonNegOrDefault(e._interactCooldown ?? 500, cfg.cooldown, 'interactable: cooldown')      this._interactableIds.add(entityId)
+      const stored = (typeof flag === 'object') ? flag : {}
+      const cfg = parseInteractable({
+        radius: stored.radius ?? e._interactRadius ?? 3,
+        cooldown: stored.cooldown ?? e._interactCooldown ?? 500,
+        prompt: stored.prompt ?? 'Press E'
+      })
+      reifyInteractable(e, this, cfg)
     } else {
       e._interactable = false
       this._interactableIds.delete(entityId)
@@ -698,7 +693,7 @@ export class AppRuntime {
   getNearestPlayer(pos, r) { if (!vecOK(pos, 3)) throw new TypeError('[AppRuntime] getNearestPlayer: pos must be a length-3 array of finite numbers'); nonNeg(r, '[AppRuntime] getNearestPlayer: radius'); const id = this._playerIndex?.nearest(pos, r); if (id != null) return this._playerManager?.getPlayer(id) || null; let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const dx=pp[0]-pos[0],dy=pp[1]-pos[1],dz=pp[2]-pos[2],d=dx*dx+dy*dy+dz*dz; if (d<md) { md=d; n=p } } return n }
   broadcastToPlayers(m) { if (this._resimSuppressed) return; if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._resimSuppressed) return; if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
-  setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) { pl.state.position=[...p]; this._holdPlayerOverUnloadedGround(pl, p) } } }
+  setPlayerPosition(id, p) { vec3(p, 'position'); this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) { pl.state.position=[...p]; this._holdPlayerOverUnloadedGround(pl, p) } } }
   _terrainCoversPosition(x, z) {
     const streamer = this._physics?._terrainStreamer
     return typeof streamer?.coversPosition === 'function' ? streamer.coversPosition(x, z) : true
@@ -767,7 +762,8 @@ export class AppRuntime {
   setPlayerMovementOverride(id, overrides) { return this._playerManager ? this._playerManager.setMovementOverride(id, overrides) : false }
   attachEntityToPlayer(entityId, playerId, offset = [0, 1, 0]) {
     if (!this.entities.has(entityId)) return false
-    this._attachments.set(entityId, { playerId, offset: vecOK(offset, 3) ? [...offset] : [0, 1, 0] })
+    vec3(offset, 'attachEntityToPlayer offset')
+    this._attachments.set(entityId, { playerId, offset: [...offset] })
     return true
   }
   detachEntityFromPlayer(entityId) { return this._attachments.delete(entityId) }
