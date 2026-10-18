@@ -61,11 +61,10 @@ export function makeClumpAlphaTexture() {
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.NoColorSpace
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping
-  // No mips: a mip averages the thin blades into the black background, drops their alpha below
-  // GRASS_ALPHA_CUTOFF and discards every card but the widest blade.
-  tex.generateMipmaps = false
-  tex.minFilter = THREE.LinearFilter
+  tex.generateMipmaps = true
+  tex.minFilter = THREE.LinearMipmapLinearFilter
   tex.magFilter = THREE.LinearFilter
+  tex.anisotropy = 4
   tex.needsUpdate = true
   return tex
 }
