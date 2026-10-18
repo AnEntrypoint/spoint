@@ -30,7 +30,7 @@ const FRAME_MS = 16
 
 const { createServer } = await import('../src/sdk/server.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
-const { MSG, isUnreliable } = await import('../src/protocol/MessageTypes.js')
+const { MSG, isUnreliable, isRegisteredMessage } = await import('../src/protocol/MessageTypes.js')
 const { unpack, pack } = await import('../src/protocol/msgpack.js')
 const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const { createChartTransfer } = await import('../src/shared/chartAnchor.js')
@@ -113,7 +113,7 @@ function makeClient({ url, aware, server }) {
         }
       } catch {}
       if (type === MSG.CHART_REANCHOR && isBroadcast && probe.drop) { probe.droppedBroadcasts++; return }
-      if (probe.delayMs > 0 && type !== -1 && !isUnreliable(type)) { if (type === MSG.CHART_REANCHOR && isBroadcast) probe.delayedBroadcasts++; setTimeout(() => super._handleOneMessage(bytes), probe.delayMs); return }
+      if (probe.delayMs > 0 && type !== -1 && isRegisteredMessage(type) && !isUnreliable(type)) { if (type === MSG.CHART_REANCHOR && isBroadcast) probe.delayedBroadcasts++; setTimeout(() => super._handleOneMessage(bytes), probe.delayMs); return }
       return super._handleOneMessage(bytes)
     }
   }

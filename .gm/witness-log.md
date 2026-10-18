@@ -607,3 +607,4 @@ MILNER-w5f-input-depth-parse-unnamed-throw-on-bigint-symbol | witness exec_js (l
 launched 20 at 2026-10-16T14:25:38Z
 - csproto-6 | src/protocol/msgpack.js asymmetric useFloat32 round-trip | exit 0 | RESULT: PASS | 2026-10-16T14:28:18Z | dispatch 1792160887681-191-1594fbe8a41b869e | output .gm/receipts/csproto-6/witness-output.txt
 2026-10-16T14:28:47.781Z | scripts/ground-source-port-witness.mjs | exit=0 | RESULT: PASS checks=19 failed=0 | run=honest | out=.gm/witness-out/witness-gap-GroundSourcePort-honest-20261016T142847781Z.txt | out_sha256=9a35cd1c70856e03f66915b36463d46cf57fc3202bf73dc0d4e9aaf918be67ef
+launched wave 2 (20) at 2026-10-16T18:41:05Z

@@ -492,8 +492,7 @@ export class AppRuntime {
       const cfg = (typeof flag === 'object') ? flag : {}
       e._interactable = true
       e._interactRadius = _nonNegOrDefault(e._interactRadius ?? 3, cfg.radius, 'interactable: radius')
-      e._interactCooldown = _nonNegOrDefault(e._interactCooldown ?? 500, cfg.cooldown, 'interactable: cooldown')
-      this._interactableIds.add(entityId)
+      e._interactCooldown = _nonNegOrDefault(e._interactCooldown ?? 500, cfg.cooldown, 'interactable: cooldown')      this._interactableIds.add(entityId)
     } else {
       e._interactable = false
       this._interactableIds.delete(entityId)

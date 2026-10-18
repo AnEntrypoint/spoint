@@ -143,8 +143,19 @@ for (const [name, id] of Object.entries(MSG)) {
   nameMap.set(id, name)
 }
 
+export function isRegisteredMessage(id) {
+  return nameMap.has(id)
+}
+
+function unregisteredMessage(id) {
+  const err = new RangeError(`[MessageTypes] message id ${String(id)} is not registered in MSG`)
+  err.reasonCode = 'unknown-message-id'
+  return err
+}
+
 export function msgName(id) {
-  return nameMap.has(id) ? nameMap.get(id) : null
+  if (!nameMap.has(id)) throw unregisteredMessage(id)
+  return nameMap.get(id)
 }
 
 export let UNRELIABLE_MSGS = new Set([
@@ -153,7 +164,7 @@ export let UNRELIABLE_MSGS = new Set([
 ])
 
 export function isUnreliable(type) {
-  if (!nameMap.has(type)) return null
+  if (!nameMap.has(type)) throw unregisteredMessage(type)
   return UNRELIABLE_MSGS.has(type)
 }
 
@@ -179,6 +190,7 @@ export let DISCONNECT_REASONS = Object.freeze({
 const _hotSwapMessageTypes = (next) => {
   msgName = next.msgName
   isUnreliable = next.isUnreliable
+  isRegisteredMessage = next.isRegisteredMessage
   WIRE_PROTOCOL_VERSION = next.WIRE_PROTOCOL_VERSION
   MSG = next.MSG
   UNRELIABLE_MSGS = next.UNRELIABLE_MSGS

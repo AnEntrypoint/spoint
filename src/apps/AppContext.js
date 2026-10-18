@@ -302,6 +302,7 @@ export class AppContext {
     const ent = this._entity
     if (config.radius != null) nonNeg(config.radius, 'interactable: radius')
     if (config.cooldown != null) nonNeg(config.cooldown, 'interactable: cooldown')
+    if (config.prompt != null && typeof config.prompt !== 'string') throw new TypeError('interactable: prompt must be a string')
     if (!this._admitsRegistration('interactable')) return
     const radius = config.radius ?? 3
     const prompt = config.prompt ?? 'Press E'
@@ -310,7 +311,7 @@ export class AppContext {
     ent._interactRadius = radius
     ent._interactCooldown = cooldown
     if (!ent.custom) ent.custom = {}
-    ent.custom._interactable = { prompt, radius }
+    ent.custom._interactable = { prompt, radius, cooldown }
     this._runtime._interactableIds.add(ent.id)
   }
 
