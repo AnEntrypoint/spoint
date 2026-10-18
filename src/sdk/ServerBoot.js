@@ -149,15 +149,34 @@ export async function ensureServedAppsManifest(sdkRoot, appsDirs, { worldName = 
   }
 }
 
+function createBootTimer(log = msg => console.log(msg)) {
+  const phases = {}
+  let lastLapAt = performance.now()
+  return {
+    phases,
+    lap(phase) {
+      const now = performance.now()
+      const ms = Math.round(now - lastLapAt)
+      lastLapAt = now
+      phases[phase] = ms
+      log(`[boot-timing] ${phase} ${ms}`)
+    },
+  }
+}
+
 export async function boot(overrides = {}) {
+  const bootTimer = createBootTimer()
   const { ensurePacked } = await import('../protocol/msgpack.js')
   await ensurePacked
+  bootTimer.lap('ensure packed')
   const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
   assertNodeModulesLinked(SDK_ROOT)
   const PROJECT = process.cwd()
   const { name: worldName, path: worldPath } = await locateWorld({ project: PROJECT, sdkRoot: SDK_ROOT, name: process.env.WORLD || null })
+  bootTimer.lap('locate world')
   console.log(worldPath ? `[boot] using world: ${worldName} (${relative(PROJECT, worldPath) || worldPath})` : '[boot] no world found, using bundled SDK defaults')
   const loadedWorldDef = await loadWorldModule(worldPath)
+  bootTimer.lap('load world module')
   const terrainHashOverride = parseTerrainHashOverride(process.env.SPOINT_TERRAIN_HASH)
   const worldDef = terrainHashOverride == null ? loadedWorldDef : withTerrainHashVersion(loadedWorldDef, terrainHashOverride)
   if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
@@ -170,6 +189,7 @@ export async function boot(overrides = {}) {
     log: msg => console.log(`[apps-manifest] ${msg}`),
     warn: msg => console.warn(`[apps-manifest] ${msg}`),
   })
+  bootTimer.lap('ensure served apps manifest')
   const worldScopedManifest = servedManifest?.scoped || null
   if (worldScopedManifest && worldScopedManifest.missing.length) {
     const why = `[apps-manifest] FATAL: world "${worldName}" declares app(s) that resolve to no app under ${appsDirs.join(', ')}: ${worldScopedManifest.missing.join(', ')} -- serving the world-scoped manifest without them drops them from the boot with a silent 404 in the browser instead of this error`
@@ -185,17 +205,21 @@ export async function boot(overrides = {}) {
       ? [{ prefix: '/', dir: dirname(worldScopedManifest.outFile) }, ...buildStaticDirs(SDK_ROOT, PROJECT, appsDirs)]
       : buildStaticDirs(SDK_ROOT, PROJECT, appsDirs),
     worldName, worldPath, worldLocatedByDefault: !process.env.WORLD,
+    bootTiming: bootTimer.phases,
     ...overrides
   }
   const server = await createServer(config)
+  bootTimer.lap('create server')
   try {
     await server.loadWorld(worldDef, worldName)
   } catch (e) {
     try { server.stop() } catch (stopErr) { console.error('[boot] stop after a failed world load failed:', stopErr?.message || stopErr) }
     throw e
   }
+  bootTimer.lap('load world')
   if (server.runtime && typeof server.runtime.waitForPendingTrimeshBuilds === 'function') {
     const { waited, timedOut } = await server.runtime.waitForPendingTrimeshBuilds()
+    bootTimer.lap('wait for trimesh builds')
     if (waited > 0) console.log(`[boot] waited for ${waited} pending trimesh collider build(s)${timedOut ? ' (timed out, proceeding anyway)' : ''}`)
   }
   const resolveModel = m => {
@@ -212,6 +236,7 @@ export async function boot(overrides = {}) {
       ...[join(SDK_ROOT, 'client', 'anim-lib.glb'), resolve(PROJECT, 'client', 'anim-lib.glb')].filter(existsSync),
     ])
     await prewarmFiles(referenced).catch(e => console.error('[prewarm] error:', e))
+    bootTimer.lap('prewarm files')
     setImmediate(() => { prewarm(appsDirs).catch(e => console.error('[prewarm] background error:', e)) })
   }
   try {
@@ -223,12 +248,14 @@ export async function boot(overrides = {}) {
     if (envResolved.length) {
       console.log(`[progressive] awaiting ${envResolved.length} environment bake(s) before serving`)
       await Promise.all(envResolved.map(fp => ensureProgressive(fp).catch(e => console.warn('[progressive] env bake failed:', e?.message))))
+      bootTimer.lap('progressive environment bake')
     }
   } catch (e) { console.error('[progressive] prewarm error:', e.message) }
   if (!process.env.EDITOR_TOKEN) {
     console.warn('[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.')
   }
   const info = await server.start()
+  bootTimer.lap('start server')
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
   logServerIdentity()
   setImmediate(() => {
@@ -251,6 +278,7 @@ export async function boot(overrides = {}) {
     maxPlayers: presenceCfg.maxPlayers ?? null,
     mode: presenceCfg.mode || worldName,
   }).catch(e => { console.error('[presence] init failed:', e.message); return { publish: async () => {}, stop: async () => {}, pubkey: null, enabled: false } })
+  bootTimer.lap('create presence')
   if (presence.enabled) {
     console.log(`[presence] publishing as ${presence.pubkey.slice(0, 12)}... (namespace=${presenceCfg.namespace || 'spoint'})`)
     server.on('playerJoin', () => { presence.publish('heartbeat').catch(() => {}) })
