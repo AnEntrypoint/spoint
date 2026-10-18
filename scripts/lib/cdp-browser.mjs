@@ -340,6 +340,7 @@ class Browser {
     const viewport = opts.viewport || DEFAULT_VIEWPORT
     await fitWindowToViewport(this._conn, targetId, viewport)
     await page.setViewport(viewport)
+    await this._conn.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId).catch(() => {})
     this._pages.push(page)
     return page
   }
