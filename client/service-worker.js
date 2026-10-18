@@ -1,7 +1,7 @@
-const CACHE_NAME = 'spoint-shell-v3'
+const CACHE_NAME = 'spoint-shell-v4'
 const NAV_CACHE_NAME = 'spoint-nav-v1'
-const DEP_CACHE_NAME = 'spoint-deps-v1'
-const ASSET_CACHE_NAME = 'spoint-assets-v1'
+const DEP_CACHE_NAME = 'spoint-deps-v2'
+const ASSET_CACHE_NAME = 'spoint-assets-v2'
 const SHELL_FILES = ['/style.css', '/favicon.svg', '/manifest.json']
 const KEEP_CACHES = new Set([CACHE_NAME, NAV_CACHE_NAME, DEP_CACHE_NAME, ASSET_CACHE_NAME])
 const ASSET_EXT_RE = /\.(wasm|glb|vrm|ktx2|hf)$/i
