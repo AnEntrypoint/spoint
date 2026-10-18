@@ -244,11 +244,15 @@ export function installStuckPipelineRecovery(renderer, scene) {
   if (!renderer || renderer.isWebGPURenderer !== true || !scene) return
   let errorTimestamps = []
   let lastRecoveryAt = 0
+  let pipelineErrorCount = 0
+  window.__pipelineErrors = pipelineErrorCount
   const priorOnError = typeof renderer.onError === 'function' ? renderer.onError.bind(renderer) : null
   renderer.onError = (info) => {
     if (priorOnError) priorOnError(info)
     const msg = (info && info.message) || ''
     if (!/RenderPipeline|CommandBuffer/.test(msg)) return
+    pipelineErrorCount++
+    window.__pipelineErrors = pipelineErrorCount
     const now = (typeof performance !== 'undefined') ? performance.now() : Date.now()
     errorTimestamps.push(now)
     errorTimestamps = errorTimestamps.filter(t => now - t <= STUCK_PIPELINE_WINDOW_MS)
@@ -375,6 +379,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   const _t0 = performance.now()
   const manifestUrls = manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length ? new Set(manifest.modelUrls) : null
   let _residence = residence || { unresolved: [], waitedMs: 0, polls: 0, aborted: false }
+  const compileFailures = []
   const _record = (extra) => {
     window.__lastShaderWarmup = {
       ts: Date.now(),
@@ -384,6 +389,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
       manifestResidenceWaitMs: Math.round(_residence.waitedMs),
       manifestUnresolvedUrls: _residence.unresolved.length ? _residence.unresolved.slice() : null,
       manifestUnresolvedReason: _residence.unresolved.length ? (_residence.aborted ? 'residence-wait-aborted' : 'residence-deadline-exceeded') : null,
+      compileFailures,
       ...extra,
     }
   }
@@ -408,7 +414,11 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     for (let i = 0; i < allMeshes.length; i += WARMUP_BATCH) {
       if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
       await Promise.all(allMeshes.slice(i, i + WARMUP_BATCH).map(async m => {
-        try { await renderer.compileAsync(m, camera, scene) } catch (_) { try { renderer.compile(m, camera, scene) } catch (_2) {} }
+        const url = m.userData?.modelUrl ?? null
+        try { await renderer.compileAsync(m, camera, scene) } catch (err) {
+          compileFailures.push({ url, message: String(err?.message ?? err) })
+          try { renderer.compile(m, camera, scene) } catch (err2) { compileFailures.push({ url, message: String(err2?.message ?? err2) }) }
+        }
         compiledCount++
         loadingMgr.reportProcessing(compiledCount, total)
       }))
