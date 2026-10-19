@@ -99,15 +99,17 @@ function runChecks(M, Patch) {
     return { ok, detail: `swapped=${swapped} restored=${frame.groundSource} identity=${frame.groundHeightLocal === frame.cpuGroundHeightLocal}` }
   })
 
-  guarded('P08-a-second-anonymous-source-clobbers-the-first-under-the-same-name', () => {
+  guarded('P08-a-second-anonymous-source-gets-its-own-name-and-the-first-stays-reachable', () => {
     const frame = freshFrame(M)
     const first = (x, z) => 1
     const second = (x, z) => 2
     frame.groundHeightLocal = first
     frame.groundHeightLocal = second
-    const served = frame.groundSourceOf('substituted')
-    const ok = served === second && served !== first && frame.groundSources.filter((n) => n === 'substituted').length === 1
-    return { ok, detail: `groundSourceOf('substituted')===second=${served === second} names=${JSON.stringify(frame.groundSources)}` }
+    const ok = frame.groundSourceOf('substituted') === first
+      && frame.groundSourceOf('substituted#2') === second
+      && frame.groundSource === 'substituted#2'
+      && frame.groundSources.filter((n) => n === 'substituted').length === 1
+    return { ok, detail: `first=${frame.groundSourceOf('substituted') === first} second=${frame.groundSourceOf('substituted#2') === second} names=${JSON.stringify(frame.groundSources)}` }
   })
 
   guarded('P09-a-prototype-linked-install-keeps-the-override-off-the-shared-frame', () => {

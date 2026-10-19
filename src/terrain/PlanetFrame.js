@@ -278,6 +278,12 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   const groundSources = new Map([['cpu-solve', groundHeightLocal]])
   let _groundHeightLocal = groundHeightLocal
   let _groundSourceName = 'cpu-solve'
+  let _anonymousInstalls = 0
+  function anonymousSourceName(fn) {
+    for (const [name, served] of groundSources) if (served === fn) return name
+    _anonymousInstalls++
+    return _anonymousInstalls === 1 ? 'substituted' : `substituted#${_anonymousInstalls}`
+  }
   function installGroundSource(name, fn) {
     if (typeof name !== 'string' || name === '') throw new TypeError(`this frame names every ground source it serves, so installing one takes a non-empty name; got ${JSON.stringify(name)}`)
     if (typeof fn !== 'function') throw new TypeError(`the ground source port is (x, z, yGuess) => number that throws SurfaceSolveError where there is no ground, so source "${name}" installs a function; got ${fn === null ? 'null' : typeof fn}`)
@@ -314,7 +320,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     enumerable: true,
     configurable: true,
     get: () => _groundHeightLocal,
-    set: (fn) => { installGroundSource(fn === groundHeightLocal ? 'cpu-solve' : 'substituted', fn) },
+    set: (fn) => { installGroundSource(fn === groundHeightLocal ? 'cpu-solve' : anonymousSourceName(fn), fn) },
   })
   function reanchor(newDir) {
     const b = anchorBasis(newDir)
