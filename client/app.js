@@ -698,6 +698,7 @@ const _rebuildMobileControls = (wd) => {
 installQualityPresets()
 QualityPresets.autoApplyPersisted({ renderer, deviceInfo })
 const cam = createCameraController(camera, scene)
+if (typeof window !== 'undefined') window.__camCtrl = cam
 let _savedCam = null
 try { _savedCam = JSON.parse(sessionStorage.getItem('cam') || 'null') } catch (e) { console.warn('[boot] discarding malformed sessionStorage.cam:', e?.message || e) }
 cam.restore(_savedCam); sessionStorage.removeItem('cam')
