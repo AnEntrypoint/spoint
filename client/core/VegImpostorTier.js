@@ -13,8 +13,10 @@ export function impostorHandoffDistances(nearCutoff) {
   return { impostorStart: nearCutoff - IMPOSTOR_DISSOLVE_FADE_BAND_M, meshEnd: nearCutoff + IMPOSTOR_DISSOLVE_FADE_BAND_M }
 }
 
+// The tiles are written top-down only on the WebGPU backend, so the sampler flips only there. The WebGL2
+// backend of WebGPURenderer writes bottom-up and must sample unflipped; isWebGPURenderer is true for both.
 export function atlasSampledFlipped(renderer) {
-  return !!(renderer && renderer.isWebGPURenderer)
+  return tileCopyRowsTopDown(renderer)
 }
 
 function tileCopyRowsTopDown(renderer) {
