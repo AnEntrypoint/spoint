@@ -1,10 +1,10 @@
 const _isNode = typeof process !== 'undefined' && !!process.versions?.node
 let _xstate
-const _bareXstateSpecifierResolvable = _isNode || typeof globalThis.__SPOINT_EDGE_BUNDLED__ !== 'undefined'
+const _bareXstateSpecifierResolvable = _isNode || typeof __SPOINT_EDGE_BUNDLED__ !== 'undefined'
 if (_bareXstateSpecifierResolvable) {
   _xstate = await import('xstate')
 } else {
-  const _bundlerOpaqueBrowserXstateSpec = (() => globalThis.location.origin + '/node_modules/' + 'xstate/dist/xstate.esm.js')()
+  const _bundlerOpaqueBrowserXstateSpec = (() => location.origin + '/node_modules/' + 'xstate/dist/xstate.esm.js')()
   _xstate = await import(_bundlerOpaqueBrowserXstateSpec)
 }
 const { setup, createActor, assign } = _xstate
@@ -214,7 +214,7 @@ export function defineGameFSM(spec, appCtx) {
       if (payload != null && !_isPlainObject(payload)) {
         throw new GameFSMError('game-fsm-payload-not-object', `send("${eventName}") was given the payload ${describeDef(payload)}: it is spread into the event, so a value that is not a plain object reaches the guard and action as fields that were never sent -- a primitive contributes nothing at all and an array contributes its own indices -- instead of being refused here`)
       }
-      if (payload != null && Object.prototype.hasOwnProperty.call(payload, 'type')) {
+      if (payload != null && Object.hasOwn(payload, 'type')) {
         throw new GameFSMError('game-fsm-payload-overrides-type', `send("${eventName}") was given a payload carrying its own "type" ${_quote(payload.type)}: the payload is spread over { type }, so it replaces the event name and a different event is delivered from the one the call named`)
       }
       const event = payload != null ? { type: eventName, ...payload } : { type: eventName }
