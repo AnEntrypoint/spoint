@@ -14,6 +14,12 @@ export async function probeWebGPU() {
     }
     detail.adapter = true
     detail.adapterInfo = adapter.info ? { vendor: adapter.info.vendor, architecture: adapter.info.architecture, device: adapter.info.device, description: adapter.info.description } : null
+    const adapterInfo = adapter.info || {}
+    const software = adapter.isFallbackAdapter === true || adapterInfo.isFallbackAdapter === true || /swiftshader|software/i.test([adapterInfo.vendor, adapterInfo.architecture, adapterInfo.device, adapterInfo.description].join(' '))
+    if (software) {
+      detail.error = 'the adapter is software (' + ([adapterInfo.vendor, adapterInfo.description].filter(Boolean).join(' ') || 'fallback adapter') + '): WebGPU on the CPU is refused, so WebGL2 is used'
+      return { supported: false, detail }
+    }
 
     const device = await adapter.requestDevice()
     if (!device) {
