@@ -168,6 +168,7 @@ async function bundleAppSources(sourceRoot, outRoot) {
     packages: 'external',
     legalComments: 'none',
     logLevel: 'warning',
+    define: { 'globalThis.__spointHmr': 'undefined' },
     plugins: [{
       name: 'spoint-app-absolute-external',
       setup(b) { b.onResolve({ filter: /^\/(spoint\/)?(node_modules|src|apps|data|vendor)\// }, args => ({ path: args.path, external: true })) }
