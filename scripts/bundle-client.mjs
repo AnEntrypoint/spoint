@@ -74,7 +74,6 @@ if (bundleFresh) {
 } else {
   let build
   try { ({ build } = await import('esbuild')) } catch (e) {
-    if (IF_STALE) { console.warn('[bundle-client] esbuild not installed -- skipping bundle (server serves raw ESM):', e?.message || e); process.exit(0) }
     throw e
   }
   const result = await build({
@@ -114,4 +113,4 @@ if (bundleFresh) {
 const manifestOut = join(outdir, 'apps-manifest.json')
 mkdirSync(resolve(ROOT, outdir), { recursive: true })
 const manifestBuild = spawnSync(process.execPath, [join(ROOT, 'scripts', 'bundle-apps-manifest.mjs'), resolve(ROOT, manifestOut), '--all', '--if-changed'], { stdio: 'inherit' })
-if (manifestBuild.status !== 0) console.warn('[bundle-client] apps manifest generation failed (BrowserServer falls back to its live dependency walk)')
+if (manifestBuild.status !== 0) throw new Error('[bundle-client] apps manifest generation failed: the client has no live dependency walk to fall back to, so the build must not ship without the manifest')
