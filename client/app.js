@@ -213,10 +213,13 @@ try {
     if (!renderer) renderer = createRenderer(isMobileDevice)
     performance.mark('boot:renderer-ready')
     if (renderer && renderer.isWebGPURenderer) {
-      try {
-        installStuckPipelineRecovery(renderer, scene)
-      } catch (recoveryErr) {
-        console.warn('[renderer] installStuckPipelineRecovery failed (non-fatal):', recoveryErr && (recoveryErr.message || recoveryErr))
+      installStuckPipelineRecovery(renderer, scene)
+      renderer.onDeviceLost = (info) => {
+        const api = info.api || 'WebGPU'
+        const why = info.message || 'unknown reason'
+        console.error(`[renderer] ${api} device lost: ${why} -- rendering stopped`)
+        renderer.setAnimationLoop(null)
+        _showBootFailureOverlay('GPU device lost', `${api} device lost: ${why}\nRendering stopped. Reload the page to recover.`)
       }
       // A newly visible render object would otherwise compile its pipeline synchronously inside
       // render(), so scenery that streams in as a batch lands every compile in one frame.
