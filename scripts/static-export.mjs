@@ -88,6 +88,9 @@ async function main() {
   cpSync(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   cpSync(appsSrc, join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   log(`apps/ copied from ${rel(appsSrc)}${existsSync(sdkLib) ? ' (+ engine apps/_lib re-export shims)' : ''}`)
+  const bundledApps = await bundleAppSources(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'))
+    + await bundleAppSources(appsSrc, join(OUT, 'apps'))
+  log(`bundled ${bundledApps} game app file(s) into single modules`)
 
   const appFiles = []
   ;(function walk(dir, prefix) {
@@ -136,6 +139,40 @@ async function main() {
 
   log(`done -- static export at ${rel(OUT)}/`)
   log(`Open ${OUT}/index.html via any static file server (it auto-redirects to ?singleplayer&world=<default>), or zip ${rel(OUT)}/ for itch.io.`)
+}
+
+// Each game app file is bundled from its source tree into one self-contained module. Relative imports
+// such as ../../../apps/_lib/buoyancy.js are inlined, so the client never fetches them: a blob-evaluated
+// app resolves a relative import against the origin root and misses the Pages base path.
+async function bundleAppSources(sourceRoot, outRoot) {
+  const { build } = await import('esbuild')
+  const entries = []
+  ;(function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.endsWith('.js') && cpFilter(full)) entries.push(full)
+    }
+  })(sourceRoot)
+  if (entries.length === 0) return 0
+  await build({
+    entryPoints: entries,
+    outbase: sourceRoot,
+    outdir: outRoot,
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    packages: 'external',
+    legalComments: 'none',
+    logLevel: 'warning',
+    plugins: [{
+      name: 'spoint-app-absolute-external',
+      setup(b) { b.onResolve({ filter: /^\/(spoint\/)?(node_modules|src|apps|data|vendor)\// }, args => ({ path: args.path, external: true })) }
+    }],
+  })
+  return entries.length
 }
 
 function patchBase(dir, base) {
