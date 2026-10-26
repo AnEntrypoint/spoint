@@ -40,7 +40,7 @@ export function definePlayerInventory(spec = {}, appCtx) {
       const b = _bag(pid)
       const current = b.items.get(item) || 0
       if (!isPositiveInt(n)) return current
-      const notInItemCatalog = itemDefs && !Object.prototype.hasOwnProperty.call(itemDefs, item)
+      const notInItemCatalog = itemDefs && !Object.hasOwn(itemDefs, item)
       if (notInItemCatalog) return current
       const cap = _maxStack(item)
       const next = Math.min(cap, current + n)
