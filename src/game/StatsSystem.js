@@ -70,7 +70,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
   }
 
   const _declaredSlot = (slot) =>
-    Object.prototype.hasOwnProperty.call(equipment, slot) && Array.isArray(equipment[slot])
+    Object.hasOwn(equipment, slot) && Array.isArray(equipment[slot])
 
   const _parseRestoredPlayer = (record) => {
     if (!record || typeof record !== 'object' || Array.isArray(record)) {
@@ -91,7 +91,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
 
     if (record.bonuses && typeof record.bonuses === 'object') {
       for (const [stat, bonus] of Object.entries(record.bonuses)) {
-        if (Object.prototype.hasOwnProperty.call(baseStats, stat) && typeof bonus === 'number' && Number.isFinite(bonus)) {
+        if (Object.hasOwn(baseStats, stat) && typeof bonus === 'number' && Number.isFinite(bonus)) {
           player.bonuses.set(stat, bonus)
         }
       }
@@ -178,7 +178,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
     },
 
     applyBonus(pid, stat, amount) {
-      if (!Object.prototype.hasOwnProperty.call(baseStats, stat)) return false
+      if (!Object.hasOwn(baseStats, stat)) return false
       if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount === 0) return false
 
       const bonuses = _getPlayerData(pid).bonuses
