@@ -204,13 +204,12 @@ try {
           renderer = await probeAndCreateWebGPURenderer(isMobileDevice, true)
           console.warn('[renderer] WebGPU unavailable, WebGPURenderer is using its WebGL2 backend:', webgpuErr && (webgpuErr.message || webgpuErr))
         } catch (webglBackendErr) {
-          console.warn('[renderer] WebGPURenderer with the WebGL2 backend also failed, falling back to legacy WebGLRenderer:', webglBackendErr && (webglBackendErr.message || webglBackendErr))
+          throw new Error('[renderer] WebGPURenderer with the WebGL2 backend failed; no legacy renderer is used', { cause: webglBackendErr })
         }
       } else {
-        console.warn(`[renderer] ?webgpu=1&forcewebgl=1 requested but WebGPURenderer init failed, falling back to legacy WebGLRenderer:`, webgpuErr && (webgpuErr.message || webgpuErr))
+        throw new Error('[renderer] ?webgpu=1&forcewebgl=1 requested but WebGPURenderer init failed; no legacy renderer is used', { cause: webgpuErr })
       }
     }
-    if (!renderer) renderer = createRenderer(isMobileDevice)
     performance.mark('boot:renderer-ready')
     if (renderer && renderer.isWebGPURenderer) {
       installStuckPipelineRecovery(renderer, scene)
