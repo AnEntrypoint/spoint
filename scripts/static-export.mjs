@@ -4,6 +4,7 @@ import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { ENGINE_ALIASES } from '../src/apps/appImports.js'
+import { worldIceServers } from '../src/shared/worldDefaults.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const SDK_ROOT = join(__dirname, '..')
@@ -72,6 +73,7 @@ async function main() {
   mkdirSync(join(OUT, 'apps'), { recursive: true })
 
   cpSync(join(SDK_ROOT, 'client'), OUT, { recursive: true, filter: cpFilter })
+  writeFileSync(join(OUT, 'runtime-config.json'), JSON.stringify(process.env.SPOINT_ICE_SERVERS ? { iceServers: worldIceServers(null) } : {}))
   log('building client bundle...')
   execFileSync(process.execPath, [join(SDK_ROOT, 'scripts/bundle-client.mjs'), join(SDK_ROOT, 'client/app.js'), join(OUT, 'app.js'), ''], { stdio: 'inherit', cwd: SDK_ROOT })
 
