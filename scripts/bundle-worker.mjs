@@ -49,7 +49,6 @@ if (IF_STALE && artifactMatchesStamp && stamp?.hash === WANT_HASH && statSync(ar
 }
 let build
 try { ({ build } = await import('esbuild')) } catch (e) {
-  if (IF_STALE) { console.warn('[bundle-worker] esbuild not installed -- skipping bundle (server serves the raw ESM worker):', e?.message || e); process.exit(0) }
   throw e
 }
 
