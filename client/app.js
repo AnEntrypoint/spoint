@@ -222,7 +222,8 @@ try {
       }
       // A newly visible render object would otherwise compile its pipeline synchronously inside
       // render(), so scenery that streams in as a batch lands every compile in one frame.
-      if (!installAsyncRenderPipelines(renderer)) {
+      // createRenderPipeline exists only on the WebGPU backend; on WebGL2 the escort would hold back draws.
+      if (renderer.backend?.isWebGPUBackend && !installAsyncRenderPipelines(renderer)) {
         console.warn('[renderer] installAsyncRenderPipelines could not bind; first draws will compile synchronously')
       }
       try {
