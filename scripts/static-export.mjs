@@ -91,6 +91,7 @@ async function main() {
   const bundledApps = await bundleAppSources(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'))
     + await bundleAppSources(appsSrc, join(OUT, 'apps'))
   log(`bundled ${bundledApps} game app file(s) into single modules`)
+  await writeAppsManifestFromBundles(OUT)
 
   const appFiles = []
   ;(function walk(dir, prefix) {
@@ -173,6 +174,19 @@ async function bundleAppSources(sourceRoot, outRoot) {
     }],
   })
   return entries.length
+}
+
+// The client evaluates each app from apps-manifest.json, and the bundler-built manifest carries source
+// with relative imports. Rebuilding it from the bundled apps makes the manifest carry the single-file
+// modules the export ships, so no app reaches back for ../../../apps/_lib at runtime.
+async function writeAppsManifestFromBundles(OUT) {
+  const { buildAppsManifest, manifestJson, resolveAllAppNames, appsManifestFingerprint } = await import('../src/apps/appsManifest.js')
+  const dirs = [join(OUT, 'apps')]
+  const names = resolveAllAppNames(dirs)
+  const { apps, failed } = await buildAppsManifest(dirs, { names, log })
+  if (failed.length) throw new Error(`[static-export] apps manifest: ${failed.length} app(s) did not resolve from the bundled apps: ${failed.join(', ')}`)
+  writeFileSync(join(OUT, 'apps-manifest.json'), manifestJson(apps, appsManifestFingerprint(dirs).fingerprint))
+  log(`apps-manifest.json rebuilt from ${apps.length} bundled app(s)`)
 }
 
 function patchBase(dir, base) {
