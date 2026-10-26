@@ -126,7 +126,7 @@ async function main() {
     mkdirSync(dirname(dest), { recursive: true })
     cpSync(src, dest, { recursive: true, dereference: true, filter: cpFilter })
   }
-  if (missingPkgs.length) log(`WARNING: could not locate node_modules for: ${missingPkgs.join(', ')} -- export will 404 on these at runtime`)
+  if (missingPkgs.length) throw new Error(`[static-export] could not locate node_modules for: ${missingPkgs.join(', ')} -- an export without them 404s at runtime`)
   for (const nested of ['streaming-gltf/node_modules', 'mapspinner/node_modules']) {
     const p = join(OUT, 'node_modules', nested)
     if (existsSync(p)) rmSync(p, { recursive: true, force: true })
