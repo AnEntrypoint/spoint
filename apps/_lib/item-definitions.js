@@ -9,7 +9,7 @@ export const ITEM_DEFINITIONS = Object.freeze({
 })
 
 export function getItemDefinition(itemId) {
-  return Object.prototype.hasOwnProperty.call(ITEM_DEFINITIONS, itemId) ? ITEM_DEFINITIONS[itemId] : null
+  return Object.hasOwn(ITEM_DEFINITIONS, itemId) ? ITEM_DEFINITIONS[itemId] : null
 }
 
 export const ITEM_BUY_CATALOG = Object.freeze(
