@@ -144,8 +144,7 @@ export async function ensureServedAppsManifest(sdkRoot, appsDirs, { worldName = 
     log(`${scoped.status} world-scoped ${relative(sdkRoot, scopedFile)} (${scoped.apps} of ${all.apps} app(s), ${scopedSize}, ${scoped.ms}ms)`)
     return { all, scoped }
   } catch (e) {
-    warn(`could not refresh ${outFile}: ${e && e.message ? e.message : e} -- clients fall back to the live app walk`)
-    return null
+    throw new Error(`[apps-manifest] could not refresh ${outFile}: ${e && e.message ? e.message : e}`, { cause: e })
   }
 }
 
