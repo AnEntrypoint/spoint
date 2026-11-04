@@ -126,7 +126,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     }
     if (typeof planet.drawnQuads === 'function') {
       try {
-        meshSurface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: planet.drawnQuads, lattice: sharedLattice })
+        meshSurface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: planet.drawnQuads, lattice: sharedLattice, focusRadiusM: 450 })
         frame.renderMeshHeightAtLocal = meshSurface.heightAtLocal
       } catch (e) {
         meshSurface = null
