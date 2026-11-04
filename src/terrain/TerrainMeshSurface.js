@@ -129,6 +129,7 @@ export function createTerrainMeshSurface(opts = {}) {
   const focus = [0, 0]
   const near = []
   const footprints = []
+  const indexed = []
   const built = new Map()
   const candidates = []
   // Every read of this mirror used to test EVERY near quad's box and winding: 1218 of them at the
@@ -386,6 +387,7 @@ export function createTerrainMeshSurface(opts = {}) {
       _reachV[face] = reach / metresPerFaceUnit(face, cam[0], cam[1], 0, 1, R, E, N, _dir, _dirB)
     }
     const count = Math.min(q.count, (q.offsets.length / 4) | 0)
+    let indexStale = false
     for (let n = 0; n < count; n++) {
       const face = q.faces[n] | 0
       const ox = q.offsets[n * 4], oy = q.offsets[n * 4 + 1], l = q.offsets[n * 4 + 2], level = q.offsets[n * 4 + 3]
@@ -398,12 +400,23 @@ export function createTerrainMeshSurface(opts = {}) {
       if (fp === undefined || fp.face !== face || fp.ox !== ox || fp.oy !== oy || fp.l !== l || fp.level !== level || fp.epoch !== frame.chartEpoch) {
         fp = footprintInto(face, ox, oy, l, level, frame.chartEpoch, fp)
         footprints[n] = fp
+        indexStale = true
       }
       if (fp.ok) near.push(fp)
     }
     stats.nearQuads = near.length
     syncedQuads = near.length
-    rebuildNearIndex()
+    if (indexStale || !sameAsIndexed()) {
+      indexed.length = 0
+      for (let k = 0; k < near.length; k++) indexed.push(near[k])
+      rebuildNearIndex()
+    }
+  }
+
+  function sameAsIndexed() {
+    if (indexed.length !== near.length) return false
+    for (let k = 0; k < near.length; k++) if (indexed[k] !== near[k]) return false
+    return true
   }
 
   // A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad
