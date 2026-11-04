@@ -102,11 +102,12 @@ function runChecks(M) {
     return { ok, detail: `frame_method_same=${ok}` }
   })
 
-  guarded('E09-absent-hook-passes-frame-through', () => {
+  guarded('E09-absent-hook-falls-through-to-frame-ground', () => {
     const frame = { groundHeightLocal: () => 9 }
     const h = make(frame)
-    const ok = h.placementFrame === frame && h.placementFrame.groundHeightLocal(0, 0) === 9 && h.missing === false
-    return { ok, detail: `identity=${h.placementFrame === frame} missing=${h.missing}` }
+    const linked = h.placementFrame !== frame && Object.getPrototypeOf(h.placementFrame) === frame
+    const ok = linked && h.placementFrame.groundHeightLocal(0, 0) === 9 && h.missing === false
+    return { ok, detail: `linked=${linked} missing=${h.missing}` }
   })
 
   guarded('E10-prefetch-forwards-args-with-live-hook', () => {
