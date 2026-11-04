@@ -1,5 +1,5 @@
 import {
-  latticeFor, surfaceAlongDir, tangentFrame, tangentFrameQuat, quatMulF32, radialSlopeAt, climateAt, valueNoise3, seaLocalXZ,
+  latticeFor, surfaceAlongDir, createTangentFrame, tangentFrameInto, tangentFrameQuatInto, quatMulF32Into, radialSlopeInto, climateAt, valueNoise3, seaLocalXZ,
 } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
@@ -83,9 +83,14 @@ export function tintMultiplier(hue, sat, value) {
   ]
 }
 
-export function leanQuat(magnitude, dirAngle) {
+export function leanQuatInto(magnitude, dirAngle, out) {
   const s = Math.sin(magnitude * 0.5), c = Math.cos(magnitude * 0.5)
-  return [Math.fround(Math.cos(dirAngle) * s), 0, Math.fround(Math.sin(dirAngle) * s), Math.fround(c)]
+  out[0] = Math.fround(Math.cos(dirAngle) * s); out[1] = 0; out[2] = Math.fround(Math.sin(dirAngle) * s); out[3] = Math.fround(c)
+  return out
+}
+
+export function leanQuat(magnitude, dirAngle) {
+  return leanQuatInto(magnitude, dirAngle, [0, 0, 0, 0])
 }
 
 export function hash3(seed, ix, iz) {
@@ -144,6 +149,11 @@ export function baseDensity(temp, humidity, erosion = 0) {
 const BASE_DENSITY_CEILING = baseDensity(1, 1, 0)
 
 const _vegClimate = { temp: 0.5, humidity: 0.5, base: 0 }
+const _tf = createTangentFrame()
+const _slope = [0, 0]
+const _tfq = [0, 0, 0, 0]
+const _lq = [0, 0, 0, 0]
+const _dec = [0, 0, 0]
 
 function readClimate(clim, groveMul, coin, out) {
   const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
@@ -207,8 +217,8 @@ export function classify(frame, anchorField, cell) {
   const treelineMul = elev > treeline ? 1 - (elev - treeline) / (VEG.TREELINE_FADE * reliefMarginScale) : 1
   const soilMul = renderedSoilWeight(elev) * treelineMul
   if (soilMul <= 0) return null
-  const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
-  const slope = radialSlopeAt(frame, tf, rho, VEG.SLOPE_D)
+  const tf = tangentFrameInto(frame, cell.dir[0], cell.dir[1], cell.dir[2], _tf)
+  const slope = radialSlopeInto(frame, tf, rho, VEG.SLOPE_D, _slope)
   if (!slope) return null
   if (Math.hypot(slope[0], slope[1]) > VEG.SLOPE_MAX) return null
   const painted = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(slope[0], slope[1]), temp, humidity)
@@ -234,7 +244,7 @@ export function classify(frame, anchorField, cell) {
   const shape = Math.min(VEG_SHAPE_VARIANTS - 1, Math.floor(rand(cellHash, K_SHAPE) * VEG_SHAPE_VARIANTS))
   const leanR = rand(cellHash, K_LEAN)
   const leanMax = genus === SP_BUSH ? LEAN_MAX_BUSH : LEAN_MAX_TREE
-  const tiltQuat = quatMulF32(tangentFrameQuat(tf), leanQuat(leanR * leanR * leanMax, rand(cellHash, K_LEAN_DIR) * Math.PI * 2))
+  const tiltQuat = quatMulF32Into(tangentFrameQuatInto(tf, _tfq), leanQuatInto(leanR * leanR * leanMax, rand(cellHash, K_LEAN_DIR) * Math.PI * 2, _lq), [0, 0, 0, 0])
   const season = (seaNoise(SEASON_SEED, s, SEASON_CELL_M) - 0.5) * 2
   const hue = Math.max(-1, Math.min(1, (rand(cellHash, K_TINT_HUE) * 2 - 1) * TINT_HUE_RANDOM_WEIGHT + season * TINT_HUE_SEASON_WEIGHT))
   const sat = (TINT_SAT_LOW + TINT_SAT_SPAN * rand(cellHash, K_TINT_SAT)) * (GENUS_TINT_STRENGTH[genus] ?? 1)
@@ -252,7 +262,7 @@ export function classify(frame, anchorField, cell) {
 export function placementsForChunk(key, frame, anchorField, worldSeed) {
   const out = []
   const lattice = latticeFor(frame, VEG)
-  const dec = lattice.decodeChunk(key, [0, 0, 0])
+  const dec = lattice.decodeChunk(key, _dec)
   const seed = (worldSeed | 0) ^ 0x7eed
   const cell = createPlacementCell(frame)
   for (let gz = 0; gz < VEG.GRID; gz++) {
@@ -282,6 +292,7 @@ const _hotSwapVegPlacement = (next) => {
   groveAt = next.groveAt
   tintMultiplier = next.tintMultiplier
   leanQuat = next.leanQuat
+  leanQuatInto = next.leanQuatInto
   hash3 = next.hash3
   rand = next.rand
   ARIDITY_LINE = next.ARIDITY_LINE
