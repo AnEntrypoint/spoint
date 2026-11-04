@@ -128,6 +128,7 @@ export function createTerrainMeshSurface(opts = {}) {
 
   const focus = [0, 0]
   const near = []
+  const footprints = []
   const built = new Map()
   const candidates = []
   // Every read of this mirror used to test EVERY near quad's box and winding: 1218 of them at the
@@ -340,6 +341,29 @@ export function createTerrainMeshSurface(opts = {}) {
     else lazySyncDrawn = drawnCount()
   }
 
+  function footprintInto(face, ox, oy, l, level, epoch, fp) {
+    const out = fp || { face: 0, ox: 0, oy: 0, l: 0, level: 0, epoch: 0, ok: false, cx: new Float64Array(4), cz: new Float64Array(4), minX: 0, maxX: 0, minZ: 0, maxZ: 0 }
+    out.face = face; out.ox = ox; out.oy = oy; out.l = l; out.level = level; out.epoch = epoch; out.ok = false
+    const cx = out.cx, cz = out.cz
+    let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity
+    for (let c = 0; c < 4; c++) {
+      const uu = ox + QUAD_CORNER_U[c] * l, vv = oy + QUAD_CORNER_V[c] * l
+      if (!deformDir(face, uu, vv, R, _dir)) return out
+      const wx = _dir[0] * R, wy = _dir[1] * R, wz = _dir[2] * R
+      const px = wx * E[0] + wy * E[1] + wz * E[2]
+      const pz = wx * N[0] + wy * N[1] + wz * N[2]
+      cx[c] = px; cz[c] = pz
+      if (px < minX) minX = px; if (px > maxX) maxX = px
+      if (pz < minZ) minZ = pz; if (pz > maxZ) maxZ = pz
+    }
+    const gx = (cx[0] + cx[1] + cx[2] + cx[3]) * 0.25, gz = (cz[0] + cz[1] + cz[2] + cz[3]) * 0.25
+    for (let c = 0; c < 4; c++) { cx[c] = gx + (cx[c] - gx) * FOOTPRINT_BLOAT; cz[c] = gz + (cz[c] - gz) * FOOTPRINT_BLOAT }
+    out.minX = minX - FOOTPRINT_INFLATE_M; out.maxX = maxX + FOOTPRINT_INFLATE_M
+    out.minZ = minZ - FOOTPRINT_INFLATE_M; out.maxZ = maxZ + FOOTPRINT_INFLATE_M
+    out.ok = true
+    return out
+  }
+
   function sync() {
     version++
     stats.syncs++
@@ -370,22 +394,12 @@ export function createTerrainMeshSurface(opts = {}) {
       if (!cam || !(_reachU[face] > 0) || !(_reachV[face] > 0)) continue
       if (Math.abs(ox + l * 0.5 - cam[0]) > _reachU[face] + l * 0.5) continue
       if (Math.abs(oy + l * 0.5 - cam[1]) > _reachV[face] + l * 0.5) continue
-      let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, ok = true
-      const cx = new Float64Array(4), cz = new Float64Array(4)
-      for (let c = 0; c < 4; c++) {
-        const uu = ox + QUAD_CORNER_U[c] * l, vv = oy + QUAD_CORNER_V[c] * l
-        if (!deformDir(face, uu, vv, R, _dir)) { ok = false; break }
-        const wx = _dir[0] * R, wy = _dir[1] * R, wz = _dir[2] * R
-        const px = wx * E[0] + wy * E[1] + wz * E[2]
-        const pz = wx * N[0] + wy * N[1] + wz * N[2]
-        cx[c] = px; cz[c] = pz
-        if (px < minX) minX = px; if (px > maxX) maxX = px
-        if (pz < minZ) minZ = pz; if (pz > maxZ) maxZ = pz
+      let fp = footprints[n]
+      if (fp === undefined || fp.face !== face || fp.ox !== ox || fp.oy !== oy || fp.l !== l || fp.level !== level || fp.epoch !== frame.chartEpoch) {
+        fp = footprintInto(face, ox, oy, l, level, frame.chartEpoch, fp)
+        footprints[n] = fp
       }
-      if (!ok) continue
-      const gx = (cx[0] + cx[1] + cx[2] + cx[3]) * 0.25, gz = (cz[0] + cz[1] + cz[2] + cz[3]) * 0.25
-      for (let c = 0; c < 4; c++) { cx[c] = gx + (cx[c] - gx) * FOOTPRINT_BLOAT; cz[c] = gz + (cz[c] - gz) * FOOTPRINT_BLOAT }
-      near.push({ face, ox, oy, l, level, cx, cz, minX: minX - FOOTPRINT_INFLATE_M, maxX: maxX + FOOTPRINT_INFLATE_M, minZ: minZ - FOOTPRINT_INFLATE_M, maxZ: maxZ + FOOTPRINT_INFLATE_M })
+      if (fp.ok) near.push(fp)
     }
     stats.nearQuads = near.length
     syncedQuads = near.length
