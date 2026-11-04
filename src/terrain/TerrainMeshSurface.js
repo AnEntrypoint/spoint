@@ -1,7 +1,7 @@
 const _isNode = typeof process !== 'undefined' && !!process.versions && !!process.versions.node
 const _msFile = (p) => (_isNode ? `mapspinner/${p}` : `/node_modules/mapspinner/src/${p}`)
 
-const { FACE_FRAME, worldToFaceLocal } = await import(_msFile('planet-orchestrator-cull.js'))
+const { FACE_FRAME } = await import(_msFile('planet-orchestrator-cull.js'))
 
 export const MESH_SURFACE_NO_GROUND = null
 export function isMeshSurfaceNoGround(v) { return v === MESH_SURFACE_NO_GROUND }
@@ -165,8 +165,6 @@ export function createTerrainMeshSurface(opts = {}) {
   let version = 0
 
   const _dir = [0, 0, 0]
-  const _camW = [0, 0, 0]
-  const _camFL = [null, null, null, null, null, null]
 
   function ensureGrid(g) {
     if (gridSize === g && flip) return
@@ -340,21 +338,12 @@ export function createTerrainMeshSurface(opts = {}) {
     const g = q.gridSize | 0
     if (!(g >= 1)) { stats.nearQuads = 0; return }
     ensureGrid(g)
-    _camW[0] = U[0] * (R + frame.anchorHeight) + E[0] * focus[0] + N[0] * focus[1]
-    _camW[1] = U[1] * (R + frame.anchorHeight) + E[1] * focus[0] + N[1] * focus[1]
-    _camW[2] = U[2] * (R + frame.anchorHeight) + E[2] * focus[0] + N[2] * focus[1]
-    for (let face = 0; face < 6; face++) _camFL[face] = worldToFaceLocal(face, _camW, R)
     const reach = focusRadiusM * REACH_MUL
     const count = Math.min(q.count, (q.offsets.length / 4) | 0)
     for (let n = 0; n < count; n++) {
       const face = q.faces[n] | 0
       const ox = q.offsets[n * 4], oy = q.offsets[n * 4 + 1], l = q.offsets[n * 4 + 2], level = q.offsets[n * 4 + 3]
       if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(l) || !(l > 0)) continue
-      const cam = _camFL[face]
-      if (!cam) continue
-      const cu = cam[0], cv = cam[1]
-      if (Math.abs(ox + l * 0.5 - cu) > reach + l * 0.5) continue
-      if (Math.abs(oy + l * 0.5 - cv) > reach + l * 0.5) continue
       let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, ok = true
       const cx = new Float64Array(4), cz = new Float64Array(4)
       for (let c = 0; c < 4; c++) {
@@ -368,6 +357,8 @@ export function createTerrainMeshSurface(opts = {}) {
         if (pz < minZ) minZ = pz; if (pz > maxZ) maxZ = pz
       }
       if (!ok) continue
+      const bx = Math.max(minX - focus[0], 0, focus[0] - maxX), bz = Math.max(minZ - focus[1], 0, focus[1] - maxZ)
+      if (bx * bx + bz * bz > reach * reach) continue
       const gx = (cx[0] + cx[1] + cx[2] + cx[3]) * 0.25, gz = (cz[0] + cz[1] + cz[2] + cz[3]) * 0.25
       for (let c = 0; c < 4; c++) { cx[c] = gx + (cx[c] - gx) * FOOTPRINT_BLOAT; cz[c] = gz + (cz[c] - gz) * FOOTPRINT_BLOAT }
       near.push({ face, ox, oy, l, level, cx, cz, minX: minX - FOOTPRINT_INFLATE_M, maxX: maxX + FOOTPRINT_INFLATE_M, minZ: minZ - FOOTPRINT_INFLATE_M, maxZ: maxZ + FOOTPRINT_INFLATE_M })
