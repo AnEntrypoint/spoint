@@ -1,7 +1,7 @@
 import {
   hash3, rand, ARIDITY_LINE, VEG, reliefMarginScaleOf, seaNoise, createPlacementCell, placementCellAt, surfaceOfCell,
 } from './VegPlacement.js'
-import { latticeFor, tangentFrame, tangentFrameQuat, tangentToLocal, quatMulF32, radialSlopeAt, climateAt } from './PlacementChart.js'
+import { latticeFor, createTangentFrame, tangentFrameInto, tangentFrameQuatInto, tangentToLocalInto, quatMulF32Into, radialSlopeInto, climateAt } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
 export let ROCK = Object.freeze({
@@ -82,6 +82,12 @@ const CLUSTER_SCALE = 224
 const MAX_CLUSTER_STRENGTH = 0.6
 
 const _rockClimate = { erosion: 0.3, humidity: 0.5, temp: 0.5 }
+const _tf = createTangentFrame()
+const _slope = [0, 0]
+const _tfq = [0, 0, 0, 0]
+const _nq = [0, 0, 0, 1]
+const _nl = [0, 0, 0]
+const _dec = [0, 0, 0]
 
 function readClimate(clim, out) {
   const erosion = clim && Number.isFinite(clim.erosion) ? clim.erosion : 0.3
@@ -124,8 +130,8 @@ export function classify(frame, anchorField, cell) {
   const ceiling = Math.max(ROCK.FLOOR, Math.min(1, rockDensity(erosion, 1, humidity, elevNorm) * patch * clusterBoostUpperBoundOverAllSlopes)) * cell.area
   if (coin >= ceiling) return null
 
-  const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
-  const slope = radialSlopeAt(frame, tf, rho, ROCK.SLOPE_D)
+  const tf = tangentFrameInto(frame, cell.dir[0], cell.dir[1], cell.dir[2], _tf)
+  const slope = radialSlopeInto(frame, tf, rho, ROCK.SLOPE_D, _slope)
   if (!slope) return null
   const dHdx = slope[0], dHdz = slope[1]
   const grad = Math.hypot(dHdx, dHdz)
@@ -150,8 +156,8 @@ export function classify(frame, anchorField, cell) {
   const variant = Math.fround(rand(cellHash, K_VAR))
   let bnx = nx + wob, bny = ny, bnz = nz + wobZ
   const bl = Math.hypot(bnx, bny, bnz); bnx /= bl; bny /= bl; bnz /= bl
-  const tq = quatMulF32(tangentFrameQuat(tf), normalQuat(bnx, bny, bnz, [0, 0, 0, 1]))
-  const normalL = tangentToLocal(tf, nx, ny, nz)
+  const tq = quatMulF32Into(tangentFrameQuatInto(tf, _tfq), normalQuat(bnx, bny, bnz, _nq), [0, 0, 0, 0])
+  const normalL = tangentToLocalInto(tf, nx, ny, nz, _nl)
 
   return {
     x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z),
@@ -164,7 +170,7 @@ export function classify(frame, anchorField, cell) {
 export function placementsForRockChunk(key, frame, anchorField, worldSeed) {
   const out = []
   const lattice = latticeFor(frame, ROCK)
-  const dec = lattice.decodeChunk(key, [0, 0, 0])
+  const dec = lattice.decodeChunk(key, _dec)
   const seed = (worldSeed | 0) ^ 0x70c5
   const cell = createPlacementCell(frame)
   for (let gz = 0; gz < ROCK.GRID; gz++) {
