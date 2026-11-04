@@ -1,6 +1,7 @@
 import { createPlacementLattice } from './PlacementLattice.js'
 
 export let SECTOR_M = 8
+const _centre = [0, 0, 0]
 
 const _sectorCaches = new WeakMap()
 
@@ -25,7 +26,7 @@ export function createCachedAnchorField(anchorField, frame) {
     const k = lattice.chunkKeyOfDir(dir[0], dir[1], dir[2])
     let v = cache.get(k)
     if (v !== undefined) return v
-    const centre = lattice.chunkCentreDir(k, [0, 0, 0])
+    const centre = lattice.chunkCentreDir(k, _centre)
     const sharedScratchClimate = anchorField.sampleDir ? anchorField.sampleDir(centre) : null
     v = sharedScratchClimate ? { temp: sharedScratchClimate.temp, humidity: sharedScratchClimate.humidity, erosion: sharedScratchClimate.erosion, seaBias: sharedScratchClimate.seaBias } : null
     cache.set(k, v)
