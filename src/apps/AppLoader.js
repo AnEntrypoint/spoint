@@ -5,6 +5,8 @@ const BLOCKED_PATTERNS = [
   'Object.prototype', 'globalThis', 'eval(', 'import('
 ]
 
+const REFUSAL_BLOCKED_PATTERN = 'app-source-blocked-pattern'
+
 const FILE_CHANGE_DEBOUNCE_MS = 100
 
 let _nm = null
@@ -49,7 +51,7 @@ export class AppLoader {
   async loadAll() {
     const { readdir, access, join, basename, extname } = await _nodeModules()
     const seen = new Set()
-    const loaded = [], failed = []
+    const loaded = [], failed = [], refusals = []
     for (const dir of this._dirs) {
       const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
       for (const entry of entries) {
@@ -61,21 +63,25 @@ export class AppLoader {
         }
         if (name && !seen.has(name)) {
           seen.add(name)
-          const ok = await this.loadApp(name)
+          const ok = await this.loadApp(name, refusals)
           if (ok) loaded.push(name); else failed.push(name)
         }
       }
     }
-    return { loaded, failed }
+    return { loaded, failed, refusals }
   }
 
-  async loadApp(name) {
+  async loadApp(name, refusals = null) {
     const filePath = await this._resolvePath(name)
     if (!filePath) return null
     const { readFile } = await _nodeModules()
     try {
       const source = await readFile(filePath, 'utf-8')
-      if (!this._validate(source, name)) return null
+      const refusal = this._validate(source, name)
+      if (refusal) {
+        if (refusals) refusals.push(refusal)
+        return null
+      }
       const appDef = await this._evaluate(source, filePath)
       if (!appDef) return null
       this._runtime.registerApp(name, appDef)
@@ -91,10 +97,10 @@ export class AppLoader {
     for (const pattern of BLOCKED_PATTERNS) {
       if (source.includes(pattern)) {
         console.error(`[AppLoader] blocked pattern "${pattern}" in ${name}`)
-        return false
+        return { reasonCode: REFUSAL_BLOCKED_PATTERN, app: name, pattern }
       }
     }
-    return true
+    return null
   }
 
   async _evaluate(source, filePath) {
@@ -186,7 +192,7 @@ export class AppLoader {
   getClientModule(name) { return this._loaded.get(name)?.clientCode || null }
 
   async loadFromString(name, source, deps = null) {
-    if (!this._validate(source, name)) return null
+    if (this._validate(source, name)) return null
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
       console.error(`[AppLoader] loadFromString: URL.createObjectURL unavailable (edge target) -- use loadFromModule(name, module) instead`)
       return null
