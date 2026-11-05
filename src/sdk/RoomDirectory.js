@@ -10,6 +10,7 @@ export class RoomDirectory {
     this.projectRoot = projectRoot || sdkRoot
     this.portRange = portRange
     this.rooms = new Map()
+    this.testers = new Map()
     this._reservedPorts = new Set()
   }
 
@@ -50,7 +51,7 @@ export class RoomDirectory {
       try {
         await server.loadWorld(worldDef, resolvedWorldName)
         const info = await server.start()
-        const handle = { roomId, worldName: resolvedWorldName, port: info.port, server, bootedAt: Date.now() }
+        const handle = { roomId, worldName: resolvedWorldName, port: info.port, server, bootedAt: Date.now(), requestedWorldName: worldName || null, configOverrides: opts.configOverrides || {} }
         this.rooms.set(roomId, handle)
         return handle
       } catch (e) {
@@ -66,32 +67,60 @@ export class RoomDirectory {
 
   listRooms() { return [...this.rooms.values()] }
 
+  joinTester(roomId, testerId) {
+    if (!this.rooms.has(roomId)) throw new Error(`RoomDirectory: cannot join tester "${testerId}" to unknown room "${roomId}"`)
+    if (typeof testerId !== 'string' || testerId.length === 0) throw new Error('RoomDirectory: testerId must be a non-empty string')
+    const record = { testerId, roomId, joinedAt: Date.now() }
+    this.testers.set(testerId, record)
+    return record
+  }
+
+  leaveTester(testerId) { return this.testers.delete(testerId) }
+
+  listTesters(roomId = null) {
+    return [...this.testers.values()].filter(t => roomId === null || t.roomId === roomId)
+  }
+
   async stopRoom(roomId) {
     const handle = this.rooms.get(roomId)
     if (!handle) return false
     await handle.server.flushAll().catch(e => console.error(`[RoomDirectory] flushAll error for room "${roomId}":`, e?.message || e))
     handle.server.stop()
     this.rooms.delete(roomId)
+    for (const t of this.listTesters(roomId)) this.testers.delete(t.testerId)
     return true
+  }
+
+  async resetRoom(roomId) {
+    const handle = this.rooms.get(roomId)
+    if (!handle) return null
+    const { port, requestedWorldName, configOverrides } = handle
+    await this.stopRoom(roomId)
+    return this.createRoom(roomId, requestedWorldName, { port, configOverrides })
   }
 
   async stopAll() {
     await Promise.allSettled([...this.rooms.keys()].map(id => this.stopRoom(id)))
   }
 
+  getRoomStatus(roomId) {
+    const r = this.rooms.get(roomId)
+    if (!r) return null
+    const ts = r.server.tickSystem
+    const budgets = ts._tickBudgetMs || []
+    const avgTickMs = budgets.length ? ts._tickBudgetSum / budgets.length : 0
+    return {
+      roomId: r.roomId, worldName: r.worldName, port: r.port,
+      bootedAt: r.bootedAt,
+      uptimeMs: Date.now() - r.bootedAt,
+      tick: ts.currentTick,
+      players: r.server.playerManager.getPlayerCount(),
+      entities: r.server.runtime.entities.size,
+      avgTickMs, dilationFactor: ts.dilationFactor,
+    }
+  }
+
   getStatus() {
-    return this.listRooms().map(r => {
-      const ts = r.server.tickSystem
-      const budgets = ts._tickBudgetMs || []
-      const avgTickMs = budgets.length ? ts._tickBudgetSum / budgets.length : 0
-      return {
-        roomId: r.roomId, worldName: r.worldName, port: r.port,
-        uptimeMs: Date.now() - r.bootedAt,
-        tick: ts.currentTick,
-        players: r.server.playerManager.getPlayerCount(),
-        entities: r.server.runtime.entities.size,
-        avgTickMs, dilationFactor: ts.dilationFactor,
-      }
-    })
+    return this.listRooms().map(r => this.getRoomStatus(r.roomId))
   }
 }
