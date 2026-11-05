@@ -1,0 +1,32 @@
+ROW DBC-ub1-s2-4: NEEDS-DESIGN
+Zero 'throw' statements in src/game/AbilityTree.js is still true, but the row's premise of sentinel-only returns is stale: the file has DEFINITION_REFUSAL/definitionRefusal, reason-carrying results ({ok:false, reason:'unknown-ability'}) and a TypeError for a bad playerId via the shared [game] boundary. Converting its ~15 entry points to throws would change the public result contract (a design decision), and the row says to wait for PARSEDV-ub1-s2-2 to land. Not edited.
+Probe output (node DBC-ub1-s2-4-probe.mjs):
+{
+  "throwStatementsInFile": 0,
+  "definitionRefusalKinds": [
+    "DEFS_NOT_AN_ARRAY",
+    "NOT_AN_OBJECT",
+    "ID_MISSING",
+    "ID_NOT_A_POSITIVE_INTEGER",
+    "DUPLICATE_ID"
+  ],
+  "castAbilityUnknownId": {
+    "ok": true,
+    "value": {
+      "ok": false,
+      "reason": "unknown-ability"
+    }
+  },
+  "canCastAbilityUnknownId": {
+    "ok": true,
+    "value": {
+      "ok": false,
+      "reason": "unknown-ability"
+    }
+  },
+  "canCastAbilityNullPlayer": {
+    "ok": false,
+    "error": "TypeError: [game] playerId must be a non-empty string or an integer, got object"
+  },
+  "entryPointCount": 20
+}

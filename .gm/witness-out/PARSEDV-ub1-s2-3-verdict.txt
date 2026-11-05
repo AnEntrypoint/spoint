@@ -1,0 +1,28 @@
+ROW PARSEDV-ub1-s2-3: NEEDS-DESIGN
+Real contract finding: StatsSystem.js has 6 bare 'return false' sites and EventChainManager.js 5, each hiding distinct causes. ProgressionSystem.js now has 0 bare false (the row's :71/:80 sites are gone), so the row's ProgressionSystem part is stale. Changing the boolean to a declared refusal type touches 2+ files, pins two witnesses (scripts/StatsSystem-witness.mjs, scripts/EventChainManager-witness.mjs) and needs a refusal-type design; the row itself says not to start while those pins and other lanes hold these files. Not edited.
+Probe output (node PARSEDV-ub1-s2-3-probe.mjs):
+{
+  "bareFalseReturnSites": {
+    "StatsSystem.js": [
+      "165: if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return false",
+      "181: if (!Object.hasOwn(baseStats, stat)) return false",
+      "182: if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount === 0) return false",
+      "253: if (!item) return false",
+      "283: if (typeof loadoutName !== 'string' || !loadoutName.trim()) return false",
+      "300: if (!loadout) return false"
+    ],
+    "EventChainManager.js": [
+      "120: if (!trigger || trigger.type !== eventType) return false",
+      "124: if (target !== trigger.entityId) return false",
+      "128: if (context.zoneId !== trigger.zoneId) return false",
+      "132: if (context.targetEntityId !== trigger.targetEntityId) return false",
+      "136: if (context.timerId !== trigger.timerId) return false"
+    ],
+    "ProgressionSystem.js": []
+  },
+  "counts": {
+    "StatsSystem.js": 6,
+    "EventChainManager.js": 5,
+    "ProgressionSystem.js": 0
+  }
+}

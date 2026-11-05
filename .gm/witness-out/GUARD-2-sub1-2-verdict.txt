@@ -1,0 +1,9 @@
+ROW GUARD-2-sub1-2: REFUTED
+The witness the row cites (scripts/fsm-arena-index-witness.mjs) does not exist in the tree and has no git history, so its defineGameMode stub cannot be running. apps/fsm-arena/index.js buildMatchFSM calls the real ctx.defineGameMode, so the shipped match FSM is not stubbed in any file present.
+Probe output (node GUARD-2-sub1-2-probe.mjs):
+{
+  "witnessFileExists": false,
+  "witnessEverInGitHistory": null,
+  "appSetupCallsDefineGameMode": true,
+  "buildMatchFSMUsesCtxDefineGameMode": true
+}

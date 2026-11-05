@@ -1,0 +1,44 @@
+ROW WADLER-n-r249sub1-1: REFUTED (already fixed at HEAD)
+Evidence: commit 35907e7 'AppPhysics: setInteractable writes reified block'. src/apps/AppPhysics.js now has parseInteractable (validates radius/cooldown via nonNeg, prompt string) and reifyInteractable, which writes custom._interactable = {prompt,radius,cooldown}; setInteractable and AppContext.interactable both route through them, and AppRuntime._hydrateInteractable uses parseInteractable too. Single writer and single parser now.
+Probe output (node WADLER-n-r249sub1-1-probe.mjs):
+{
+  "physics.setInteractable(-1)": {
+    "result": {
+      "ok": false,
+      "error": "TypeError: interactable: radius must be a non-negative finite number"
+    },
+    "customHasInteractable": false,
+    "inIds": false
+  },
+  "physics.setInteractable(NaN)": {
+    "result": {
+      "ok": false,
+      "error": "TypeError: interactable: radius must be a non-negative finite number"
+    },
+    "customHasInteractable": false,
+    "inIds": false
+  },
+  "physics.setInteractable(7)": {
+    "result": {
+      "ok": true
+    },
+    "_interactable": true,
+    "_interactRadius": 7,
+    "customHasInteractable": true,
+    "inIds": true
+  },
+  "AppContext.interactable({radius:-1})": {
+    "ok": false,
+    "error": "TypeError: interactable: radius must be a non-negative finite number"
+  },
+  "AppContext.interactable({radius:5})": {
+    "result": {
+      "ok": true
+    },
+    "custom": {
+      "prompt": "Press E",
+      "radius": 5,
+      "cooldown": 500
+    }
+  }
+}
