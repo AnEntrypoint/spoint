@@ -1,0 +1,4 @@
+WADLER-n-r249sub1-2 refuted (source evidence)
+src/apps/AppPhysics.js:28: ent.custom._interactable = { prompt, radius, cooldown }
+src/apps/AppRuntime.js:487-494 _hydrateInteractable: cooldown: stored.cooldown ?? ... ; reifyInteractable(e, this, cfg)
+so the cooldown survives every hydrate; the reified shape is not {prompt, radius} only

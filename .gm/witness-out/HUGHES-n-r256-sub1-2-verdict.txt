@@ -1,0 +1,4 @@
+HUGHES-n-r256-sub1-2 fixed (probe): src/shared/worldDefaults.js worldMobileButtons refuses instead of relocating or dropping
+outOfRangeGrid: WorldMobileButtonsError: button-grid-out-of-range: ... [5, 5] is outside the 3x3 grid
+tenNoGrid: WorldMobileButtonsError: button-grid-exhausted: ... a9 is one button too many: the 3x3
+nineNoGrid: all nine cells placed
