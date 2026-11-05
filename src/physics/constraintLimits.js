@@ -48,3 +48,10 @@ export function swingTwistLimits(limits = {}, softness = null) {
   const [twistMin, twistMax] = twistRange(limits)
   return { cone, twistMin, twistMax, spring: softSpring(softness) }
 }
+
+export function hingeLimits(limits = {}, softness = null) {
+  const min = limits.min === undefined ? -PI : finiteIn(limits.min, 'min', -PI, PI)
+  const max = limits.max === undefined ? PI : finiteIn(limits.max, 'max', -PI, PI)
+  if (min > max) throw new ConstraintLimitError('hinge-inverted', 'max')
+  return { min, max, spring: softSpring(softness) }
+}
