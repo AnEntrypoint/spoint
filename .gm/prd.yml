@@ -528,7 +528,8 @@
     Live consumer: apps/tutorial-rpg/index.js:118 reads it as success - `if (!ctx.quests.startQuest(playerId, questId)) return` - and is the ONLY in-repo caller of defineQuestSystem (callers returned exactly one edge: apps/tutorial-rpg/index.js:187 setup). That branch is the bare-boolean read WADLER names.
 
     Target shape: {ok, reason} per call with reason in 'unknown-quest'|'already-started'|'not-active'|'bad-objective'|'bad-amount'|'already-at-target', updating the witness expectations and the tutorial-rpg:118 branch in the same commit. This hop closed only the unpinned restore/_parseRestoredQuest half and committed it.
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-ub1-s2-2-verdict.txt
   title: 'src/game/QuestSystem.js: startQuest collapses unknown-quest and already-started into one false (:77,:81); completeObjective six false causes (:100,:103,:105,:109); claimReward null for two causes (:143,:146)'
   session_id: orch-main-r260-sub1-s2
 - id: WADLER-ub1-s2-3
@@ -538,7 +539,8 @@
     Witness-pinned (tracked test file, byte-identical): scripts/AbilityTree-witness.mjs:89 'cast of unknown ability refused' false, :90 locked false, :94 recast while cooling false, :95-97 canCastAbility false/false/true, :117-120 bindHotkey true/false pairs including [false,false] for out-of-range slots, :171-190 the castAbility/canCastAbility agreement checks. 59/59 green at HEAD, verified this hop (1791690352722-500-480e7a5cf10de34a).
 
     Target shape: {ok, reason} with reason in 'unknown-ability'|'locked'|'cooling'|'slot-out-of-range'|'unknown-ability-for-slot', updating every pinned expectation in the same commit. Note canCastAbility WITHOUT a level is documented as cooldown-readiness only (:173), so its refusal set is genuinely smaller - the row must not unify the two arities.
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-ub1-s2-3-verdict.txt
   title: 'src/game/AbilityTree.js: canCastAbility/castAbility return one false for unknown-ability, locked and cooling (:118,:131); bindHotkey for out-of-range-slot and unknown-ability (:148,:149)'
   session_id: orch-main-r260-sub1-s2
 - id: WADLER-ub1-s2-4
@@ -553,7 +555,8 @@
     Content: AbilityTree _parseCooldown, canCastAbility level gate, castAbility non-finite level refusal, tick non-finite dt guard, applySnapshot hotkey/cooldown validation; QuestSystem _declaredQuest, _parseRestoredQuest {ok, reason}, restore() returning {ok, reason, players, quests, dropped}.
 
     Supersedes PARSEDV-ub1-s2-4 (same owed commit under the predecessor's PARSEDV framing). This hop stops here per the one-re-dispatch rule; the orchestrator's git wave owns the commit and the push.
-  status: pending
+  status: retired
+  retired_reason: cited witness script was removed in 0514fd1; not re-runnable. Re-open from git history if the defect still stands.
   title: 'Owed: commit the witnessed src/game parse-at-boundary + result-carries-case change (QuestSystem.js + AbilityTree.js) - git serial lane starved twice at HEAD 4747096e'
   session_id: orch-main-r260-sub1-s2
 - id: WADLER-ub1-w1-1
@@ -587,7 +590,9 @@
   session_id: orch-main-r260-sub1-s2
 - id: DBC-ub1-s2-2
   title: src/game/EventChainManager.js:18 addChain states no precondition and writes its postcondition into the caller's object (:20)
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/DBC-ub1-s2-2-verdict.txt
+  note: spec-not-mutated and throws-on-non-object refuted; the no-id name defect ("Event Chain undefined") fixed in src/game/EventChainManager.js
   principle: DBC
   surface: src/game/EventChainManager.js
   witness: 1791691840225-500-58d3785e9706fcb4
@@ -595,7 +600,8 @@
   session_id: orch-main-r260-sub1-s2
 - id: DBC-ub1-s2-3
   title: src/game/StatsSystem.js:272 restore admits level/xp pairs that violate the invariant addXP maintains, so a restored player reports a level its own xp contradicts
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/DBC-ub1-s2-3-verdict.txt
   principle: DBC
   surface: src/game/StatsSystem.js
   witness: 1791691808410-500-c119bf60027d8a18
@@ -699,48 +705,56 @@
   session_id: orch-main-cs-protocol
   title: 'src/protocol: WIRE_STRUCTURES[1] has 10 keys, AGENTS.md''s 8-key citation is stale'
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-3
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: msgpack resolves its Packr asynchronously, so pack/unpack throw until ensurePacked settles'
   description: msgpack.js:59-73. Live witness 1791695717748-500-9433eef22b912a2f printed isPacked_sync_after_import=false and isPacked_after_await=true, and pack/unpack round-tripped only after the await. A caller on the first tick before the boot await throws. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/prd-tail-msgpack-settle-probe.txt
 - id: csproto-4
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it'
   description: msgpack.js:47-49. Live witness 1791695818182-500-b609faa7b5e7177e evaluated the IIFE to /node_modules/msgpackr/index.js and showed isNode=true so the node branch (a direct msgpackr import) is the one taken there. The IIFE keeps esbuild and wrangler from statically resolving msgpackr. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-5
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: MSG ids are not declared in ascending order; only uniqueness matters'
   description: MessageTypes.js:96-97 places PEER_RTT_TABLE 0xc1 between FREDDIE_MESSAGE 0xac and HOST_MIGRATE 0xad, and :140-144 throw at module load on a duplicate id. Live witness 1791695660637-500-e76ed0e6cb395d0a imported MessageTypes.js with exit 0, proving every id is unique. Position carries no meaning. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-6
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: pack and unpack use asymmetric useFloat32 (NEVER vs DECIMAL_ROUND); do not symmetrize'
   description: msgpack.js:51-52 build Packr with NEVER and Unpackr with DECIMAL_ROUND. Live witness 1791695778035-500-341e2621b2c31db3 printed NEVER=0 DECIMAL_ROUND=3 distinct=true and round-tripped 1.5, 1.1 and 0.30000000000000004 exactly. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-7
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: encodeInputPacket silently drops all but the newest 8 entries'
   description: InputCodec.js:101-102 clamp n to MAX_INPUTS_PER_PACKET with no error or warning. Live witness 1791695784354-500-8df56aa1168327d3 encoded 20 entries and decoded 8 carrying sequences 12 through 19, so the 12 oldest were dropped silently. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: csproto-8
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: quantizeInput clamps pitch to HALF_PI and wraps yaw into 0..TAU'
   description: InputCodec.js:41-54. Live witness 1791695784354-500-8df56aa1168327d3 quantized yaw 7.5 to 1.216830259990285 and pitch 1.9 to 1.5707963267948966, so both a wrap and a silent clamp are applied. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
   status: pending
+  witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: csproto-2
   SESSION_ID: orch-main-cs-protocol
   description: MessageTypes.js:147 and :156 return null for an id absent from MSG. Live witness 1791695660637-500-e76ed0e6cb395d0a printed msgName_unknown=null and isUnreliable_unknown=null. So ===false never matches an unknown id and a falsy test conflates unknown with reliable. Promote to AGENTS.md at the next compaction; AGENTS.md was not edited this pass (29998 bytes, 17 hops citing it).
   title: 'src/protocol: msgName and isUnreliable return null, not false, for an unregistered message id'
   session_id: orch-main-cs-protocol
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: docclaim-dpr-auto-1
   SESSION_ID: orch-main-r275-w1
   status: completed
@@ -824,7 +838,8 @@
   body: 'CLAIM: AGENTS.md:88 documents the flat AOI query as src/spatial/Octree.js nearbyHorizontal. A later lane renamed it nearbyCylinder(position, radius, halfHeight, out) -- Octree.js:117-118 -- and the flat ring''s vertical extent is now FLAT_RING_HALF_HEIGHT_M at src/stage/Stage.js:4. The doc verifier pins the same stale name at scripts/lib/verify-doc-claims.mjs:50, so one rename has to move both or the verifier checks text no code has. Witness: hop PARNAS src/spatial receipt (session orch-main-r310-sub2-p1, ring witness PASS 4/4 on the current tree, dispatch 1791697944703-500-a1cdaa080d95ecc8). CLOSE: rename both sites together and re-run the doc-claims verifier; the numbers pinned in that sentence must survive the edit.'
   witness: hop PARNAS src/spatial receipt, dispatch 1791697944703-500-a1cdaa080d95ecc8 (ring witness PASS 4/4); codesearch 1791698162089-500-a6330a93010f568c (nearbyHorizontal absent from src/, nearbyCylinder present)
   session_id: orch-main
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/prd-tail-docs-probe.txt
 - id: PARSEDV-1-sub1-1
   title: docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked
   body: 'Witness 1791698264682-500-e66513d7cf2ca62d (differential run of the parsed row gate) and the live tree run: the new parse prints ''prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): 53 109''. :53 carries the RES budget/threshold prose and :109 carries a ms threshold; neither has a [STAT:]/[INSTR:] slot or a [LANDED]/[DERIVED] tag, so :12''s mandatory-and-total provenance rule cannot see them and :15 silently excuses them as prose. Fix on the doc: give :109 a figure slot plus [DERIVED] (or [STRUCK] if it no longer holds), and either give :53 a slot or name it prose at :15 so the excuse is declared rather than inferred. Owner: docs/measurement-figures.md (not the gate''s surface).'

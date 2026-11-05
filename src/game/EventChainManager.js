@@ -25,7 +25,7 @@ export class EventChainManager {
     const replaced = this.chains.has(id)
     const chain = {
       id,
-      name: chainSpec.name || 'Event Chain ' + chainSpec.id,
+      name: chainSpec.name || 'Event Chain ' + id,
       enabled: chainSpec.enabled !== false,
       trigger: chainSpec.trigger || { type: 'onInteract', entityId: '*' },
       conditions: chainSpec.conditions || [],
