@@ -118,6 +118,7 @@ const _hotSwapWorldDefaults = (next) => {
   worldPlayerModel = next.worldPlayerModel
   playerDefault = next.playerDefault
   worldIceServers = next.worldIceServers
+  worldMaxPlayers = next.worldMaxPlayers
   WorldMobileButtonsError = next.WorldMobileButtonsError
   DEFAULT_TICK_RATE_HZ = next.DEFAULT_TICK_RATE_HZ
   DEFAULT_GRAVITY = next.DEFAULT_GRAVITY
