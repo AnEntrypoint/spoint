@@ -3,7 +3,9 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: 6d702def80a1506b01a1fd30c39b10d74dac3f196fab768b7a77ce5cff6bc2cd
+// source digest: cbf542c7dbbcb9c8bce9d5aa8f7ee887929e1c2eb616bb047509b378d2df2eb4
+
+export type NonNegFinite = number;
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 import { capsuleRadiusM, capsuleHeightM } from './AppGameplay.js';
@@ -31,17 +33,17 @@ export declare class AppContext {
     _disposed: boolean;
     _pendingShutdownHooks: Set<any> | null;
     _physicsAPI: {
-        setInteractable: (radius?: number) => void;
+        setInteractable: (radius?: NonNegFinite) => void;
         setStatic: (v: any) => void;
         setDynamic: (v: any) => void;
         setKinematic: (v: any) => void;
-        setMass: (v: number) => void;
-        setLinearDamping: (v: number) => void;
-        setAngularDamping: (v: number) => void;
+        setMass: (v: NonNegFinite) => void;
+        setLinearDamping: (v: NonNegFinite) => void;
+        setAngularDamping: (v: NonNegFinite) => void;
         setCCDPolicy: (v: any) => void;
         addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: number) => void;
-        addCapsuleCollider: (r: number, h: number) => void;
+        addSphereCollider: (r: NonNegFinite) => void;
+        addCapsuleCollider: (r: NonNegFinite, h: NonNegFinite) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
@@ -102,17 +104,17 @@ export declare class AppContext {
         destroy: () => any;
     };
     get physics(): {
-        setInteractable: (radius?: number) => void;
+        setInteractable: (radius?: NonNegFinite) => void;
         setStatic: (v: any) => void;
         setDynamic: (v: any) => void;
         setKinematic: (v: any) => void;
-        setMass: (v: number) => void;
-        setLinearDamping: (v: number) => void;
-        setAngularDamping: (v: number) => void;
+        setMass: (v: NonNegFinite) => void;
+        setLinearDamping: (v: NonNegFinite) => void;
+        setAngularDamping: (v: NonNegFinite) => void;
         setCCDPolicy: (v: any) => void;
         addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: number) => void;
-        addCapsuleCollider: (r: number, h: number) => void;
+        addSphereCollider: (r: NonNegFinite) => void;
+        addCapsuleCollider: (r: NonNegFinite, h: NonNegFinite) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
@@ -339,7 +341,21 @@ export declare class AppContext {
     defineStatsSystem(spec: any): {
         _xpForLevel(level: any): number;
         _levelFromXP(totalXP: any): number;
+        addXPResult(pid: any, amount: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason: null;
+        };
         addXP(pid: any, amount: any): boolean;
+        applyBonusResult(pid: any, stat: any, amount: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason: null;
+        };
         applyBonus(pid: any, stat: any, amount: any): boolean;
         getBonuses(pid: any): {
             [k: string]: any;
@@ -351,10 +367,31 @@ export declare class AppContext {
             xp: any;
         };
         getEquipment(pid: any): {};
+        equipItemResult(pid: any, equipmentId: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason: null;
+        };
         equipItem(pid: any, equipmentId: any): boolean;
         unequipSlot(pid: any, slot: any): any;
         getLoadout(pid: any): {};
+        saveLoadoutResult(pid: any, loadoutName: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason: null;
+        };
         saveLoadout(pid: any, loadoutName: any): boolean;
+        loadLoadoutResult(pid: any, loadoutName: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason: null;
+        };
         loadLoadout(pid: any, loadoutName: any): boolean;
         getLoadouts(pid: any): {};
         snapshot(): {};
