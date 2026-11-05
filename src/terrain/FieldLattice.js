@@ -6,6 +6,23 @@ export let LATTICE_FOLLOW_TILT_DEG = 7.5
 export let RESET_SURFACE_STEP_BOUND_M = 0.02
 const RAD_TO_DEG = 180 / Math.PI
 const GROUND_FALLBACK_Y = 0
+const CHART_KEY_LENGTH = 13
+
+function writeChartKey(frame, out) {
+  out[0] = frame.chartEpoch
+  out[1] = frame.radius
+  out[2] = frame.offsetY
+  out[3] = frame.anchorHeight
+  out.set(frame.east, 4)
+  out.set(frame.up, 7)
+  out.set(frame.north, 10)
+  return out
+}
+
+function sameChartKey(a, b) {
+  for (let i = 0; i < CHART_KEY_LENGTH; i++) if (a[i] !== b[i]) return false
+  return true
+}
 
 export function tiltDegBetween(upA, upB) {
   const d = upA[0] * upB[0] + upA[1] * upB[1] + upA[2] * upB[2]
@@ -15,14 +32,19 @@ export function tiltDegBetween(upA, upB) {
 export function createFieldLattice({ sampler, offsetY, reliefScale, anchor, liveFrame, liveHeightFn }) {
   const frame = createPlanetFrame({ sampler, anchorDir: anchor.up, offsetY, reliefScale })
   const anchorSnapshot = snapshotChart(frame)
-  let cachedEpoch = null, latticeToChart = null, chartToLattice = null
+  let latticeToChart = null, chartToLattice = null
+  const liveKey = new Float64Array(CHART_KEY_LENGTH)
+  const cachedKey = new Float64Array(CHART_KEY_LENGTH)
+  let keyed = false
 
   function transfers() {
-    if (cachedEpoch === liveFrame.chartEpoch) return
+    writeChartKey(liveFrame, liveKey)
+    if (keyed && sameChartKey(liveKey, cachedKey)) return
+    cachedKey.set(liveKey)
+    keyed = true
     const live = snapshotChart(liveFrame)
     latticeToChart = createChartTransfer(anchorSnapshot, live)
     chartToLattice = createChartTransfer(live, anchorSnapshot)
-    cachedEpoch = liveFrame.chartEpoch
   }
 
   function liveGroundY(x, z) {
