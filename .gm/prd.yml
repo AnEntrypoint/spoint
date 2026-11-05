@@ -950,4 +950,6 @@
   title: src/spatial/Octree.js get mutations states no licence contract and set relevanceRadius rewrites the query geometry every Stage.js reader uses without bumping any of the six mutation sites, so src/sdk's epoch cannot tell a geometry change from a population change
   witness_dispatch_id: 1791705050847-500-11e0349d20177369
   session_id: orch-main-spatial-m2-s1
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-octree-mutations-contract-m2-s1-verdict.txt
+  note: mutations is the internal change counter that drives cache invalidation; the relevanceRadius setter validates through resolveRelevanceRadius and bumps the geometry epoch only when the value changes

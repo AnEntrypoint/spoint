@@ -1,0 +1,12 @@
+  get mutations() {
+    return this._mutations
+  get relevanceRadius() {
+    return this._relevanceRadius
+  }
+
+  set relevanceRadius(v) {
+    const previous = this._relevanceRadius
+    this._relevanceRadius = resolveRelevanceRadius(v)
+    if (this._relevanceRadius === previous) return
+    this._geometryEpoch++
+    this._mutations++
