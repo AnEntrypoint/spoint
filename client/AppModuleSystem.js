@@ -89,15 +89,15 @@ export function createAppModuleSystem(client, uiRoot) {
     const local = state.players.find(p => p.id === playerId)
     if (!local?.position) return null
     const lx = local.position[0], ly = local.position[1], lz = local.position[2]
+    let best = null, bestD2 = Infinity
     for (const entity of state.entities) {
       const cfg = entity.custom?._interactable
       if (!cfg || !entity.position) continue
       const dx = entity.position[0] - lx, dy = entity.position[1] - ly, dz = entity.position[2] - lz
-      if (dx * dx + dy * dy + dz * dz < cfg.radius * cfg.radius) {
-        return createElement('div', { style: 'position:fixed;bottom:40%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:8px;pointer-events:none' }, cfg.prompt)
-      }
+      const d2 = dx * dx + dy * dy + dz * dz
+      if (d2 < cfg.radius * cfg.radius && d2 < bestD2) { bestD2 = d2; best = cfg }
     }
-    return null
+    return best ? createElement('div', { style: 'position:fixed;bottom:40%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:8px;pointer-events:none' }, best.prompt) : null
   }
 
   function renderAppUI(state, engineCtx, scene, camera, renderer, fpsDisplay, runtimeStatsUI = null) {
