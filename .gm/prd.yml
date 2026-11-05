@@ -34,7 +34,7 @@
   subject: 'scan_deps witness on src/transport/NetworkSimTransport.js: filesScanned 1327, failCount 0, blockedCount 0, symlinkEscapeCount 0, warnCount 3 (minified-vendor ratio warnings only: client/basis/basis_transcoder.js, packages/streaming-gltf/src/basis/basis_transcoder.js, packages/streaming-gltf/src/draco-loader.js). No blocked or failing import stands in the way of the LAMPORT-n-r129-1 send-index change.'
   acceptance: A scan_deps re-run reports failCount 0 and blockedCount 0 over the file the row edits, witnessed from a session other than the one that made the edit.
   session_id: orch-main-r201
-  status: completed
+  status: refuted
   witness: 'scan_deps re-run by session orch-main-r201-sub1 on src/transport/NetworkSimTransport.js: filesScanned 1327, failCount 0, blockedCount 0, symlinkEscapeCount 0, warnCount 3 (minified-vendor ratio warnings only). Acceptance (failCount 0 and blockedCount 0, witnessed from another session) met.'
 - id: KISS-n-r209-1
   subject: 'client/xr: the one-way teleport fade is a 4-state xstate machine read as a string'
