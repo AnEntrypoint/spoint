@@ -41,6 +41,14 @@ const IMPLEMENTED = [
   "HTTP door catalog with no-write policy",
   "World identity resolver",
   "Simulated tester bodies",
+  "Gravity-aware projectile integration",
+  "Procedural leaf-spray texture generator",
+  "Targeted press ear and nearest-facing interact prompt",
+  "Per-player touch selector, labels and input channels",
+  "Declarative spherical joint handles",
+  "Agent command registry: numbers, logs, events, prefetch",
+  "Read-only live exec",
+  "Offline remote-model URL manifest check",
 ]
 const lines = [
   '# savi / spawn feature-gap report',
