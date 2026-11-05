@@ -79,15 +79,25 @@ export const GOVERNED_KNOBS = [
 // setting can reach into the mid band.
 export const LEAF_OFF_MID_BAND_EDGE_M = 39.2
 export const QUALITY_TIERS = [
-  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0 },
-  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0 },
-  { maxLevel: 10, splitFactor: 0.20, vegLeafOff: 0 },
-  { maxLevel: 9, splitFactor: 0.15, vegLeafOff: 45 },
-  { maxLevel: 8, splitFactor: 0.10, vegLeafOff: 42 },
-  { maxLevel: 7, splitFactor: 0.07, vegLeafOff: 40 },
+  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0, effectScale: 1 },
+  { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0, effectScale: 1 },
+  { maxLevel: 10, splitFactor: 0.20, vegLeafOff: 0, effectScale: 0.75 },
+  { maxLevel: 9, splitFactor: 0.15, vegLeafOff: 45, effectScale: 0.5 },
+  { maxLevel: 8, splitFactor: 0.10, vegLeafOff: 42, effectScale: 0.35 },
+  { maxLevel: 7, splitFactor: 0.07, vegLeafOff: 40, effectScale: 0.25 },
 ]
 export const MAX_TIER = QUALITY_TIERS.length - 1
 const EFFECT_KEYS = ['ssao', 'bloom', 'ssr']
+
+export function effectScaleForTier(i) {
+  return QUALITY_TIERS[Math.max(0, Math.min(MAX_TIER, i | 0))].effectScale
+}
+
+export function effectCountBudget(baseCount, effectScale) {
+  if (!Number.isFinite(baseCount) || baseCount < 0) throw new Error(`[quality-governor] effect base count must be a non-negative finite number, got ${baseCount}`)
+  if (!Number.isFinite(effectScale) || effectScale <= 0 || effectScale > 1) throw new Error(`[quality-governor] effect scale must be in (0, 1], got ${effectScale}`)
+  return Math.floor(baseCount * effectScale)
+}
 
 // One parse boundary for the leaf cutoff: metres at/beyond which leaf meshes stop drawing.
 // 0 (and every non-number, and every non-finite or negative number) means "no cutoff", so a bad
@@ -203,10 +213,11 @@ export function createQualityGovernor(opts = {}) {
     return want
   }
 
-  const state = { tier: 0, maxTier: MAX_TIER, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, excursions: 0, excursionWindowFrames: EXCURSION_WINDOW_FRAMES, excursionTripCount: EXCURSION_TRIP_COUNT, excursionAboveMs: EXCURSION_ABOVE_MS, shedCause: 'none', shedExcursions: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, recoverStepIntervalMs: RECOVER_STEP_INTERVAL_MS, minStepIntervalMs: MIN_STEP_INTERVAL_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, leafOffM: 0, knobs: null }
+  const state = { tier: 0, maxTier: MAX_TIER, effectScale: 1, avgMs: 0, winMaxMs: 0, winP95Ms: 0, overrunMs: 0, excursions: 0, excursionWindowFrames: EXCURSION_WINDOW_FRAMES, excursionTripCount: EXCURSION_TRIP_COUNT, excursionAboveMs: EXCURSION_ABOVE_MS, shedCause: 'none', shedExcursions: 0, budgetMs: FRAME_BUDGET_MS, lowerAboveMs: LOWER_ABOVE_MS, raiseBelowMs: RAISE_BELOW_MS, hitchAboveMs: HITCH_ABOVE_MS, hitchStepIntervalMs: HITCH_STEP_INTERVAL_MS, recoverStepIntervalMs: RECOVER_STEP_INTERVAL_MS, minStepIntervalMs: MIN_STEP_INTERVAL_MS, responseBoundFrames: HITCH_RESPONSE_BOUND_FRAMES, steps: 0, lastStepMs: 0, inBand: false, atCeiling: true, atFloor: false, leafOffM: 0, knobs: null }
 
   function publish() {
     state.tier = tier
+    state.effectScale = effectScaleForTier(tier)
     state.avgMs = +avgMs.toFixed(3)
     state.winMaxMs = +lastWinMaxMs.toFixed(3)
     state.winP95Ms = +lastWinP95Ms.toFixed(3)
@@ -302,7 +313,11 @@ export function createQualityGovernor(opts = {}) {
   }
   function snapshot() { return publish() }
 
-  const api = { tick, setTier, reset, state: snapshot, base: () => (base ? { ...base } : null), get tier() { return tier } }
+  const api = {
+    tick, setTier, reset, state: snapshot, base: () => (base ? { ...base } : null),
+    effectBudget: baseCount => effectCountBudget(baseCount, effectScaleForTier(tier)),
+    get tier() { return tier },
+  }
   if (typeof window !== 'undefined') window.__qualityGovernorApi = api
   return api
 }
