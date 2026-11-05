@@ -183,11 +183,51 @@ function physicsNonNegSinks(ctxText) {
   return sinks
 }
 
+// tsc orders emitted members by type id, which follows module-resolution order, so the
+// same source emits its members in a different order per checkout. Sorting each
+// block's members by code point makes the emitted text a function of the members.
+function sortDeclarations(text) {
+  return sortBlock(text.split('\n')).join('\n')
+}
+
+function sortBlock(lines) {
+  const items = []
+  let i = 0
+  while (i < lines.length) {
+    const start = i
+    let balance = 0
+    let inComment = false
+    for (; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      const commentOnly = inComment || trimmed.startsWith('/*') || trimmed.startsWith('*') || trimmed.startsWith('//')
+      if (trimmed.includes('/*') && !trimmed.includes('*/')) inComment = true
+      if (trimmed.includes('*/')) inComment = false
+      for (const ch of lines[i]) {
+        if (ch === '{') balance++
+        else if (ch === '}') balance--
+      }
+      if (balance <= 0 && !inComment && !commentOnly) { i++; break }
+    }
+    items.push(sortInner(lines.slice(start, i)))
+  }
+  return items
+    .map(item => ({ item, key: item.map(l => l.trim()).join('\n') }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .flatMap(({ item }) => item)
+}
+
+function sortInner(item) {
+  const first = item[0]
+  const last = item[item.length - 1]
+  if (item.length < 3 || !first.trimEnd().endsWith('{') || !last.trim().startsWith('}')) return item
+  return [first, ...sortBlock(item.slice(1, -1)), last]
+}
+
 function withNonNegSinks(generated, ctxText) {
   const sinks = physicsNonNegSinks(ctxText)
   const alias = ctxText.match(/^export type NonNegFinite = [^;]+;/m)
   if (!alias) throw new Error(`[gen-sdk-typings] ${CTX_TYPES} declares no NonNegFinite alias`)
-  const lines = generated.split('\n').map(line => {
+  const lines = sortDeclarations(generated).split('\n').map(line => {
     const m = line.match(/^(\s*)(\w+): \((.*)\)( => .*)$/)
     const sink = m && sinks.get(m[2])
     if (!sink) return line

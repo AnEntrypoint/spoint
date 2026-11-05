@@ -7,958 +7,959 @@
 
 export type NonNegFinite = number;
 
-import { CliDebugger } from '../debug/CliDebugger.js';
-import { capsuleRadiusM, capsuleHeightM } from './AppGameplay.js';
-import { AnimationSystem } from '../animation/AnimationSystem.js';
+
 export declare class AppContext {
-    _entity: any;
-    _runtime: any;
-    _state: any;
-    _entityProxy: {
+    _admitsRegistration(kind: any): boolean;
+    _blockChartReanchor(reason: any): () => void;
+    _buildEntityProxy(): {
+        custom: any;
+        destroy: () => any;
+        position: any;
+        readonly bodyType: any;
+        readonly children: any[];
         readonly id: any;
         readonly model: any;
-        readonly bodyType: any;
-        position: any;
+        readonly parent: any;
+        readonly worldTransform: any;
         rotation: any;
         scale: any;
         velocity: any;
-        custom: any;
-        readonly parent: any;
-        readonly children: any[];
-        readonly worldTransform: any;
-        destroy: () => any;
     };
-    _debugger: CliDebugger;
     _busScope: any;
-    _disposed: boolean;
-    _pendingShutdownHooks: Set<any> | null;
-    _physicsAPI: {
-        setInteractable: (radius?: NonNegFinite) => void;
-        setStatic: (v: any) => void;
-        setDynamic: (v: any) => void;
-        setKinematic: (v: any) => void;
-        setMass: (v: NonNegFinite) => void;
-        setLinearDamping: (v: NonNegFinite) => void;
-        setAngularDamping: (v: NonNegFinite) => void;
-        setCCDPolicy: (v: any) => void;
-        addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: NonNegFinite) => void;
-        addCapsuleCollider: (r: NonNegFinite, h: NonNegFinite) => void;
-        addTrimeshCollider: () => Promise<void>;
-        addConvexCollider: (points: any) => void;
-        addConvexFromModel: (meshIndex?: number) => void;
-        addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
-        addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
-        addForce: (f: any) => any;
-        setVelocity: (v: any) => void;
-        setPosition: (p: any) => void;
-        getVelocity: () => any;
-        getAngularVelocity: () => any;
-        getRotation: () => any;
-        setFriction: (f: any) => boolean;
-        setRestitution: (r: any) => boolean;
-        setMotionType: (motionType: any) => boolean;
-        getBodyId: () => any;
-        createVehicle: (wheelDefs: any, opts: any) => any;
-        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
-        createTrackedVehicle: (wheelDefs: any, opts: any) => any;
-        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
-        getVehicleWheelTransform: (wheelIndex: any) => any;
-        getVehicleWheelState: (wheelIndex: any) => any;
-        hasVehicle: () => boolean;
-        destroyVehicle: () => any;
-    } | undefined;
-    _configListeners: Set<any> | null | undefined;
-    _stores: Map<any, any> | undefined;
-    _disposers: any[] | null | undefined;
+    _chartAware(api: any): any;
     _chartAwareApis: any[] | undefined;
     _chartAwareWeak: any[] | undefined;
-    constructor(entity: any, runtime: any);
-    _admitsRegistration(kind: any): boolean;
-    _buildEntityProxy(): {
+    _chartAwareWeakly(api: any): any;
+    _chartLocalNavmesh(navmesh: any): any;
+    _configListeners: Set<any> | null | undefined;
+    _debugger: CliDebugger;
+    _disposed: boolean;
+    _disposers: any[] | null | undefined;
+    _entity: any;
+    _entityProxy: {
+        custom: any;
+        destroy: () => any;
+        position: any;
+        readonly bodyType: any;
+        readonly children: any[];
         readonly id: any;
         readonly model: any;
-        readonly bodyType: any;
-        position: any;
+        readonly parent: any;
+        readonly worldTransform: any;
         rotation: any;
         scale: any;
         velocity: any;
-        custom: any;
-        readonly parent: any;
-        readonly children: any[];
-        readonly worldTransform: any;
-        destroy: () => any;
     };
-    get entity(): {
-        readonly id: any;
-        readonly model: any;
-        readonly bodyType: any;
-        position: any;
-        rotation: any;
-        scale: any;
-        velocity: any;
-        custom: any;
-        readonly parent: any;
-        readonly children: any[];
-        readonly worldTransform: any;
-        destroy: () => any;
-    };
-    get physics(): {
-        setInteractable: (radius?: NonNegFinite) => void;
-        setStatic: (v: any) => void;
-        setDynamic: (v: any) => void;
-        setKinematic: (v: any) => void;
-        setMass: (v: NonNegFinite) => void;
-        setLinearDamping: (v: NonNegFinite) => void;
-        setAngularDamping: (v: NonNegFinite) => void;
-        setCCDPolicy: (v: any) => void;
+    _fireConfigChange(): void;
+    _liveChartAwareApis(): any[];
+    _pendingShutdownHooks: Set<any> | null;
+    _physicsAPI: {
         addBoxCollider: (s: any, shapeKey: any) => void;
-        addSphereCollider: (r: NonNegFinite) => void;
         addCapsuleCollider: (r: NonNegFinite, h: NonNegFinite) => void;
-        addTrimeshCollider: () => Promise<void>;
+        addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
         addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
-        addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
         addForce: (f: any) => any;
-        setVelocity: (v: any) => void;
-        setPosition: (p: any) => void;
-        getVelocity: () => any;
-        getAngularVelocity: () => any;
-        getRotation: () => any;
-        setFriction: (f: any) => boolean;
-        setRestitution: (r: any) => boolean;
-        setMotionType: (motionType: any) => boolean;
-        getBodyId: () => any;
-        createVehicle: (wheelDefs: any, opts: any) => any;
-        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
+        addSphereCollider: (r: NonNegFinite) => void;
+        addTrimeshCollider: () => Promise<void>;
         createTrackedVehicle: (wheelDefs: any, opts: any) => any;
-        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
-        getVehicleWheelTransform: (wheelIndex: any) => any;
-        getVehicleWheelState: (wheelIndex: any) => any;
-        hasVehicle: () => boolean;
+        createVehicle: (wheelDefs: any, opts: any) => any;
         destroyVehicle: () => any;
-    };
-    get world(): {
-        spawn: (id: any, cfg: any) => any;
-        spawnChild: (id: any, cfg: any) => any;
-        destroy: (id: any) => void;
-        attach: (eid: any, app: any) => any;
-        detach: (eid: any) => any;
-        reparent: (eid: any, parentId: any) => any;
-        query: (filter: any) => any;
-        getEntity: (id: any) => any;
-        nearby: (pos: any, radius: any) => any;
-        sendToEntity: (entityId: any, msg: any) => any;
-        applyImpulse: (entityId: any, impulse: any, worldPoint: any) => any;
-        setVelocity: (entityId: any, velocity: any) => any;
-        setGravityFactor: (entityId: any, factor: any) => any;
-        setBodyActive: (entityId: any, active: any) => any;
-        setPosition: (entityId: any, position: any, rotation: any) => any;
-        weld: (entityA: any, entityB: any, opts: any) => any;
-        joint: (entityA: any, entityB: any, opts: any) => any;
-        removeConstraint: (constraintId: any) => any;
-        setMotionType: (entityId: any, motionType: any) => any;
-        isAtRest: (entityId: any, eps: any) => any;
-        readonly gravity: any;
-    };
-    get players(): {
-        getAll: () => any;
-        getById: (id: any) => any;
-        getNearest: (pos: any, r: any) => any;
-        send: (pid: any, msg: any) => any;
-        broadcast: (msg: any) => any;
-        broadcastNearby: (pos: any, radius: any, msg: any) => void;
-        setPosition: (pid: any, pos: any) => any;
-        setName: (pid: any, name: any) => any;
-        setAppearance: (pid: any, appearance: any) => any;
-        setModel: (pid: any, url: any) => any;
-        setWeapon: (pid: any, name: any) => any;
-        setMovementOverride: (pid: any, overrides: any) => any;
-        setLifecycle: (pid: any, state: any, opts: any) => any;
-        playAnimation: (pid: any, clip: any, opts: any) => any;
-        attachEntity: (pid: any, entityId: any, offset: any, bone: any) => any;
-        detachEntity: (entityId: any) => any;
-        attachmentOf: (entityId: any) => any;
-        defineSeats: (entityId: any, seats: any) => any;
-        undefineSeats: (entityId: any) => any;
-        mountInSeat: (pid: any, entityId: any, seatId: any) => any;
-        dismount: (pid: any) => any;
-        handoffSeat: (fromPid: any, toPid: any) => any;
-        seatOf: (pid: any) => any;
-        seatsOf: (entityId: any) => any;
-        onPlayerContact: (radius: any, cb: any) => () => void;
-        nearestOtherPlayer: (playerId: any, radius: any) => any;
-    };
-    get time(): {
-        readonly tick: any;
-        readonly deltaTime: any;
-        readonly elapsed: any;
-        readonly serverTime: number;
-        after: (seconds: any, fn: any) => void;
-        every: (seconds: any, fn: any) => void;
-    };
-    get config(): any;
-    onConfigChange(cb: any): () => void;
-    _fireConfigChange(): void;
-    onShutdown(cb: any): () => void;
-    get state(): any;
-    set state(v: any);
-    get network(): {
-        broadcast: (msg: any) => any;
-        sendTo: (id: any, msg: any) => any;
-    };
-    get lagCompensator(): any;
-    get combat(): Readonly<{
-        DEFAULT_HITBOX: Readonly<{
-            centerHeight: 0.9;
-            radiusSq: 0.36;
-            height: 1.8;
-        }>;
-        normalizeShotDirection(d: any): number[] | null;
-        resolveFireRequest(lagComp: any, shooterId: any, shooterPosition: any, msg: any, hitbox?: Readonly<{
-            centerHeight: 0.9;
-            radiusSq: 0.36;
-            height: 1.8;
-        }>): {
-            origin: any;
-            viewTick: any;
-        };
-        resolveTargetPoint(target: any, lagComp: any, viewTick: any): {
-            tp: any;
-            rewound: any;
-        };
-        rayVsCapsule(origin: any, direction: any, range: any, tp: any, hitbox?: Readonly<{
-            centerHeight: 0.9;
-            radiusSq: 0.36;
-            height: 1.8;
-        }>): {
-            proj: any[];
-            dot: number;
-        } | null;
-        hitHeightRatio(proj: any, tp: any, hitbox?: Readonly<{
-            centerHeight: 0.9;
-            radiusSq: 0.36;
-            height: 1.8;
-        }>): number;
-        findHitLinear(players: any, shot: any): {
-            target: any;
-            tp: any;
-            rewound: any;
-            proj: any[];
-            dot: number;
-        } | null;
-        findHitSpatial(players: any, shot: any, liveIndex?: null): null;
-        buildLiveIndex: typeof import("../netcode/RewindSpatialIndex.js").buildLiveIndex;
-        DEFAULT_COMBAT: Readonly<{
-            respawnTime: 1.5;
-            health: 100;
-            damagePerHit: 20;
-            headshotMultiplier: 2.5;
-            headshotZone: 0.7;
-            hitKnockback: 4;
-            shootKnockback: 2;
-            magazineSize: 30;
-            reloadTime: 2000;
-            spawnInvulnMs: 1500;
-            fallKillDepth: 20;
-            fallKillGraceSec: 0.5;
-            buffRegenFractionPerSec: 0.1;
-            range: 1000;
-        }>;
-        readHealth: typeof import("../behaviours/combat.js").readHealth;
-        recordHit: typeof import("../netcode/OutlierDetector.js").recordHit;
-    }>;
-    get spawnGeometry(): {
-        DEFAULT_HITBOX: Readonly<{
-            centerHeight: 0.9;
-            radiusSq: 0.36;
-            height: 1.8;
-        }>;
-        capsuleRadiusM: typeof capsuleRadiusM;
-        capsuleHeightM: typeof capsuleHeightM;
-        spawnSurfaceY: (sp: any, opts: any) => any;
-        footprintBlockers: (sp: any, feetY: any, hitbox: any) => ({
-            kind: string;
-            x: any;
-            z: any;
-            offsetM: number;
-            surfaceY: null;
-            intrusionM: null;
-        } | {
-            kind: string;
-            x: any;
-            z: any;
-            offsetM: number;
-            surfaceY: any;
-            intrusionM: number;
-        })[];
-    };
-    senderOf(message: any): any;
-    defineQuestSystem(spec: any): {
-        startQuest(pid: any, questId: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            reason?: undefined;
-            ok: boolean;
-        };
-        completeObjective(pid: any, questId: any, objectiveIndex: any, amount?: number): {
-            ok: boolean;
-            reason: string;
-        } | {
-            reason?: undefined;
-            ok: boolean;
-        };
-        claimReward(pid: any, questId: any): {
-            ok: boolean;
-            reason: string;
-            xp?: undefined;
-            items?: undefined;
-            statBonuses?: undefined;
-        } | {
-            reason?: undefined;
-            ok: boolean;
-            xp: any;
-            items: any;
-            statBonuses: any;
-        };
-        push(pid: any): void;
-        getQuestState(pid: any, questId: any): {
-            questId: any;
-            state: any;
-            progress: any[];
-            startedAt: any;
-            completedAt: any;
-            claimedAt: any;
-        } | null;
-        getPlayerQuests(pid: any): {};
-        getAllQuestProgress(pid: any): {};
-        snapshot(): {};
-        restore(data: any): void;
-    };
-    createAnimationSystem(model: any, options: any): AnimationSystem;
-    defineStatsSystem(spec: any): {
-        _xpForLevel(level: any): number;
-        _levelFromXP(totalXP: any): number;
-        addXPResult(pid: any, amount: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            ok: boolean;
-            reason: null;
-        };
-        addXP(pid: any, amount: any): boolean;
-        applyBonusResult(pid: any, stat: any, amount: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            ok: boolean;
-            reason: null;
-        };
-        applyBonus(pid: any, stat: any, amount: any): boolean;
-        getBonuses(pid: any): {
-            [k: string]: any;
-        };
-        getLevel(pid: any): any;
-        push(pid: any): void;
-        getStats(pid: any): {
-            level: any;
-            xp: any;
-        };
-        getEquipment(pid: any): {};
-        equipItemResult(pid: any, equipmentId: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            ok: boolean;
-            reason: null;
-        };
-        equipItem(pid: any, equipmentId: any): boolean;
-        unequipSlot(pid: any, slot: any): any;
-        getLoadout(pid: any): {};
-        saveLoadoutResult(pid: any, loadoutName: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            ok: boolean;
-            reason: null;
-        };
-        saveLoadout(pid: any, loadoutName: any): boolean;
-        loadLoadoutResult(pid: any, loadoutName: any): {
-            ok: boolean;
-            reason: string;
-        } | {
-            ok: boolean;
-            reason: null;
-        };
-        loadLoadout(pid: any, loadoutName: any): boolean;
-        getLoadouts(pid: any): {};
-        snapshot(): {};
-        restore(data: any): {
-            ok: boolean;
-            reason: string;
-            players: number;
-            dropped: never[];
-        } | {
-            ok: boolean;
-            reason: null;
-            players: number;
-            dropped: ({
-                playerId: string;
-                reason: string | null;
-            } | {
-                slot: string;
-                reason: string;
-                playerId: string;
-            })[];
-        };
-    };
-    defineProgression(spec: any): {
-        progression: {
-            calculateXpThreshold: (level: any, curve?: any) => number;
-            getPlayerState: (playerId: any) => any;
-            addXp: (playerId: any, amount: any) => boolean;
-            addXpResult: (playerId: any, amount: any) => {
-                ok: boolean;
-                reason: string;
-                leveledUp: boolean;
-            } | {
-                ok: boolean;
-                reason: null;
-                leveledUp: boolean;
-            };
-            getProgress: (playerId: any) => {
-                level: any;
-                xp: any;
-                totalXp: any;
-                xpForLevel: number;
-                xpInLevel: any;
-                progressRatio: number;
-            };
-            getState: (playerId: any) => any;
-            getAllStates: () => any[];
-            applySnapshot: (snapshotData: any) => void;
-            buildSnapshot: () => {
-                progressions: {
-                    id: any;
-                    xp: any;
-                    level: any;
-                    totalXp: any;
-                    lastLevelUpTick: any;
-                    levelUpEvents: any;
-                }[];
-            };
-            drainLevelUpEvents: (playerId: any) => any;
-            tick: (dt: any) => void;
-            removePlayer: (playerId: any) => void;
-            getConfig: () => any;
-        };
-        abilityTree: {
-            getPlayerAbilityState: (playerId: any) => any;
-            getUnlockedAbilities: (playerLevel: any) => any[];
-            castRefusal: (playerId: any, abilityId: any, playerLevel: any) => string | null;
-            bindRefusal: (hotkeyNumber: any, abilityId: any) => string | null;
-            canCastAbility: (playerId: any, abilityId: any, playerLevel: any) => {
-                ok: boolean;
-                reason: any;
-            };
-            getAbilityCooldown: (playerId: any, abilityId: any) => number;
-            castAbility: (playerId: any, abilityId: any, playerLevel: any) => {
-                ok: boolean;
-                reason: any;
-            };
-            tick: (dt: any) => void;
-            bindHotkey: (hotkeyNumber: any, abilityId: any) => {
-                ok: boolean;
-                reason: any;
-            };
-            getHotkeyBinding: (hotkeyNumber: any) => any;
-            getAllHotkeyBindings: () => {};
-            getAbility: (abilityId: any) => any;
-            getAllAbilities: () => any[];
-            getDefinitionRefusals: () => any[];
-            getHotkeyRefusals: () => any[];
-            applySnapshot: (snapshotData: any) => {
-                ok: boolean;
-                reason: string;
-                hotkeys: number;
-                players: number;
-                dropped: never[];
-            } | {
-                ok: boolean;
-                reason: null;
-                hotkeys: number;
-                players: number;
-                dropped: {
-                    field: string;
-                    reason: string;
-                }[];
-            };
-            buildSnapshot: () => {
-                hotkeys: {};
-                playerStates: {
-                    playerId: any;
-                    cooldowns: any[];
-                }[];
-            };
-            removePlayer: (playerId: any) => void;
-            getCooldownsForNetwork: (playerId: any) => {
-                abilityId: any;
-                remaining: number;
-            }[];
-            getPlayerAbilityInfo: (playerId: any, playerLevel: any) => {
-                unlockedAbilities: any[];
-                cooldowns: {
-                    abilityId: any;
-                    remaining: any;
-                }[];
-                activeAbilities: any[];
-            };
-        };
-        setup(ctx: any): void;
-        tick(ctx: any, dt: any): void;
-        snapshotGameState(state: any): any;
-        restoreGameState(state: any): any;
-        onPlayerJoin(playerId: any): void;
-        onPlayerLeave(playerId: any): void;
-        getNetworkState(playerId: any): {
-            progression: {
-                level: any;
-                xp: any;
-                totalXp: any;
-                xpForLevel: number;
-                xpInLevel: any;
-                progressRatio: number;
-            };
-            abilityTree: {
-                unlockedAbilities: any[];
-                cooldowns: {
-                    abilityId: any;
-                    remaining: number;
-                }[];
-            };
-        };
-    };
-    fallFloorY(x: any, z: any, depth: any): number;
-    pickSpawnPoint(spawnPoints: any, opts: any): any[];
-    persisted(key: any, initial: any, opts: any): any;
-    leaderboard(key: any, opts: any): any;
-    accountState(playerId: any, key: any, initial: any): any;
-    achievements(defs: any): {
-        ready: any;
-        defs: Map<any, any>;
-        unlocked(scope: any): string[];
-        unlock(scope: any, id: any): {
-            unlocked: boolean;
-            def: any;
-        };
-        flush(): any;
-    };
-    _store(id: any, create: any): any;
-    get bus(): any;
-    get llm(): any;
-    get eventLog(): any;
-    get storage(): {
-        get: (key: any) => any;
-        set: (key: any, value: any) => any;
-        delete: (key: any) => any;
-        list: (prefix?: string) => any;
-        has: (key: any) => any;
-    } | null;
-    get files(): {
-        read: (name: any) => Promise<string | null>;
-        write: (name: any, text: any) => any;
-        remove: (name: any) => any;
-        has: (name: any) => any;
-    } | null;
-    get debug(): CliDebugger;
-    interactable(config?: {}): void;
-    onPlayerProximity(radius: any, callback: any): () => void;
+        getAngularVelocity: () => any;
+        getBodyId: () => any;
+        getRotation: () => any;
+        getVehicleWheelState: (wheelIndex: any) => any;
+        getVehicleWheelTransform: (wheelIndex: any) => any;
+        getVelocity: () => any;
+        hasVehicle: () => boolean;
+        setAngularDamping: (v: NonNegFinite) => void;
+        setCCDPolicy: (v: any) => void;
+        setDynamic: (v: any) => void;
+        setFriction: (f: any) => boolean;
+        setInteractable: (radius?: NonNegFinite) => void;
+        setKinematic: (v: any) => void;
+        setLinearDamping: (v: NonNegFinite) => void;
+        setMass: (v: NonNegFinite) => void;
+        setMotionType: (motionType: any) => boolean;
+        setPosition: (p: any) => void;
+        setRestitution: (r: any) => boolean;
+        setStatic: (v: any) => void;
+        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
+        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
+        setVelocity: (v: any) => void;
+    } | undefined;
     _registerDisposer(fn: any): void;
     _runDisposers(): void;
-    _chartAware(api: any): any;
-    _chartAwareWeakly(api: any): any;
-    _liveChartAwareApis(): any[];
-    _blockChartReanchor(reason: any): () => void;
+    _runtime: any;
+    _state: any;
+    _store(id: any, create: any): any;
+    _stores: Map<any, any> | undefined;
     _teardownChildren(): void;
-    defineGameFSM(spec: any): {
-        readonly context: any;
-        readonly state: any;
-        readonly timeInState: number;
-        is(s: any): any;
-        matches(s: any): any;
-        can(evt: any): any;
-        send(type: any, payload: any): {
-            ok: boolean;
-            reason: string;
-            event: string;
-            state: any;
-        } | {
-            reason?: undefined;
-            ok: boolean;
-            event: string;
-            state: any;
+    accountState(playerId: any, key: any, initial: any): any;
+    achievements(defs: any): {
+        defs: Map<any, any>;
+        flush(): any;
+        ready: any;
+        unlock(scope: any, id: any): {
+            def: any;
+            unlocked: boolean;
         };
-        onTransition(fn: any): () => void;
-        tick(dt: any): void;
-        stop(): void;
+        unlocked(scope: any): string[];
     };
-    defineGameMode(spec: any): any;
+    canSee(fromPos: any, toPos: any, opts?: {}): boolean;
+    constructor(entity: any, runtime: any);
+    createAnimationSystem(model: any, options: any): AnimationSystem;
     defineBuffStack(spec: any): {
         apply(playerId: any, buffKey: any, delta: any): any;
-        set(playerId: any, buffKey: any, value: any): any;
+        clear(playerId: any, buffKey: any): void;
+        clearAll(): void;
         get(playerId: any, buffKey: any): any;
         getAll(playerId: any): {
             [k: string]: any;
         };
-        clear(playerId: any, buffKey: any): void;
-        clearAll(): void;
+        set(playerId: any, buffKey: any, value: any): any;
         tick(dt: any): void;
     };
-    defineShrinkingZone(spec: any): any;
-    defineHealth(spec: any): {
-        readonly hp: any;
-        readonly max: any;
-        readonly alive: boolean;
-        readonly fraction: number;
-        damage(amount: any, source?: null): any;
-        heal(amount: any): any;
-        kill(source?: null): void;
-        respawn(hp: any): any;
-        setMax(m: any): any;
+    defineBuoyancy(spec: any): {
+        readonly submerged: boolean;
+        readonly submersionFrac: number;
+        tick(dt: any): void;
     };
+    defineCameraRig(spec: any): {
+        layerIds(): any[];
+        onInput(playerId: any, input: any): boolean;
+        pop(playerId: any, layerId: any): void;
+        push(playerId: any, layerId: any): void;
+        remove(playerId: any): void;
+        top(playerId: any): any;
+        update(playerId: any, pose: any, dt: any): {
+            done: boolean;
+            layer: any;
+            position: any;
+            target: any;
+        };
+    };
+    defineCheckpoint(spec: any): any;
     defineCombat(spec?: {}): any;
+    defineDestructible(spec: any): any;
     defineFire(spec?: {}): {
-        readonly world: any;
-        readonly activeCount: any;
-        readonly wind: any;
-        readonly stats: any;
-        readonly rollbackStats: {
-            rewinds: number;
-            resimTicks: number;
-            droppedRows: number;
+        applyRemote(payload: any): {
+            adopted: {
+                bytes: number;
+                hash: any;
+                tick: number;
+            } | null;
+            checksum: {
+                hash: any;
+                tick: any;
+            } | null;
+            ok: boolean;
+            reason: any;
+            rejected: number;
+            rewound: number;
         };
-        readonly resyncStats: {
-            rows: number;
-            compared: number;
-            missed: number;
-            mismatches: number;
-            firstMismatch: null;
-            requestsReceived: number;
-            requestsSent: number;
-            adopted: number;
-            unanswered: number;
-        };
-        readonly needsResync: boolean;
-        readonly keyframeTick: any;
-        readonly keyframePending: boolean;
-        readonly keyframeStats: {
-            jobs: number;
-            slices: number;
-            ms: number;
-            worstSliceMs: number;
-            lastSliceMs: number;
-            dropped: number;
-            served: number;
-        };
-        readonly checksumHistory: [any, any][];
-        readonly simTick: any;
-        readonly names: string[];
-        readonly weather: {
-            step(simTick: any, out: any): any;
-            readonly rain: number;
-            readonly reading: Readonly<{
-                kind: "no-weather";
-                intensity: 0;
-                wind: null;
-            }>;
-            readonly moisture: number;
-            readonly wind: number[];
-            readonly emittedRain: number;
-            readonly emittedMoisture: number;
-            readonly emittedWind: number[];
-            markEmitted(r: any, m: any, w: any): void;
-        } | null;
-        readonly gameplay: {
-            tickDamage: (simTick: any, dt: any) => void;
-            smokeDepth: (origin: any, direction: any, distance: any) => number;
-            rayBlocked: (origin: any, direction: any, distance: any) => boolean;
-            blast: (position: any, radiusM: any, damage: any) => void;
-            isBurning: (id: any) => boolean;
-            readonly burningCount: number;
-        } | null;
-        igniteCell(face: any, I: any, J: any, source?: number): any;
-        ignite(position: any, source?: number): any;
-        igniteArea(position: any, radiusM: any, source?: number): any;
-        extinguishCell(face: any, I: any, J: any, radiusCells?: number): any;
-        extinguish(position: any, radiusMetres?: number): any;
+        checksum(): any;
+        destroy(): void;
         explode(position: any, { radiusM, igniteRadiusM, damage, source }?: {
             damage?: number | undefined;
             igniteRadiusM?: number | undefined;
             radiusM?: number | undefined;
             source?: number | undefined;
         }): any;
+        extinguish(position: any, radiusMetres?: number): any;
+        extinguishCell(face: any, I: any, J: any, radiusCells?: number): any;
+        ignite(position: any, source?: number): any;
+        igniteArea(position: any, radiusM: any, source?: number): any;
+        igniteCell(face: any, I: any, J: any, source?: number): any;
         incendiaryHit({ radiusM }?: {
             radiusM?: number | undefined;
         }): (ctx: any, hit: any) => void;
-        setWind(vector: any): any;
+        isBurning(id: any): boolean;
+        isTrunkCharred(trunkId: any): boolean;
+        keyframeMessage(): any;
+        rayBlocked(origin: any, direction: any, distance: any): boolean;
+        readonly activeCount: any;
+        readonly checksumHistory: [any, any][];
+        readonly gameplay: {
+            blast: (position: any, radiusM: any, damage: any) => void;
+            isBurning: (id: any) => boolean;
+            rayBlocked: (origin: any, direction: any, distance: any) => boolean;
+            readonly burningCount: number;
+            smokeDepth: (origin: any, direction: any, distance: any) => number;
+            tickDamage: (simTick: any, dt: any) => void;
+        } | null;
+        readonly keyframePending: boolean;
+        readonly keyframeStats: {
+            dropped: number;
+            jobs: number;
+            lastSliceMs: number;
+            ms: number;
+            served: number;
+            slices: number;
+            worstSliceMs: number;
+        };
+        readonly keyframeTick: any;
+        readonly names: string[];
+        readonly needsResync: boolean;
+        readonly resyncStats: {
+            adopted: number;
+            compared: number;
+            firstMismatch: null;
+            mismatches: number;
+            missed: number;
+            requestsReceived: number;
+            requestsSent: number;
+            rows: number;
+            unanswered: number;
+        };
+        readonly rollbackStats: {
+            droppedRows: number;
+            resimTicks: number;
+            rewinds: number;
+        };
+        readonly simTick: any;
+        readonly stats: any;
+        readonly weather: {
+            markEmitted(r: any, m: any, w: any): void;
+            readonly emittedMoisture: number;
+            readonly emittedRain: number;
+            readonly emittedWind: number[];
+            readonly moisture: number;
+            readonly rain: number;
+            readonly reading: Readonly<{
+                intensity: 0;
+                kind: "no-weather";
+                wind: null;
+            }>;
+            readonly wind: number[];
+            step(simTick: any, out: any): any;
+        } | null;
+        readonly wind: any;
+        readonly world: any;
+        requestResync(): {
+            r: any[];
+            type: string;
+        };
+        rewindTo(tick: any): any;
         setMoisture(value: any): any;
         setRain(value: any): any;
-        stateAt(position: any): any;
-        stateAtLocal(x: any, z: any): any;
-        isTrunkCharred(trunkId: any): boolean;
+        setWind(vector: any): any;
+        sightBlocked(from: any, to: any): boolean;
+        smokeDepth(origin: any, direction: any, distance: any): number;
         stageMap(options: any): {
-            data: Uint8Array<ArrayBuffer>;
-            width: number;
-            height: number;
-            slotCapacity: number;
             acquire: (face: any, ti: any, tj: any) => any;
-            release: (face: any, ti: any, tj: any) => boolean;
-            slotValueOfCell: (face: any, I: any, J: any) => number;
-            slotValueOfTrunk: (trunkId: any) => number;
-            texelOf: (value: any, out: any) => any;
-            sync: () => number;
-            stats: {
-                syncs: number;
-                tilesWritten: number;
-                bytesWritten: number;
-                resolves: number;
-            };
-            dirtySlots: Int32Array<ArrayBuffer>;
             blockOrigin: (slot: any) => {
                 x: number;
                 y: number;
             };
+            data: Uint8Array<ArrayBuffer>;
+            dirtySlots: Int32Array<ArrayBuffer>;
+            height: number;
             readonly watchedTiles: number;
+            release: (face: any, ti: any, tj: any) => boolean;
+            slotCapacity: number;
+            slotValueOfCell: (face: any, I: any, J: any) => number;
+            slotValueOfTrunk: (trunkId: any) => number;
+            stats: {
+                bytesWritten: number;
+                resolves: number;
+                syncs: number;
+                tilesWritten: number;
+            };
+            sync: () => number;
+            texelOf: (value: any, out: any) => any;
+            width: number;
         };
-        isBurning(id: any): boolean;
-        smokeDepth(origin: any, direction: any, distance: any): number;
-        rayBlocked(origin: any, direction: any, distance: any): boolean;
-        sightBlocked(from: any, to: any): boolean;
-        applyRemote(payload: any): {
-            ok: boolean;
-            rejected: number;
-            reason: any;
-            rewound: number;
-            checksum: {
-                tick: any;
-                hash: any;
-            } | null;
-            adopted: {
-                tick: number;
-                hash: any;
-                bytes: number;
-            } | null;
-        };
-        checksum(): any;
-        keyframeMessage(): any;
-        requestResync(): {
-            type: string;
-            r: any[];
-        };
-        rewindTo(tick: any): any;
+        stateAt(position: any): any;
+        stateAtLocal(x: any, z: any): any;
         tick(dt: any): void;
-        destroy(): void;
     };
-    defineSteering(spec: any): {
-        step(from: any, target: any, dt: any, peers: any): {
-            position: any[];
-            velocity: number[];
-            arrived: boolean;
-        };
-        followPath(from: any, waypoints: any, dt: any, state: any, peers: any): {
-            position: any[];
-            velocity: number[];
-            done: boolean;
+    defineFluid(spec: any): {
+        dispose: () => void;
+        onChartReanchor({ transfer }: {
+            transfer: any;
+        }): void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        readonly particleCount: number;
+        readonly ready: boolean;
+        tick: (dt: any) => void;
+    };
+    defineFluid3D(spec: any): {
+        dispose: () => void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        readonly particleCount: number;
+        readonly ready: boolean;
+        tick: (dt: any) => void;
+    };
+    defineGameFSM(spec: any): {
+        can(evt: any): any;
+        is(s: any): any;
+        matches(s: any): any;
+        onTransition(fn: any): () => void;
+        readonly context: any;
+        readonly state: any;
+        readonly timeInState: number;
+        send(type: any, payload: any): {
+            event: string;
+            event: string;
+            ok: boolean;
+            ok: boolean;
+            reason: string;
+            reason?: undefined;
             state: any;
+            state: any;
+        } | {
         };
+        stop(): void;
+        tick(dt: any): void;
     };
-    defineCameraRig(spec: any): {
-        push(playerId: any, layerId: any): void;
-        pop(playerId: any, layerId: any): void;
-        top(playerId: any): any;
-        remove(playerId: any): void;
-        onInput(playerId: any, input: any): boolean;
-        update(playerId: any, pose: any, dt: any): {
-            position: any;
-            target: any;
-            layer: any;
-            done: boolean;
-        };
-        layerIds(): any[];
+    defineGameMode(spec: any): any;
+    defineHealth(spec: any): {
+        damage(amount: any, source?: null): any;
+        heal(amount: any): any;
+        kill(source?: null): void;
+        readonly alive: boolean;
+        readonly fraction: number;
+        readonly hp: any;
+        readonly max: any;
+        respawn(hp: any): any;
+        setMax(m: any): any;
     };
-    defineCheckpoint(spec: any): any;
+    definePath(points: any): any;
     definePickup(spec: any): {
         readonly collected: boolean;
         reset(): void;
         tick(dt: any): void;
     };
-    defineDestructible(spec: any): any;
-    defineSoftbody(spec: any): {
-        readonly ready: boolean;
-        readonly particleCount: number;
-        readonly pinnedKeys: Set<any>;
-        tick: (dt: any) => void;
-        positions: () => Float64Array<ArrayBuffer>;
-        publish: () => boolean;
-        setPin: (col: any, row: any, pinned: any) => boolean;
-        dispose: () => void;
-        onChartReanchor({ transfer }: {
-            transfer: any;
-        }): void;
-    };
-    defineFluid(spec: any): {
-        readonly ready: boolean;
-        readonly particleCount: number;
-        tick: (dt: any) => void;
-        positions: () => Float64Array<ArrayBuffer>;
-        publish: () => boolean;
-        dispose: () => void;
-        onChartReanchor({ transfer }: {
-            transfer: any;
-        }): void;
-    };
-    defineFluid3D(spec: any): {
-        readonly ready: boolean;
-        readonly particleCount: number;
-        tick: (dt: any) => void;
-        positions: () => Float64Array<ArrayBuffer>;
-        publish: () => boolean;
-        dispose: () => void;
-    };
-    defineBuoyancy(spec: any): {
-        readonly submersionFrac: number;
-        readonly submerged: boolean;
-        tick(dt: any): void;
-    };
-    defineTeams(spec: any): {
-        assignPlayer(playerId: any, team: any): string | null;
-        removePlayer(playerId: any): boolean;
-        getTeam(playerId: any): any;
-        getMembers(team: any): any[];
-        addScore(team: any, delta?: number): number | undefined;
-        setScore(team: any, n: any): number | undefined;
-        getScore(team: any): number;
-        getScores(): {
-            id: any;
-            label: any;
-            color: any;
-            score: number;
-            members: any[];
-        }[];
-        getTeams(): any[];
-        smallestTeam(): any;
-        leader(): any;
-        reset(): void;
-        broadcast(): void;
-    };
-    defineWeapon(spec: any): {
-        readonly ammo: any;
-        readonly magazine: any;
-        readonly reloading: boolean;
-        canFire(): boolean;
-        fire(shooterId: any, origin: any, dir: any, opts?: {}): {
-            fired: boolean;
-            reason: string;
-        } | {
-            fired: boolean;
-            hit: boolean;
-            targetPlayerId: null;
-            killed: boolean;
-            ammo: any;
-        };
-        reload(shooterId: any): boolean;
-        setAmmo(n: any): any;
-    };
     definePlayerInventory(spec: any): {
         add(pid: any, item: any, n?: number): any;
-        remove(pid: any, item: any, n?: number): number;
-        count(pid: any, item: any): any;
-        has(pid: any, item: any, n?: number): boolean;
-        items(pid: any): {
-            [k: string]: any;
-        };
-        currency(pid: any): any;
-        earn(pid: any, amount: any): any;
-        canAfford(pid: any, amount: any): boolean;
-        spend(pid: any, amount: any): boolean;
         buy(pid: any, item: any): {
+            currency: any;
+            currency?: undefined;
+            granted: {};
+            granted?: undefined;
+            ok: boolean;
             ok: boolean;
             reason: string;
-            currency?: undefined;
-            granted?: undefined;
-        } | {
             reason?: undefined;
-            ok: boolean;
-            currency: any;
-            granted: {};
+        } | {
         };
+        canAfford(pid: any, amount: any): boolean;
+        clearAll(): void;
+        count(pid: any, item: any): any;
+        currency(pid: any): any;
         dropOnDeath(pid: any): {
             dropped: {};
             kept: {};
         };
-        reset(pid: any): void;
-        clearAll(): void;
+        earn(pid: any, amount: any): any;
+        has(pid: any, item: any, n?: number): boolean;
+        items(pid: any): {
+            [k: string]: any;
+        };
         push(pid: any): void;
+        remove(pid: any, item: any, n?: number): number;
+        reset(pid: any): void;
+        spend(pid: any, amount: any): boolean;
     };
-    definePath(points: any): any;
-    navmesh(worldName?: any): any;
-    _chartLocalNavmesh(navmesh: any): any;
-    raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null, cellSize?: number): any;
-    canSee(fromPos: any, toPos: any, opts?: {}): boolean;
-    get terrainBodyId(): any;
-    terrainHeightAt(x: any, z: any): any;
-    terrainKindAt(x: any, z: any): any;
-    navCostAt(x: any, z: any): 0.5 | 1 | 2 | 3 | 8;
-    seaLevelAt(x: any, z: any): number | null;
+    defineProgression(spec: any): {
+        abilityTree: {
+            applySnapshot: (snapshotData: any) => {
+                dropped: never[];
+                dropped: {
+                    field: string;
+                    reason: string;
+                }[];
+                hotkeys: number;
+                hotkeys: number;
+                ok: boolean;
+                ok: boolean;
+                players: number;
+                players: number;
+                reason: null;
+                reason: string;
+            } | {
+            };
+            bindHotkey: (hotkeyNumber: any, abilityId: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            bindRefusal: (hotkeyNumber: any, abilityId: any) => string | null;
+            buildSnapshot: () => {
+                hotkeys: {};
+                playerStates: {
+                    cooldowns: any[];
+                    playerId: any;
+                }[];
+            };
+            canCastAbility: (playerId: any, abilityId: any, playerLevel: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            castAbility: (playerId: any, abilityId: any, playerLevel: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            castRefusal: (playerId: any, abilityId: any, playerLevel: any) => string | null;
+            getAbility: (abilityId: any) => any;
+            getAbilityCooldown: (playerId: any, abilityId: any) => number;
+            getAllAbilities: () => any[];
+            getAllHotkeyBindings: () => {};
+            getCooldownsForNetwork: (playerId: any) => {
+                abilityId: any;
+                remaining: number;
+            }[];
+            getDefinitionRefusals: () => any[];
+            getHotkeyBinding: (hotkeyNumber: any) => any;
+            getHotkeyRefusals: () => any[];
+            getPlayerAbilityInfo: (playerId: any, playerLevel: any) => {
+                activeAbilities: any[];
+                cooldowns: {
+                    abilityId: any;
+                    remaining: any;
+                }[];
+                unlockedAbilities: any[];
+            };
+            getPlayerAbilityState: (playerId: any) => any;
+            getUnlockedAbilities: (playerLevel: any) => any[];
+            removePlayer: (playerId: any) => void;
+            tick: (dt: any) => void;
+        };
+        getNetworkState(playerId: any): {
+            abilityTree: {
+                cooldowns: {
+                    abilityId: any;
+                    remaining: number;
+                }[];
+                unlockedAbilities: any[];
+            };
+            progression: {
+                level: any;
+                progressRatio: number;
+                totalXp: any;
+                xp: any;
+                xpForLevel: number;
+                xpInLevel: any;
+            };
+        };
+        onPlayerJoin(playerId: any): void;
+        onPlayerLeave(playerId: any): void;
+        progression: {
+            addXp: (playerId: any, amount: any) => boolean;
+            addXpResult: (playerId: any, amount: any) => {
+                leveledUp: boolean;
+                leveledUp: boolean;
+                ok: boolean;
+                ok: boolean;
+                reason: null;
+                reason: string;
+            } | {
+            };
+            applySnapshot: (snapshotData: any) => void;
+            buildSnapshot: () => {
+                progressions: {
+                    id: any;
+                    lastLevelUpTick: any;
+                    level: any;
+                    levelUpEvents: any;
+                    totalXp: any;
+                    xp: any;
+                }[];
+            };
+            calculateXpThreshold: (level: any, curve?: any) => number;
+            drainLevelUpEvents: (playerId: any) => any;
+            getAllStates: () => any[];
+            getConfig: () => any;
+            getPlayerState: (playerId: any) => any;
+            getProgress: (playerId: any) => {
+                level: any;
+                progressRatio: number;
+                totalXp: any;
+                xp: any;
+                xpForLevel: number;
+                xpInLevel: any;
+            };
+            getState: (playerId: any) => any;
+            removePlayer: (playerId: any) => void;
+            tick: (dt: any) => void;
+        };
+        restoreGameState(state: any): any;
+        setup(ctx: any): void;
+        snapshotGameState(state: any): any;
+        tick(ctx: any, dt: any): void;
+    };
+    defineQuestSystem(spec: any): {
+        claimReward(pid: any, questId: any): {
+            items: any;
+            items?: undefined;
+            ok: boolean;
+            ok: boolean;
+            reason: string;
+            reason?: undefined;
+            statBonuses: any;
+            statBonuses?: undefined;
+            xp: any;
+            xp?: undefined;
+        } | {
+        };
+        completeObjective(pid: any, questId: any, objectiveIndex: any, amount?: number): {
+            ok: boolean;
+            ok: boolean;
+            reason: string;
+            reason?: undefined;
+        } | {
+        };
+        getAllQuestProgress(pid: any): {};
+        getPlayerQuests(pid: any): {};
+        getQuestState(pid: any, questId: any): {
+            claimedAt: any;
+            completedAt: any;
+            progress: any[];
+            questId: any;
+            startedAt: any;
+            state: any;
+        } | null;
+        push(pid: any): void;
+        restore(data: any): void;
+        snapshot(): {};
+        startQuest(pid: any, questId: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: string;
+            reason?: undefined;
+        } | {
+        };
+    };
+    defineShrinkingZone(spec: any): any;
+    defineSoftbody(spec: any): {
+        dispose: () => void;
+        onChartReanchor({ transfer }: {
+            transfer: any;
+        }): void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        readonly particleCount: number;
+        readonly pinnedKeys: Set<any>;
+        readonly ready: boolean;
+        setPin: (col: any, row: any, pinned: any) => boolean;
+        tick: (dt: any) => void;
+    };
+    defineStatsSystem(spec: any): {
+        _levelFromXP(totalXP: any): number;
+        _xpForLevel(level: any): number;
+        addXP(pid: any, amount: any): boolean;
+        addXPResult(pid: any, amount: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        applyBonus(pid: any, stat: any, amount: any): boolean;
+        applyBonusResult(pid: any, stat: any, amount: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        equipItem(pid: any, equipmentId: any): boolean;
+        equipItemResult(pid: any, equipmentId: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        getBonuses(pid: any): {
+            [k: string]: any;
+        };
+        getEquipment(pid: any): {};
+        getLevel(pid: any): any;
+        getLoadout(pid: any): {};
+        getLoadouts(pid: any): {};
+        getStats(pid: any): {
+            level: any;
+            xp: any;
+        };
+        loadLoadout(pid: any, loadoutName: any): boolean;
+        loadLoadoutResult(pid: any, loadoutName: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        push(pid: any): void;
+        restore(data: any): {
+            dropped: ({
+                playerId: string;
+                playerId: string;
+                reason: string | null;
+                reason: string;
+                slot: string;
+            } | {
+            })[];
+            dropped: never[];
+            ok: boolean;
+            ok: boolean;
+            players: number;
+            players: number;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        saveLoadout(pid: any, loadoutName: any): boolean;
+        saveLoadoutResult(pid: any, loadoutName: any): {
+            ok: boolean;
+            ok: boolean;
+            reason: null;
+            reason: string;
+        } | {
+        };
+        snapshot(): {};
+        unequipSlot(pid: any, slot: any): any;
+    };
+    defineSteering(spec: any): {
+        followPath(from: any, waypoints: any, dt: any, state: any, peers: any): {
+            done: boolean;
+            position: any[];
+            state: any;
+            velocity: number[];
+        };
+        step(from: any, target: any, dt: any, peers: any): {
+            arrived: boolean;
+            position: any[];
+            velocity: number[];
+        };
+    };
+    defineTeams(spec: any): {
+        addScore(team: any, delta?: number): number | undefined;
+        assignPlayer(playerId: any, team: any): string | null;
+        broadcast(): void;
+        getMembers(team: any): any[];
+        getScore(team: any): number;
+        getScores(): {
+            color: any;
+            id: any;
+            label: any;
+            members: any[];
+            score: number;
+        }[];
+        getTeam(playerId: any): any;
+        getTeams(): any[];
+        leader(): any;
+        removePlayer(playerId: any): boolean;
+        reset(): void;
+        setScore(team: any, n: any): number | undefined;
+        smallestTeam(): any;
+    };
+    defineWeapon(spec: any): {
+        canFire(): boolean;
+        fire(shooterId: any, origin: any, dir: any, opts?: {}): {
+            ammo: any;
+            fired: boolean;
+            fired: boolean;
+            hit: boolean;
+            killed: boolean;
+            reason: string;
+            targetPlayerId: null;
+        } | {
+        };
+        readonly ammo: any;
+        readonly magazine: any;
+        readonly reloading: boolean;
+        reload(shooterId: any): boolean;
+        setAmmo(n: any): any;
+    };
+    fallFloorY(x: any, z: any, depth: any): number;
+    get bus(): any;
+    get combat(): Readonly<{
+        DEFAULT_COMBAT: Readonly<{
+            buffRegenFractionPerSec: 0.1;
+            damagePerHit: 20;
+            fallKillDepth: 20;
+            fallKillGraceSec: 0.5;
+            headshotMultiplier: 2.5;
+            headshotZone: 0.7;
+            health: 100;
+            hitKnockback: 4;
+            magazineSize: 30;
+            range: 1000;
+            reloadTime: 2000;
+            respawnTime: 1.5;
+            shootKnockback: 2;
+            spawnInvulnMs: 1500;
+        }>;
+        DEFAULT_HITBOX: Readonly<{
+            centerHeight: 0.9;
+            height: 1.8;
+            radiusSq: 0.36;
+        }>;
+        buildLiveIndex: typeof import("../netcode/RewindSpatialIndex.js").buildLiveIndex;
+        findHitLinear(players: any, shot: any): {
+            dot: number;
+            proj: any[];
+            rewound: any;
+            target: any;
+            tp: any;
+        } | null;
+        findHitSpatial(players: any, shot: any, liveIndex?: null): null;
+        hitHeightRatio(proj: any, tp: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            height: 1.8;
+            radiusSq: 0.36;
+        }>): number;
+        normalizeShotDirection(d: any): number[] | null;
+        rayVsCapsule(origin: any, direction: any, range: any, tp: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            dot: number;
+            height: 1.8;
+            proj: any[];
+            radiusSq: 0.36;
+        }>): {
+        } | null;
+        readHealth: typeof import("../behaviours/combat.js").readHealth;
+        recordHit: typeof import("../netcode/OutlierDetector.js").recordHit;
+        resolveFireRequest(lagComp: any, shooterId: any, shooterPosition: any, msg: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            height: 1.8;
+            origin: any;
+            radiusSq: 0.36;
+            viewTick: any;
+        }>): {
+        };
+        resolveTargetPoint(target: any, lagComp: any, viewTick: any): {
+            rewound: any;
+            tp: any;
+        };
+    }>;
+    get config(): any;
+    get debug(): CliDebugger;
+    get entity(): {
+        custom: any;
+        destroy: () => any;
+        position: any;
+        readonly bodyType: any;
+        readonly children: any[];
+        readonly id: any;
+        readonly model: any;
+        readonly parent: any;
+        readonly worldTransform: any;
+        rotation: any;
+        scale: any;
+        velocity: any;
+    };
+    get eventLog(): any;
+    get files(): {
+        has: (name: any) => any;
+        read: (name: any) => Promise<string | null>;
+        remove: (name: any) => any;
+        write: (name: any, text: any) => any;
+    } | null;
+    get lagCompensator(): any;
+    get llm(): any;
+    get network(): {
+        broadcast: (msg: any) => any;
+        sendTo: (id: any, msg: any) => any;
+    };
+    get physics(): {
+        addBoxCollider: (s: any, shapeKey: any) => void;
+        addCapsuleCollider: (r: NonNegFinite, h: NonNegFinite) => void;
+        addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
+        addConvexCollider: (points: any) => void;
+        addConvexFromModel: (meshIndex?: number) => void;
+        addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
+        addForce: (f: any) => any;
+        addSphereCollider: (r: NonNegFinite) => void;
+        addTrimeshCollider: () => Promise<void>;
+        createTrackedVehicle: (wheelDefs: any, opts: any) => any;
+        createVehicle: (wheelDefs: any, opts: any) => any;
+        destroyVehicle: () => any;
+        getAngularVelocity: () => any;
+        getBodyId: () => any;
+        getRotation: () => any;
+        getVehicleWheelState: (wheelIndex: any) => any;
+        getVehicleWheelTransform: (wheelIndex: any) => any;
+        getVelocity: () => any;
+        hasVehicle: () => boolean;
+        setAngularDamping: (v: NonNegFinite) => void;
+        setCCDPolicy: (v: any) => void;
+        setDynamic: (v: any) => void;
+        setFriction: (f: any) => boolean;
+        setInteractable: (radius?: NonNegFinite) => void;
+        setKinematic: (v: any) => void;
+        setLinearDamping: (v: NonNegFinite) => void;
+        setMass: (v: NonNegFinite) => void;
+        setMotionType: (motionType: any) => boolean;
+        setPosition: (p: any) => void;
+        setRestitution: (r: any) => boolean;
+        setStatic: (v: any) => void;
+        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
+        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
+        setVelocity: (v: any) => void;
+    };
+    get players(): {
+        attachEntity: (pid: any, entityId: any, offset: any, bone: any) => any;
+        attachmentOf: (entityId: any) => any;
+        broadcast: (msg: any) => any;
+        broadcastNearby: (pos: any, radius: any, msg: any) => void;
+        defineSeats: (entityId: any, seats: any) => any;
+        detachEntity: (entityId: any) => any;
+        dismount: (pid: any) => any;
+        getAll: () => any;
+        getById: (id: any) => any;
+        getNearest: (pos: any, r: any) => any;
+        handoffSeat: (fromPid: any, toPid: any) => any;
+        mountInSeat: (pid: any, entityId: any, seatId: any) => any;
+        nearestOtherPlayer: (playerId: any, radius: any) => any;
+        onPlayerContact: (radius: any, cb: any) => () => void;
+        playAnimation: (pid: any, clip: any, opts: any) => any;
+        seatOf: (pid: any) => any;
+        seatsOf: (entityId: any) => any;
+        send: (pid: any, msg: any) => any;
+        setAppearance: (pid: any, appearance: any) => any;
+        setLifecycle: (pid: any, state: any, opts: any) => any;
+        setModel: (pid: any, url: any) => any;
+        setMovementOverride: (pid: any, overrides: any) => any;
+        setName: (pid: any, name: any) => any;
+        setPosition: (pid: any, pos: any) => any;
+        setWeapon: (pid: any, name: any) => any;
+        undefineSeats: (entityId: any) => any;
+    };
     get seaLevel(): number | null;
+    get spawnGeometry(): {
+        DEFAULT_HITBOX: Readonly<{
+            centerHeight: 0.9;
+            height: 1.8;
+            radiusSq: 0.36;
+        }>;
+        capsuleHeightM: typeof capsuleHeightM;
+        capsuleRadiusM: typeof capsuleRadiusM;
+        footprintBlockers: (sp: any, feetY: any, hitbox: any) => ({
+            intrusionM: null;
+            intrusionM: number;
+            kind: string;
+            kind: string;
+            offsetM: number;
+            offsetM: number;
+            surfaceY: any;
+            surfaceY: null;
+            x: any;
+            x: any;
+            z: any;
+            z: any;
+        } | {
+        })[];
+        spawnSurfaceY: (sp: any, opts: any) => any;
+    };
+    get state(): any;
+    get storage(): {
+        delete: (key: any) => any;
+        get: (key: any) => any;
+        has: (key: any) => any;
+        list: (prefix?: string) => any;
+        set: (key: any, value: any) => any;
+    } | null;
     get terrain(): {
         startStreaming: (tcfg: any) => Promise<{
-            start: (fallbackCenter?: number[]) => Promise<void>;
-            stop: () => void;
-            prepareFields: ({ players, heightFn: preparedHeightFn, isAborted }: {
-                heightFn: any;
-                isAborted?: (() => boolean) | undefined;
-                players: any;
-            }) => Promise<{
-                fields: {
-                    cornerX: number;
-                    cornerZ: number;
-                    center: number[];
-                    N: number;
-                    samples: Float32Array<ArrayBuffer>;
-                    sampleMs: number;
-                }[];
-                primaryIndex: number;
-            } | null>;
+            cover: (points: any) => Promise<any>;
+            coversPosition: (x: any, z: any) => boolean;
             installPrepared: (prepared: any) => {
                 installed: number;
                 removed: number;
             };
-            preparedSurfaceY: (set: any, x: any, z: any) => any;
-            setLattice: (next: any) => void;
             placeAllFields: () => void;
-            coversPosition: (x: any, z: any) => boolean;
-            cover: (points: any) => Promise<any>;
-            readonly groundlessPlayers: any[];
-            readonly lattice: any;
-            readonly liveHeightFn: any;
+            prepareFields: ({ players, heightFn: preparedHeightFn, isAborted }: {
+                fields: {
+                    N: number;
+                    center: number[];
+                    cornerX: number;
+                    cornerZ: number;
+                    sampleMs: number;
+                    samples: Float32Array<ArrayBuffer>;
+                }[];
+                heightFn: any;
+                isAborted?: (() => boolean) | undefined;
+                players: any;
+                primaryIndex: number;
+            }) => Promise<{
+            } | null>;
+            preparedSurfaceY: (set: any, x: any, z: any) => any;
+            readonly bodyId: any;
+            readonly busy: boolean;
+            readonly center: any[] | null;
             readonly coverRadius: number;
-            readonly staleEpochDiscards: number;
-            resculpt: () => Promise<any>;
             readonly fields: {
                 bodyId: any;
                 center: any;
             }[];
-            readonly center: any[] | null;
-            readonly bodyId: any;
-            readonly rebuildCount: number;
-            readonly busy: boolean;
-            readonly maxFields: any;
+            readonly groundlessPlayers: any[];
             readonly lastError: any;
             readonly lastRefusal: any;
+            readonly lattice: any;
+            readonly liveHeightFn: any;
+            readonly maxFields: any;
+            readonly rebuildCount: number;
             readonly refusalCount: number;
+            readonly staleEpochDiscards: number;
+            resculpt: () => Promise<any>;
+            setLattice: (next: any) => void;
+            start: (fallbackCenter?: number[]) => Promise<void>;
+            stop: () => void;
         } | null>;
     };
+    get terrainBodyId(): any;
+    get time(): {
+        after: (seconds: any, fn: any) => void;
+        every: (seconds: any, fn: any) => void;
+        readonly deltaTime: any;
+        readonly elapsed: any;
+        readonly serverTime: number;
+        readonly tick: any;
+    };
+    get world(): {
+        applyImpulse: (entityId: any, impulse: any, worldPoint: any) => any;
+        attach: (eid: any, app: any) => any;
+        destroy: (id: any) => void;
+        detach: (eid: any) => any;
+        getEntity: (id: any) => any;
+        isAtRest: (entityId: any, eps: any) => any;
+        joint: (entityA: any, entityB: any, opts: any) => any;
+        nearby: (pos: any, radius: any) => any;
+        query: (filter: any) => any;
+        readonly gravity: any;
+        removeConstraint: (constraintId: any) => any;
+        reparent: (eid: any, parentId: any) => any;
+        sendToEntity: (entityId: any, msg: any) => any;
+        setBodyActive: (entityId: any, active: any) => any;
+        setGravityFactor: (entityId: any, factor: any) => any;
+        setMotionType: (entityId: any, motionType: any) => any;
+        setPosition: (entityId: any, position: any, rotation: any) => any;
+        setVelocity: (entityId: any, velocity: any) => any;
+        spawn: (id: any, cfg: any) => any;
+        spawnChild: (id: any, cfg: any) => any;
+        weld: (entityA: any, entityB: any, opts: any) => any;
+    };
+    interactable(config?: {}): void;
+    leaderboard(key: any, opts: any): any;
+    navCostAt(x: any, z: any): 0.5 | 1 | 2 | 3 | 8;
+    navmesh(worldName?: any): any;
+    onConfigChange(cb: any): () => void;
+    onPlayerProximity(radius: any, callback: any): () => void;
+    onShutdown(cb: any): () => void;
+    persisted(key: any, initial: any, opts: any): any;
+    pickSpawnPoint(spawnPoints: any, opts: any): any[];
+    raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null, cellSize?: number): any;
+    seaLevelAt(x: any, z: any): number | null;
+    senderOf(message: any): any;
+    set state(v: any);
+    terrainHeightAt(x: any, z: any): any;
+    terrainKindAt(x: any, z: any): any;
 }
+import { AnimationSystem } from '../animation/AnimationSystem.js';
+import { CliDebugger } from '../debug/CliDebugger.js';
+import { capsuleRadiusM, capsuleHeightM } from './AppGameplay.js';
