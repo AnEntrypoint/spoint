@@ -16,17 +16,19 @@ const DEFAULTS = {
   dprAuto: false,
 }
 
-function loadSaved() {
+const scopedKey = scope => `${STORAGE_KEY}.${scope}`
+
+function loadSaved(key) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return {}
     const parsed = JSON.parse(raw)
     return (parsed && typeof parsed === 'object') ? parsed : {}
   } catch (_) { return {} }
 }
 
-function saveValues(values) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(values)) } catch (e) { console.warn('[settings] localStorage write failed:', e?.message || e) }
+function saveValues(key, values) {
+  try { localStorage.setItem(key, JSON.stringify(values)) } catch (e) { console.warn('[settings] localStorage write failed:', e?.message || e) }
 }
 
 const CSS = `
@@ -72,10 +74,12 @@ const CSS = `
 #settings-menu-panel button.sm-danger:hover { border-color: #ff5a4e; color: #ff5a4e; }
 `
 
-export function createSettingsMenu({ getCam = () => null, getRenderer = () => null } = {}) {
+export function createSettingsMenu({ getCam = () => null, getRenderer = () => null, scope = null } = {}) {
   ensureStyle('settings-menu-style', CSS)
 
-  const values = { ...DEFAULTS, ...loadSaved() }
+  const globalValues = { ...DEFAULTS, ...loadSaved(STORAGE_KEY) }
+  const storageKey = scope ? scopedKey(scope) : STORAGE_KEY
+  const values = scope ? { ...globalValues, ...loadSaved(storageKey) } : globalValues
   let onCloseCb = null
   let _cacheSectionCancel = null
 
@@ -147,7 +151,12 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     return `${(mb / 1024).toFixed(2)} GB`
   }
 
-  function _persist() { saveValues(values) }
+  function _persist() {
+    if (!scope) { saveValues(STORAGE_KEY, values); return }
+    const overrides = {}
+    for (const k of Object.keys(values)) if (values[k] !== globalValues[k]) overrides[k] = values[k]
+    saveValues(storageKey, overrides)
+  }
 
   function _applyMouseSensitivity(v) { values.mouseSensitivity = v; _persist(); const cam = getCam(); if (cam) cam.applyConfig({ mouseSensitivity: v }) }
   function _applyInvertY(v) { values.invertY = v; _persist(); const cam = getCam(); if (cam) cam.applyConfig({ invertY: v }) }
