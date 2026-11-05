@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { PredictionEngine } from '../src/client/PredictionEngine.js'
 import { DEFAULT_MOVEMENT } from '../src/shared/movement.js'
+import { NETWORK_SIM_PRESETS } from '../src/transport/NetworkSimTransport.js'
 import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 import { registerWitnessServer } from './lib/witness-server.mjs'
 
@@ -27,6 +28,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const TICKS = numericFlag(args, 'ticks', 450)
 const TICK_RATE = numericFlag(args, 'tickRate', 60)
 const PEN_TOL_M = numericFlag(args, 'penTol', 0.05)
+const NETSIM_PRESET = args.netsim ?? null
+if (NETSIM_PRESET !== null && !Object.hasOwn(NETWORK_SIM_PRESETS, NETSIM_PRESET)) {
+  throw new Error(`[wedge] --netsim=${NETSIM_PRESET} is not a preset; expected one of ${Object.keys(NETWORK_SIM_PRESETS).join(', ')}`)
+}
 // One predicted step is one tick of travel at the commanded speed. Both numbers are
 // world constants (DEFAULT_MOVEMENT in src/shared/movement.js, which sets sprint speed
 // to maxSpeed x SPRINT_SPEED_MUL when no sprintSpeed is given, and the world tick
@@ -197,7 +202,7 @@ async function runArm(cfg) {
   const url = `ws://127.0.0.1:${port}/ws`
 
   try {
-    const client = new PhysicsNetworkClient({ url, predictionEnabled: true, smoothInterpolation: false, collisionMirror: false, autoMigrate: false, webTransport: { enabled: false } })
+    const client = new PhysicsNetworkClient({ url, predictionEnabled: true, smoothInterpolation: false, collisionMirror: false, autoMigrate: false, webTransport: { enabled: false }, netSim: NETSIM_PRESET ?? undefined })
     await client.connect()
     if (!client.connected) throw new Error('[wedge] connect() resolved but connected:false')
 
