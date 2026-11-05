@@ -340,6 +340,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   function installGroundSource(name, fn) {
     if (typeof name !== 'string' || name === '') throw new TypeError(`this frame names every ground source it serves, so installing one takes a non-empty name; got ${JSON.stringify(name)}`)
     if (typeof fn !== 'function') throw new TypeError(`the ground source port is (x, z, yGuess) => number that throws SurfaceSolveError where there is no ground, so source "${name}" installs a function; got ${fn === null ? 'null' : typeof fn}`)
+    if (typeof fn === 'function' && fn.length < 3) throw new TypeError(`the ground source port is (x, z, yGuess) => number; source '${name}' declares ${fn.length} parameter(s), so it drops yGuess and is refused`)
     groundSources.set(name, fn)
     _groundSourceName = name
     _groundHeightLocal = fn

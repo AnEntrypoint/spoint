@@ -677,7 +677,9 @@
   session_id: orch-main-r310-sub2-p1
 - id: PARNAS-ringbranch-ub2-p1
   title: 'src/spatial: the 2D-vs-3D relevance decision lives in TickHandlerAOI, and the snapshot path never takes it'
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/PARNAS-ringbranch-ub2-p1-verdict.txt
+  note: the per-player path (TickHandler.js:399) passes planetRadius into resolveDeliveredIds, so the 2D-vs-3D choice is taken on the snapshot path
   body: |-
     WITNESS codeinsight callers (index complete:true) + exec_js 1791694019322-500-622920e4fc76130e + aoi-ring-postcondition-witness.mjs PASS 4/4 (dispatch 1791694174312-500-a62b2a83afa1b452).
 
@@ -868,7 +870,9 @@
   notes: 'CLOSE (not closable by this hop, characterization first): the fix is one probe at install -- call fn with a finite (x,z,yGuess) at install time and throw a TypeError naming the source when the result is not a finite number or when a thrown error is not a SurfaceSolveError. The probe has to be admitted only for sources the port is told how to seed, so pin the probe point with the witness before changing behaviour; this row is the pinning step. Files: src/terrain/PlanetFrame.js.'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/CHARTEST-est-s1-1-verdict.txt
+  note: registerGroundSource refuses a source that declares fewer than 3 parameters; probe shows two-arg refused, three-arg accepted
 - id: CHARTEST-est-s1-2
   claim: 'CHARTEST characterization, surface src/terrain. The `groundHeightLocal` setter (src/terrain/PlanetFrame.js:256-261) invents the name ''substituted'' for every install that is not the original cpu-solve closure, so two unrelated adapters share one registry key. Witnessed live (check P08): assigning fn1 then fn2 through the setter leaves groundSources as ["cpu-solve","substituted"] with one entry, and groundSourceOf(''substituted'') returns fn2 -- fn1 is unreachable. Two callers in the tree reach this setter: client/core/SculptOverlay.js:30 (`frame.groundHeightLocal = _wrappedGround`) and, via Object.assign onto Object.create(frame), client/core/ExactPatchFrame.js:6-11. Whichever installs last owns the name, so the other''s own unwrap path (SculptOverlay.js:36 restores _baseGround) can hand the registry back to an adapter that is no longer current.'
   notes: 'CLOSE (not by this hop): make the anonymous install path derive a unique name, or refuse an install that would overwrite a live name the port did not assign, and have SculptOverlay.js:30 and ExactPatchFrame.js:6 install under names they own. Pin first: this row is the pin. Related, not duplicate: GUARD-succ1-2 (unguarded call sites) is a different defect.'
