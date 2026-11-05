@@ -1,0 +1,16 @@
+39:  addBoxCollider(size: Vector3 | NonNegFinite, shapeKey?: string): void;
+40:  addSphereCollider(radius: NonNegFinite, shapeKey?: string): void;
+41:  addCapsuleCollider(radius: NonNegFinite, height: NonNegFinite, shapeKey?: string): void;
+50:  setInteractable(radius?: NonNegFinite): void;
+56:  radius?: NonNegFinite;
+73:  nearby(position: Vector3, radius: NonNegFinite): Entity[];
+126:  getNearest(position: Vector3, radius: NonNegFinite): Player | null;
+130:  broadcastNearby(position: Vector3, radius: NonNegFinite, message: any): void;
+147:  onPlayerContact(radius: NonNegFinite, callback: (playerIdA: string, playerIdB: string) => void): () => void;
+148:  nearestOtherPlayer(playerId: string, radius: NonNegFinite): Player | null;
+211:  radius?: NonNegFinite;
+400:  radiusM: number;
+437:  radius?: number;
+474:  pickSpawnPoint(spawnPoints: number[][], opts?: { exclude?: (player: any) => boolean; minSafeDistance?: number; hitbox?: { centerHeight?: number; radiusSq?: number; height?: number } }): number[]
+518:  onPlayerProximity(radius: NonNegFinite, callback: ProximityCallback): () => void;
+529:  /** Deterministic wildfire on a coarse planet-lattice cell grid (src/behaviours/fire.js): data-spec fuel classes, wind-biased spread with ember spotting, rain extinguish, regrowth, bounded activ

@@ -1,0 +1,6 @@
+73:  nearby(position: Vector3, radius: NonNegFinite): Entity[];
+126:  getNearest(position: Vector3, radius: NonNegFinite): Player | null;
+130:  broadcastNearby(position: Vector3, radius: NonNegFinite, message: any): void;
+147:  onPlayerContact(radius: NonNegFinite, callback: (playerIdA: string, playerIdB: string) => void): () => void;
+148:  nearestOtherPlayer(playerId: string, radius: NonNegFinite): Player | null;
+518:  onPlayerProximity(radius: NonNegFinite, callback: ProximityCallback): () => void;
