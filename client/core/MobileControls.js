@@ -7,7 +7,11 @@ export class MobileControls {
     this.responsive = this._calcResponsive()
     this.options = { joystickRadius: this.responsive.joystickRadius, lookJoystickRadius: this.responsive.joystickRadius, buttonSize: this.responsive.buttonSize, buttonSpacing: this.responsive.spacing, deadzone: 0.12, movementDeadzone: 0.15, rotationSensitivity: 0.003, zoomSensitivity: 0.008, autoShow: true, ...options }
     this.layout = this._calcLayout()
-    this.state = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, lookDelta: { yaw: 0, pitch: 0 }, jump: false, shoot: false, reload: false, sprint: false, crouch: false, zoom: 0, zoomDelta: 0, interact: false, menu: false, chatWheel: false }
+    this.bindings = null
+    this.state = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, lookDelta: { yaw: 0, pitch: 0 }, jump: false, shoot: false, reload: false, sprint: false, crouch: false, zoom: 0, zoomDelta: 0, interact: false, menu: false, chatWheel: false, release: null }
+    this.dragActions = new Set()
+    this.dragTouches = new Map()
+    this.aim = { active: false, x: 0, y: 0, magnitude: 0, action: null }
     this.gyroAimEnabled = false
     this.gyroAimSensitivity = options.gyroAimSensitivity ?? 0.02
     this._gyroLastBeta = null; this._gyroLastGamma = null; this._gyroDelta = { yaw: 0, pitch: 0 }
@@ -89,6 +93,10 @@ export class MobileControls {
   }
 
   setUICallbacks(ui) { this._ui = ui }
+  setInputBindings(bindings) {
+    this.bindings = bindings ?? null
+    this.dragActions = new Set(Object.entries(this.bindings ?? {}).filter(([, b]) => b?.touch === 'drag').map(([action]) => action))
+  }
   registerInteractable(id, label = 'INTERACT') { if (!this.interactableTargets.has(id)) { this.interactableTargets.set(id, label); this._ui?.onInteractablesChanged(this.interactableTargets) } }
   unregisterInteractable(id) { this.interactableTargets.delete(id); this._ui?.onInteractablesChanged(this.interactableTargets) }
 
@@ -121,6 +129,10 @@ export class MobileControls {
         this.activeButtons.set(id, bid)
         const btn = this.buttons.get(bid), action = btn?.dataset?.action || bid
         if (bid === 'zoomIn') this.state.zoomDelta = 1; else if (bid === 'zoomOut') this.state.zoomDelta = -1; else this.state[action] = true
+        if (this.dragActions.has(action)) {
+          this.dragTouches.set(id, { action, startX: x, startY: y, x, y })
+          this.aim = { active: true, x: 0, y: 0, magnitude: 0, action }
+        }
         btn?.classList.add('active')
         if (e.cancelable) e.preventDefault(); continue
       }
@@ -150,6 +162,14 @@ export class MobileControls {
         const dz = this.options.movementDeadzone
         if (n < dz) { this.state.move.x = 0; this.state.move.y = 0 } else { const s = (n - dz) / (1 - dz); this.state.move.x = dx / md * s; this.state.move.y = dy / md * s }
         this._ui?.onMoveJoystickMove(dx, dy); if (e.cancelable) e.preventDefault()
+      }
+      const drag = this.dragTouches.get(touch.identifier)
+      if (drag) {
+        drag.x = x; drag.y = y
+        const dx = x - drag.startX, dy = y - drag.startY, dist = Math.hypot(dx, dy), md = this.options.joystickRadius
+        const magnitude = Math.min(dist / md, 1), ux = dist > 0 ? dx / dist : 0, uy = dist > 0 ? dy / dist : 0
+        this.aim = { active: true, x: ux, y: uy, magnitude, action: drag.action }
+        if (e.cancelable) e.preventDefault()
       }
       if (this.lookJoystick.active && touch.identifier === this.lookJoystick.touchId) {
         const dx = x - this.lookJoystick.lastX, dy = y - this.lookJoystick.lastY
@@ -182,6 +202,14 @@ export class MobileControls {
       if (this.pinch.active) { const i = this.pinch.touchIds.indexOf(id); if (i !== -1) this.pinch.touchIds.splice(i, 1); if (this.pinch.touchIds.length < 2) this.pinch.active = false }
       const bid = this.activeButtons.get(id)
       if (bid) { const btn = this.buttons.get(bid); const action = btn?.dataset?.action || bid; this.state[action] = false; btn?.classList.remove('active'); this.activeButtons.delete(id) }
+      const drag = this.dragTouches.get(id)
+      if (drag) {
+        const dx = drag.x - drag.startX, dy = drag.y - drag.startY, dist = Math.hypot(dx, dy)
+        const magnitude = Math.min(dist / this.options.joystickRadius, 1)
+        this.state.release = { action: drag.action, x: dist > 0 ? dx / dist : 0, y: dist > 0 ? dy / dist : 0, magnitude }
+        this.dragTouches.delete(id)
+        this.aim = { active: false, x: 0, y: 0, magnitude: 0, action: null }
+      }
     }
   }
 
@@ -190,10 +218,12 @@ export class MobileControls {
     const { move } = this.state, dz = 0.2
     const yaw = this.state.lookDelta.yaw + this._gyroDelta.yaw, pitch = this.state.lookDelta.pitch + this._gyroDelta.pitch
     const forwardVal = -move.y
-    return { forward: forwardVal < -dz, backward: forwardVal > dz, left: move.x < -dz, right: move.x > dz, jump: this.state.jump, shoot: this.state.shoot, reload: this.state.reload, sprint: this.state.sprint, crouch: this.state.crouch, yaw, pitch, zoom: this.state.zoomDelta, resetZoom: () => { this.state.zoomDelta = 0 }, moveX: move.x, moveY: move.y, mouseX: 0, mouseY: 0, interact: this.state.interact, analogForward: forwardVal, analogRight: move.x, chatWheel: this.state.chatWheel }
+    const release = this.state.release
+    this.state.release = null
+    return { forward: forwardVal < -dz, backward: forwardVal > dz, left: move.x < -dz, right: move.x > dz, jump: this.state.jump, shoot: this.state.shoot, reload: this.state.reload, sprint: this.state.sprint, crouch: this.state.crouch, yaw, pitch, zoom: this.state.zoomDelta, resetZoom: () => { this.state.zoomDelta = 0 }, moveX: move.x, moveY: move.y, mouseX: 0, mouseY: 0, interact: this.state.interact, analogForward: forwardVal, analogRight: move.x, chatWheel: this.state.chatWheel, aim: { ...this.aim }, release }
   }
 
-  hasInteraction() { return this.moveJoystick.active || this.lookJoystick.active || this.pinch.active || this.state.jump || this.state.shoot || this.state.reload || this.state.sprint || this.state.crouch || this.state.interact || this.state.chatWheel || this.state.zoomDelta !== 0 || (this.gyroAimEnabled && (this._gyroDelta.yaw !== 0 || this._gyroDelta.pitch !== 0)) }
+  hasInteraction() { return this.moveJoystick.active || this.lookJoystick.active || this.pinch.active || this.aim.active || this.state.release !== null || this.state.jump || this.state.shoot || this.state.reload || this.state.sprint || this.state.crouch || this.state.interact || this.state.chatWheel || this.state.zoomDelta !== 0 || (this.gyroAimEnabled && (this._gyroDelta.yaw !== 0 || this._gyroDelta.pitch !== 0)) }
   resetLookDelta() { this.state.lookDelta.yaw = 0; this.state.lookDelta.pitch = 0; this._gyroDelta.yaw = 0; this._gyroDelta.pitch = 0 }
   setEnabled(v) { this.enabled = v && (isMobile || this.options.forceEnable); this._ui?.onEnabledChanged(this.enabled) }
   show() { this._ui?.onShow() }
