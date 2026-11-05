@@ -74,7 +74,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - **A bare CLI flag parses to the string `'true'`**, so `Number()` yields NaN and disables the knob it sets.
 - A witness needing the server to act on a client message passes `--params=multiplayer` (`?singleplayer` sees `players:0`). One `expect()` per measurement: a harness returning uncompared `{expected, got}` passes either way.
 - One `gl.getError()` code covers distinct bugs (1282 = feedback-loop, sampler-type-mismatch AND insufficient-buffer-size): read the driver's console string. Live GL: `window`/`document` only via `page.evaluate()`; pin file:line via `addInitScript`.
-- A witness child that dies must surface its stderr (`scripts/capture-server-witness.mjs`).
+- A witness child that dies must surface its stderr (`scripts/lib/witness-server.mjs`).
 
 ## Entry points
 
@@ -92,7 +92,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Per-cell initial fuel isn't recomputable in the kernel: a per-tile array in `snapshot()`/`restore()` joins `TILE_ARRAYS` + VERSION bump.
 - A tampered keyframe is rejected at DECODE. `G` = ignition step mod 256, not age; IGNITE_AREA kind 5. `fireKeyframe.js` raises `[fireKeyframe]`; `rewindTo` verifies against `counters`, never `delta`, which at a boundary rolls back the step BEFORE it.
 - A fire record promising work with no sampler is refused at construction (`src/behaviours/fireTerrain.js`): `firebreaks.kinds` defaults `['road','river']` while `kindAt` is null; `firebreaks.water` defaults true while `heightAt`/`seaLevelAt` are null.
-- Weather contract (`src/behaviours/fireWeather.js parseWeather`): a `type` other than `rain` or `snow` is dry, yielding rain 0. Absent weather, a non-finite intensity and a non-array wind also yield rain 0; `reading.kind` keeps them distinct (`no-weather`, `unreadable-weather`, `dry-other`). `scripts/fireWeather-witness.mjs` pins this.
+- Weather contract (`src/behaviours/fireWeather.js parseWeather`): a `type` other than `rain` or `snow` is dry, yielding rain 0. Absent weather, a non-finite intensity and a non-array wind also yield rain 0; `reading.kind` keeps them distinct (`no-weather`, `unreadable-weather`, `dry-other`). `src/behaviours/fireWeather.js` pins this.
 
 ## Planet-wide multiplayer
 
@@ -142,7 +142,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `f(d) = (FULL_R / d) ** P` makes the surviving population grow as R ** (2 - P) instead of R ** 2. Inside FULL_R the keep fraction and the fade are exactly 1.
 - The fade is shader-side: the CPU re-decides only every `LOD_REVISIT_STEP_M` (4 m). The CPU holds each blade from `LEAD_M` before its edge (`LEAD_M` must exceed `LOD_REVISIT_STEP_M` or a blade pops), and the shader grows it over `FADE_M` metres.
 - `wind.uGrassRing` carries `EDGE_CAP_M = ringRadius - EDGE_M` (where the outermost fade reaches zero), not the ring radius.
-- Placement is chunk-granular and the law is not, so a bigger ring places about twice the blades it keeps; `scripts/grass-distance-density-fade-witness.mjs` measured `updateMsPerQuietFrame` 1.03 -> 1.71 ms. Judge a ring change on that number, not the instance count.
+- Placement is chunk-granular and the law is not, so a bigger ring places about twice the blades it keeps; the retired frame-time witness measured `updateMsPerQuietFrame` 1.03 -> 1.71 ms. Judge a ring change on that number, not the instance count.
 
 ## Netcode and wire
 
