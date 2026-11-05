@@ -1,0 +1,4 @@
+DBC-sub1-2-1 fixed (source evidence)
+client/hud/MinimapHUD.js:226-227: w.placement = scanner.begin(...); w.refused = w.placement === null
+client/hud/MinimapHUD.js:291: if (!w.placement) { state.work = null; return }
+a refused window is terminal and does not reach a completed-scan path

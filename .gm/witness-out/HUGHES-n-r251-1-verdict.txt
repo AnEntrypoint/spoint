@@ -1,0 +1,5 @@
+HUGHES-n-r251-1 fixed: .glb.prog/.glb.ktx2/ source paths are contained to the served root
+legit: true
+traversal: false
+nested: true
+diff: +2 lines, containment guard on srcPath in both branches of src/sdk/StaticHandler.js

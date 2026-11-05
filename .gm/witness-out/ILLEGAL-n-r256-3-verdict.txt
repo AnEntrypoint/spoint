@@ -1,0 +1,5 @@
+PARSEDV-n-r248-3 and ILLEGAL-n-r256-3 fixed in src/shared/SpawnSurface.js (verified by probe)
+badArgs: RangeError: spawnSurfaceY: pose[1] must be finite (invalid input no longer null)
+malformedHit: TypeError: a raycast reporting a hit must report a finite position[1] (malformed hit no longer admitted)
+noSurface: null (null now means only no surface)
+validFloor: 0

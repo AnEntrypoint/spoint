@@ -1,0 +1,4 @@
+ILLEGAL-r250-3 refuted (source evidence, module not loadable in plain node)
+client/hud/MinimapPlacements.js: the only export that builds a scanner is createPlacementScanner (line 174)
+it returns { begin, glyphSnapshot, cachedChunks } (line 217); per-source bind/begin/step live inside it and are not returned
+begin returns null on refusal, with no handle (lines 180-182)

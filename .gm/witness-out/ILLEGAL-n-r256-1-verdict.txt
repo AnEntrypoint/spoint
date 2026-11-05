@@ -1,0 +1,3 @@
+ILLEGAL-n-r256-1 refuted: equipCodeOf does not exist in the tree
+git grep -l equipCodeOf -- . ':!node_modules' -> only .gm/prd.yml
+git grep -c equipCodeOf -- src client apps scripts -> no matches

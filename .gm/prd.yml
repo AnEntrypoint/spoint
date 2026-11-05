@@ -147,7 +147,7 @@
   session_id: orch-main-r209-sub1-s4
   principle: MILNER
   surface: client/core/RenderGraph.nodes.js
-  status: pending
+  status: refuted
   depends_on:
   - LAMPORT-ub1-s3-2
   title: RenderGraph.nodes.js defaults the frame step to 0 at :100 and :109 -- a value the producer cannot produce
@@ -178,7 +178,7 @@
 - id: PARSEDV-n-r248-3
   SESSION_ID: orch-main-r248
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/SpawnSurface.js:52 spawnSurfaceY validates its arguments at entry (typeof raycast !== ''function'', !Number.isFinite(pose?.[1]), !(standingOffset > 0), !(headroom > 0)) and returns null, the same value it returns when the column finds no surface (line 65 standing ?? lifted ?? dropped). A misuse of the API is indistinguishable from a legitimate miss, so the caller cannot parse the result and every caller must re-validate its own arguments before calling. Fix: make the argument contract a parse that throws (or return a {ok,reason, y} result), keep null for the genuine no-surface case only. Evidence: Read src/shared/SpawnSurface.js (located by codesearch filename dispatch 1791678757082-500-a3e3b5eb789d5696); Number.isFinite literal sweep dispatch 1791678775821-500-2f531e02bf1d2452.'
-  status: pending
+  status: fixed
   title: src/shared/SpawnSurface.js collapses invalid input and no-surface-found into the same null
   session_id: orch-main-r248
 - id: PARSEDV-n-r248-4
@@ -190,13 +190,13 @@
 - id: HUGHES-n-r251-1
   SESSION_ID: orch-main-r251
   title: 'HUGHES src/sdk: StaticHandler''s .glb.prog/ and .glb.ktx2/ branches join the source path with no containment check, so a URL bakes a file outside the served root'
-  status: pending
+  status: fixed
   session_id: orch-main-r251
   body: 'Property (HUGHES, universal over the surface): every file createStaticHandler reads or writes lies under one of the dirs it was given. FALSIFIED. src/sdk/StaticHandler.js:157-166 (.glb.prog/) and :200-210 (.glb.ktx2/) build the source path as join(dir, sourceUrl.slice(prefix.length)) and pass it to getProgressive/getKtx2Extracted with no containment test, while the plain-file loop at :238-245 does test resolve(fp) against resolve(dir) (fpResolved !== baseResolved && !fpResolved.startsWith(baseResolved + sep) -> continue). Live witness exec_js 1791679479055-500-a957d8f4fb578293 against the real module: dirs=[{prefix:''/served'',dir:<tmp>/served}], a sibling <tmp>/outside holding x.glb; GET /../outside/x.glb.prog/model.progressive.glb and /../outside/x.glb.ktx2/0.ktx2 (plus 8 further traversal shapes through the plain loop) => the handler hashed and baked the OUTSIDE file and created .progressive-cache/ and .glb-cache/ inside <tmp>/outside. Minimal counterexample: one URL, one ''..'' segment, either branch. Shrunk property: the branch touches a path outside every served dir. Both responses stayed 404 ''baking''/''extracting'' and no outside bytes were served, so the escape is write/CPU side (hash + bake of an arbitrary readable path, cache dirs created next to it), not a read of file contents; it is not contained by anything the caller controls. The same traversal shapes through the plain loop 404''d, so :163 and :207 are the only gap. Fix: apply the :238-245 test to srcPath at :163 and :207 before existsSync (resolve(dir), resolve(srcPath), require equality or prefix baseResolved + sep). Consumers to keep green: src/sdk/ServerAPI.js:131, src/sharding/RegionRouter.js:314, scripts/bundle-freshness-witness.mjs:97, scripts/static-handler-identity-witness.mjs:104. No file edited this hop: src/sdk/StaticHandler.js carries another lane''s uncommitted hunks (git_status paths + git_diff dispatch 1791679545295).'
 - id: HUGHES-n-r251-2
   SESSION_ID: orch-main-r251
   title: 'HUGHES src/sdk: emitEnvelope produces an envelope its own validateEnvelope rejects (empty channel => kind:'''' )'
-  status: pending
+  status: fixed
   session_id: orch-main-r251
   body: 'Property (HUGHES, universal over the surface): every envelope emitEnvelope produces is accepted by validateEnvelope - one module''s producer and its validator agree on their shared type. FALSIFIED. src/sdk/SharedEventEnvelope.js:10-19 emitEnvelope(bus, channel, data) copies channel straight into kind with no check; :21-30 validateEnvelope rejects kind that is not a non-empty string (''kind is required (string)''). Live witness exec_js 1791679479055-500-a957d8f4fb578293 against the real modules: emitEnvelope(bus, '''', {}) returns {id, ts, source, kind:'''', payload} and validateEnvelope(env) answers {valid:false, errors:[''kind is required (string)'']}; every generated non-empty channel (''a'', ''x.y'', ''system.handover'', ''*'', ''fire:ignite'', '' '', ''0'') validates. Minimal counterexample: channel '''' - shrinks to a one-character input. The producer is total over strings and the validator is partial, so the round trip emit->validate, the only contract the file states, is false for one member of the generator''s domain. Adjacent fact from the same run: EventBus.emit (src/apps/EventBus.js:49) reads channel.length, so a non-string channel throws instead of returning an envelope - the empty string is the only case that passes silently through both. Fix: reject a blank channel at the producer (throw a named error or return null), or replace the pair with one parseEnvelope that both the producer and the consumer use, so kind has exactly one accepted set. No file edited this hop: src/sdk/SharedEventEnvelope.js carries another lane''s uncommitted hunk (ts finiteness check, git_diff dispatch 1791679545295). Supersedes the contract-duplication half of PARSEDV-n-r234-2 (same file); that row is merged here.'
 - id: ILLEGAL-r250-1
@@ -221,7 +221,7 @@
   session_id: orch-main-r250
 - id: ILLEGAL-r250-3
   SESSION_ID: orch-main-r250
-  status: pending
+  status: refuted
   subject: client/hud/MinimapPlacements.js exposes begin/step before bind, so an unbound scanner is representable
   acceptance: bind() returns the scanner ({ begin, step, cache, ... }) so begin and step cannot be reached without a bound lattice and field, and the module-level nullable frame/baseField/field/lattice/cell plus the strokes = -1 sentinel disappear into the returned object. A node witness constructs two scanners from two different binds and shows they hold independent state.
   why: 'Hop ILLEGAL over client/hud, session orch-main-r250, RESCOPED after commit 2373bc58. The five nullable fields are per-scanner closure state (MinimapPlacements.js:96), not module level, and 2373bc58 arms nothing on a rejected begin (lines 179-195), so the original danger - begin/step dereferencing an unbound lattice - is no longer live - step on a never-begun scanner answers true with 0 glyphs. RESIDUAL - begin returns a bare boolean the caller may ignore, and after a rejected begin step() answers true with 0 glyphs, so refused-to-scan and scan-complete-with-nothing-to-draw are one observable state. Fix - begin returns the armed scan, or null on refusal, so a refused window cannot be stepped and step/glyphSnapshot are reachable only through it. BLOCKER (verified live, replaces the earlier caller-dirty claim): client/hud is clean - git_status paths-scoped dispatch 1791691634221-500-2c359414f9faccfc reports changed_paths 0, dirty false over client/hud - so the caller is writable, but the module''s own tracked witness pins the boolean contract: scripts/ClientHudMinimapPlacements-witness.mjs:274 and :278 assert begin(...) === true for a valid window and :259 asserts armed === false and then steps the refused scanner to completion (:250-258), so begin returning the scan or null moves three files together - the module, the caller (MinimapHUD.js:131 discards the return, :181 steps, :264 exposes glyphSnapshot/cachedChunks) and that tracked witness. A tracked pre-existing file is not edited by this walk and a hop resolves no row, so this is logged with its witness for a resolver lane.'
@@ -237,7 +237,7 @@
   witness: 1791681155262-500-d3f7c116742a69ca
   principle: ILLEGAL
   session_id: orch-main-r256-sub1
-  status: pending
+  status: refuted
   surface: src/shared
   title: equipCodeOf represents an unresolvable weapon name as unarmed and breaks the name round trip
 - id: ILLEGAL-n-r256-2
@@ -262,7 +262,7 @@
   witness: 1791681466911-500-3a35eaac902b570
   principle: ILLEGAL
   session_id: orch-main-r256-sub1
-  status: pending
+  status: fixed
   surface: src/shared
   title: SpawnSurface admits a malformed ray hit as a walkable surface and returns one null for two causes (walkable half CLOSED, hitY half open)
 - id: ILLEGAL-n-r256-4
@@ -339,7 +339,7 @@
   title: 'src/protocol/InputCodec.js: an extra axis named expr/analogForward/analogRight, or duplicated, is accepted and silently overwritten'
   body: 'createInputSchema filters extra axes against the button names, ''yaw'' and ''pitch'' (InputCodec.js:25) but not against ''expr'', ''analogForward'', ''analogRight''; readRecord then assigns input.expr (line 81) and input.analogForward/analogRight (lines 86-87) after the axis loop, so such an axis is written and then destroyed, and a duplicate axis name is written twice with the last write winning. Illegal schema -> well-formed wire bytes carrying a lost value. Fix: apply RESERVED_INPUT_NAMES (added by this hop at line 7) plus a duplicate check to the axes filter, throwing as the button path now does. Unreachable for shipped worlds: codesearch literal ''inputButtons'' is 0 matches in apps (dispatch 1791680780808-500-7307115b039e78b0, exhaustive) and in packages (1791680734212-500-d55e75e84c6561e8).'
   session_id: orch-main-r259
-  status: pending
+  status: fixed
 - id: ILLEGAL-n-r259-2
   title: 'src/protocol/InputCodec.js: encodeInputPacket silently discards every input beyond MAX_INPUTS_PER_PACKET'
   body: 'encodeInputPacket (lines 96-97) takes Math.min(MAX_INPUTS_PER_PACKET, entries.length) and encodes only the newest n; the caller gets bytes back and no signal that older entries were dropped, so an over-full batch is an encodable state that loses data invisibly. decodeInputPacket already refuses a count outside 1..8 (line 114) and refuses trailing bytes (line 128), so the encoder is the only half of the pair that tolerates an illegal input count. Fix: report the truncation to the caller (dropped count or a flag) so an over-full batch cannot be silently reduced. Tracked witness scripts/input-packet-codec-roundtrip-witness.mjs already asserts the keep-newest-8 behaviour, so the fix must keep it.'
@@ -425,7 +425,7 @@
   session_id: orch-main-r256-sub1
 - id: DBC-sub1-2-1
   SESSION_ID: orch-main-r250-sub1-2
-  status: pending
+  status: fixed
   subject: client/hud/MinimapHUD.js:129 discards the placement scanner's precondition verdict, so a refused scan reads as a completed one
   why: 'Hop DBC over client/hud, session orch-main-r250-sub1-2. createPlacementScanner().begin(frame, anchorField, sources, worldSeed, cx, cz, halfM) now states and checks its input contract in client/hud/MinimapPlacements.js - frame present, sources an object, worldSeed an integer, centre finite, halfM a finite positive number, and a present biomeOverride.strokeCount a whole count - and returns false, arming nothing, when the caller breaks it. MinimapHUD.js beginRefresh (:129) calls it and throws the result away, so a refused refresh falls through advanceRefresh (:174-186) exactly like a finished one: phase 2 runs scanner.step, which returns true at once with zero glyphs, then the HUD swaps layers and counts stats.refreshes++ for a window it never scanned. A precondition the caller never observes is only half a contract; DBC requires the caller to branch on it. Not closed here: git_status dispatch 1791682791498-500-e2349857a7ef2720 shows client/hud/MinimapHUD.js carries a foreign uncommitted hunk.'
   acceptance: 'beginRefresh records begin''s verdict on state.work; advanceRefresh treats a refused begin as terminal for the placement phase - it does not swap layers, does not increment stats.refreshes and does not report the run in stats.lastUpdateMs. Acceptance witness: a live run of createMinimapHUD with a source set that breaks the contract (sources null, or halfM 0) asserts zero refreshes counted and zero glyph chunks painted, while a valid window still paints exactly the placement oracle''s glyphs and counts one refresh.'

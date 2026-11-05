@@ -1,0 +1,4 @@
+ILLEGAL-n-r259-1 fixed: reserved axis names refused
+expr: refused: [InputCodec] input axis "expr" collides with a fixed field of every input record
+analogForward: refused: [InputCodec] input axis "analogForward" collides with a fixed field of every input record
+ILLEGAL-n-r259-2 partial: tryEncodeInputPacket refuses over-full batch (keys accepted,code,index,got,lo,hi,reason); legacy encodeInputPacket still truncates silently

@@ -1,0 +1,3 @@
+HUGHES-n-r251-2 fixed: emitEnvelope refuses empty channel
+empty: refused: [envelope] emitEnvelope requires a non-empty channel
+valid: {"valid":true}
