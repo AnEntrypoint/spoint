@@ -171,7 +171,8 @@ export let DISCONNECT_REASONS = Object.freeze({
   SERVER_SHUTDOWN: 3,
   INVALID_SESSION: 4,
   RATE_LIMITED: 5,
-  PROTOCOL_MISMATCH: 6
+  PROTOCOL_MISMATCH: 6,
+  ROOM_FULL: 7
 })
 
 // --- hot swap -----------------------------------------------------------------------------
