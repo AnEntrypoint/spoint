@@ -22,12 +22,14 @@ try {
     const { createVoiceIndicator } = await import('/hud/VoiceIndicator.js')
     const root = document.createElement('div'); document.body.appendChild(root)
     const vi = createVoiceIndicator(root, () => window.__app.wireweave, { playerId: window.__app.wireweave ? (window.__app.wireweave.localPlayerId ?? 1) : 1 }, null)
+    const warns = []; const origWarn = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(' ').slice(0, 200)); origWarn(...a) }
     const join = [...root.querySelectorAll('button')].find(b => /join voice/i.test(b.textContent))
     if (join) join.click()
     await new Promise(r => setTimeout(r, 4000))
     const labels = [...root.querySelectorAll('button')].map(b => b.textContent.trim())
     vi.destroy && vi.destroy()
-    return { joinClicked: !!join, buttons: labels }
+    console.warn = origWarn
+    return { joinClicked: !!join, buttons: labels, warns }
   })
   result.chat = await page.evaluate(async () => {
       const { createChatHUD } = await import('/hud/Chat.js')
