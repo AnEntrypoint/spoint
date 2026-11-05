@@ -1,0 +1,1 @@
+{"absent":{"kind":"no-weather","rain":0},"unknownType":{"kind":"dry-other","rain":0},"badIntensity":{"kind":"unreadable-weather","rain":0},"rain":{"kind":"rain","rain":128}}

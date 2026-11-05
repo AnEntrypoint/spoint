@@ -619,7 +619,9 @@
   principle: GUARD
   surface: src/behaviours
   subject: src/behaviours/fireWeather.js:5-11
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/GUARD-2-sub1-1-verdict.txt
+  note: kind distinguishes absent, unknown-type and unreadable weather; rain byte 0 for dry cases is by design
   witness: node scripts/fireWeather-witness.mjs
   title: fireWeather rainByteOf collapses unknown type, malformed intensity and absent weather into one 0
   text: 'Live: scripts/fireWeather-witness.mjs prints RESULT: PASS at HEAD 4d78408de7 (module_sha256 60f83b6e6a2a2c4aa7cef0c6997e56b1f735ee98e02ffd380b13ece067f5ca15; reply at .gm/exec-spool/out/bash-orch-main-h22-sub1-20380-1791693042234-18379.json.reply.txt). Three shipped checks pin the absorption: ''fog: unknown type yields no rain'' -> 0, ''rain: string intensity yields no rain'' -> 0, ''absent weather yields no rain'' -> 0. So throwing on an unrecognised w.type at :10 turns a GREEN tracked witness RED -- the shipped contract is a total function and the witness is its authority, so GUARD is not admissible here as a silent edit.'
@@ -638,7 +640,9 @@
   witness: node scripts/fsm-arena-index-witness.mjs
   session_id: orch-main-h22-sub1
 - id: TOTALITY-w1-p-1-1
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/TOTALITY-w1-p-1-1-verdict.txt
+  note: setPlayerPosition calls vec3 first; a bad position throws instead of returning silently
   node: TOTALITY
   session_id: orch-main-r270-sub1-w1-p-1
   surface: src/apps/AppRuntime.js:628 (setPlayerPosition), :690-694 (attachEntityToPlayer); src/shared/vecGuard.js
@@ -659,7 +663,9 @@
   witness: 'exec_js 1791693683816-500-ba0148e45555d0e9 (before: [] for -5 and NaN, silent 3/500) vs exec_js 1791693826411-500-94af385881c1d797 (after: named TypeErrors, 7 named warns); exec_js 1791693984330-500-c072d0d05172d710'
 - id: PARNAS-cylinder-ub2-p1
   title: 'src/spatial: the flat relevance ring is a cylinder of infinite height and only a method name says so'
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/PARNAS-cylinder-ub2-p1-verdict.txt
+  note: nearbyCylinder takes halfHeight as an explicit argument and refuses a missing one
   body: |-
     WITNESS exec_js 1791694019322-500-622920e4fc76130e (live, SpatialIndex from src/spatial/Octree.js): nearbyHorizontal([0,0,0],200) returns ["deep","ground","high"] -- an entity at y=+5000 and one at y=-90000 are both inside a 200 m relevance ring. nearby([0,0,0],200) over the same index returns ["ground"].
 
@@ -887,7 +893,9 @@
   depth: 3
   witness_dispatch_id: 1791704798268-500-c5a508fb9d3f6d5
   session_id: orch-main-spatial-m2-s1
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-aoi-positionofentity-m2-s1-verdict.txt
+  note: the entity-position refusals are distinct cases: unknownEntity and noPosition are separate constants
 - id: CHARTEST-est-s1-4
   claim: 'CHARTEST characterization, surface src/terrain. Where there is no ground the port''s own contract requires a thrown SurfaceSolveError, and the cpu-solve source does that (witnessed: ChartRangeError instanceof SurfaceSolveError, check P03). The patch adapter does not: client/core/ExactPatchFrame.js:7-9 returns NaN and sets `missing`. Witnessed live (check P10) placementFrame.groundHeightLocal(0,0) === NaN with threw=false, missing=true. NaN is not a SurfaceSolveError, so guardedGroundHeight (src/terrain/PlanetFrame.js:54-65) does not convert it: check P11 records throwing(1,2)=null but nanning(1,2)=NaN. The NaN then travels: src/terrain/PlacementChart.js:80-81 `const y = groundAt(x,z); if (!Number.isFinite(y)) return NaN`, so surfaceAlongDir silently returns NaN for the whole shot, and src/terrain/FieldLattice.js:30-31 substitutes GROUND_FALLBACK_Y only for a throw. Two encodings of ''no ground'' cross one port.'
   notes: 'CLOSE (not by this hop): one encoding -- the patch adapter throws NoGroundHeightError (already exported, src/terrain/PlanetFrame.js:36) instead of returning NaN, and `missing` stays the placement-side bookkeeping flag it already is. Pin first: this row is the pin. Merged rather than re-filed: the guardedGroundHeight fallback half is already carried by PARSEDV-sub1-5-1 (retired) and PARSEDV-sub1-5-2 (pending), so no new row duplicates it. Related, not duplicate: GUARD-succ1-2 (call sites with no guard) -- a guard does not help while the value is NaN, which is exactly what this row pins.'
@@ -904,7 +912,9 @@
   title: src/sdk/StaticCache.js readCacheEntry collapses four distinct refusals (entry files absent, codeVersion/src/stamp mismatch, byte-length mismatch, fnv1a hash mismatch, plus a thrown parse) into one bare null
   witness_dispatch_id: 1791705050847-500-11e0349d20177369
   session_id: orch-main-spatial-m2-s1
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-staticcache-readcacheentry-m2-s1-verdict.txt
+  note: readCacheEntry returns a coded refusal per case: entry-absent, meta-unparsed, stamp-mismatch with field
 - id: WADLER-relocation-probegroundy-m2-s1
   depth: 3
   principle: WADLER

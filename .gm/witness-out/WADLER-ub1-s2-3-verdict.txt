@@ -1,0 +1,1 @@
+{"unknown":{"ok":false,"reason":"unknown-ability"},"locked":{"ok":false,"reason":"locked"},"ok":{"ok":true,"reason":null},"cast":{"ok":true,"reason":null},"cooling":{"ok":false,"reason":"cooling"},"badSlot":{"ok":false,"reason":"slot-out-of-range"},"badAbility":{"ok":false,"reason":"unknown-ability"}}

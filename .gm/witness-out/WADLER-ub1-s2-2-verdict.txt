@@ -1,0 +1,7 @@
+WADLER-ub1-s2-2 verdict (spoint-debug-research)
+claim: src/game/QuestSystem.js startQuest collapses unknown-quest and already-started into one false (:77,:81)
+probe: node /tmp/probe-quest.mjs (copied to .gm/witness-out/WADLER-ub1-s2-2-probe.txt by the run)
+output: {"unknown":{"ok":false,"reason":"unknown-quest"},"first":{"ok":true},"second":{"ok":false,"reason":"already-started"}}
+code: src/game/QuestSystem.js:56 returns { ok: false, reason: 'unknown-quest' }; :60 returns { ok: false, reason: 'already-started' }
+verdict: REFUTED (already fixed in code). The row's line numbers :77/:81 are stale.
+note: the row cites scripts/QuestSystem-witness.mjs, which does not exist in the repo; this probe is the evidence instead.

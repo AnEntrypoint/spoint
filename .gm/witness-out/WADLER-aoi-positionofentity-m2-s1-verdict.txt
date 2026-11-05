@@ -1,0 +1,4 @@
+314:const AOI_ENTITY_NO_POSITION = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.noPosition, position: null })
+315:const AOI_ENTITY_UNKNOWN = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.unknownEntity, position: null })
+329:    return AOI_ENTITY_UNKNOWN
+333:    return AOI_ENTITY_NO_POSITION
