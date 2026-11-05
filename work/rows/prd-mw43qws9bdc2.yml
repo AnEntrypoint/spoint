@@ -1,0 +1,9 @@
+id: "prd-mw43qws9bdc2"
+kind: "prd"
+title: "Static-body surface velocity belt"
+body: "src/physics/surfaceVelocity.js rotates conveyor velocity into the body frame, adds angular tangential velocity and reports slip. scripts/surface-velocity-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.961Z"
+witnessEvent: 476
+witnessCommit: "ec3bd20"
+resolvedAt: "2026-11-05T22:13:25.190Z"

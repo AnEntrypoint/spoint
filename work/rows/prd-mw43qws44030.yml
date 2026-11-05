@@ -1,0 +1,9 @@
+id: "prd-mw43qws44030"
+kind: "prd"
+title: "Scripted heightAt/materialAt and getTerrainNormal"
+body: "src/terrain/scriptedTerrain.js exposes sample, getTerrainNormal and materialAt behind one validating boundary with seedOffset, height01 and coded refusals. scripts/scripted-terrain-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.956Z"
+witnessEvent: 476
+witnessCommit: "6ca85ae0f2b665bae445c43067de06df736a535b"
+resolvedAt: "2026-11-05T22:13:24.106Z"

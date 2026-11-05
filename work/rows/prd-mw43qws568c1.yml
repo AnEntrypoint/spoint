@@ -1,0 +1,9 @@
+id: "prd-mw43qws568c1"
+kind: "prd"
+title: "Reusable CPU water shading helpers"
+body: "src/shared/water.js exports fresnel, ripple slope, foam, transmittance, caustics, ray-box distance and a bounded medium descriptor. scripts/water-helpers-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.957Z"
+witnessEvent: 476
+witnessCommit: "a41472880faae51ac1716f0a768127fb1a0168da"
+resolvedAt: "2026-11-05T22:13:24.237Z"

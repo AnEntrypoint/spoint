@@ -1,0 +1,9 @@
+id: "prd-mw43qws7393e"
+kind: "prd"
+title: "ctx.findPath with points/ok/partial status"
+body: "src/pathfinding/findPathStatus.js wraps any navmesh query and reports ok, partial with a nearest-reachable cutoff, or unreachable with reasonCode. scripts/find-path-status-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.959Z"
+witnessEvent: 476
+witnessCommit: "16052d9"
+resolvedAt: "2026-11-05T22:13:24.753Z"

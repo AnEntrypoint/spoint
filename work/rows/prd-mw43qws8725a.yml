@@ -1,0 +1,9 @@
+id: "prd-mw43qws8725a"
+kind: "prd"
+title: "Crown card layout with normal and head clearance"
+body: "src/vegetation/crownCards.js builds deterministic oval, box and wall crowns with mixed size/tilt, inherited normal and a head-clearance floor. scripts/crown-card-layout-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.960Z"
+witnessEvent: 476
+witnessCommit: "16052d9"
+resolvedAt: "2026-11-05T22:13:24.884Z"

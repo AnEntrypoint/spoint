@@ -1,0 +1,9 @@
+id: "prd-mw43qws66354"
+kind: "prd"
+title: "Composable water level and liquid state"
+body: "src/terrain/waterLevel.js takes the max of sea, painted, lake and pond levels and reports inWater/depth/density. scripts/water-level-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.958Z"
+witnessEvent: 476
+witnessCommit: "16052d9"
+resolvedAt: "2026-11-05T22:13:24.625Z"

@@ -1,0 +1,9 @@
+id: "prd-mw43qws881db"
+kind: "prd"
+title: "Declarative touch surface resolver with diagnostics"
+body: "src/client/touchSurfaces.js resolves sticks/buttons/pads/gestures with a four-chip cap, named diagnostics and a draft fallback. scripts/touch-surface-resolver-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.960Z"
+witnessEvent: 476
+witnessCommit: "16052d9"
+resolvedAt: "2026-11-05T22:13:25.026Z"

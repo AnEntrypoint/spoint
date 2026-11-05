@@ -1,0 +1,9 @@
+id: "prd-mw43qws667a6"
+kind: "prd"
+title: "VoxelPart builder, brushes and serialize"
+body: "src/behaviours/voxels.js implements a palette grid with fill, hollowBox, sphere and RLE serialize/restore. scripts/voxels-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.958Z"
+witnessEvent: 476
+witnessCommit: "ed96bc58b8bc7da94249e54b17aa1a77881129fe"
+resolvedAt: "2026-11-05T22:13:24.497Z"

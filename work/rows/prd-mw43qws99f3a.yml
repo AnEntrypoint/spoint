@@ -1,0 +1,9 @@
+id: "prd-mw43qws99f3a"
+kind: "prd"
+title: "Declarative hinge pivot and rider momentum"
+body: "src/physics/pivotTransform.js transforms points about an arbitrary pivot, derives hinge angles and computes rider release velocity. scripts/pivot-riders-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.961Z"
+witnessEvent: 476
+witnessCommit: "ec3bd20"
+resolvedAt: "2026-11-05T22:13:25.322Z"

@@ -1,0 +1,9 @@
+id: "prd-mw43qws5d073"
+kind: "prd"
+title: "Trigger volume enter/exit with overlapping set"
+body: "src/behaviours/triggerVolume.js tracks an overlap Set, emits enter/exit on transitions, supports re-arm and linkedState. scripts/trigger-volume-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:13:23.957Z"
+witnessEvent: 476
+witnessCommit: "6cb4d57bc436ea8abd9fbdb9ef5706c59fac5472"
+resolvedAt: "2026-11-05T22:13:24.364Z"
