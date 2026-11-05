@@ -14,7 +14,7 @@ const ASSET_LITERAL = /(['"`])([^'"`\n$*{}]+\.(?:glb|gltf|vrm|png|jpe?g|webp|ktx
 const ASSET_SCAN_ROOTS = [join(ROOT, 'apps'), join(ROOT, 'src', 'stdlib-apps'), join(ROOT, 'src', 'presets')]
 const ASSET_SCAN_FILES = [join(ROOT, 'src', 'shared', 'worldDefaults.js')]
 const ASSET_SERVING_ROOTS = [ROOT, join(ROOT, 'client')]
-const CLIENT_DIR = join(ROOT, 'client') + sep
+const APP_OWN_ROOTS = APP_DIRS.map(d => d + sep)
 
 function rel(p) { return relative(ROOT, p).split(sep).join('/') }
 
@@ -53,7 +53,7 @@ function inspectManifestEntry(owner, file, source, deps, trail, problems) {
       continue
     }
     const target = resolve(dirname(file), spec)
-    if (target.startsWith(CLIENT_DIR)) problems.push(`${where}: apps never import client/*`)
+    if (!APP_OWN_ROOTS.some(root => target.startsWith(root))) problems.push(`${where}: apps reach the engine only through the supported API, not ${rel(target)}`)
     const entry = deps?.[spec]
     if (!entry) {
       problems.push(`${where}: ${existsSync(target) ? 'present on disk but missing from the bundled dependency tree (worker blob would fail to resolve it)' : 'file does not exist'}`)
