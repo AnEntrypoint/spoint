@@ -1,0 +1,9 @@
+id: "prd-mw3yx1m7b676"
+kind: "prd"
+title: "AppLoader refusals carry a code instead of prose only"
+body: "src/apps/AppLoader.js _validate returns app-source-blocked-pattern with app and pattern; loadAll keeps loaded/failed and adds refusals. scripts/app-loader-refusal-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T19:58:12.079Z"
+witnessEvent: 3585
+witnessCommit: "fc672f284dd2622d96024f66a1ea82204b30b765"
+resolvedAt: "2026-11-05T19:58:54.649Z"

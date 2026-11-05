@@ -1,0 +1,9 @@
+id: "prd-mw3yx1m6dca4"
+kind: "prd"
+title: "First-open and most-full room routing helpers"
+body: "src/sdk/RoomRouting.js adds firstOpenRoom, mostFullWithSpace, nextRoomName and parseRoomPickRequest with capacity, requested-room, rejection and tie-break rules and coded refusals. scripts/room-routing-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T19:58:12.078Z"
+witnessEvent: 3585
+witnessCommit: "47e76f0"
+resolvedAt: "2026-11-05T19:58:33.628Z"
