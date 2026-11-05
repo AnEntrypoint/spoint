@@ -1,0 +1,11 @@
+ILLEGAL-n-r259-3: REFUTED (already fixed)
+
+Source: src/protocol/ComponentSchema.js
+- _writeField enum case (line ~180-186) throws RangeError when the value is not a member of field.enum; it no longer writes index 0.
+- _readField enum case (line ~246-250) throws when idx >= field.enum.length; it no longer returns enum[0].
+
+Probe: .gm/witness-out/ILLEGAL-n-r259-3-probe.mjs
+Output:
+{"encodeOutOfEnum":"threw: [ComponentSchema] field \"team\" of type enum is green, outside [red, blue]","decodeOrdinal7":"threw: [ComponentSchema] field \"team\" enum ordinal 7 is outside 0..1"}
+
+Conclusion: both directions refuse an illegal enum member; neither maps onto enum[0].

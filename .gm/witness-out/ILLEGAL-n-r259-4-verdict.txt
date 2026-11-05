@@ -1,0 +1,14 @@
+ILLEGAL-n-r259-4: REFUTED (already fixed)
+
+Source: src/protocol/ComponentSchema.js decodeCustomFields (line ~209-236)
+- presence flag must be 0 or 1 (line ~220 throws on 7).
+- every read is bounds-checked (presence byte, string length, string bytes, fixed-size fields via _refusal).
+- string length is checked against bytes remaining (line ~225).
+- string has its own size path (no fieldByteSize null coercion).
+- trailing bytes are refused (line ~234).
+
+Probe: .gm/witness-out/ILLEGAL-n-r259-4-probe.mjs
+Output:
+{"valid":{"ok":true,"value":{"n":5,"name":"abc"}},"presenceFlag7":{"ok":false,"error":"[ComponentSchema] field \"n\" presence flag 7 is outside the declared 0 or 1"},"truncatedString":{"ok":false,"error":"[ComponentSchema] field \"name\" declares 3 string bytes, 2 remain"},"trailingByte":{"ok":false,"error":"[ComponentSchema] custom block has 1 trailing bytes"},"stringLenPastBuffer":{"ok":false,"error":"[ComponentSchema] field \"name\" declares 9 string bytes, 1 remain"}}
+
+Conclusion: a corrupt presence byte, a truncated string, a string length past the buffer and trailing bytes are each refused. The row's defect no longer reproduces.

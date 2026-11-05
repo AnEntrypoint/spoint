@@ -1,0 +1,9 @@
+ILLEGAL-n-r259-2: REFUTED as stated (truncation is now reported; residual note below)
+
+Source: src/protocol/InputCodec.js. tryEncodeInputPacket (line ~258-275) computes `dropped: first` and pushes an INPUT_CASE.DROPPED case. encodeInputPacket (line ~281-286) warns on the console with that case's reason. Commit bc07d2c "protocol: announce encodeInputPacket drops" added this. decodeInputPacket still refuses count 0 or >8 and trailing bytes.
+
+Probe: .gm/witness-out/ILLEGAL-n-r259-2-probe.mjs
+Output:
+{"tryAccepted":true,"tryCount":8,"tryDropped":2,"tryCaseCodes":["input_records_dropped"],"droppedCodeIs":"input_records_dropped","legacyWarnings":["[InputCodec] input packet was given 10 records and holds 8, so the oldest 2 were not sent"],"keptSequences":[3,4,5,6,7,8,9,10]}
+
+Conclusion: an over-full batch is no longer silent. The caller of tryEncodeInputPacket gets dropped=2 and the case; the legacy encodeInputPacket still returns bytes only, but announces the drop on console.warn. Residual (not a silent loss): the legacy return type carries no flag. Changing it would touch its callers (scripts/chart-reanchor-wire-harness.mjs, scripts/verify-session.mjs), so any further change is a small follow-up, not this defect.

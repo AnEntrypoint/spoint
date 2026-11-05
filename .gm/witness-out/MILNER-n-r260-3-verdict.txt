@@ -1,0 +1,14 @@
+MILNER-n-r260-3: REFUTED (already fixed)
+
+Source: src/game/playerId.js is the one parser (parsePlayerId / tryParsePlayerId, 1 and '1' -> '1').
+Call sites now all key on the parsed value:
+- src/game/QuestSystem.js:21,71,98,113 (parsePlayerId)
+- src/game/StatsSystem.js:55,173,310 (parsePlayerId)
+- src/game/ProgressionSystem.js:65,141,204 (parsePlayerId)
+- src/game/AbilityTree.js:109,353,357 (parsePlayerId; getPlayerAbilityState exported at line 385)
+
+Probe: .gm/witness-out/MILNER-n-r260-3-probe.mjs
+Output:
+{"progressionSameEntryForNumAndString":true,"abilityApiExposed":true,"abilitySameEntryForNumAndString":true}
+
+Conclusion: addXp(1,...) and addXp('1',...) address one progression entry, and getPlayerAbilityState(1) === getPlayerAbilityState('1'). The two-domain identity defect no longer reproduces.
