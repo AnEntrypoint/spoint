@@ -804,6 +804,20 @@ export class PhysicsWorld {
     return s
   }
 
+  _rayIgnoreFilter(excludeBodyIds) {
+    const J = this.Jolt
+    const scratchFilter = this._raycastScratch().bf
+    if (excludeBodyIds == null) return scratchFilter
+    const ids = Array.isArray(excludeBodyIds) ? excludeBodyIds : [excludeBodyIds]
+    const jids = []
+    for (const id of ids) { const b = this._getBody(id); if (b) jids.push(b.GetID()) }
+    if (jids.length === 0) return scratchFilter
+    if (jids.length === 1) return new J.IgnoreSingleBodyFilter(jids[0])
+    const filter = new J.IgnoreMultipleBodiesFilter()
+    for (const jid of jids) filter.IgnoreBody(jid)
+    return filter
+  }
+
   raycast(origin, direction, maxDistance = 1000, excludeBodyId = null) {
     if (!this.physicsSystem) return { hit: false, distance: maxDistance, body: null, position: null }
     const J = this.Jolt
@@ -816,8 +830,7 @@ export class PhysicsWorld {
     s.dir.Set(dirX*maxDistance, dirY*maxDistance, dirZ*maxDistance)
     s.ray.set_mOrigin(s.origin); s.ray.set_mDirection(s.dir)
     s.col.Reset()
-    const excludedBody = excludeBodyId != null ? this._getBody(excludeBodyId) : null
-    const bf = excludedBody ? new J.IgnoreSingleBodyFilter(excludedBody.GetID()) : s.bf
+    const bf = this._rayIgnoreFilter(excludeBodyId)
     const col = s.col
     this.physicsSystem.GetNarrowPhaseQuery().CastRay(s.ray, s.rs, col, s.bp, s.ol, bf, s.sf)
     let result
@@ -839,7 +852,7 @@ export class PhysicsWorld {
       } catch (_) { }
       result = { hit: true, distance: dist, body: null, bodyId, normal, position }
     } else result = { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null }
-    if (excludedBody) J.destroy(bf)
+    if (bf !== s.bf) J.destroy(bf)
     if (this._dormant && this._dormant.pendingCount > 0) {
       const reach = this._dormant.firstReach(origin, [dirX, dirY, dirZ], maxDistance)
       if (reach < (result.hit ? result.distance : maxDistance)) return { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null, unavailable: 'static-colliders-migrating' }
