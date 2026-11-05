@@ -33,6 +33,8 @@ import { AnimationSystem } from '../animation/AnimationSystem.js'
 import { defineQuestSystem } from '../game/QuestSystem.js'
 import { defineStatsSystem } from '../game/StatsSystem.js'
 import { defineProgression } from './Progression.js'
+import { easing, EASING_NAMES } from '../shared/easing.js'
+import { createTween } from '../shared/tween.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -295,6 +297,12 @@ export class AppContext {
   defineQuestSystem(spec) { return defineQuestSystem(spec, this) }
 
   createAnimationSystem(model, options) { return new AnimationSystem(model, options) }
+
+  easing(name, t) { return easing(name, t) }
+
+  easingNames() { return EASING_NAMES }
+
+  createTween(spec) { return createTween(spec) }
 
   defineStatsSystem(spec) { return defineStatsSystem(spec, this) }
 
