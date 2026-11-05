@@ -143,6 +143,59 @@ export function elevationAtLocal(frame, x, y, z) {
   return (t - radius) + r2 / (l + t)
 }
 
+const RAYCAST_BISECT_STEPS = 16
+
+export function raycastGroundLocal(frame, origin, direction, maxDistance, { stepM = 0.5, cellM = 1 } = {}) {
+  if (!frame || typeof frame.groundHeightLocal !== 'function') return null
+  const len = Math.hypot(direction[0], direction[1], direction[2])
+  if (!(len > 0) || !Number.isFinite(maxDistance) || maxDistance <= 0) return null
+  const dx = direction[0] / len, dy = direction[1] / len, dz = direction[2] / len
+  const groundAt = (x, z) => {
+    try { return frame.groundHeightLocal(x, z) } catch (e) {
+      if (e instanceof SurfaceSolveError) return null
+      throw e
+    }
+  }
+  const sampleAt = (t) => {
+    const x = origin[0] + dx * t, y = origin[1] + dy * t, z = origin[2] + dz * t
+    const g = groundAt(x, z)
+    return { x, y, z, above: g === null ? true : y > g }
+  }
+  let prevT = 0
+  let prev = sampleAt(0)
+  if (!prev.above) return hitAt(0, prev)
+  for (let t = stepM; t <= maxDistance + stepM * 0.5; t += stepM) {
+    const tc = Math.min(t, maxDistance)
+    const cur = sampleAt(tc)
+    if (!cur.above) {
+      let lo = prevT, hi = tc
+      for (let i = 0; i < RAYCAST_BISECT_STEPS; i++) {
+        const mid = 0.5 * (lo + hi)
+        if (sampleAt(mid).above) lo = mid; else hi = mid
+      }
+      return hitAt(hi, sampleAt(hi))
+    }
+    if (tc >= maxDistance) break
+    prevT = tc
+    prev = cur
+  }
+  return null
+
+  function hitAt(distance, p) {
+    const e = cellM * 0.5
+    const gxp = groundAt(p.x + e, p.z), gxm = groundAt(p.x - e, p.z)
+    const gzp = groundAt(p.x, p.z + e), gzm = groundAt(p.x, p.z - e)
+    const gx = (gxp !== null && gxm !== null) ? (gxp - gxm) / (2 * e) : 0
+    const gz = (gzp !== null && gzm !== null) ? (gzp - gzm) / (2 * e) : 0
+    const nl = Math.hypot(gx, 1, gz)
+    const normal = [-gx / nl, 1 / nl, -gz / nl]
+    const point = [p.x, p.y, p.z]
+    const cell = point.map((c) => Math.floor(c / cellM))
+    const adjacent = point.map((c, i) => Math.floor((c + normal[i] * cellM) / cellM))
+    return { distance, point, normal, cell, adjacent }
+  }
+}
+
 export function anchorBasis(anchorDir) {
   const up = _norm(anchorDir)
   const ref = Math.abs(up[1]) < 0.99 ? [0, 1, 0] : [1, 0, 0]
@@ -361,6 +414,7 @@ const _hotSwapPlanetFrame = (next) => {
   sphereSurfaceLocalY = next.sphereSurfaceLocalY
   waterlineLocalY = next.waterlineLocalY
   elevationAtLocal = next.elevationAtLocal
+  raycastGroundLocal = next.raycastGroundLocal
   anchorBasis = next.anchorBasis
   tangentLocalToDir = next.tangentLocalToDir
   createPlanetFrame = next.createPlanetFrame
