@@ -1,0 +1,9 @@
+id: "prd-mw3zclw2ba21"
+kind: "prd"
+title: "Complete the PathHandle API with closed loops and nearest queries"
+body: "src/behaviours/path.js definePath now accepts closed/smooth/spacing options and returns closed, distance(x,z,within), nearest(x,z,within) and at(index) with coded refusals. scripts/path-handle-witness.mjs prints RESULT: PASS; npm run check exit 0."
+status: "resolved"
+createdAt: "2026-11-05T20:10:18.194Z"
+witnessEvent: 3866
+witnessCommit: "e3bc0f17a9f6b066a40d15b76f07a44c15142280"
+resolvedAt: "2026-11-05T20:10:41.121Z"
