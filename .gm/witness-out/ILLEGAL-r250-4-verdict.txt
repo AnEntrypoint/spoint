@@ -1,0 +1,3 @@
+  let phase = 'idle'
+    get joined() { return phase === 'joined' },
+      phase = 'destroyed'
