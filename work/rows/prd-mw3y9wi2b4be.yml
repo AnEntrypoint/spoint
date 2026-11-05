@@ -1,0 +1,9 @@
+id: "prd-mw3y9wi2b4be"
+kind: "prd"
+title: "Expose the Spawn-style easing and tween law on ctx"
+body: "Extrapolated from savi .spawn/reference/tome/sections/builtin-tween.md and builtin-easing.md. Added src/shared/easing.js (31 named easing laws, coded refusals), src/shared/tween.js (dt-driven runner with coded refusals, cancel, done, progress), wired ctx.easing/ctx.easingNames/ctx.createTween in src/apps/AppContext.js, regenerated SDK typings, and added scripts/easing-tween-witness.mjs. Witness prints RESULT: PASS; npm run check exit 0."
+status: "resolved"
+createdAt: "2026-11-05T19:40:12.362Z"
+witnessEvent: 2701
+witnessCommit: "fcdce0c"
+resolvedAt: "2026-11-05T19:40:27.339Z"
