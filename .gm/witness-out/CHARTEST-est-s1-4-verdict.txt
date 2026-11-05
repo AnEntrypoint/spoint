@@ -1,0 +1,5 @@
+      if (typeof frame._patchHeightOrNull === 'function') {
+        const y = frame._patchHeightOrNull(x, z)
+        if (y === null) { missing = true; throw new NoGroundHeightError(x, z) }
+        return y
+export class NoGroundHeightError extends SurfaceSolveError {

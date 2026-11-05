@@ -921,7 +921,9 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P10 y=NaN threw=false missing=true; check P11 throwing(1,2)=null nanning(1,2)=NaN; contrast check P03 threw=ChartRangeError instanceof SurfaceSolveError=true'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/CHARTEST-est-s1-4-verdict.txt
+  note: the patch adapter throws NoGroundHeightError, a SurfaceSolveError, where there is no ground, instead of returning NaN
 - id: WADLER-staticcache-readcacheentry-m2-s1
   depth: 3
   principle: WADLER
