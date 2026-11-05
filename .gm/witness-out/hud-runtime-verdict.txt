@@ -1,0 +1,5 @@
+Runtime probe .gm/witness-out/hud-runtime-probe.mjs (server on :3100, headful CDP, ?singleplayer), output:
+{"chat":{"joinedBeforeDestroy":false,"joinedAfterDestroy":false,"cardRemoved":true},"voice":{"buttons":["Join Voice"]},"serverExited":true}
+Chat ILLEGAL-r250-2: partial. joined is false after destroy(), so destroy does not leave joined true. But joined was never true before destroy (ensureChat needs a wireweave relay bridge), so the pre-destroy case is untested.
+VoiceIndicator ILLEGAL-r250-1: not exercised. Only "Join Voice" renders without a joined voice session; the team toggle is not in the DOM.
+Also re-baked apps/world/tps-game.hf (stale bake blocked server boot): node scripts/bake-heightfield.mjs --world tps-game --out apps/world/tps-game.hf --extent 256 --res 1 --sector 16 --bits 16
