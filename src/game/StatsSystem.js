@@ -161,8 +161,8 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return _levelFromXP(totalXP)
     },
 
-    addXP(pid, amount) {
-      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return false
+    addXPResult(pid, amount) {
+      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return { ok: false, reason: 'xp-invalid-amount' }
 
       const data = _getPlayerData(pid)
       const oldLevel = data.level
@@ -174,18 +174,27 @@ export function defineStatsSystem(spec = {}, appCtx) {
       }
 
       _pushToClient(pid)
-      return true
+      return { ok: true, reason: null }
     },
 
-    applyBonus(pid, stat, amount) {
-      if (!Object.hasOwn(baseStats, stat)) return false
-      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount === 0) return false
+    addXP(pid, amount) {
+      return statsSystem.addXPResult(pid, amount).ok
+    },
+
+    applyBonusResult(pid, stat, amount) {
+      if (!Object.hasOwn(baseStats, stat)) return { ok: false, reason: 'bonus-unknown-stat' }
+      if (!(typeof amount === 'number' && Number.isFinite(amount))) return { ok: false, reason: 'bonus-invalid-amount' }
+      if (amount === 0) return { ok: false, reason: 'bonus-zero-amount' }
 
       const bonuses = _getPlayerData(pid).bonuses
       bonuses.set(stat, (bonuses.get(stat) || 0) + amount)
 
       _pushToClient(pid)
-      return true
+      return { ok: true, reason: null }
+    },
+
+    applyBonus(pid, stat, amount) {
+      return statsSystem.applyBonusResult(pid, stat, amount).ok
     },
 
     getBonuses(pid) {
@@ -248,15 +257,19 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return result
     },
 
-    equipItem(pid, equipmentId) {
+    equipItemResult(pid, equipmentId) {
       const item = _equipmentLookup.get(equipmentId)
-      if (!item) return false
+      if (!item) return { ok: false, reason: 'equip-item-not-found' }
 
       const data = _getPlayerData(pid)
       data.equipment.set(item.slot, equipmentId)
 
       _pushToClient(pid)
-      return true
+      return { ok: true, reason: null }
+    },
+
+    equipItem(pid, equipmentId) {
+      return statsSystem.equipItemResult(pid, equipmentId).ok
     },
 
     unequipSlot(pid, slot) {
@@ -279,8 +292,8 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return equipment
     },
 
-    saveLoadout(pid, loadoutName) {
-      if (typeof loadoutName !== 'string' || !loadoutName.trim()) return false
+    saveLoadoutResult(pid, loadoutName) {
+      if (typeof loadoutName !== 'string' || !loadoutName.trim()) return { ok: false, reason: 'loadout-invalid-name' }
 
       const data = _getPlayerData(pid)
       const loadout = {}
@@ -290,14 +303,18 @@ export function defineStatsSystem(spec = {}, appCtx) {
       }
 
       data.loadouts.set(loadoutName, loadout)
-      return true
+      return { ok: true, reason: null }
     },
 
-    loadLoadout(pid, loadoutName) {
+    saveLoadout(pid, loadoutName) {
+      return statsSystem.saveLoadoutResult(pid, loadoutName).ok
+    },
+
+    loadLoadoutResult(pid, loadoutName) {
       const data = _getPlayerData(pid)
       const loadout = data.loadouts.get(loadoutName)
 
-      if (!loadout) return false
+      if (!loadout) return { ok: false, reason: 'loadout-not-found' }
 
       data.equipment.clear()
       for (const [slot, equipmentId] of Object.entries(loadout)) {
@@ -309,7 +326,11 @@ export function defineStatsSystem(spec = {}, appCtx) {
 
       _fire('onLoadoutSwap', { playerId: parsePlayerId(pid), loadout: data.loadouts.get(loadoutName) })
       _pushToClient(pid)
-      return true
+      return { ok: true, reason: null }
+    },
+
+    loadLoadout(pid, loadoutName) {
+      return statsSystem.loadLoadoutResult(pid, loadoutName).ok
     },
 
     getLoadouts(pid) {

@@ -116,27 +116,32 @@ export class EventChainManager {
     return results
   }
 
-  _matchesTrigger(trigger, eventType, context) {
-    if (!trigger || trigger.type !== eventType) return false
+  _matchesTriggerResult(trigger, eventType, context) {
+    if (!trigger) return { ok: false, reason: 'no-trigger' }
+    if (trigger.type !== eventType) return { ok: false, reason: 'trigger-type-mismatch' }
 
     if (trigger.entityId && trigger.entityId !== '*') {
       const target = context.entityId || (context.entity && context.entity.id)
-      if (target !== trigger.entityId) return false
+      if (target !== trigger.entityId) return { ok: false, reason: 'trigger-entity-mismatch' }
     }
 
     if (eventType === 'onEnterZone' && trigger.zoneId && trigger.zoneId !== '*') {
-      if (context.zoneId !== trigger.zoneId) return false
+      if (context.zoneId !== trigger.zoneId) return { ok: false, reason: 'trigger-zone-mismatch' }
     }
 
     if (eventType === 'onCollision' && trigger.targetEntityId && trigger.targetEntityId !== '*') {
-      if (context.targetEntityId !== trigger.targetEntityId) return false
+      if (context.targetEntityId !== trigger.targetEntityId) return { ok: false, reason: 'trigger-target-entity-mismatch' }
     }
 
     if (eventType === 'onTimer' && trigger.timerId) {
-      if (context.timerId !== trigger.timerId) return false
+      if (context.timerId !== trigger.timerId) return { ok: false, reason: 'trigger-timer-mismatch' }
     }
 
-    return true
+    return { ok: true, reason: null }
+  }
+
+  _matchesTrigger(trigger, eventType, context) {
+    return this._matchesTriggerResult(trigger, eventType, context).ok
   }
 
   runChain(chainId, context = {}) {
