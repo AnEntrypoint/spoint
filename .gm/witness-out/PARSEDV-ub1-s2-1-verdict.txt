@@ -1,0 +1,4 @@
+PARSEDV-ub1-s2-1 fixed (source evidence, grep of src/game/QuestSystem.js): every refusal is {ok:false, reason}
+startQuest: unknown-quest (56), already-started (60)
+completeObjective: unknown-quest (80,84), not-active (81), bad-objective (85), bad-amount (88), already-at-target (93)
+claimReward: unknown-quest (127,131), not-complete (128)

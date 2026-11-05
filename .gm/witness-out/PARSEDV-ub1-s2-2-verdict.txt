@@ -1,0 +1,2 @@
+PARSEDV-ub1-s2-2 fixed (probe): bindHotkey returns a reason per refusal
+{"slotOut":{"ok":false,"reason":"slot-out-of-range"},"unknown":{"ok":false,"reason":"unknown-ability"}}

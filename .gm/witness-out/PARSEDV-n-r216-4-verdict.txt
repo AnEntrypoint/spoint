@@ -1,0 +1,2 @@
+PARSEDV-n-r216-4 fixed (source evidence): apps/tps-game/server-app.js emoteOf takes the sender from ctx.senderOf(msg)
+unknown sender -> NO_EMOTE; non-integer or <1 playerId -> NO_EMOTE; no msg.senderId||msg.playerId guess, no literal 'undefined'

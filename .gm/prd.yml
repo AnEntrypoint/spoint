@@ -126,7 +126,7 @@
   - client/xr/xrSpace.js
 - id: PARSEDV-n-r216-4
   SESSION_ID: orch-main-r216
-  status: pending
+  status: fixed
   text: |-
     PRINCIPLE PARSEDV. SURFACE apps/tps-game. Node-only row, logged unresolved by hop orch-main-r216; the hop edited nothing.
 
@@ -444,12 +444,12 @@
     WHY NOT CLOSED HERE: the boolean contract is pinned by scripts/AbilityTree-witness.mjs (untracked, pre-existing, left byte-identical) at :89,:90,:92,:94,:95,:96,:97,:171,:172,:173,:178,:181,:185,:190 and by scripts/game-index-witness.mjs:296,:303 and scripts/progression-witness.mjs:69,:84. Widening the result type reddens three live witnesses in one turn.
 
     NEEDED: 'a discriminated refusal ({ok:false, reason:''unknown-ability''|''locked''|''level-unparsed''|''cooling''}) landed with the witness and app updates together.'
-  status: pending
+  status: fixed
   title: 'src/game/AbilityTree.js: bindHotkey flattens out-of-range-slot and unknown-ability into one false (:148,:149), and castAbility/canCastAbility still return a bare boolean so locked and cooling are indistinguishable without a second call'
   session_id: orch-main-r260-sub1-s2
 - id: PARSEDV-ub1-s2-1
   SESSION_ID: orch-main-r260-sub1-s2
-  status: pending
+  status: fixed
   title: 'src/game/QuestSystem.js: every refusal is an untyped sentinel — startQuest returns one false for unknown-quest and already-started, completeObjective one false for four causes (:78,:81,:83,:87), claimReward one null for not-complete and unknown-quest'
   body: |-
     PARSEDV over src/game. WITNESS: gm dispatch 1791688076056-500-c0b761c3bf95d6e2 (QuestSystem-witness 114/114 PASS after the parse fix; StatsSystem 112/112, EventChainManager 214/214, AbilityTree 59/59, ProgressionSystem 54/54, game-index 47/47).
