@@ -1,11 +1,13 @@
 import {
   createProgressionSystem,
-  createAbilityTree,
-  DEFAULT_ABILITIES,
-  HOTKEY_MAP,
   DEFAULT_CONFIG,
   getStatScaling
-} from '../../src/game/index.js'
+} from '../game/ProgressionSystem.js'
+import {
+  createAbilityTree,
+  DEFAULT_ABILITIES,
+  HOTKEY_MAP
+} from '../game/AbilityTree.js'
 
 const ABILITY_TREE_APP_METHODS = [
   'getAbility',

@@ -1,6 +1,7 @@
 import * as hitscan from '../netcode/Hitscan.js'
 import { recordHit } from '../netcode/OutlierDetector.js'
 import { spawnSurfaceY } from '../shared/SpawnSurface.js'
+import { DEFAULT_COMBAT, readHealth } from '../behaviours/combat.js'
 
 const FALL_DEPTH_BELOW_GROUND_M = 20
 const FALL_FLOOR_WITHOUT_TERRAIN_Y = -20
@@ -33,7 +34,7 @@ const FOOTPRINT_OFFSETS = (() => {
 })()
 const CLEARANCE_PROBE_RISE_FRACTIONS = [0.08, 0.25, 0.5]
 
-export const COMBAT_API = Object.freeze({ ...hitscan, recordHit })
+export const COMBAT_API = Object.freeze({ ...hitscan, DEFAULT_COMBAT, readHealth, recordHit })
 
 export function fallFloorY(ctx, x, z, depth = FALL_DEPTH_BELOW_GROUND_M) {
   const groundY = ctx.terrainHeightAt(x, z)

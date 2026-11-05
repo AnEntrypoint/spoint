@@ -1,4 +1,3 @@
-import { definePickup } from '../../../apps/_lib/pickup.js'
 
 export default {
   description: 'Invisible trigger region: fires an event at a target entity when a player enters it.',
@@ -13,7 +12,7 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), _trigger: true }
-      const build = (cfg) => definePickup({
+      const build = (cfg) => ctx.definePickup({
         radius: cfg.radius ?? 3,
         oneShot: !!cfg.once,
         cooldown: cfg.cooldownMs ?? 0,

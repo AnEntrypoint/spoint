@@ -1,26 +1,23 @@
-import { DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
-import { spawnSurfaceY } from '../../src/shared/SpawnSurface.js'
-import { capsuleRadiusM, capsuleHeightM, footprintBlockers } from '../../src/apps/AppGameplay.js'
-
 const RESPAWN_LIFT_M = 2
 
 const MAX_AUTHORED_SURFACE_DELTA_M = 2
 
 const MIN_SAFE_DISTANCE_M = 25
 
-function standingOffsetM(hitbox) {
+function standingOffsetM(geometry, hitbox) {
   if (Number.isFinite(hitbox?.centerHeight) && hitbox.centerHeight > 0) return hitbox.centerHeight
-  const derived = capsuleHeightM(hitbox) / 2
-  return derived > 0 ? derived : DEFAULT_HITBOX.centerHeight
+  const derived = geometry.capsuleHeightM(hitbox) / 2
+  return derived > 0 ? derived : geometry.DEFAULT_HITBOX.centerHeight
 }
 
 function authoredSurfaceM(ctx, sp, hitbox, radiusM) {
+  const geometry = ctx.spawnGeometry
   const terrainY = ctx.terrainHeightAt(sp[0], sp[2])
-  const standingOffset = standingOffsetM(hitbox)
+  const standingOffset = standingOffsetM(geometry, hitbox)
   const poseY = Number.isFinite(terrainY) ? Math.max(sp[1], terrainY) : sp[1]
-  const feetY = spawnSurfaceY((origin, direction, length) => ctx.raycast(origin, direction, length), sp, {
+  const feetY = geometry.spawnSurfaceY(sp, {
     standingOffset,
-    headroom: RESPAWN_LIFT_M + capsuleHeightM(hitbox),
+    headroom: RESPAWN_LIFT_M + geometry.capsuleHeightM(hitbox),
     terrainY,
     radius: radiusM,
   })
@@ -28,8 +25,9 @@ function authoredSurfaceM(ctx, sp, hitbox, radiusM) {
 }
 
 function playerOverlaps(ctx, sp, feetY, hitbox, exclude) {
-  const overlapDiameterM = 2 * capsuleRadiusM(hitbox)
-  const heightM = capsuleHeightM(hitbox)
+  const geometry = ctx.spawnGeometry
+  const overlapDiameterM = 2 * geometry.capsuleRadiusM(hitbox)
+  const heightM = geometry.capsuleHeightM(hitbox)
   const blockers = []
   for (const player of ctx.players?.getAll?.() ?? []) {
     if (!player.state || exclude(player)) continue
@@ -50,8 +48,8 @@ function playerOverlaps(ctx, sp, feetY, hitbox, exclude) {
   return blockers
 }
 
-export function evaluateSpawnPoint(ctx, sp, hitbox = DEFAULT_HITBOX, exclude = () => false) {
-  const radiusM = capsuleRadiusM(hitbox)
+export function evaluateSpawnPoint(ctx, sp, hitbox = ctx.spawnGeometry.DEFAULT_HITBOX, exclude = () => false) {
+  const radiusM = ctx.spawnGeometry.capsuleRadiusM(hitbox)
   const { feetY, poseY, standingOffset } = authoredSurfaceM(ctx, sp, hitbox, radiusM)
   if (feetY === null) {
     return {
@@ -71,7 +69,7 @@ export function evaluateSpawnPoint(ctx, sp, hitbox = DEFAULT_HITBOX, exclude = (
       blockers: [{ kind: 'surface-mismatch', x: sp[0], z: sp[2], offsetM: 0, surfaceY: feetY, intrusionM: null, deltaM }],
     }
   }
-  const blockers = footprintBlockers(ctx, sp, feetY, hitbox)
+  const blockers = ctx.spawnGeometry.footprintBlockers(sp, feetY, hitbox)
   for (const overlap of playerOverlaps(ctx, sp, feetY, hitbox, exclude)) blockers.push(overlap)
   return { sp, feetY, pose: [sp[0], feetY + RESPAWN_LIFT_M, sp[2]], blockers }
 }
@@ -92,7 +90,7 @@ function orderByPlayerDistance(ctx, spawnPoints, exclude, minSafeDistance) {
   return pool.map(entry => entry.sp)
 }
 
-export function pickClearSpawnPose(ctx, spawnPoints, { exclude = () => false, minSafeDistance = MIN_SAFE_DISTANCE_M, hitbox = DEFAULT_HITBOX } = {}) {
+export function pickClearSpawnPose(ctx, spawnPoints, { exclude = () => false, minSafeDistance = MIN_SAFE_DISTANCE_M, hitbox = ctx.spawnGeometry.DEFAULT_HITBOX } = {}) {
   if (!Array.isArray(spawnPoints)) throw new TypeError(`[tps-game] spawnPoints must be an array, got ${spawnPoints}`)
   const usable = spawnPoints.filter(isFinitePoint)
   if (usable.length === 0) throw new Error(`[tps-game] respawn clearance: ${spawnPoints.length} spawn point(s) supplied, ${usable.length} usable`)

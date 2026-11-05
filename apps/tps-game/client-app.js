@@ -1,4 +1,4 @@
-import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG, isFiniteVec3, readHealth } from './shared.js'
+import { EMOTE_WHEEL_SLOTS, predictHit, combatConfig, isFiniteVec3, readHealth, bindCombat } from './shared.js'
 
 const TRACER_RANGE = 100
 const DMG_DEALT_WINDOW_MS = 500
@@ -126,9 +126,10 @@ function makeOverlay() {
 export const tpsGameClient = {
   _tps: null,
   setup(engine) {
+    bindCombat(engine.combat)
     const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
     engine.scene.add(flash)
-    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: COMBAT_CONFIG.magazineSize, magazineSize: COMBAT_CONFIG.magazineSize, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: COMBAT_CONFIG.reloadTime }
+    engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: combatConfig().magazineSize, magazineSize: combatConfig().magazineSize, reloading: false, lastReloadTime: 0, hitMarkerTime: 0, headshotMarkerTime: 0, killTime: 0, lastKillTime: 0, kills: 0, streak: 0, reloadDuration: combatConfig().reloadTime }
     this._tps = engine._tps
     engine._tps.juice = makeJuice()
     try { engine._tps.emoteWheel = engine.createEmoteWheel?.(EMOTE_WHEEL_SLOTS) } catch (_) {}
@@ -168,7 +169,7 @@ export const tpsGameClient = {
         engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: dir })
         if (engine.cam?.punch) engine.cam.punch(0.15)
         mobileVibrate(engine, 12)
-        const knockback = COMBAT_CONFIG.shootKnockback
+        const knockback = combatConfig().shootKnockback
         if (local.velocity && dir) { local.velocity[0] -= dir[0] * knockback; local.velocity[2] -= dir[2] * knockback }
         const animator = engine.players.getAnimator(engine.playerId)
         if (animator) animator.shoot()
@@ -179,7 +180,7 @@ export const tpsGameClient = {
           const muzzle = [pos[0], pos[1] + 0.9, pos[2]]
           engine.decals.spawnTracer(muzzle, [muzzle[0] + dir[0] * TRACER_RANGE, muzzle[1] + dir[1] * TRACER_RANGE, muzzle[2] + dir[2] * TRACER_RANGE])
         }
-        const pred = predictHit([pos[0], pos[1] + 0.9, pos[2]], dir, engine.client.state?.players, engine.playerId, COMBAT_CONFIG.headshotZone)
+        const pred = predictHit([pos[0], pos[1] + 0.9, pos[2]], dir, engine.client.state?.players, engine.playerId, combatConfig().headshotZone)
         if (pred) {
           const tnow = Date.now()
           tps.hitMarkerTime = tnow; tps._predHitAt = tnow
@@ -254,13 +255,13 @@ export const tpsGameClient = {
     if (payload.type === 'hazard_damage' && tps && payload.playerId === engine.playerId) { tps.lastHitTime = Date.now(); tps.juice?.tone(150, 0.1, 0.14) }
     if (payload.type === 'buff_applied' && tps) { tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000, fireRate: payload.fireRate || 1 }; tps.buffFlashAt = Date.now(); tps.juice?.tone(300, 0.18, 0.16, 600) }
     if (payload.type === 'buff_expired' && tps) { tps.boost = null; tps.juice?.tone(440, 0.16, 0.12, 200) }
-    if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadDuration = payload.duration || COMBAT_CONFIG.reloadTime; tps.reloadEndTime = Date.now() + tps.reloadDuration; tps.juice?.tone(280, 0.05, 0.13); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
-    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = payload.ammo ?? tps.magazineSize ?? COMBAT_CONFIG.magazineSize; tps.juice?.tone(520, 0.05, 0.14) }
+    if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadDuration = payload.duration || combatConfig().reloadTime; tps.reloadEndTime = Date.now() + tps.reloadDuration; tps.juice?.tone(280, 0.05, 0.13); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
+    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = payload.ammo ?? tps.magazineSize ?? combatConfig().magazineSize; tps.juice?.tone(520, 0.05, 0.14) }
   },
   onFrame(dt, engine) {
     const tps = engine._tps; if (!tps) return
     const now = Date.now()
-    engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || COMBAT_CONFIG.magazineSize}`)
+    engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || combatConfig().magazineSize}`)
     engine.hud?.stat?.('reloading', tps.reloading)
     if (tps.boost && remainingMs(now, tps.boost.expiresAt) <= 0) tps.boost = null
     if (tps.flash && tps.flashOff && remainingMs(now, tps.flashOff) <= 0) { tps.flash.intensity = 0; tps.flashOff = 0 }
@@ -292,7 +293,7 @@ export const tpsGameClient = {
     const dtk = tps._elDmgTaken
     if (dtk) { const on = withinMs(now, tps.lastHitTime, DMG_TAKEN_WINDOW_MS); const t = on && tps.lastDamageTaken ? ('-' + tps.lastDamageTaken) : ''; if (tps._lastDtkText !== t) { tps._lastDtkText = t; dtk.textContent = t; dtk.style.opacity = on ? '1' : '0' } }
     const shield = tps._elShield
-    if (shield) { const rem = remainingMs(now, tps.spawnShieldUntil); const op = rem > 0 ? String(Math.min(0.6, rem / COMBAT_CONFIG.spawnInvulnMs * 0.6)) : '0'; if (tps._lastShieldOp !== op) { tps._lastShieldOp = op; shield.style.opacity = op } }
+    if (shield) { const rem = remainingMs(now, tps.spawnShieldUntil); const op = rem > 0 ? String(Math.min(0.6, rem / combatConfig().spawnInvulnMs * 0.6)) : '0'; if (tps._lastShieldOp !== op) { tps._lastShieldOp = op; shield.style.opacity = op } }
     const lp = localPlayerOf(engine)
     const vig = tps._elVig
     {
@@ -316,9 +317,9 @@ export const tpsGameClient = {
     const tps = ctx.engine?._tps
     const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
     const ammo = tps?.ammo ?? 0
-    const magazine = COMBAT_CONFIG.magazineSize
+    const magazine = combatConfig().magazineSize
     const reloading = tps?.reloading ?? false
-    const reloadDur = tps?.reloadDuration || COMBAT_CONFIG.reloadTime
+    const reloadDur = tps?.reloadDuration || combatConfig().reloadTime
     const reloadProgress = reloading && tps?.reloadEndTime ? Math.min(100, Math.round((1 - (tps.reloadEndTime - Date.now()) / reloadDur) * 100)) : 0
     const kills = tps?.kills ?? 0
     const now = Date.now()

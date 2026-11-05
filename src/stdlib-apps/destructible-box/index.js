@@ -1,5 +1,3 @@
-import { createDestructible } from '../../../apps/_lib/destructible.js'
-import { validateDestructibleSpec } from '../../../apps/_lib/destructibleSpec.js'
 
 export default {
   server: {
@@ -28,10 +26,9 @@ export default {
         debrisImpulsePattern: 'outward-up',
         debrisShape: { hx: hx / 2, hy: hy / 2, hz: hz / 2 }
       }
-      validateDestructibleSpec(spec)
       ctx.entity.custom = { mesh: 'box', color: c.color ?? 0x8B4513, roughness: 0.85, sx: hx * 2, sy: hy * 2, sz: hz * 2 }
       ctx.physics.addColliderFromConfig({ type: 'box', size: [hx, hy, hz] })
-      ctx.state.destructible = createDestructible(spec, ctx)
+      ctx.state.destructible = ctx.defineDestructible(spec)
     },
     onCollision(ctx, evt) {
       ctx.state.destructible?.impact(evt.velocity)

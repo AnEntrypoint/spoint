@@ -1,4 +1,3 @@
-import { definePickup } from '../_lib/pickup.js'
 
 export default {
   description: 'Collectible (coin/star/gem): a player walking into it collects it and fires a value event.',
@@ -14,7 +13,7 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'sphere', color: c.color ?? '#ffd700', sx: 0.4, sy: 0.4, sz: 0.4 }
-      const build = (cfg) => definePickup({
+      const build = (cfg) => ctx.definePickup({
         radius: cfg.radius ?? 1.5,
         oneShot: !cfg.respawns,
         cooldown: cfg.respawns ? (cfg.respawnMs ?? 5000) : 0,

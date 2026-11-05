@@ -1,4 +1,3 @@
-import { defineCheckpoint } from '../../../apps/_lib/checkpoint.js'
 
 export default {
   description: 'Respawn zone: sets a fall-plane height that teleports a fallen player back to their last checkpoint.',
@@ -13,7 +12,7 @@ export default {
       const spawn = Array.isArray(c.respawn) && c.respawn.length >= 3
         ? [c.respawn[0], c.respawn[1], c.respawn[2]]
         : [ctx.entity.position[0], ctx.entity.position[1], ctx.entity.position[2]]
-      const build = (cfg) => defineCheckpoint({
+      const build = (cfg) => ctx.defineCheckpoint({
         spawn,
         minY: cfg.minY ?? -50,
         onRespawn: (c2, playerId) => c2.bus.emit(cfg.channel || 'respawn', { by: playerId, source: c2.entity.id }),

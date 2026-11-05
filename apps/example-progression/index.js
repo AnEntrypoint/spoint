@@ -1,5 +1,4 @@
 export const category = 'Demos & Games'
-import { defineProgression, DEFAULT_ABILITIES, DEFAULT_CONFIG } from '../../apps/_lib/progression.js'
 
 const customAbilities = [
   {
@@ -31,7 +30,7 @@ const customAbilities = [
   }
 ]
 
-const progressionDef = defineProgression({
+const PROGRESSION_SPEC = {
   progressionConfig: {
     curve: 'quadratic',
     baseXpPerLevel: 100,
@@ -70,7 +69,9 @@ const progressionDef = defineProgression({
       )
     }
   }
-})
+}
+
+let progressionDef = null
 
 function getPlayerHp(level) {
   return 100 + (level - 1) * 10
@@ -93,9 +94,14 @@ export default {
   name: 'example-progression',
 
   server: {
-    setup: progressionDef.setup,
+    setup(ctx) {
+      progressionDef ??= ctx.defineProgression(PROGRESSION_SPEC)
+      progressionDef.setup(ctx)
+    },
 
-    tick: progressionDef.tick,
+    tick(ctx, dt) {
+      progressionDef.tick(ctx, dt)
+    },
 
     onMessage(ctx, msg) {
       if (msg.type === 'attack') {

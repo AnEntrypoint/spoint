@@ -9,6 +9,7 @@ import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
 if (new URLSearchParams(location.search).has('livereload')) import('./core/PreviewReload.js').then(m => m.startPreviewReload())
 import { createElement, applyDiff } from 'webjsx'
+import { COMBAT_API } from '/src/apps/AppGameplay.js'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
 import { editorKit } from './core/EditorKit.js'
 import { whenProgramsReady, takeDeferredDraws, installAsyncRenderPipelines } from './core/ProgramReadiness.js'
@@ -1087,7 +1088,7 @@ if (globalThis.__spointHmr) {
   })
 }
 const engineCtx = {
-  scene, camera, renderer, THREE, createElement, createEmoteWheel,
+  scene, camera, renderer, THREE, createElement, createEmoteWheel, combat: COMBAT_API,
   pick: (clientX, clientY) => _raycastEntity(clientX, clientY),
   sendPick: (clientX, clientY) => {
     const hit = _raycastEntity(clientX, clientY)

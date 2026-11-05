@@ -1,4 +1,3 @@
-import { definePickup } from '../_lib/pickup.js'
 import { getSharedInventory, isPoolOwner, releaseSharedInventory } from '../_lib/inventory-registry.js'
 import { ITEM_DEFINITIONS, ITEM_BUY_CATALOG, getItemDefinition } from '../_lib/item-definitions.js'
 
@@ -21,7 +20,7 @@ export default {
         ctx.state._inv = getSharedInventory(ctx, { poolId, itemDefs: ITEM_DEFINITIONS, catalog: ITEM_BUY_CATALOG })
       }
       joinPool(c.poolId || 'default')
-      const build = (cfg) => definePickup({
+      const build = (cfg) => ctx.definePickup({
         radius: cfg.radius ?? 1.5,
         cooldown: cfg.respawnMs ?? 8000,
         onCollect: (c2, player) => {

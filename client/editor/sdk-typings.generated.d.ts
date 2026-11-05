@@ -6,6 +6,8 @@
 // source digest: e890cd60a934f31eda86ad72bdabed4efb8a3bd20e8c3cf90a3fb7bab049a76d
 
 import { CliDebugger } from '../debug/CliDebugger.js';
+import { capsuleRadiusM, capsuleHeightM } from './AppGameplay.js';
+import { AnimationSystem } from '../animation/AnimationSystem.js';
 export declare class AppContext {
     _entity: any;
     _runtime: any;
@@ -246,8 +248,136 @@ export declare class AppContext {
         } | null;
         findHitSpatial(players: any, shot: any, liveIndex?: null): null;
         buildLiveIndex: typeof import("../netcode/RewindSpatialIndex.js").buildLiveIndex;
+        DEFAULT_COMBAT: Readonly<{
+            respawnTime: 1.5;
+            health: 100;
+            damagePerHit: 20;
+            headshotMultiplier: 2.5;
+            headshotZone: 0.7;
+            hitKnockback: 4;
+            shootKnockback: 2;
+            magazineSize: 30;
+            reloadTime: 2000;
+            spawnInvulnMs: 1500;
+            fallKillDepth: 20;
+            fallKillGraceSec: 0.5;
+            buffRegenFractionPerSec: 0.1;
+            range: 1000;
+        }>;
+        readHealth: typeof import("../behaviours/combat.js").readHealth;
         recordHit: typeof import("../netcode/OutlierDetector.js").recordHit;
     }>;
+    get spawnGeometry(): {
+        DEFAULT_HITBOX: Readonly<{
+            centerHeight: 0.9;
+            radiusSq: 0.36;
+            height: 1.8;
+        }>;
+        capsuleRadiusM: typeof capsuleRadiusM;
+        capsuleHeightM: typeof capsuleHeightM;
+        spawnSurfaceY: (sp: any, opts: any) => any;
+        footprintBlockers: (sp: any, feetY: any, hitbox: any) => ({
+            kind: string;
+            x: any;
+            z: any;
+            offsetM: number;
+            surfaceY: null;
+            intrusionM: null;
+        } | {
+            kind: string;
+            x: any;
+            z: any;
+            offsetM: number;
+            surfaceY: any;
+            intrusionM: number;
+        })[];
+    };
+    senderOf(message: any): any;
+    defineQuestSystem(spec: any): {
+        startQuest(pid: any, questId: any): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason?: undefined;
+        };
+        completeObjective(pid: any, questId: any, objectiveIndex: any, amount?: number): {
+            ok: boolean;
+            reason: string;
+        } | {
+            ok: boolean;
+            reason?: undefined;
+        };
+        claimReward(pid: any, questId: any): {
+            ok: boolean;
+            reason: string;
+            xp?: undefined;
+            items?: undefined;
+            statBonuses?: undefined;
+        } | {
+            ok: boolean;
+            xp: any;
+            items: any;
+            statBonuses: any;
+            reason?: undefined;
+        };
+        push(pid: any): void;
+        getQuestState(pid: any, questId: any): {
+            questId: any;
+            state: any;
+            progress: any[];
+            startedAt: any;
+            completedAt: any;
+            claimedAt: any;
+        } | null;
+        getPlayerQuests(pid: any): {};
+        getAllQuestProgress(pid: any): {};
+        snapshot(): {};
+        restore(data: any): void;
+    };
+    createAnimationSystem(model: any, options: any): AnimationSystem;
+    defineStatsSystem(spec: any): {
+        _xpForLevel(level: any): number;
+        _levelFromXP(totalXP: any): number;
+        addXP(pid: any, amount: any): boolean;
+        applyBonus(pid: any, stat: any, amount: any): boolean;
+        getBonuses(pid: any): {
+            [k: string]: any;
+        };
+        getLevel(pid: any): any;
+        push(pid: any): void;
+        getStats(pid: any): {
+            level: any;
+            xp: any;
+        };
+        getEquipment(pid: any): {};
+        equipItem(pid: any, equipmentId: any): boolean;
+        unequipSlot(pid: any, slot: any): any;
+        getLoadout(pid: any): {};
+        saveLoadout(pid: any, loadoutName: any): boolean;
+        loadLoadout(pid: any, loadoutName: any): boolean;
+        getLoadouts(pid: any): {};
+        snapshot(): {};
+        restore(data: any): {
+            ok: boolean;
+            reason: string;
+            players: number;
+            dropped: never[];
+        } | {
+            ok: boolean;
+            reason: null;
+            players: number;
+            dropped: ({
+                playerId: string;
+                reason: string | null;
+            } | {
+                slot: string;
+                reason: string;
+                playerId: string;
+            })[];
+        };
+    };
+    defineProgression(spec: any): any;
     fallFloorY(x: any, z: any, depth: any): number;
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
     persisted(key: any, initial: any, opts: any): any;

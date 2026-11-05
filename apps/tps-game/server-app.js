@@ -1,14 +1,13 @@
 import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
-import { senderOf } from '../../src/sdk/appEventSender.js'
-import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG, FIRE_SPEC } from './shared.js'
+import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, FIRE_SPEC } from './shared.js'
 import { pickClearSpawnPose } from './respawn-clearance.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
 const MAX_IGNITION_SOURCE = 255
 const NO_EMOTE = null
 
-function emoteOf(msg) {
-  const sender = senderOf(msg)
+function emoteOf(ctx, msg) {
+  const sender = ctx.senderOf(msg)
   if (!sender) return NO_EMOTE
   const playerId = sender.id
   if (!Number.isInteger(playerId) || playerId < 1) return NO_EMOTE
@@ -18,7 +17,6 @@ function emoteOf(msg) {
 }
 
 const COMBAT_SPEC = {
-  config: COMBAT_CONFIG,
   powerups: POWERUP_DEFS,
   powerupRespawnMs: POWERUP_RESPAWN_MS,
   scoreboardKey: 'scoreboard'
@@ -46,13 +44,14 @@ function combatOf(ctx) {
   if (combat) return combat
   const placed = collectSpawnPoints(ctx)
   const fire = fireOf(ctx)
+  const base = { ...COMBAT_SPEC, config: ctx.combat.DEFAULT_COMBAT }
   const spec = fire
     ? {
-      ...COMBAT_SPEC,
+      ...base,
       shotBlocked: (c, origin, direction, distance) => fire.rayBlocked(origin, direction, distance),
       onWorldHit: (c, { shooterId, position }) => fire.ignite(position, shooterId & MAX_IGNITION_SOURCE),
     }
-    : COMBAT_SPEC
+    : base
   combat = ctx.defineCombat(placed.length > 0 ? { ...spec, spawnPoints: placed } : spec)
   _combats.set(ctx, combat)
   return combat
@@ -78,7 +77,7 @@ export const tpsGameServer = {
   onMessage(ctx, msg) {
     if (!msg) return
     if (msg.type === 'emote') {
-      const emote = emoteOf(msg)
+      const emote = emoteOf(ctx, msg)
       if (!emote) return
       const now = Date.now()
       if (now - (ctx.state.lastEmoteAt.get(emote.playerId) || 0) < EMOTE_RATE_LIMIT_MS) return

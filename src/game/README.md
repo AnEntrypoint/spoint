@@ -15,7 +15,7 @@ XP tracking and leveling with configurable experience curves (linear, exponentia
 Ability unlock system with declarative specs, cooldown tracking, and 1-9 hotkey binding. Network-safe with <1µs overhead per check.
 
 ### Progression Integration (NEW)
-**File:** `apps/_lib/progression.js`
+**File:** `src/apps/Progression.js` (apps reach it as `ctx.defineProgression(spec)`)
 
 High-level wrapper combining ProgressionSystem + AbilityTree into app-ready modules with automatic world persistence.
 
@@ -54,7 +54,7 @@ abilities.tick(0.016)  // Update cooldowns
 For automatic app integration with persistence:
 
 ```javascript
-import { defineProgression } from '../../apps/_lib/progression.js'
+import { defineProgression } from '../apps/Progression.js'
 
 export default {
   server: {

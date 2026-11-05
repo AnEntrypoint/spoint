@@ -1,5 +1,4 @@
 export const category = 'Demos & Games'
-import { defineCheckpoint } from '../_lib/checkpoint.js'
 import { collectCheckpointMarkers } from '../../src/stdlib-apps/checkpoint-marker/index.js'
 const LEADERBOARD_KEY = 'leaderboard'
 const MAX_ENTRIES_PER_MAP = 100
@@ -47,7 +46,7 @@ function _buildCourse(ctx) {
   ctx.state._inStartVol = new Map()
   ctx.state._inFinishVol = new Map()
 
-  ctx.state.checkpoint = defineCheckpoint({
+  ctx.state.checkpoint = ctx.defineCheckpoint({
     spawn: cps[0].position,
     minY: ctx.config?.minY ?? -50,
     checkpoints: cps.map(c => ({ position: c.position, radius: c.radius })),

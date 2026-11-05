@@ -1,4 +1,3 @@
-import { definePickup } from '../../../apps/_lib/pickup.js'
 
 export default {
   description: 'Powerup pickup: a player walking into it gains a timed effect (speed/rapid/damage/etc.).',
@@ -15,7 +14,7 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'capsule', color: c.color ?? '#40b0ff', sx: 0.4, sy: 0.6, sz: 0.4 }
-      const build = (cfg) => definePickup({
+      const build = (cfg) => ctx.definePickup({
         radius: cfg.radius ?? 1.5,
         cooldown: cfg.respawnMs ?? 12000,
         onCollect: (c2, player) => {

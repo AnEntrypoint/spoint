@@ -1,8 +1,17 @@
-import { rayVsCapsule, hitHeightRatio, normalizeShotDirection, DEFAULT_HITBOX } from '../../src/netcode/Hitscan.js'
-import { DEFAULT_COMBAT, readHealth } from '../../src/behaviours/combat.js'
+let combat = null
 
-export const COMBAT_CONFIG = DEFAULT_COMBAT
-export { readHealth }
+export function bindCombat(api) {
+  combat = api
+}
+
+function combatApi() {
+  if (combat === null) throw new Error('[tps-game] combat API used before bindCombat')
+  return combat
+}
+
+export const combatConfig = () => combatApi().DEFAULT_COMBAT
+
+export const readHealth = (state) => combatApi().readHealth(state)
 
 export const POWERUP_DEFS = [
   { type: 'damage', color: 0xff3344, emissive: 0xaa0000, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 1, damageMultiplier: 2 } },
@@ -26,7 +35,6 @@ export const FIRE_SPEC = {
   gameplay: { damageEveryTicks: 15, statusDamagePerSec: 6, burnStatusSeconds: 4, smokeBlockDepth: 1, smokeHeightM: 30, eyeHeightM: 1.6, explosionImpulse: 12 },
   firebreaks: { kinds: ['road', 'river'], water: true },
 }
-const PREDICT_RANGE_M = COMBAT_CONFIG.range
 
 const EMOTES = Object.freeze({
   wave: { label: 'Bow', clip: 'Bow' },
@@ -48,22 +56,24 @@ export const EMOTE_WHEEL_SLOTS = Object.freeze(
 export const isFiniteVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite)
 
 const headshotZoneOf = (zone) => {
-  const z = zone === undefined ? COMBAT_CONFIG.headshotZone : zone
+  const z = zone === undefined ? combatConfig().headshotZone : zone
   if (!Number.isFinite(z) || z < 0 || z > 1) throw new RangeError(`[combat] headshotZone must be a number in [0,1], got ${String(zone)}`)
   return z
 }
 
 export function predictHit(origin, dir, players, selfId, headshotZone) {
-  const direction = normalizeShotDirection(dir)
+  const api = combatApi()
+  const direction = api.normalizeShotDirection(dir)
   if (!isFiniteVec3(origin) || !direction || !Array.isArray(players)) return null
   const zone = headshotZoneOf(headshotZone)
+  const range = combatConfig().range
   for (const p of players) {
     if (!p || String(p.id) === String(selfId) || !isFiniteVec3(p.position)) continue
     const vitals = readHealth(p)
     if (vitals.known && vitals.hp <= 0) continue
-    const hit = rayVsCapsule(origin, direction, PREDICT_RANGE_M, p.position, DEFAULT_HITBOX)
+    const hit = api.rayVsCapsule(origin, direction, range, p.position, api.DEFAULT_HITBOX)
     if (!hit) continue
-    return { headshot: hitHeightRatio(hit.proj, p.position, DEFAULT_HITBOX) >= zone }
+    return { headshot: api.hitHeightRatio(hit.proj, p.position, api.DEFAULT_HITBOX) >= zone }
   }
   return null
 }

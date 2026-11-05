@@ -25,8 +25,14 @@ import { defineCameraRig } from '../behaviours/cameraRig.js'
 import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
 import { ChartNavmeshQuery } from '../pathfinding/ChartNavmeshQuery.js'
 import { isWorldName } from '../shared/worldName.js'
-import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard, achievements } from './AppGameplay.js'
+import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard, achievements, capsuleRadiusM, capsuleHeightM, footprintBlockers } from './AppGameplay.js'
+import { spawnSurfaceY } from '../shared/SpawnSurface.js'
 import { createLlmJobs } from '../sdk/llmJobs.js'
+import { senderOf } from '../sdk/appEventSender.js'
+import { AnimationSystem } from '../animation/AnimationSystem.js'
+import { defineQuestSystem } from '../game/QuestSystem.js'
+import { defineStatsSystem } from '../game/StatsSystem.js'
+import { defineProgression } from './Progression.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -273,6 +279,26 @@ export class AppContext {
   get lagCompensator() { return this._runtime._lagCompensator || null }
 
   get combat() { return COMBAT_API }
+
+  get spawnGeometry() {
+    return {
+      DEFAULT_HITBOX: COMBAT_API.DEFAULT_HITBOX,
+      capsuleRadiusM,
+      capsuleHeightM,
+      spawnSurfaceY: (sp, opts) => spawnSurfaceY((origin, direction, length) => this.raycast(origin, direction, length), sp, opts),
+      footprintBlockers: (sp, feetY, hitbox) => footprintBlockers(this, sp, feetY, hitbox),
+    }
+  }
+
+  senderOf(message) { return senderOf(message) }
+
+  defineQuestSystem(spec) { return defineQuestSystem(spec, this) }
+
+  createAnimationSystem(model, options) { return new AnimationSystem(model, options) }
+
+  defineStatsSystem(spec) { return defineStatsSystem(spec, this) }
+
+  defineProgression(spec) { return defineProgression(spec) }
 
   fallFloorY(x, z, depth) { return fallFloorY(this, x, z, depth) }
 

@@ -18,7 +18,7 @@ AppRuntime (server tick loop)
 ```javascript
 import { defineQuestSystem } from '../../src/game/QuestSystem.js'
 import { defineStatsSystem } from '../../src/game/StatsSystem.js'
-import { definePlayerInventory } from '../_lib/inventory.js'
+// ctx.definePlayerInventory(spec) replaces the old _lib import
 import { defineGameFSM } from '../_lib/game-fsm.js'
 
 const QUESTS = {

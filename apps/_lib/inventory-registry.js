@@ -1,4 +1,3 @@
-import { definePlayerInventory } from './inventory.js'
 
 const _pools = new Map()
 
@@ -8,7 +7,7 @@ export function getSharedInventory(appCtx, opts = {}) {
   const key = poolKey(opts.poolId)
   let pool = _pools.get(key)
   if (!pool) {
-    pool = { inv: definePlayerInventory(opts, appCtx), members: new Set() }
+    pool = { inv: appCtx.definePlayerInventory(opts), members: new Set() }
     _pools.set(key, pool)
   }
   pool.members.add(appCtx.entity.id)

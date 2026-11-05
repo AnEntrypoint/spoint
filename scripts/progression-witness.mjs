@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const witnessPath = fileURLToPath(import.meta.url)
 const repoRoot = resolve(dirname(witnessPath), '..')
-const defaultModulePath = resolve(repoRoot, 'apps', '_lib', 'progression.js')
+const defaultModulePath = resolve(repoRoot, 'src', 'apps', 'Progression.js')
 const outDir = resolve(repoRoot, '.gm', 'witness-out')
 const modulePath = process.argv[2] ? resolve(process.argv[2]) : defaultModulePath
 const runLabel = process.env.PROGRESSION_WITNESS_RUN || 'adhoc'

@@ -189,7 +189,7 @@ const info = abilityTree.getPlayerAbilityInfo(playerId, level)
 ### Example: RPG App with Progression
 
 ```javascript
-import { defineProgression } from '../../apps/_lib/progression.js'
+import { defineProgression } from '../apps/Progression.js'
 
 export default {
   name: 'rpg-game',

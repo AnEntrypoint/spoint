@@ -1,3 +1,4 @@
+import { DEFAULT_COMBAT } from '../src/behaviours/combat.js'
 import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
 import { VEG } from '../src/terrain/VegPlacement.js'
 import { latticeFor } from '../src/terrain/PlacementChart.js'
@@ -231,6 +232,7 @@ function flagRun(cfg) {
   const calls = []
   const ctx = {
     config: cfg,
+    combat: { DEFAULT_COMBAT },
     state: {},
     time: { tick: 0 },
     players: { broadcast: () => {}, send: () => {}, getAll: () => [], playAnimation: () => {} },

@@ -1,7 +1,4 @@
 export const category = 'Demos & Games'
-import { defineQuestSystem } from '../../src/game/QuestSystem.js'
-import { defineStatsSystem } from '../../src/game/StatsSystem.js'
-import { definePlayerInventory } from '../_lib/inventory.js'
 import { TUTORIAL_BUS } from '../_lib/tutorial-rpg-kit.js'
 
 const CHANNELS = { stats: 'tutorial-rpg.stats', quests: 'tutorial-rpg.quests', inventory: 'tutorial-rpg.inventory', levelUp: 'tutorial-rpg.levelUp' }
@@ -172,7 +169,7 @@ const pushAll = (ctx, playerId) => {
 
 export const server = {
   setup(ctx) {
-    ctx.progression = defineStatsSystem({
+    ctx.progression = ctx.defineStatsSystem({
       startLevel: 1,
       startXP: 0,
       xpPerLevel: 100,
@@ -182,11 +179,11 @@ export const server = {
       equipment: EQUIPMENT_CATALOG,
       channel: CHANNELS.stats,
       onLevelUp: (appCtx, { playerId, level }) => appCtx.players.send(playerId, { type: CHANNELS.levelUp, playerId, level }),
-    }, ctx)
+    })
 
-    ctx.quests = defineQuestSystem({ quests: QUEST_DEFINITIONS, channel: CHANNELS.quests }, ctx)
+    ctx.quests = ctx.defineQuestSystem({ quests: QUEST_DEFINITIONS, channel: CHANNELS.quests })
 
-    ctx.inventory = definePlayerInventory({
+    ctx.inventory = ctx.definePlayerInventory({
       startItems: { herb: 0, 'copper-ore': 0 },
       startCurrency: 100,
       itemDefs: {

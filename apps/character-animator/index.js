@@ -1,4 +1,3 @@
-import { AnimationSystem } from '../../src/animation/AnimationSystem.js'
 
 export async function setup(scene, world, appCtx) {
   const { gltfLoader, modelPool } = appCtx
@@ -16,7 +15,7 @@ export async function setup(scene, world, appCtx) {
 
       scene.add(model)
 
-      animationSystem = new AnimationSystem(model, {
+      animationSystem = appCtx.createAnimationSystem(model, {
         clips,
         enableIK: true,
         enableFootIK: true,

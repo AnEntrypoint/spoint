@@ -1,0 +1,41 @@
+progression-witness ts=2026-11-05T11:41:14.272Z run=adhoc
+witness_sha256=64f9479dad468d1a0de1bc6f59d9e6e85cad3b385243498ff10ad3d02bc7bc4e
+module=/workspace/spoint/src/apps/Progression.js
+module_sha256=deb8ac4da4e5c8c257dbf8e07dd8095a05f71f977aae84729c52d5247195f775
+CHECK C00 scenario completes without throwing: PASS
+CHECK C01 module exports defineProgression as a function: PASS
+CHECK C02 DEFAULT_ABILITIES exports five abilities: PASS
+CHECK C03 DEFAULT_CONFIG exports quadratic curve and maxLevel 100: PASS
+CHECK C04 HOTKEY_MAP binds hotkeys 1 through 9: PASS
+CHECK C05 a fresh player starts at level 1 with no xp: PASS
+CHECK C06 xp below the level-two threshold reports no level-up: PASS
+CHECK C07 xp below the threshold accumulates inside level 1: PASS
+CHECK C08 reaching 100 total xp levels the player to 2: PASS
+CHECK C09 level two carries the leftover xp and the total: PASS
+CHECK C10 negative and NaN xp grants are ignored: PASS
+CHECK C11 reaching 400 total xp levels the player to 3: PASS
+CHECK C12 progress at the level-three threshold is zero into the level: PASS
+CHECK C13 partial xp below the next threshold gives a half progress ratio: PASS
+CHECK C14 reaching 900 total xp levels the player to 4 with no xp left: PASS
+CHECK C15 the level-up hook fires once per leveling call, in order: PASS
+CHECK C16 each level-up sends a progression levelUp message to the entity: PASS
+CHECK C17 tick drains pending level-up events to the tick hook: PASS
+CHECK C18 only abilities unlocked at the current level are listed: PASS
+CHECK C19 castAbility casts once, refuses while cooling down, and refuses a locked ability: PASS
+CHECK C20 a cast starts the cooldown and canCastAbility reports it cooling: PASS
+CHECK C21 hotkey binding accepts known ids and null, rejects unknown ids and out-of-range hotkeys: PASS
+CHECK C22 getStatScaling applies the quadratic curve at level 4: PASS
+CHECK C23 getNetworkState reports level, unlocked ability ids and active cooldowns: PASS
+CHECK C24 cooldowns count down with tick and the ability is castable again at zero: PASS
+CHECK C25 castAbility refuses an ability whose unlock level is above the player level: PASS
+CHECK C26 onPlayerLeave clears level, xp and cooldowns: PASS
+CHECK C27 restoreGameState reinstates level, xp and cooldown from a JSON snapshot: PASS
+CHECK C28 restoreGameState reinstates hotkey bindings from a JSON snapshot: PASS
+CHECK C29 isolation probe starts with three pending level-up events: PASS
+CHECK C30 a snapshot taken earlier does not change when later level-ups occur: PASS
+CHECK C31 getAbilityCooldown answers 0 for an unknown ability and for a ready one: PASS
+CHECK C32 a cooldown query registers a player the ability tree had never seen: PASS
+CHECK C33 getNetworkState answers for a player that never joined and registers it: PASS
+CHECK C34 restoreGameState echoes an empty state back as success: PASS
+CHECK C35 restoreGameState throws on a missing state: PASS
+RESULT: PASS claims=36 failed=0

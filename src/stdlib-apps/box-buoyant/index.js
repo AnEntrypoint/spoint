@@ -1,7 +1,6 @@
-import { defineBuoyancy } from '../../../apps/_lib/buoyancy.js'
 
 export default {
-  description: 'Buoyant dynamic box: a physics-simulated crate that floats/bobs in water via real Archimedes-style buoyancy + submerged drag (apps/_lib/buoyancy.js).',
+  description: 'Buoyant dynamic box: a physics-simulated crate that floats/bobs in water via real Archimedes-style buoyancy + submerged drag (src/behaviours/buoyancy.js).',
   server: {
     editorProps: [
       { key: 'hx', label: 'Width/2', type: 'number', default: 0.5 },
@@ -18,7 +17,7 @@ export default {
       const hx = c.hx ?? 0.5, hy = c.hy ?? 0.5, hz = c.hz ?? 0.5
       ctx.entity.custom = { mesh: 'box', color: c.color ?? 0x8B4513, roughness: c.roughness ?? 0.8, sx: hx * 2, sy: hy * 2, sz: hz * 2, mass: c.mass ?? 50 }
       ctx.physics.addColliderFromConfig({ type: 'box', size: [hx, hy, hz], mass: c.mass ?? 50, dynamic: true })
-      ctx.state.buoyancy = defineBuoyancy({ halfHeight: hy, floatFactor: c.floatFactor ?? 1.2, linearDrag: c.linearDrag ?? 2.0 }, ctx)
+      ctx.state.buoyancy = ctx.defineBuoyancy({ halfHeight: hy, floatFactor: c.floatFactor ?? 1.2, linearDrag: c.linearDrag ?? 2.0 })
     },
     update(ctx, dt) {
       ctx.state.buoyancy?.tick(dt)
