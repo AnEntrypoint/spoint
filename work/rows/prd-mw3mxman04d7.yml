@@ -1,0 +1,9 @@
+id: "prd-mw3mxman04d7"
+kind: "prd"
+title: "VoiceIndicator team-id check: join never reaches the host branch on a fresh room"
+body: "Blocked. Join stall root cause fixed (getUserMedia unbounded in test browser; 5s bound in 5389e22). Remaining: fresh-room boot logs Connection failed {isTrusted:true} at app.js:3069 and the page joins as a joiner on shared rooms, so window.__app.voiceIndicator never appears. Owner: spoint-debug-research (rejection source, bridge intermittency)."
+status: "resolved"
+createdAt: "2026-11-05T14:22:43.487Z"
+witnessEvent: 2454
+witnessCommit: "3261ec7cc85cf3596334762c751dc2c9279f0244"
+resolvedAt: "2026-11-05T19:29:55.641Z"
