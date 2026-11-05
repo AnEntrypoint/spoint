@@ -4,6 +4,7 @@ import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
 import { createStaticTileIndex } from './StaticTileIndex.js'
 import { createDormantStatics } from './DormantStatics.js'
+import { swingTwistLimits } from './constraintLimits.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
@@ -629,15 +630,18 @@ export class PhysicsWorld {
     const aA = opts.anchorA || this.getBodyPosition(bodyIdA)
     const aB = opts.anchorB || this.getBodyPosition(bodyIdB)
     const p = this._tmpRVec3, v = this._tmpVec3
+    const swing = type === 'swingTwist' ? swingTwistLimits(opts.limits, opts.softness) : null
     let settings = null
     try {
       settings = type === 'point' ? new J.PointConstraintSettings()
         : type === 'distance' ? new J.DistanceConstraintSettings()
         : type === 'hinge' ? new J.HingeConstraintSettings()
+        : type === 'swingTwist' ? new J.SwingTwistConstraintSettings()
         : new J.FixedConstraintSettings()
       settings.mSpace = J.EConstraintSpace_WorldSpace
-      p.Set(aA[0], aA[1], aA[2]); settings.mPoint1 = p
-      p.Set(aB[0], aB[1], aB[2]); settings.mPoint2 = p
+      const pointKey = type === 'swingTwist' ? 'mPosition' : 'mPoint'
+      p.Set(aA[0], aA[1], aA[2]); settings[pointKey + '1'] = p
+      p.Set(aB[0], aB[1], aB[2]); settings[pointKey + '2'] = p
       if (type === 'distance') {
         if (opts.minDistance != null) settings.mMinDistance = opts.minDistance
         if (opts.maxDistance != null) settings.mMaxDistance = opts.maxDistance
@@ -645,6 +649,20 @@ export class PhysicsWorld {
         const ax = opts.axis || [0, 1, 0]
         v.Set(ax[0], ax[1], ax[2]); settings.mHingeAxis1 = v; settings.mHingeAxis2 = v
         v.Set(1, 0, 0); settings.mNormalAxis1 = v; settings.mNormalAxis2 = v
+      } else if (type === 'swingTwist') {
+        const ax = opts.axis || [0, 1, 0]
+        v.Set(ax[0], ax[1], ax[2]); settings.mTwistAxis1 = v; settings.mTwistAxis2 = v
+        v.Set(1, 0, 0); settings.mPlaneAxis1 = v; settings.mPlaneAxis2 = v
+        settings.mSwingType = J.ESwingType_Cone
+        settings.mNormalHalfConeAngle = swing.cone; settings.mPlaneHalfConeAngle = swing.cone
+        settings.mTwistMinAngle = swing.twistMin; settings.mTwistMaxAngle = swing.twistMax
+        if (swing.spring) {
+          const spring = new J.SpringSettings()
+          spring.mMode = J.ESpringMode_FrequencyAndDamping
+          spring.mFrequency = swing.spring.frequency; spring.mDamping = swing.spring.damping
+          settings.mLimitsSpringSettings = spring
+          J.destroy(spring)
+        }
       }
       const c = settings.Create(ba, bb)
       this.physicsSystem.AddConstraint(c)
