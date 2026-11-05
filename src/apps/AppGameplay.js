@@ -171,6 +171,40 @@ export function pickSpawnPoint(ctx, spawnPoints, { exclude = () => false, minSaf
   return roomiest ? roomiest.pose : candidates[0] ? [...candidates[0]] : [...LAST_RESORT_SPAWN]
 }
 
+export class AchievementError extends Error {
+  constructor(reasonCode, id) {
+    super(`achievement ${reasonCode}${id === undefined ? '' : ` ${id}`}`)
+    this.name = 'AchievementError'
+    this.reasonCode = reasonCode
+  }
+}
+
+export function achievements(ctx, defs) {
+  if (defs === null || typeof defs !== 'object' || Array.isArray(defs)) throw new AchievementError('defs-not-object')
+  const table = new Map()
+  for (const [id, def] of Object.entries(defs)) {
+    if (typeof def?.title !== 'string' || def.title === '') throw new AchievementError('title-missing', id)
+    if (def.description !== undefined && typeof def.description !== 'string') throw new AchievementError('description-not-string', id)
+    table.set(id, Object.freeze({ id, title: def.title, description: def.description ?? '' }))
+  }
+  const store = ctx.persisted('achievements', {})
+  return {
+    ready: store.ready,
+    defs: table,
+    unlocked(scope) { return Object.keys(store.value[scope] || {}) },
+    unlock(scope, id) {
+      const def = table.get(id)
+      if (!def) throw new AchievementError('unknown-achievement', id)
+      const earned = store.value[scope] || (store.value[scope] = {})
+      if (earned[id] !== undefined) return { unlocked: false, def }
+      earned[id] = Date.now()
+      store.save()
+      return { unlocked: true, def }
+    },
+    flush() { return store.flush() }
+  }
+}
+
 export function leaderboard(ctx, key, { order = 'asc', maxEntries = 100 } = {}) {
   const store = persisted(ctx, key, {})
   const better = order === 'asc' ? (a, b) => a < b : (a, b) => a > b
