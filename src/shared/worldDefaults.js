@@ -84,7 +84,7 @@ export function worldMaxPlayers(worldDef) {
 
 export function playerDefault(playerConfig, key) {
   const v = playerConfig?.[key]
-  return Number.isFinite(v) && v > 0 ? v : PLAYER_DEFAULTS[key]
+  return v === undefined ? PLAYER_DEFAULTS[key] : v
 }
 
 function envIceServers() {

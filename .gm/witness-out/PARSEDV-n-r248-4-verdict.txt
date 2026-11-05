@@ -1,22 +1,19 @@
-PARSEDV-n-r248-4 verdict: needs-design (terrain half refuted; player half is a silent-default, no source edited)
+PARSEDV-n-r248-4 verdict: fixed (player half); terrain half refuted earlier
 
-Claim: parseWorld/assertWorld return the same untyped object, so interior code re-validates it.
+Change: src/shared/worldDefaults.js playerDefault now returns the default only when the field is
+absent (undefined) and returns the value otherwise. The silent default for an invalid value is gone.
+src/shared/worldResolve.js needed no edit: checkSlices already refuses every PLAYER_POSITIVE_KEYS
+value that is not a positive finite number with WORLD_FIELD_INVALID at path player.<field>, and
+assertWorld throws WorldResolveError carrying that code. Public signatures are unchanged.
 
-Terrain half: REFUTED. checkSlices calls parseTerrainConfig and stores the parsed, frozen config
-(carrying a PARSED_TERRAIN_CONFIG marker) in world.terrain. parsedTerrainOf/terrainCarvesOf/
-terrainHashVersionOf accept the marker and skip re-validation. The row's line numbers are stale
-(terrain.seed is checked in parseTerrainConfig, not at terrainConfig.js:62).
+Node checks: node --check passed on src/shared/worldDefaults.js and src/shared/worldResolve.js.
 
-Player half: the interior does re-check. worldDefaults.js playerDefault (line 87, not 70; line 70
-is the mobile-button grid) runs Number.isFinite(v) && v > 0 ? v : PLAYER_DEFAULTS[key]. That is the
-silent-default class: an invalid raw value becomes the default. Whether every caller passes a
-parsed world is unverified, so trusting the value without a check is a design decision, not a
-safe minimal edit. Not changed.
+Probe: node .gm/witness-out/PARSEDV-n-r248-4-probe.mjs
+Output:
+{"goodOk":true,"goodTerrainParsed":true,"goodValuePlayerDefault":0.5,"absentPlayerDefault":0.4,"badParseCode":"world-field-invalid","badParsePath":"player.capsuleRadius","badAssertThrew":true,"assertName":"WorldResolveError","assertCode":"world-field-invalid","assertPath":"player.capsuleRadius","terrainRawBadSeed":"seed"}
 
-Probe: .gm/witness-out/PARSEDV-n-r248-4-probe.mjs (run: node .gm/witness-out/PARSEDV-n-r248-4-probe.mjs)
-Real output:
-{"goodOk":true,"goodTerrainParsed":true,"goodPlayerDefault":0.5,"badPlayerDefaultRaw":0.4,"badRefusedCode":"world-field-invalid","badPath":"player.capsuleRadius","assertThrowName":"WorldResolveError","assertCode":"world-field-invalid","assertPath":"terrain.seed","terrainRawBadSeed":"seed"}
-
-Reading: a valid parsed world reaches playerDefault as typed data; an invalid raw player value
-(-1) returns the silent default 0.4 when read outside parseWorld; parseWorld/assertWorld refuse
-the bad world with a named code (world-field-invalid, path player.capsuleRadius).
+Reading: a valid player value (0.5) is kept; an absent one gets the default (0.4); an invalid one
+(-1) is refused by parseWorld and assertWorld throws WorldResolveError with code world-field-invalid.
+Caveat: callers that read a raw wire payload (src/client/MessageHandler.js, src/netcode/*,
+src/sdk/ServerHandlers.js) now receive an invalid value unchanged from playerDefault if they skip
+parseWorld. Those raw paths were not audited in this row.

@@ -6,11 +6,10 @@ const out = {}
 const good = parseWorld({ name: 'w', player: { capsuleRadius: 0.5 }, terrain: { seed: 7, radius: 1000 } })
 out.goodOk = good.ok
 out.goodTerrainParsed = isParsedTerrainConfig(good.world.terrain)
-out.goodPlayerDefault = playerDefault(good.world.player, 'capsuleRadius')
-out.badPlayerDefaultRaw = playerDefault({ capsuleRadius: -1 }, 'capsuleRadius')
-const bad = parseWorld({ name: 'w', player: { capsuleRadius: -1 } })
-out.badRefusedCode = bad.code
-out.badPath = bad.path
-try { assertWorld({ name: 'w', terrain: { seed: 'x', radius: 1000 } }, 'w') } catch (e) { out.assertThrowName = e.name; out.assertCode = e.code; out.assertPath = e.path }
+out.goodValuePlayerDefault = playerDefault(good.world.player, 'capsuleRadius')
+out.absentPlayerDefault = playerDefault(parseWorld({ name: 'w', player: {} }).world.player, 'capsuleRadius')
+out.badParseCode = parseWorld({ name: 'w', player: { capsuleRadius: -1 } }).code
+out.badParsePath = parseWorld({ name: 'w', player: { capsuleRadius: -1 } }).path
+try { assertWorld({ name: 'w', player: { capsuleRadius: -1 } }, 'w'); out.badAssertThrew = false } catch (e) { out.badAssertThrew = e instanceof WorldResolveError; out.assertName = e.name; out.assertCode = e.code; out.assertPath = e.path }
 out.terrainRawBadSeed = parseTerrainConfig({ seed: 'x' }).path
 console.log(JSON.stringify(out))
