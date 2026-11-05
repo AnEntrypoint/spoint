@@ -1,0 +1,6 @@
+id: "ORCH-publish-git-lane-starved"
+kind: "prd"
+title: "[ORCH-publish-git-lane-starved] [retired] spoint publish blocked: the git serial lane starves every commit and pull"
+body: "- id: ORCH-publish-git-lane-starved\n  title: 'spoint publish blocked: the git serial lane starves every commit and pull'\n  phase: MILNER\n  body: 'The orchestrator''s own publish cannot land. git_pull aborted on a dirty worktree (.gm/prd.yml, vendor/design) with ''Index was not unstashed''; git_commit starved three times and git_push twice (dispatch_starved_waiting_for_serial_lane, lane git, 4 to 8 waiters, holders orch-main-r272-sub1 and orch-main-r251-sub3 running past 240 s). Branch is ahead 17 / behind 7. Witness: dispatch ids 1791687540254-500-b9c67d6bbf20f0b (pull abort), 1791687888723-16382, 1791688034040-16452, 1791687547828-16234. Depends on the FIFO admission and lane-hold watchdog work in C:/dev/gm.'\n  depends_on: []\n  session_id: orch-main\n  status: retired"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.761Z"

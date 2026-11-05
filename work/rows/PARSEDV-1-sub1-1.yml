@@ -1,0 +1,6 @@
+id: "PARSEDV-1-sub1-1"
+kind: "prd"
+title: "[PARSEDV-1-sub1-1] [retired] docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked"
+body: "- id: PARSEDV-1-sub1-1\n  title: docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked\n  body: 'Witness 1791698264682-500-e66513d7cf2ca62d (differential run of the parsed row gate) and the live tree run: the new parse prints ''prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): 53 109''. :53 carries the RES budget/threshold prose and :109 carries a ms threshold; neither has a [STAT:]/[INSTR:] slot or a [LANDED]/[DERIVED] tag, so :12''s mandatory-and-total provenance rule cannot see them and :15 silently excuses them as prose. Fix on the doc: give :109 a figure slot plus [DERIVED] (or [STRUCK] if it no longer holds), and either give :53 a slot or name it prose at :15 so the excuse is declared rather than inferred. Owner: docs/measurement-figures.md (not the gate''s surface).'\n  session_id: orch-main-r302-sub1-i1-sub1\n  status: retired"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.767Z"

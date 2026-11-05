@@ -1,0 +1,6 @@
+id: "PARSEDV-n-r248-3"
+kind: "prd"
+title: "[PARSEDV-n-r248-3] [fixed] src/shared/SpawnSurface.js collapses invalid input and no-surface-found into the same null"
+body: "- id: PARSEDV-n-r248-3\n  SESSION_ID: orch-main-r248\n  body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/SpawnSurface.js:52 spawnSurfaceY validates its arguments at entry (typeof raycast !== ''function'', !Number.isFinite(pose?.[1]), !(standingOffset > 0), !(headroom > 0)) and returns null, the same value it returns when the column finds no surface (line 65 standing ?? lifted ?? dropped). A misuse of the API is indistinguishable from a legitimate miss, so the caller cannot parse the result and every caller must re-validate its own arguments before calling. Fix: make the argument contract a parse that throws (or return a {ok,reason, y} result), keep null for the genuine no-surface case only. Evidence: Read src/shared/SpawnSurface.js (located by codesearch filename dispatch 1791678757082-500-a3e3b5eb789d5696); Number.isFinite literal sweep dispatch 1791678775821-500-2f531e02bf1d2452.'\n  status: fixed\n  title: src/shared/SpawnSurface.js collapses invalid input and no-surface-found into the same null\n  session_id: orch-main-r248"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.625Z"

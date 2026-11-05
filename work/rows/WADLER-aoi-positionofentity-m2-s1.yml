@@ -1,0 +1,6 @@
+id: "WADLER-aoi-positionofentity-m2-s1"
+kind: "prd"
+title: "[WADLER-aoi-positionofentity-m2-s1] [refuted] src/sdk/TickHandlerAOI.js _positionOfEntity collapses 'index has no such entity' and 'entity carries no position' into one bare null on the AOI hot path"
+body: "- id: WADLER-aoi-positionofentity-m2-s1\n  title: src/sdk/TickHandlerAOI.js _positionOfEntity collapses 'index has no such entity' and 'entity carries no position' into one bare null on the AOI hot path\n  surface: src/sdk\n  principle: WADLER\n  session: orch-main-spatial-m2-s1\n  depth: 3\n  witness_dispatch_id: 1791704798268-500-c5a508fb9d3f6d5\n  session_id: orch-main-spatial-m2-s1\n  status: refuted\n  witness_path: .gm/witness-out/WADLER-aoi-positionofentity-m2-s1-verdict.txt\n  note: the entity-position refusals are distinct cases: unknownEntity and noPosition are separate constants"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.770Z"

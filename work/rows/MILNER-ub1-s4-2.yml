@@ -1,0 +1,6 @@
+id: "MILNER-ub1-s4-2"
+kind: "prd"
+title: "[MILNER-ub1-s4-2] [retired] RETIRED (merged into MILNER-ub1-s4-1): XRSystem.js restates the frame step''s bounds as local literals and encodes rejection as 0, a number inside the parameter''s domain"
+body: "- id: MILNER-ub1-s4-2\n  detail: 'Merged into MILNER-ub1-s4-1 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Same single condition as the parent: the frame-step contract has no one home, so each site restates the bounds. This row was the XRSystem.js site (:bounds as local literals, rejection encoded as 0, a number inside the parameter''s domain). Its substance now belongs on MILNER-ub1-s4-1, which names the producer default at RenderGraph.nodes.js:100/:109.'\n  session_id: orch-main-r260-sub1-s2\n  status: retired\n  title: 'RETIRED (merged into MILNER-ub1-s4-1): XRSystem.js restates the frame step''s bounds as local literals and encodes rejection as 0, a number inside the parameter''s domain'"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.590Z"

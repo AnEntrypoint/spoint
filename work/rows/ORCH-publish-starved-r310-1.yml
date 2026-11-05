@@ -1,0 +1,6 @@
+id: "ORCH-publish-starved-r310-1"
+kind: "prd"
+title: "[ORCH-publish-starved-r310-1] [retired] Orchestrator publish starves twice behind a foreign session's repeated git_push"
+body: "- id: ORCH-publish-starved-r310-1\n  SESSION_ID: orch-main\n  title: Orchestrator publish starves twice behind a foreign session's repeated git_push\n  why: 'The tip of main (94b298f325, b9bc1d4978, 40782f87be and their ancestors) is unpushed. git_push dispatched twice (1791691926393-500-33ac91e8287178b, 1791692117911-500-a923f8431c89e7aa) and both starved at the 120 s cap with error_code dispatch_starved_waiting_for_serial_lane, lane_waiters 3 then 5. Every starvation names the same holder shape: a git_push from foreign session f73df536-0f66-49a1-8888-2a064d23416a (-hhotscbx, -4nck7pny, -hi5oiy67, -8ap9ohwp), i.e. one session re-pushing while holding the single git lane for minutes. git_pull cannot clear it either: it aborts on a worktree dirty with other lanes'' edits (apps/_lib/*, .gm/prd.yml, vendor/design) with ''Index was not unstashed''. Until the lane is fair, the publish needs a lane-free window, not more retries.'\n  surface: orchestrator-publish\n  witness: 1791692117911-500-a923f8431c89e7aa\n  session_id: orch-main\n  status: retired"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.762Z"

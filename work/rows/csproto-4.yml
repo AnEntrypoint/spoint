@@ -1,0 +1,6 @@
+id: "csproto-4"
+kind: "prd"
+title: "[csproto-4] [retired] src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it"
+body: "- id: csproto-4\n  SESSION_ID: orch-main-cs-protocol\n  title: 'src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it'\n  description: msgpack.js:47-49. Live witness 1791695818182-500-b609faa7b5e7177e evaluated the IIFE to /node_modules/msgpackr/index.js and showed isNode=true so the node branch (a direct msgpackr import) is the one taken there. The IIFE keeps esbuild and wrangler from statically resolving msgpackr. Promote to AGENTS.md at the next compaction.\n  session_id: orch-main-cs-protocol\n  status: retired\n  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.725Z"

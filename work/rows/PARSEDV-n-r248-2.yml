@@ -1,0 +1,6 @@
+id: "PARSEDV-n-r248-2"
+kind: "prd"
+title: "[PARSEDV-n-r248-2] [refuted] src/shared/MinimapBiome.js returns NaN and 1 as failure sentinels, forcing every caller to re-validate"
+body: "- id: PARSEDV-n-r248-2\n  SESSION_ID: orch-main-r248\n  body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/MinimapBiome.js uses failure sentinels instead of parsed results, so every caller must re-check: sampleMinimapCell:38 and :41 write four zeros into out and return NaN when the guarded height or the elevation is non-finite, and reliefShade:63 returns a literal 1 when the computed shade is non-finite. NaN and 1 are valid values of the return type, so the caller cannot distinguish a solved cell from a failed one and has to re-validate the output. Fix: parse the height/elevation once at the cell boundary into a value that carries the failure (null or a {ok,value} result), keep reliefShade total over finite inputs, and let sampleMinimapCell return that result instead of an in-band NaN. Evidence: Read src/shared/MinimapBiome.js (located by codesearch filename dispatch 1791678757082-500-a3e3b5eb789d5696).'\n  status: refuted\n  title: src/shared/MinimapBiome.js returns NaN and 1 as failure sentinels, forcing every caller to re-validate\n  session_id: orch-main-r248"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.624Z"

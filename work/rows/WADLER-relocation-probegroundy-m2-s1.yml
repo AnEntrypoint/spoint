@@ -1,0 +1,6 @@
+id: "WADLER-relocation-probegroundy-m2-s1"
+kind: "prd"
+title: "[WADLER-relocation-probegroundy-m2-s1] [refuted] src/sdk/Relocation.js probeGroundY collapses four distinct spawn-hold outcomes (heightfield collider not landed, static colliders pending near, no raycast capability, ray missed ground) into one bare null that holdSpawnUntilGrounded cannot name"
+body: "- id: WADLER-relocation-probegroundy-m2-s1\n  depth: 3\n  principle: WADLER\n  session: orch-main-spatial-m2-s1\n  surface: src/sdk\n  title: src/sdk/Relocation.js probeGroundY collapses four distinct spawn-hold outcomes (heightfield collider not landed, static colliders pending near, no raycast capability, ray missed ground) into one bare null that holdSpawnUntilGrounded cannot name\n  witness_dispatch_id: 1791705050847-500-11e0349d20177369\n  session_id: orch-main-spatial-m2-s1\n  status: refuted\n  witness_path: .gm/witness-out/WADLER-relocation-probegroundy-m2-s1-verdict.txt\n  note: probeSpawnHoldGround returns a distinct SPAWN_HOLD_REASON for each of its four outcomes, and the reason is logged"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.804Z"

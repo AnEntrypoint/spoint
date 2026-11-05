@@ -1,0 +1,6 @@
+id: "csproto-5"
+kind: "prd"
+title: "[csproto-5] [retired] src/protocol: MSG ids are not declared in ascending order; only uniqueness matters"
+body: "- id: csproto-5\n  SESSION_ID: orch-main-cs-protocol\n  title: 'src/protocol: MSG ids are not declared in ascending order; only uniqueness matters'\n  description: MessageTypes.js:96-97 places PEER_RTT_TABLE 0xc1 between FREDDIE_MESSAGE 0xac and HOST_MIGRATE 0xad, and :140-144 throw at module load on a duplicate id. Live witness 1791695660637-500-e76ed0e6cb395d0a imported MessageTypes.js with exit 0, proving every id is unique. Position carries no meaning. Promote to AGENTS.md at the next compaction.\n  session_id: orch-main-cs-protocol\n  status: retired\n  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.726Z"

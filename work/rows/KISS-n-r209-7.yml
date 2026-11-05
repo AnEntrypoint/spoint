@@ -1,0 +1,6 @@
+id: "KISS-n-r209-7"
+kind: "prd"
+title: "[KISS-n-r209-7] [refuted] client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0"
+body: "- id: KISS-n-r209-7\n  subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'\n  description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'\n  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop.'\n  status: refuted\n  session_id: orch-main-r209"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.584Z"

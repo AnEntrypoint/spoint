@@ -1,0 +1,6 @@
+id: "ILLEGAL-sub1-4"
+kind: "prd"
+title: "[ILLEGAL-sub1-4] [retired] RETIRED (merged into ILLEGAL-sub1-3): Stage and SpatialIndex admit invalid relevanceRadius -5 and \"50\" instead of falling back to the 200 default"
+body: "- id: ILLEGAL-sub1-4\n  detail: 'Merged into ILLEGAL-sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are one condition: relevanceRadius has no single parse boundary, so the router and the stage disagree about what a 0 (or an invalid) relevance radius means. -3 names the router-vs-stage disagreement; this row was the admission half (Stage and SpatialIndex admit -5 and \"50\" instead of falling back to the 200 default). One parse boundary closes both. Substance now belongs on ILLEGAL-sub1-3.'\n  session_id: orch-main-r260-sub1-s2\n  status: retired\n  title: 'RETIRED (merged into ILLEGAL-sub1-3): Stage and SpatialIndex admit invalid relevanceRadius -5 and \"50\" instead of falling back to the 200 default'"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.679Z"

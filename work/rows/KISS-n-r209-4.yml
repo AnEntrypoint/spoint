@@ -1,0 +1,6 @@
+id: "KISS-n-r209-4"
+kind: "prd"
+title: "[KISS-n-r209-4] [fixed] client/xr: reticleVisible mirrors this.reticle.visible by hand and the two disagree during placement"
+body: "- id: KISS-n-r209-4\n  subject: 'client/xr: reticleVisible mirrors this.reticle.visible by hand and the two disagree during placement'\n  description: 'KISS / client/xr. XRControls.js:12 declares this.reticleVisible and :60/:63 keep it in step with this.reticle.visible manually; :66 placeAnchor() gates on the flag rather than on the mesh, so one fact has two holders and the gate can be satisfied by a reticle that is not being shown. EVIDENCE exec_js dispatch 1791674700932-500-ca0dd4cbb6a92743 over the real class with a stub renderer, printing the flag BEFORE the call: pre reticleVisible=true meshVisible=false, post placeAnchor=true anchorPlaced=true reticleVisible=false -- an anchor was placed from a reticle marked visible while its mesh was not, matching the values written before the dispatch. FIX: gate on this.reticle?.visible and delete the flag.'\n  notes: 'witness: exec_js 1791674700932-500-ca0dd4cbb6a92743 (live, exact match; an earlier read taken after placeAnchor is superseded by this ordering). node-only row; not resolved by this hop.'\n  status: fixed\n  session_id: orch-main-r209"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.582Z"

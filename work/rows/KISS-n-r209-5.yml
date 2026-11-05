@@ -1,0 +1,6 @@
+id: "KISS-n-r209-5"
+kind: "prd"
+title: "[KISS-n-r209-5] [fixed] client/xr: detected planes build meshes that are never parented, so plane detection is invisible by construction"
+body: "- id: KISS-n-r209-5\n  subject: 'client/xr: detected planes build meshes that are never parented, so plane detection is invisible by construction'\n  description: 'KISS / client/xr. XRControls.js:50-53 onPlanesDetected creates a mesh per plane, stores it in this.planes and pushes it into planeMeshes; no mesh is ever added to a scene, so the entire visualisation is inert whatever the hardware reports. EVIDENCE exec_js dispatch 1791674670580-500-28dc34af9f8cff1 over the real class fed a synthetic planesdetected event: planeMeshes=2 planes=2 planeDetected=true parents=[null,null]. MERGES HUGHES-n-r163-4 (planeMeshes has zero readers): that row asks for the field to be deleted or derived; this row records that deleting it is only half the fix, because the meshes are also unparented -- either parent them on create or drop the visualisation and keep this.planes alone.'\n  notes: 'witness: exec_js 1791674670580-500-28dc34af9f8cff1 (live, exact match). Merges HUGHES-n-r163-4. node-only row; not resolved by this hop.'\n  status: fixed\n  session_id: orch-main-r209"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.583Z"

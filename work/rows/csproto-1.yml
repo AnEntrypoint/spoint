@@ -1,0 +1,6 @@
+id: "csproto-1"
+kind: "prd"
+title: "[csproto-1] [retired] src/protocol: WIRE_STRUCTURES[1] has 10 keys, AGENTS.md''s 8-key citation is stale"
+body: "- id: csproto-1\n  SESSION_ID: orch-main-cs-protocol\n  description: 'msgpack.js:5 and TickHandler.js:160. Live witnesses 1791695660637-500-e76ed0e6cb395d0a (struct1_len=10), 1791695715028-500-d5a1cb6b165de194 (_packPayload literal at TickHandler.js:160) and 1791695717748-500-9433eef22b912a2f (round-trip key order) show the list is 10 keys: seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch. AGENTS.md''s netcode bullet names only 8 and is stale. Correct at the next AGENTS.md compaction, which folds .gm/pool/comment-sweep-src-protocol.md.'\n  session_id: orch-main-cs-protocol\n  title: 'src/protocol: WIRE_STRUCTURES[1] has 10 keys, AGENTS.md''s 8-key citation is stale'\n  status: retired\n  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.723Z"

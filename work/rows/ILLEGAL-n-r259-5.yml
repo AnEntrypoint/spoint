@@ -1,0 +1,6 @@
+id: "ILLEGAL-n-r259-5"
+kind: "prd"
+title: "[ILLEGAL-n-r259-5] [fixed] src/protocol/EventEmitter.js: emit skips the next listener after any removal, once leaks on a throwing listener, and emit reports success when every listener threw"
+body: "- id: ILLEGAL-n-r259-5\n  title: 'src/protocol/EventEmitter.js: emit skips the next listener after any removal, once leaks on a throwing listener, and emit reports success when every listener threw'\n  body: 'emit iterates the live array with forEach (lines 33-39); the visited range is fixed at the start, so off() during an emit shifts the array and the following listener is skipped -- once() (lines 22-29) removes its wrapper only after fn returns, and fn throwing leaves the wrapper registered for every later emit, because emit swallows the error at lines 34-38. emit then returns true either way, so ''delivered'' and ''every listener failed'' are the same value and a failed delivery is unrepresentable. Fix: iterate a snapshot, remove the once wrapper in a finally, and return (or throw) the failure count. Live witness dispatch 1791680865914-500-49414c50f413ee2f observes all three states.'\n  session_id: orch-main-r259\n  status: fixed"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.668Z"

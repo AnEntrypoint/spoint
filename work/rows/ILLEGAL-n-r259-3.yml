@@ -1,0 +1,6 @@
+id: "ILLEGAL-n-r259-3"
+kind: "prd"
+title: "[ILLEGAL-n-r259-3] [refuted] src/protocol/ComponentSchema.js: an out-of-enum value and an out-of-range enum byte both become enum[0]"
+body: "- id: ILLEGAL-n-r259-3\n  title: 'src/protocol/ComponentSchema.js: an out-of-enum value and an out-of-range enum byte both become enum[0]'\n  body: '_writeField (lines 118-122) encodes idx >= 0 ? idx : 0, so any value outside field.enum is written as the first legal member; _readField (line 157) returns field.enum[byte] ?? field.enum[0], so a corrupt, truncated or future index decodes as the first member. Both directions map an illegal member onto a legal one instead of refusing it. Fix: throw when encoding a value outside field.enum and when decoding an index >= field.enum.length. FILE HELD: src/protocol/ComponentSchema.js carries foreign uncommitted dirt (git_status dispatch 1791680687421-500-3fc6c43e77f10d9c), so this row is filed, not applied.'\n  session_id: orch-main-r259\n  status: refuted"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.637Z"

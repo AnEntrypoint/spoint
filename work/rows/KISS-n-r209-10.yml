@@ -1,0 +1,6 @@
+id: "KISS-n-r209-10"
+kind: "prd"
+title: "[KISS-n-r209-10] [fixed] client/xr: __freshnessProbe is a committed witness marker with no reader"
+body: "- id: KISS-n-r209-10\n  subject: 'client/xr: __freshnessProbe is a committed witness marker with no reader'\n  description: 'KISS / client/xr. XRWidgets.js:203 exports const __freshnessProbe = 1. Nothing in the tree reads it: the only other occurrences of the string are scripts/bundle-freshness-witness.mjs:155 and :174, which APPEND that exact line to a scratch-root copy of a client input (:146 makeScratchRoot) or to a dist artifact so the freshness check sees a changed input. The witness writes the marker; it never reads the committed one, so a marker whose only purpose is to mutate a temporary copy ships in source and rides every bundle. EVIDENCE codesearch literal __freshnessProbe dispatch 1791674219166 (3 occurrences: the export plus the two witness append sites). FIX: delete the export; nothing depends on it.'\n  notes: 'witness: codesearch literal 1791674219166; scripts/bundle-freshness-witness.mjs:145-181 read directly (scratch-root append path). node-only row; not resolved by this hop.'\n  status: fixed\n  session_id: orch-main-r209"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.586Z"

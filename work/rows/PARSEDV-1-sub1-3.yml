@@ -1,0 +1,6 @@
+id: "PARSEDV-1-sub1-3"
+kind: "prd"
+title: "[PARSEDV-1-sub1-3] [retired] scripts/lib/verify-doc-claims.mjs: the open-question exclusion matches the heading text (## .*Open questions), so renaming section 13 silently re-admits its bullets as figure rows"
+body: "- id: PARSEDV-1-sub1-3\n  title: 'scripts/lib/verify-doc-claims.mjs: the open-question exclusion matches the heading text (## .*Open questions), so renaming section 13 silently re-admits its bullets as figure rows'\n  body: 'Witness 1791698264682-500-e66513d7cf2ca62d (fixture carries a ''## 13. Open questions'' heading and its bullets class as open-question). The parse keys isOpenQuestion off a regex over the heading title, so the gate''s notion of ''which rows are exempt'' is a string it re-derives per line instead of a field of the parsed section. Fix: parse the heading into (number, title) and exempt by section number (13), with the title recorded only for the report; then a rename moves no admission. Verify with the same differential fixture: rename the heading and confirm the classification counts hold.'\n  session_id: orch-main-r302-sub1-i1-sub1\n  status: retired"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.768Z"

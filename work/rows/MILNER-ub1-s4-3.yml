@@ -1,0 +1,6 @@
+id: "MILNER-ub1-s4-3"
+kind: "prd"
+title: "[MILNER-ub1-s4-3] [retired] RETIRED (merged into MILNER-ub1-s4-1): app.js damageNumbers.update imposes a 4 ms floor as a bare literal -- a second frame-step bound no type states"
+body: "- id: MILNER-ub1-s4-3\n  detail: 'Merged into MILNER-ub1-s4-1 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Same single condition as the parent: the frame-step contract has no one home, so each site restates the bounds. This row was the app.js site (damageNumbers.update imposes a 4 ms floor as a bare literal). Its substance now belongs on MILNER-ub1-s4-1, which names the producer default at RenderGraph.nodes.js:100/:109.'\n  session_id: orch-main-r260-sub1-s2\n  status: retired\n  title: 'RETIRED (merged into MILNER-ub1-s4-1): app.js damageNumbers.update imposes a 4 ms floor as a bare literal -- a second frame-step bound no type states'"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.590Z"

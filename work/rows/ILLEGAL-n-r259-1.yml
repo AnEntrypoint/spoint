@@ -1,0 +1,6 @@
+id: "ILLEGAL-n-r259-1"
+kind: "prd"
+title: "[ILLEGAL-n-r259-1] [fixed] src/protocol/InputCodec.js: an extra axis named expr/analogForward/analogRight, or duplicated, is accepted and silently overwritten"
+body: "- id: ILLEGAL-n-r259-1\n  title: 'src/protocol/InputCodec.js: an extra axis named expr/analogForward/analogRight, or duplicated, is accepted and silently overwritten'\n  body: 'createInputSchema filters extra axes against the button names, ''yaw'' and ''pitch'' (InputCodec.js:25) but not against ''expr'', ''analogForward'', ''analogRight''; readRecord then assigns input.expr (line 81) and input.analogForward/analogRight (lines 86-87) after the axis loop, so such an axis is written and then destroyed, and a duplicate axis name is written twice with the last write winning. Illegal schema -> well-formed wire bytes carrying a lost value. Fix: apply RESERVED_INPUT_NAMES (added by this hop at line 7) plus a duplicate check to the axes filter, throwing as the button path now does. Unreachable for shipped worlds: codesearch literal ''inputButtons'' is 0 matches in apps (dispatch 1791680780808-500-7307115b039e78b0, exhaustive) and in packages (1791680734212-500-d55e75e84c6561e8).'\n  session_id: orch-main-r259\n  status: fixed"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.636Z"

@@ -1,0 +1,6 @@
+id: "HICKEY-272sub1s4sub1sub1-4"
+kind: "prd"
+title: "[HICKEY-272sub1s4sub1sub1-4] [retired] RETIRED (merged into HICKEY-272sub1s4sub1sub1-3): Owed push of ad21ca7172 (git lane starved twice)"
+body: "- id: HICKEY-272sub1s4sub1sub1-4\n  detail: 'Merged into HICKEY-272sub1s4sub1sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are the same owe on commit ad21ca7172: -3 carries the re-witness half, this row the push half. One delivery closes both, so they are one condition. Substance now belongs on HICKEY-272sub1s4sub1sub1-3.'\n  session_id: orch-main-r260-sub1-s2\n  status: retired\n  title: 'RETIRED (merged into HICKEY-272sub1s4sub1sub1-3): Owed push of ad21ca7172 (git lane starved twice)'"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.678Z"

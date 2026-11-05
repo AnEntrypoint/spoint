@@ -1,0 +1,6 @@
+id: "csproto-3"
+kind: "prd"
+title: "[csproto-3] [refuted] src/protocol: msgpack resolves its Packr asynchronously, so pack/unpack throw until ensurePacked settles"
+body: "- id: csproto-3\n  SESSION_ID: orch-main-cs-protocol\n  title: 'src/protocol: msgpack resolves its Packr asynchronously, so pack/unpack throw until ensurePacked settles'\n  description: msgpack.js:59-73. Live witness 1791695717748-500-9433eef22b912a2f printed isPacked_sync_after_import=false and isPacked_after_await=true, and pack/unpack round-tripped only after the await. A caller on the first tick before the boot await throws. Promote to AGENTS.md at the next compaction.\n  session_id: orch-main-cs-protocol\n  status: refuted\n  witness_path: .gm/witness-out/prd-tail-msgpack-settle-probe.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.724Z"

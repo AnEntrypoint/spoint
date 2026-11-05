@@ -1,0 +1,6 @@
+id: "ILLEGAL-n-r259-2"
+kind: "prd"
+title: "[ILLEGAL-n-r259-2] [refuted] src/protocol/InputCodec.js: encodeInputPacket silently discards every input beyond MAX_INPUTS_PER_PACKET"
+body: "- id: ILLEGAL-n-r259-2\n  title: 'src/protocol/InputCodec.js: encodeInputPacket silently discards every input beyond MAX_INPUTS_PER_PACKET'\n  body: 'encodeInputPacket (lines 96-97) takes Math.min(MAX_INPUTS_PER_PACKET, entries.length) and encodes only the newest n; the caller gets bytes back and no signal that older entries were dropped, so an over-full batch is an encodable state that loses data invisibly. decodeInputPacket already refuses a count outside 1..8 (line 114) and refuses trailing bytes (line 128), so the encoder is the only half of the pair that tolerates an illegal input count. Fix: report the truncation to the caller (dropped count or a flag) so an over-full batch cannot be silently reduced. Tracked witness scripts/input-packet-codec-roundtrip-witness.mjs already asserts the keep-newest-8 behaviour, so the fix must keep it.'\n  session_id: orch-main-r259\n  status: refuted"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.636Z"

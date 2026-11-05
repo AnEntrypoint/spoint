@@ -1,0 +1,6 @@
+id: "ILLEGAL-n-r259-4"
+kind: "prd"
+title: "[ILLEGAL-n-r259-4] [refuted] src/protocol/ComponentSchema.js: decodeCustomFields turns a corrupt or truncated buffer into a well-formed object"
+body: "- id: ILLEGAL-n-r259-4\n  title: 'src/protocol/ComponentSchema.js: decodeCustomFields turns a corrupt or truncated buffer into a well-formed object'\n  body: 'presence is `dv.getUint8(off) === 1` (line 139), so any non-1 byte -- corruption, not just 0 -- reads as absent; the string length from getUint16 (line 142) is never checked against the bytes remaining and subarray silently clamps (line 143), so a truncated string decodes shorter instead of being refused; no read is bounds-checked against bytes.length, and bytes past the last schema field are ignored, while the sibling decoder InputCodec.js:128 refuses trailing bytes. fieldByteSize also returns null for ''string'' (VARIABLE_BYTE_SIZE, lines 5 and 12) and callers coerce it with `|| 0` (line 72) and `1 + fieldByteSize(field)` (line 90). Fix: bound-check every read, reject a string length exceeding the buffer, reject trailing bytes, and give string its own size path. FILE HELD: see ILLEGAL-n-r259-3.'\n  session_id: orch-main-r259\n  status: refuted"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.638Z"

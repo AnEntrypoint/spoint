@@ -1,0 +1,6 @@
+id: "csproto-2"
+kind: "prd"
+title: "[csproto-2] [refuted] src/protocol: msgName and isUnreliable return null, not false, for an unregistered message id"
+body: "- id: csproto-2\n  SESSION_ID: orch-main-cs-protocol\n  description: MessageTypes.js:147 and :156 return null for an id absent from MSG. Live witness 1791695660637-500-e76ed0e6cb395d0a printed msgName_unknown=null and isUnreliable_unknown=null. So ===false never matches an unknown id and a falsy test conflates unknown with reliable. Promote to AGENTS.md at the next compaction; AGENTS.md was not edited this pass (29998 bytes, 17 hops citing it).\n  title: 'src/protocol: msgName and isUnreliable return null, not false, for an unregistered message id'\n  session_id: orch-main-cs-protocol\n  status: refuted\n  witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.760Z"

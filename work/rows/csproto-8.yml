@@ -1,0 +1,6 @@
+id: "csproto-8"
+kind: "prd"
+title: "[csproto-8] [retired] src/protocol: quantizeInput clamps pitch to HALF_PI and wraps yaw into 0..TAU"
+body: "- id: csproto-8\n  SESSION_ID: orch-main-cs-protocol\n  title: 'src/protocol: quantizeInput clamps pitch to HALF_PI and wraps yaw into 0..TAU'\n  description: InputCodec.js:41-54. Live witness 1791695784354-500-8df56aa1168327d3 quantized yaw 7.5 to 1.216830259990285 and pitch 1.9 to 1.5707963267948966, so both a wrap and a silent clamp are applied. Promote to AGENTS.md at the next compaction.\n  session_id: orch-main-cs-protocol\n  status: retired\n  witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.759Z"

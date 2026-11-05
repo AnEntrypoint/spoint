@@ -1,0 +1,6 @@
+id: "csproto-6"
+kind: "prd"
+title: "[csproto-6] [retired] src/protocol: pack and unpack use asymmetric useFloat32 (NEVER vs DECIMAL_ROUND); do not symmetrize"
+body: "- id: csproto-6\n  SESSION_ID: orch-main-cs-protocol\n  title: 'src/protocol: pack and unpack use asymmetric useFloat32 (NEVER vs DECIMAL_ROUND); do not symmetrize'\n  description: msgpack.js:51-52 build Packr with NEVER and Unpackr with DECIMAL_ROUND. Live witness 1791695778035-500-341e2621b2c31db3 printed NEVER=0 DECIMAL_ROUND=3 distinct=true and round-tripped 1.5, 1.1 and 0.30000000000000004 exactly. Promote to AGENTS.md at the next compaction.\n  session_id: orch-main-cs-protocol\n  status: retired\n  witness_path: .gm/witness-out/prd-tail-protocol-probe.txt"
+status: "resolved"
+createdAt: "2026-11-05T13:14:33.726Z"
