@@ -1,0 +1,9 @@
+id: "prd-mw3yop866ce4"
+kind: "prd"
+title: "Ballistic solver accepts vec3 arrays and leads a moving target"
+body: "src/shared/ballistics.js solveShot now reads [x,y,z] arrays or {x,y,z} objects, uses a 5th lead argument as target velocity and iterates the aim point by flight time, returns the fired-at aim, and refuses invalid input with reasonCode. scripts/ballistics-lead-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T19:51:42.774Z"
+witnessEvent: 3164
+witnessCommit: "9bd37d6"
+resolvedAt: "2026-11-05T19:53:25.535Z"

@@ -1,0 +1,9 @@
+id: "prd-mw3yop867e81"
+kind: "prd"
+title: "Two-sided atomic trade kernel and acceptance book"
+body: "src/behaviours/trade.js settleTrade is a pure kernel that never mutates its inputs; createTradeBook settles exactly once after both parties accept, rolls the acceptance back when settlement refuses, and carries coded refusals. scripts/two-sided-trade-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T19:51:42.774Z"
+witnessEvent: 3164
+witnessCommit: "9bd37d6"
+resolvedAt: "2026-11-05T19:53:43.983Z"

@@ -1,0 +1,9 @@
+id: "prd-mw3yop87a757"
+kind: "prd"
+title: "Post-write verification and retry for parallel write batches"
+body: "scripts/lib/write-verified.mjs writeAllVerified reads every output back after a Promise.all write, retries empty or mismatched outputs, and refuses with reasonCode when they stay wrong. scripts/write-verified-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T19:51:42.775Z"
+witnessEvent: 3164
+witnessCommit: "9bd37d6"
+resolvedAt: "2026-11-05T19:54:02.748Z"
