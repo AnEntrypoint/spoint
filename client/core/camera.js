@@ -48,6 +48,30 @@ function isDescendant(obj, ancestor) {
   return false
 }
 
+const OCCLUDER_FADE_ALPHA = 0.25
+const OCCLUDER_FADE_RATE = 8
+const _occluderMats = new WeakMap()
+
+function setOccluderAlpha(root, alpha) {
+  root.traverse(o => {
+    if (!o.isMesh || Array.isArray(o.material)) return
+    const rec = _occluderMats.get(o)
+    if (alpha >= 1) {
+      if (rec && o.material === rec.clone) o.material = rec.original
+      _occluderMats.delete(o)
+      return
+    }
+    if (!rec || o.material !== rec.clone) {
+      const original = o.material
+      const clone = original.clone()
+      _occluderMats.set(o, { original, clone })
+      o.material = clone
+    }
+    o.material.transparent = true
+    o.material.opacity = alpha
+  })
+}
+
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false, mode = 'tps'
   let editMode = false, editCamPos = new THREE.Vector3(0, 5, 10), editCamSpeed = 8
@@ -86,6 +110,7 @@ export function createCameraController(camera, scene) {
   let invertY = false
   let pitchMin = -1.4, pitchMax = 1.4
   let fpsRayTimer = 0, tpsRayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let clipOccluder = null, fadedOccluder = null, occluderAlpha = 1
   let targetSmoothTime = 0.02, cameraSmoothTime = 0.03, lookSmoothTime = 0.025
   let clipInSmoothTime = 0.02, clipOutSmoothTime = 0.10, tpsRayInterval = 0
   let inputYawDelta = 0, inputPitchDelta = 0, inputSmoothHz = 28
@@ -212,19 +237,31 @@ export function createCameraController(camera, scene) {
       _lastRayCamPos.copy(camera.position); _lastRayAimDir.copy(aimDir)
       camRaycaster.set(_smoothTarget, camDir); camRaycaster.far = fullDist; camRaycaster.near = 0
       let targetClipDist = fullDist
+      let occluderHit = null
       if (envMeshes.length) {
         ensureBvhMeshes()
         if (_bvhMeshes.length) {
           const clipSet = bvhMeshesAlongRay(_smoothTarget, camDir, fullDist)
           for (const hit of camRaycaster.intersectObjects(clipSet, false)) {
             if (localMesh && isDescendant(hit.object, localMesh)) continue
-            if (hit.distance < targetClipDist) targetClipDist = hit.distance - 0.2
+            if (hit.distance < targetClipDist) { targetClipDist = hit.distance - 0.2; occluderHit = hit.object }
           }
           if (targetClipDist < 0.3) targetClipDist = 0.3
         }
       }
+      clipOccluder = occluderHit
       const clipT = 1 - Math.exp(-(targetClipDist < cachedClipDist ? 1 / clipInSmoothTime : 1 / clipOutSmoothTime) * rayDt)
       cachedClipDist += (targetClipDist - cachedClipDist) * clipT
+    }
+    if (clipOccluder && clipOccluder !== fadedOccluder) {
+      if (fadedOccluder) setOccluderAlpha(fadedOccluder, 1)
+      fadedOccluder = clipOccluder
+    }
+    if (fadedOccluder) {
+      const fadeTarget = clipOccluder ? OCCLUDER_FADE_ALPHA : 1
+      occluderAlpha += (fadeTarget - occluderAlpha) * (1 - Math.exp(-OCCLUDER_FADE_RATE * frameDt))
+      setOccluderAlpha(fadedOccluder, occluderAlpha)
+      if (!clipOccluder && occluderAlpha > 0.99) { setOccluderAlpha(fadedOccluder, 1); fadedOccluder = null; occluderAlpha = 1 }
     }
     const clippedDist = Math.min(cachedClipDist, fullDist)
     camDesired.set(_smoothTarget.x + camDir.x*clippedDist, _smoothTarget.y + camDir.y*clippedDist, _smoothTarget.z + camDir.z*clippedDist)
