@@ -2,6 +2,7 @@ import { fork } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { join, dirname } from 'node:path'
 import { readJsonBody, httpJsonRequest, scoreWorkerRooms, startRoomOrchestratorRouter } from './RoomOrchestratorHttp.js'
+import { selectRoomForJoin } from './RoomPick.js'
 
 export { readJsonBody }
 
@@ -11,7 +12,7 @@ const DEFAULT_LOCAL_WORKER_HOST = '127.0.0.1'
 const workerMessageType = (msg) => (msg && typeof msg === 'object' ? msg.type : undefined)
 
 export class RoomOrchestrator {
-  constructor({ sdkRoot = null, projectRoot = null, workerCount = 2, portRange = [19000, 19999], elasticScaling = false, elasticScaleUpThreshold = 0.8, elasticScaleDownCooldownMs = 120000, elasticScaleCheckIntervalMs = 30000, workerHosts = {}, restartOnCrash = true, maxRestarts = 3, restartWindowMs = 60000, externalWorkerHeartbeatIntervalMs = 10000 } = {}) {
+  constructor({ sdkRoot = null, projectRoot = null, workerCount = 2, portRange = [19000, 19999], elasticScaling = false, elasticScaleUpThreshold = 0.8, elasticScaleDownCooldownMs = 120000, elasticScaleCheckIntervalMs = 30000, workerHosts = {}, restartOnCrash = true, maxRestarts = 3, restartWindowMs = 60000, externalWorkerHeartbeatIntervalMs = 10000, pickRoom = null } = {}) {
     if (!sdkRoot) throw new Error('RoomOrchestrator requires { sdkRoot }')
     this.sdkRoot = sdkRoot
     this.projectRoot = projectRoot || sdkRoot
@@ -40,6 +41,7 @@ export class RoomOrchestrator {
     this._elasticStats = { spawns: 0, retires: 0, lastCheck: 0, lastDecision: '' }
     this._externalWorkerHeartbeatIntervalMs = externalWorkerHeartbeatIntervalMs
     this._externalHeartbeatTimer = null
+    this._pickRoom = pickRoom
   }
 
   _subRangeFor(workerIndex) {
@@ -391,6 +393,12 @@ export class RoomOrchestrator {
     const worker = this.workers[loc.workerIndex]
     const resolvedHost = host || (worker?.host) || DEFAULT_LOCAL_WORKER_HOST
     return { host: resolvedHost, port: loc.port, workerIndex: loc.workerIndex, worldName: loc.worldName }
+  }
+
+  async pickRoomForJoin(request) {
+    const room = selectRoomForJoin({ candidates: await this.getStatus(), request, pickRoom: this._pickRoom })
+    const loc = room && this.route(room.roomId)
+    return loc ? { roomId: room.roomId, ...loc } : null
   }
 
   async getStatus() {
