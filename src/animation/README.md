@@ -29,6 +29,18 @@ animSystem.update(dt, {
 - `BlendTree.js` - 1D/2D animation blending
 - `IKSolver.js` - Inverse kinematics solvers
 - `SkeletonUtils.js` - Bone utilities and network packing
+- `RagdollPose.js` - Per-joint strength ragdoll pose with a kinematic hip anchor
+
+## Ragdoll
+
+```javascript
+const ragdoll = animSystem.createRagdoll({ strengths: { leftUpperLeg: 0.2 } })
+ragdoll.setStrength('leftLowerArm', 0)
+ragdoll.setAll(0)
+animSystem.removeRagdoll()
+```
+
+Strength 1 follows the animation at `stiffness`, 0 falls to the bind pose at `limpRate`. The hips stay on the animation and anchor the rig.
 
 ## States
 
@@ -115,6 +127,5 @@ Compression: 8x smaller than Float32Array (quaternions only)
 - Procedural walking IK for uneven terrain
 - Constraint-based IK with joint limits  
 - Morph target/blend shape support
-- Ragdoll physics on death
 - Animation retargeting for skeleton scaling
 - Gait cycle analysis
