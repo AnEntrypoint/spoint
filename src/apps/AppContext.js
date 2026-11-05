@@ -177,8 +177,9 @@ export class AppContext {
       setMovementOverride: (pid, overrides) => runtime.setPlayerMovementOverride(pid, overrides),
       setLifecycle: (pid, state, opts) => runtime.setPlayerLifecycle?.(pid, state, opts),
       playAnimation: (pid, clip, opts) => runtime.playPlayerAnimation?.(pid, clip, opts),
-      attachEntity: (pid, entityId, offset) => runtime.attachEntityToPlayer?.(entityId, pid, offset),
+      attachEntity: (pid, entityId, offset, bone) => runtime.attachEntityToPlayer?.(entityId, pid, offset, bone ?? null),
       detachEntity: (entityId) => runtime.detachEntityFromPlayer?.(entityId),
+      attachmentOf: (entityId) => runtime.getEntityAttachment?.(entityId) ?? null,
       onPlayerContact: (radius, cb) => {
         if (typeof cb !== 'function') throw new TypeError('[AppContext] onPlayerContact: callback must be a function')
         if (!this._admitsRegistration('players.onPlayerContact')) return () => {}
