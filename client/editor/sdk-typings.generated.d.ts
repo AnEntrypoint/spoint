@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: 03ef8104d8b06b8b49ee2683b19618e23575801ac63835c15adac14e0d5b515b
+// source digest: e890cd60a934f31eda86ad72bdabed4efb8a3bd20e8c3cf90a3fb7bab049a76d
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 export declare class AppContext {
@@ -597,10 +597,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
-            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
+            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};
