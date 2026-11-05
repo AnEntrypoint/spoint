@@ -1,0 +1,9 @@
+id: "prd-mw44kzx24b3d"
+kind: "prd"
+title: "Per-player touch selector, labels and input channels"
+body: "src/apps/SurfaceSelectorRuntime.js maps labels, hides on null, suppresses rapid swaps and releases held fingers; the existing parseSurfaceSelector module is untouched. scripts/touch-selector-channels-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.702Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:48.499Z"

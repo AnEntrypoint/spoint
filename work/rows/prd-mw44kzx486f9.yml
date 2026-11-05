@@ -1,0 +1,9 @@
+id: "prd-mw44kzx486f9"
+kind: "prd"
+title: "Read-only live exec"
+body: "scripts/lib/live-exec.mjs separates read-only from persist and validates realm, input and options. scripts/live-exec-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.704Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:49.096Z"

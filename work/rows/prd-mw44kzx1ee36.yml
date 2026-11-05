@@ -1,0 +1,9 @@
+id: "prd-mw44kzx1ee36"
+kind: "prd"
+title: "Procedural leaf-spray texture generator"
+body: "src/vegetation/leafSprayTexture.js builds a deterministic upper-corner alpha texture reaching a coverage target for broad and needle species. scripts/leaf-spray-texture-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.701Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:48.103Z"

@@ -1,0 +1,9 @@
+id: "prd-mw44kzx1899d"
+kind: "prd"
+title: "Gravity-aware projectile integration"
+body: "src/behaviours/projectileGravity.js steps velocity and position under gravity and sweeps substep rays. scripts/projectile-gravity-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.701Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:47.908Z"

@@ -1,0 +1,9 @@
+id: "prd-mw44kzx23080"
+kind: "prd"
+title: "Targeted press ear and nearest-facing interact prompt"
+body: "src/interaction/pressRouter.js selects the nearest camera-facing target and routes channel events by recipient. scripts/press-router-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.702Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:48.303Z"

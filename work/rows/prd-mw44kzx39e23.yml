@@ -1,0 +1,9 @@
+id: "prd-mw44kzx39e23"
+kind: "prd"
+title: "Declarative spherical joint handles"
+body: "src/physics/jointMap.js carries to/anchor/targetAnchor/axis/target/strength/limits, preserves the first pose across retunes and refuses by code. scripts/joint-map-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.703Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:48.698Z"

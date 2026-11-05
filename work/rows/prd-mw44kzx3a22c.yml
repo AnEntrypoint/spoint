@@ -1,0 +1,9 @@
+id: "prd-mw44kzx3a22c"
+kind: "prd"
+title: "Agent command registry: numbers, logs, events, prefetch"
+body: "scripts/lib/agent-commands.mjs emits JSON lines with bounded filters. scripts/agent-commands-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.703Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:48.900Z"

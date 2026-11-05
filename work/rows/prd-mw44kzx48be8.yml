@@ -1,0 +1,9 @@
+id: "prd-mw44kzx48be8"
+kind: "prd"
+title: "Offline remote-model URL manifest check"
+body: "scripts/check-remote-model-manifest.mjs verifies remote .glb URLs against the SKILL.md manifest and refuses a guessed URL. It prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:36:47.704Z"
+witnessEvent: 848
+witnessCommit: "1c729af"
+resolvedAt: "2026-11-05T22:36:49.296Z"
