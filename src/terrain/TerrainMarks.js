@@ -1,129 +1,156 @@
 export class TerrainMarkError extends Error {
-  constructor(code, message) {
-    super(message)
+  constructor(reasonCode, index, detail) {
+    super(`[terrain-marks] mark ${index}: ${detail}`)
     this.name = 'TerrainMarkError'
-    this.reasonCode = code
+    this.reasonCode = reasonCode
+    this.index = index
   }
 }
 
-const KINDS = Object.freeze(['sea', 'lake', 'river', 'flatten', 'path'])
+export const TERRAIN_MARK_KINDS = Object.freeze(['flatten', 'pond', 'river', 'path', 'clear'])
 
-const clamp01 = (v) => Math.min(1, Math.max(0, v))
-const smooth = (t) => t * t * (3 - 2 * t)
+const smooth = (t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t)
 
-function circleWeight(dist, radius, falloff) {
-  if (dist <= radius) return 1
-  if (!(falloff > 0) || dist >= radius + falloff) return 0
-  return 1 - smooth((dist - radius) / falloff)
+function finiteAt(spec, index, key, { min = -Infinity, positive = false } = {}) {
+  const v = spec[key]
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new TerrainMarkError('bad-number', index, `${key} must be a finite number`)
+  if (v < min || (positive && !(v > 0))) throw new TerrainMarkError('bad-number', index, `${key} is out of range (${v})`)
+  return v
 }
 
-function nearestOnSegment(px, pz, a, b) {
-  const dx = b[0] - a[0]
-  const dz = b[1] - a[1]
+function pointAt(spec, index, key) {
+  const p = spec[key]
+  if (!Array.isArray(p) || p.length !== 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) throw new TerrainMarkError('bad-point', index, `${key} must be [x, z] of finite numbers`)
+  return [p[0], p[1]]
+}
+
+function polylineAt(spec, index, key, withLevels) {
+  const raw = spec[key]
+  if (!Array.isArray(raw) || raw.length < 2) throw new TerrainMarkError('short-polyline', index, `${key} needs at least two points`)
+  return raw.map((p, i) => {
+    const xz = pointAt({ p }, index, 'p')
+    if (!withLevels) return { x: xz[0], z: xz[1] }
+    const level = finiteAt(p.length === 3 ? { level: p[2] } : {}, index, 'level')
+    return { x: xz[0], z: xz[1], level }
+  })
+}
+
+function segmentDistance(x, z, a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z
   const len2 = dx * dx + dz * dz
-  const t = len2 > 0 ? clamp01(((px - a[0]) * dx + (pz - a[1]) * dz) / len2) : 0
-  return { t, dist: Math.hypot(px - (a[0] + dx * t), pz - (a[1] + dz * t)) }
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0
+  const px = a.x + dx * t - x, pz = a.z + dz * t - z
+  return { d: Math.hypot(px, pz), t }
 }
 
-function nearestOnPolyline(px, pz, points) {
-  let best = null
-  for (let i = 0; i + 1 < points.length; i += 1) {
-    const hit = nearestOnSegment(px, pz, points[i], points[i + 1])
-    if (best === null || hit.dist < best.dist) best = { ...hit, i }
+function nearestOnPolyline(x, z, pts) {
+  let best = { d: Infinity, t: 0, i: 0 }
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const r = segmentDistance(x, z, pts[i], pts[i + 1])
+    if (r.d < best.d) best = { d: r.d, t: r.t, i }
   }
   return best
 }
 
-function levelAt(a, b, t) {
-  const la = a[2] ?? 0
-  const lb = b[2] ?? 0
-  return la + (lb - la) * t
-}
-
-function refuse(mark) {
-  throw new TerrainMarkError('terrain-mark-unknown-kind', `terrain mark kind ${JSON.stringify(mark?.kind)} is not one of ${KINDS.join(', ')}`)
-}
-
-function compileMark(mark) {
-  if (!KINDS.includes(mark?.kind)) refuse(mark)
-  if (mark.kind === 'sea') {
-    const level = mark.level ?? 0
-    return { surface: () => level, height: (x, z, h) => h, path: () => false }
-  }
-  if (mark.kind === 'lake') {
-    const level = mark.level ?? 0
-    const depth = mark.depth ?? 0
-    const { x: cx, z: cz } = mark.at
-    const radius = mark.radius
-    const inside = (x, z) => Math.hypot(x - cx, z - cz) <= radius
-    return {
-      surface: (x, z) => (inside(x, z) ? level : null),
-      height: (x, z, h) => (inside(x, z) && depth > 0 ? Math.min(h, level - depth) : h),
-      path: () => false,
-    }
-  }
-  if (mark.kind === 'river') {
-    const points = mark.points
-    const half = mark.width * 0.5
-    const depth = mark.depth ?? 0
-    const near = (x, z) => nearestOnPolyline(x, z, points)
-    const inChannel = (hit) => hit !== null && hit.dist <= half
-    return {
-      surface: (x, z) => {
-        const hit = near(x, z)
-        return inChannel(hit) ? levelAt(points[hit.i], points[hit.i + 1], hit.t) : null
-      },
-      height: (x, z, h) => {
-        const hit = near(x, z)
-        if (!inChannel(hit) || !(depth > 0)) return h
-        return Math.min(h, levelAt(points[hit.i], points[hit.i + 1], hit.t) - depth)
-      },
-      path: () => false,
-    }
-  }
-  if (mark.kind === 'flatten') {
-    const { x: cx, z: cz } = mark.center
-    const radius = mark.shape.radius
-    const falloff = mark.falloff ?? 0
-    return {
-      surface: () => null,
-      height: (x, z, h) => {
-        const w = circleWeight(Math.hypot(x - cx, z - cz), radius, falloff)
-        return h + (mark.height - h) * w
-      },
-      path: () => false,
-    }
-  }
-  const half = mark.width * 0.5
+function compileFlatten(spec, index) {
+  const c = pointAt(spec, index, 'center')
+  const radius = finiteAt(spec, index, 'radius', { positive: true })
+  const falloff = finiteAt(spec, index, 'falloff', { min: 0 })
+  const height = finiteAt(spec, index, 'height')
   return {
-    surface: () => null,
-    height: (x, z, h) => h,
-    path: (x, z) => {
-      const hit = nearestOnPolyline(x, z, mark.points)
-      return hit !== null && hit.dist <= half
+    apply(x, z, h) {
+      const d = Math.hypot(x - c[0], z - c[1])
+      const w = 1 - smooth((d - radius) / (falloff || 1e-9))
+      return w <= 0 ? h : h + (height - h) * w
+    },
+    clears: () => false,
+  }
+}
+
+function compilePond(spec, index) {
+  const c = pointAt(spec, index, 'center')
+  const radius = finiteAt(spec, index, 'radius', { positive: true })
+  const falloff = finiteAt(spec, index, 'falloff', { min: 0 })
+  const level = finiteAt(spec, index, 'level')
+  return {
+    apply(x, z, h) {
+      const d = Math.hypot(x - c[0], z - c[1])
+      const w = 1 - smooth((d - radius) / (falloff || 1e-9))
+      if (w <= 0) return h
+      const target = Math.min(h, level)
+      return h + (target - h) * w
+    },
+    clears: () => false,
+  }
+}
+
+function compileRiver(spec, index) {
+  const pts = polylineAt(spec, index, 'points', false)
+  const width = finiteAt(spec, index, 'width', { positive: true })
+  const falloff = finiteAt(spec, index, 'falloff', { min: 0 })
+  const depth = finiteAt(spec, index, 'depth', { min: 0 })
+  const half = width / 2
+  return {
+    apply(x, z, h) {
+      const { d } = nearestOnPolyline(x, z, pts)
+      const w = 1 - smooth((d - half) / (falloff || 1e-9))
+      return w <= 0 ? h : h - depth * w
+    },
+    clears: () => false,
+  }
+}
+
+function compilePath(spec, index) {
+  const pts = polylineAt(spec, index, 'points', true)
+  const width = finiteAt(spec, index, 'width', { positive: true })
+  const falloff = finiteAt(spec, index, 'falloff', { min: 0 })
+  const half = width / 2
+  return {
+    apply(x, z, h) {
+      const { d, i, t } = nearestOnPolyline(x, z, pts)
+      const w = 1 - smooth((d - half) / (falloff || 1e-9))
+      if (w <= 0) return h
+      const level = pts[i].level + (pts[i + 1].level - pts[i].level) * t
+      return h + (level - h) * w
+    },
+    clears: () => false,
+  }
+}
+
+function compileClear(spec, index) {
+  const c = pointAt(spec, index, 'center')
+  const radius = finiteAt(spec, index, 'radius', { positive: true })
+  const r2 = radius * radius
+  return {
+    apply: (x, z, h) => h,
+    clears(x, z) {
+      const dx = x - c[0], dz = z - c[1]
+      return dx * dx + dz * dz <= r2
     },
   }
 }
 
-export function createTerrainMarks(marks = []) {
-  const compiled = Object.values(marks).map(compileMark)
-  return {
-    heightAt(x, z, base) {
-      let h = base
-      for (const m of compiled) h = m.height(x, z, h)
-      return h
+const COMPILERS = Object.freeze({ flatten: compileFlatten, pond: compilePond, river: compileRiver, path: compilePath, clear: compileClear })
+
+export function compileTerrainMarks(specs) {
+  if (!Array.isArray(specs)) throw new TerrainMarkError('not-a-list', -1, 'marks must be an array')
+  const compiled = specs.map((spec, index) => {
+    if (spec === null || typeof spec !== 'object') throw new TerrainMarkError('not-an-object', index, 'a mark must be an object')
+    const compile = COMPILERS[spec.kind]
+    if (!compile || !Object.prototype.hasOwnProperty.call(COMPILERS, spec.kind)) throw new TerrainMarkError('unknown-kind', index, `kind ${JSON.stringify(spec.kind)} is not one of ${TERRAIN_MARK_KINDS.join(', ')}`)
+    return compile(spec, index)
+  })
+  const heightMarks = compiled.filter((_, i) => specs[i].kind !== 'clear')
+  return Object.freeze({
+    count: compiled.length,
+    height(x, z, h) {
+      let out = h
+      for (const m of heightMarks) out = m.apply(x, z, out)
+      return out
     },
-    waterLevelAt(x, z, base) {
-      const ground = this.heightAt(x, z, base)
-      let level = null
-      for (const m of compiled) {
-        const s = m.surface(x, z)
-        if (s !== null && s > ground && (level === null || s > level)) level = s
-      }
-      return level
+    clearsAt(x, z) {
+      for (const m of compiled) if (m.clears(x, z)) return true
+      return false
     },
-    onPath(x, z) {
-      return compiled.some((m) => m.path(x, z))
-    },
-  }
+  })
 }
