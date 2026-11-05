@@ -75,6 +75,13 @@ export function worldPlayerModel(worldDef) {
   return worldDef?.playerModel === undefined ? DEFAULT_PLAYER_MODEL : worldDef.playerModel
 }
 
+export function worldMaxPlayers(worldDef) {
+  const cap = worldDef?.routing?.maxPlayers
+  if (cap === undefined || cap === null) return null
+  if (!Number.isInteger(cap) || cap < 1) throw new TypeError(`world routing.maxPlayers must be a positive integer, got ${JSON.stringify(cap)}`)
+  return cap
+}
+
 export function playerDefault(playerConfig, key) {
   const v = playerConfig?.[key]
   return Number.isFinite(v) && v > 0 ? v : PLAYER_DEFAULTS[key]
