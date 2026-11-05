@@ -19,6 +19,13 @@ const CSS = `
 `
 
 const VOICE_CHANNEL = 'room-voice'
+const JOIN_TIMEOUT_MS = 15000
+
+function withTimeout(promise, ms, message) {
+  let timer
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms) })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
 
 export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = null) {
   ensureStyle('voice-indicator-style', CSS)
@@ -50,7 +57,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
           : null,
         phase === 'joined'
           ? C.Btn({ onClick: onToggleMute, children: [muted ? 'Unmute' : 'Mute'] })
-          : C.Btn({ primary: true, onClick: onJoin, children: ['Join Voice'] })
+          : C.Btn({ primary: true, onClick: onJoin, children: [phase === 'connecting' ? 'Joining…' : 'Join Voice'] })
       ]),
       phase === 'joined'
         ? h('div', { class: 'vi-list' }, participants.map(p =>
@@ -197,7 +204,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     phase = 'connecting'
     try {
       const s = await ensureSession()
-      await s.connect(VOICE_CHANNEL, { displayName: getBridge()?.pubkey?.slice(0, 8) || 'Guest' })
+      await withTimeout(s.connect(VOICE_CHANNEL, { displayName: getBridge()?.pubkey?.slice(0, 8) || 'Guest' }), JOIN_TIMEOUT_MS, 'voice: join timed out waiting for the relay')
       if (phase !== 'connecting') return
       s.setMuted(false)
       muted = false

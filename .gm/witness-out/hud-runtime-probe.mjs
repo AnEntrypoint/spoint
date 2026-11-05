@@ -25,7 +25,7 @@ try {
     const warns = []; const origWarn = console.warn; console.warn = (...a) => { warns.push(a.map(String).join(' ').slice(0, 200)); origWarn(...a) }
     const join = [...root.querySelectorAll('button')].find(b => /join voice/i.test(b.textContent))
     if (join) join.click()
-    await new Promise(r => setTimeout(r, 4000))
+    await new Promise(r => setTimeout(r, 18000))
     const labels = [...root.querySelectorAll('button')].map(b => b.textContent.trim())
     vi.destroy && vi.destroy()
     console.warn = origWarn
