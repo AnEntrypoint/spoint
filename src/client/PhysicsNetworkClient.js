@@ -84,7 +84,10 @@ export class PhysicsNetworkClient extends BaseClient {
   _resolveNetSimProfile() {
     const cfg = this._netSimConfig
     if (!cfg) return null
-    if (typeof cfg === 'string') return NETWORK_SIM_PRESETS[cfg] || null
+    if (typeof cfg === 'string') {
+      if (!Object.hasOwn(NETWORK_SIM_PRESETS, cfg)) throw new TypeError(`[network-sim] unknown preset ${JSON.stringify(cfg)}, expected one of ${Object.keys(NETWORK_SIM_PRESETS).join(', ')}`)
+      return NETWORK_SIM_PRESETS[cfg]
+    }
     return cfg
   }
 
