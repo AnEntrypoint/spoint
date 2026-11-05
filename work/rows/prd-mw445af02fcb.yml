@@ -1,0 +1,9 @@
+id: "prd-mw445af02fcb"
+kind: "prd"
+title: "JSONL source ledger"
+body: "scripts/lib/source-ledger.mjs dedupes id+at, keeps a monotonic cursor and round-trips JSONL. scripts/source-ledger-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.812Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:36.075Z"

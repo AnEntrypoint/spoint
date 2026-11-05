@@ -1,0 +1,9 @@
+id: "prd-mw445aev56f1"
+kind: "prd"
+title: "Spline registry with frame sampling and projection"
+body: "src/behaviours/spline.js adds Catmull-Rom open/closed splines with arc-length LUT, sample, length, project, frameAt and coded refusals. scripts/spline-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.807Z"
+witnessEvent: 704
+witnessCommit: "3efd0a04cd4b643bcffddd7fd9ad8af520ce06c1"
+resolvedAt: "2026-11-05T22:24:35.030Z"

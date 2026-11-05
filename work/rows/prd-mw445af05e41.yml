@@ -1,0 +1,9 @@
+id: "prd-mw445af05e41"
+kind: "prd"
+title: "Engine pin hash verifier"
+body: "scripts/lib/pin-manifest.mjs refuses a changed sha256 under the same semver. scripts/engine-pin-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.812Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:36.268Z"

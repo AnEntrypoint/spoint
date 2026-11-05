@@ -1,0 +1,9 @@
+id: "prd-mw445aew73cf"
+kind: "prd"
+title: "Coverage and gap report generator"
+body: "scripts/lib/coverage-report.mjs writes expected-versus-found tables, gap rows, open items and a completeness verdict. scripts/docs-coverage-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.808Z"
+witnessEvent: 704
+witnessCommit: "9721be5"
+resolvedAt: "2026-11-05T22:24:35.241Z"

@@ -1,0 +1,9 @@
+id: "prd-mw445af11b77"
+kind: "prd"
+title: "Per-verb CLI help contract"
+body: "scripts/lib/cli-help.mjs enforces distinct per-verb help bodies and answers --help with exit 0. scripts/cli-help-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.813Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:36.463Z"

@@ -1,0 +1,9 @@
+id: "prd-mw445af2d9ca"
+kind: "prd"
+title: "HTTP door catalog with no-write policy"
+body: "scripts/lib/http-door-catalog.mjs records method, auth, exercised status and enforces that write doors were never exercised. scripts/http-door-catalog-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.814Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:36.879Z"

@@ -1,0 +1,9 @@
+id: "prd-mw445aezd4e8"
+kind: "prd"
+title: "Run manifest factory"
+body: "scripts/lib/run-manifest.mjs builds bounded runs/<id>/task.json manifests. scripts/run-manifest-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.811Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:35.875Z"

@@ -1,0 +1,9 @@
+id: "prd-mw445af167da"
+kind: "prd"
+title: "World identity resolver"
+body: "scripts/lib/world-identity.mjs compares AGENTS.md H1, world config name, docs-door name and ids, refusing a mismatch. scripts/world-identity-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.813Z"
+witnessEvent: 704
+witnessCommit: "cb458db"
+resolvedAt: "2026-11-05T22:24:36.669Z"

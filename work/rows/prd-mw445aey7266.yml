@@ -1,0 +1,9 @@
+id: "prd-mw445aey7266"
+kind: "prd"
+title: "Simulated tester bodies"
+body: "scripts/lib/tester-body.mjs joins N bodies with render mode, latency, room and TTL, leaves by tester id and prunes expiry. scripts/tester-body-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.810Z"
+witnessEvent: 704
+witnessCommit: "9721be5"
+resolvedAt: "2026-11-05T22:24:35.661Z"

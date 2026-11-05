@@ -1,0 +1,9 @@
+id: "prd-mw445aex9e1b"
+kind: "prd"
+title: "Reference bundle generator"
+body: "scripts/lib/reference-bundle.mjs splits a Tome into duplicate-safe heading slugs and parses the 305-type listing. scripts/reference-bundle-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T22:24:34.809Z"
+witnessEvent: 704
+witnessCommit: "9721be5"
+resolvedAt: "2026-11-05T22:24:35.447Z"
