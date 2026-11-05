@@ -114,8 +114,18 @@ const animSystem = new AnimationSystem(character, {
     const hits = raycaster.intersectObject(terrainMesh)
     return hits.length > 0 ? hits[0].point : null
   },
+  footRayDistance: 2,
+  footMaxDrop: 0.6,
+  footAnkleHeight: 0,
+  kneePole: { x: 0, y: 0, z: 1 },
 })
 ```
+
+Each frame, every leg with a ground hit under its foot gets a two-bone leg IK
+(`leftLeg`, `rightLeg` chains) aimed at the ground height plus `footAnkleHeight`.
+The hips drop by the deepest foot's shortfall, capped at `footMaxDrop`, so both
+feet can reach. A leg with no hit is disabled for that frame and keeps its
+animated pose.
 
 #### Disable IK
 
