@@ -20,11 +20,24 @@ const CSS = `
 
 const VOICE_CHANNEL = 'room-voice'
 const JOIN_TIMEOUT_MS = 15000
+const MIC_PERMISSION_TIMEOUT_MS = 5000
 
 function withTimeout(promise, ms, message) {
   let timer
   const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms) })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+function boundedMediaDevices(md) {
+  return new Proxy(md, {
+    get(target, key) {
+      if (key === 'getUserMedia') {
+        return (constraints) => withTimeout(target.getUserMedia(constraints), MIC_PERMISSION_TIMEOUT_MS, 'microphone permission did not answer; joining listen-only')
+      }
+      const value = Reflect.get(target, key)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
 }
 
 export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = null) {
@@ -168,7 +181,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
       xstate,
       relayPool: bridge.pool,
       auth: bridge.auth,
-      mediaDevices: navigator.mediaDevices,
+      mediaDevices: boundedMediaDevices(navigator.mediaDevices),
       serverId: bridge.roomId || '',
       onAudioTrack
     })
