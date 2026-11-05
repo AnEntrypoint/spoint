@@ -24,7 +24,7 @@ import { definePath } from '../behaviours/path.js'
 import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
 import { ChartNavmeshQuery } from '../pathfinding/ChartNavmeshQuery.js'
 import { isWorldName } from '../shared/worldName.js'
-import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard } from './AppGameplay.js'
+import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard, achievements } from './AppGameplay.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -270,6 +270,8 @@ export class AppContext {
   persisted(key, initial, opts) { return this._store('persisted:' + key, () => persisted(this, key, initial, opts)) }
 
   leaderboard(key, opts) { return this._store('leaderboard:' + key, () => leaderboard(this, key, opts)) }
+
+  achievements(defs) { return achievements(this, defs) }
 
   _store(id, create) {
     const stores = this._stores || (this._stores = new Map())
