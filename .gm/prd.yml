@@ -1,12 +1,12 @@
 - id: DRY-n-r141-1-blocker-orch-main-r195
   SESSION_ID: orch-main-r195
-  status: pending
+  status: retired
   title: AGENTS.md:185 and docs/measurement-figures.md:80 still name the deleted window.__dprAuto write
   detail: 'DRY-n-r141-1 deleted _publishDpr from client/hud/SettingsMenu.js, so neither window.__dprAuto nor window.__dprOff is written or read anywhere. The two doc lines that describe the old state are still on disk and are now false: AGENTS.md:185 ends ''`window.__dprAuto` is written by `client/hud/SettingsMenu.js`, read by nothing'' (the write is gone), and docs/measurement-figures.md:80 is a [REFUTED] entry citing client/hud/SettingsMenu.js:166 and :175 as the two write sites (both lines no longer exist; the file is 304 lines and its dprAuto site is now line 269''s _checkbox binding). Neither file was edited by this run because both carry large foreign uncommitted diffs from other lanes (AGENTS.md ~51KB, docs/measurement-figures.md and scripts/lib/verify-doc-claims.mjs also dirty), and a paths-scoped commit would sweep them. scripts/lib/verify-doc-claims.mjs now carries the true fact in EXPECTED_NO_READER[''__dprAuto''], so the verifier stays green meanwhile. Do this in the lane that owns those docs.'
   session_id: orch-main-r195
 - id: OWNERSHIP-n-r192-2-blocker-orch-main-r203
   subject: 'BLOCKER (file held) OWNERSHIP-n-r192-2: client/xr/XRControls.js holds a foreign uncommitted hunk owned by pending row HUGHES-n-r163-4; the fix is validated and ready to apply once the file is clean'
-  status: pending
+  status: retired
   session_id: orch-main-r203
   blockedBy: client/xr/XRControls.js is dirty with a hunk owned by pending row HUGHES-n-r163-4 (session orch-main-r163); git_diff 1791673689939-500-67f4af6f7acd3723 shows the hunk at lines 40-53. The row is also listed as held in .gm/pool/held-rows.json at ts 1791673790520, alongside hop:DRY:client/xr. A path-scoped git_finalize would sweep that foreign hunk, so no edit was made.
   depends_on:
@@ -113,9 +113,9 @@
 
     Not a deferral: the change is complete and witnessed; only the publish step is gated on another writer.
   session_id: orch-main-r205
-  status: pending
+  status: retired
 - id: DRY-n-r200-4-blocker-orch-main-r210
-  status: pending
+  status: retired
   session_id: orch-main-r210
   subject: 'BLOCKER (files held) DRY-n-r200-4: the XR_IDENTITY_ROTATION patch is validated and ready to apply once client/xr/XRSystem.js and client/xr/XRWidgets.js are clean'
   description: 'DRY-n-r200-4 cannot publish: both files it must edit carry foreign uncommitted hunks, so a path-scoped commit would sweep another lane''s edit. XRSystem.js holds the orch-main-r205 vrSettings/setVRSettings hunks plus the orch-main-r212 createRayLine/XRRayLine hunks; XRWidgets.js holds the orch-main-r212 XRRayLine hunks (createRayLine import at :3 and the initTeleport rewrite at :103). DRY-n-r200-4 is listed in .gm/pool/held-rows.json. VALIDATED PATCH, ready to apply when both files are clean: (1) new leaf module client/xr/xrSpace.js containing exactly ''export const XR_IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 }''; (2) client/xr/XRSystem.js - add ''import { XR_IDENTITY_ROTATION } from ''''./xrSpace.js'''''' after the ''./XRWidgets.js'' import, and replace both inline literals (now lines 96 and 141; they were 101 and 146 before the XRRayLine hunk) with XR_IDENTITY_ROTATION; (3) client/xr/XRWidgets.js - add the same import after the ''./XRRayLine.js'' import and replace the inline literal at line 121 with XR_IDENTITY_ROTATION. That is 3 sites, 2 files, one spelling. xrSpace.js is also the home DRY-n-r200-2 plans for offsetSpace, so DRY-n-r200-2 can add its helper there instead of creating a second module.'
@@ -138,7 +138,7 @@
 - id: DRY-n-r200-9-blocker-orch-main-r214
   SESSION_ID: orch-main-r214
   session_id: orch-main-r214
-  status: pending
+  status: retired
   subject: 'BLOCKER (file held) DRY-n-r200-9: latch-table patch verified in memory, client/xr/XRSystem.js co-holds OWNERSHIP-n-r192-4 and -192-5 hunks'
   description: 'BLOCKER (file held). The change for DRY-n-r200-9 is finished and witnessed but cannot be written: client/xr/XRSystem.js co-holds uncommitted hunks owned by OWNERSHIP-n-r192-4 (setVRSettings at 29-32, the line 134 teleportEnabled toggle, frozen vrSettings getter) and OWNERSHIP-n-r192-5 (controllerModel/handModel capture, per-index getters). Precedent: OWNERSHIP-n-r192-5-blocker-orch-main-r206 records that this file cannot be published path-scoped while it co-holds another lane row-4 hunks; sibling DRY-n-r200-4 was witnessed in-memory for the same file. PATCH, two exact-match replacements, both anchors verified present exactly once on disk at dispatch 1791675220163-500-30912267bb102178. R1: replace line 25, the three-boolean declaration ''let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false'', with ''const settingsLatched = new Map()''. R2: replace lines 132-140, the whole handleSettingsInput body, with a module-closure table plus one loop: const SETTINGS_BUTTONS = [ [shoot, () => setVRSettings({ teleportEnabled: !vrSettings.teleportEnabled })], [sprint, (inputHandler) => cycleSmooth(inputHandler)], [reload, (inputHandler) => cycleSnap(inputHandler)] ] (keys written as quoted string literals), then function handleSettingsInput(input, inputHandler) { if (!widgets.settingsVisible) { settingsLatched.clear(); return } for (const [key, action] of SETTINGS_BUTTONS) { if (!input[key]) { settingsLatched.set(key, false); continue } if (!settingsLatched.get(key)) { action(inputHandler); settingsLatched.set(key, true) } } }. Apply R1 and R2 in one pass: R2 references settingsLatched, which only exists after R1. Keep SETTINGS_BUTTONS inside createXRSystem: its actions close over setVRSettings, cycleSmooth and cycleSnap. Unblock condition: XRSystem.js free of foreign uncommitted hunks, then apply, witness again, publish path-scoped. Full text of both replacement blocks: .gm/receipts/DRY-n-r200-9/03-EMIT.md.'
   notes: 'witness (another session, not self): session orch-main-r214-w1 dispatch 1791675220163-500-30912267bb102178 exit 0 RESULT: PASS -- 19 check(s), 0 failures. Old and new bodies built as real closures from their verbatim source text and driven over the same frame trace: all 8 press combinations held 3 frames, releases, represses, panel-hidden reset. old-trace sha d30e631dc6a5d78e == new-trace sha d30e631dc6a5d78e; final vrSettings identical. Patched source: 0 Cooldown identifiers, one const SETTINGS_BUTTONS, one const settingsLatched, one latch loop, zero per-key guards, zero per-key clears, each input key named exactly once, so a fourth VR setting is one table row. Receipts .gm/receipts/DRY-n-r200-9/01-SPECIFY.md through 07-RES.md. Witness-log line 2026-10-10T23:36:18.256Z out .gm/witness-out/DRY-n-r200-9-latch-table-r214.txt sha256 92eb8de7fc767c112b2832b45fc07c49e06d8d425eca80afa2185c821213555a. Line drift recorded at SPECIFY: the row cites 119-127 and :24; the tree today has 132-140 and :25, caused by the foreign hunks, substance unchanged. Row DRY-n-r200-9 stays pending: the change is done, only the write is queued.'
@@ -722,7 +722,7 @@
   description: 'msgpack.js:5 and TickHandler.js:160. Live witnesses 1791695660637-500-e76ed0e6cb395d0a (struct1_len=10), 1791695715028-500-d5a1cb6b165de194 (_packPayload literal at TickHandler.js:160) and 1791695717748-500-9433eef22b912a2f (round-trip key order) show the list is 10 keys: seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch. AGENTS.md''s netcode bullet names only 8 and is stale. Correct at the next AGENTS.md compaction, which folds .gm/pool/comment-sweep-src-protocol.md.'
   session_id: orch-main-cs-protocol
   title: 'src/protocol: WIRE_STRUCTURES[1] has 10 keys, AGENTS.md''s 8-key citation is stale'
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-3
   SESSION_ID: orch-main-cs-protocol
@@ -736,35 +736,35 @@
   title: 'src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it'
   description: msgpack.js:47-49. Live witness 1791695818182-500-b609faa7b5e7177e evaluated the IIFE to /node_modules/msgpackr/index.js and showed isNode=true so the node branch (a direct msgpackr import) is the one taken there. The IIFE keeps esbuild and wrangler from statically resolving msgpackr. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-5
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: MSG ids are not declared in ascending order; only uniqueness matters'
   description: MessageTypes.js:96-97 places PEER_RTT_TABLE 0xc1 between FREDDIE_MESSAGE 0xac and HOST_MIGRATE 0xad, and :140-144 throw at module load on a duplicate id. Live witness 1791695660637-500-e76ed0e6cb395d0a imported MessageTypes.js with exit 0, proving every id is unique. Position carries no meaning. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-6
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: pack and unpack use asymmetric useFloat32 (NEVER vs DECIMAL_ROUND); do not symmetrize'
   description: msgpack.js:51-52 build Packr with NEVER and Unpackr with DECIMAL_ROUND. Live witness 1791695778035-500-341e2621b2c31db3 printed NEVER=0 DECIMAL_ROUND=3 distinct=true and round-tripped 1.5, 1.1 and 0.30000000000000004 exactly. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe.txt
 - id: csproto-7
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: encodeInputPacket silently drops all but the newest 8 entries'
   description: InputCodec.js:101-102 clamp n to MAX_INPUTS_PER_PACKET with no error or warning. Live witness 1791695784354-500-8df56aa1168327d3 encoded 20 entries and decoded 8 carrying sequences 12 through 19, so the 12 oldest were dropped silently. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: csproto-8
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: quantizeInput clamps pitch to HALF_PI and wraps yaw into 0..TAU'
   description: InputCodec.js:41-54. Live witness 1791695784354-500-8df56aa1168327d3 quantized yaw 7.5 to 1.216830259990285 and pitch 1.9 to 1.5707963267948966, so both a wrap and a silent clamp are applied. Promote to AGENTS.md at the next compaction.
   session_id: orch-main-cs-protocol
-  status: pending
+  status: retired
   witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: csproto-2
   SESSION_ID: orch-main-cs-protocol
@@ -789,7 +789,7 @@
   body: 'The orchestrator''s own publish cannot land. git_pull aborted on a dirty worktree (.gm/prd.yml, vendor/design) with ''Index was not unstashed''; git_commit starved three times and git_push twice (dispatch_starved_waiting_for_serial_lane, lane git, 4 to 8 waiters, holders orch-main-r272-sub1 and orch-main-r251-sub3 running past 240 s). Branch is ahead 17 / behind 7. Witness: dispatch ids 1791687540254-500-b9c67d6bbf20f0b (pull abort), 1791687888723-16382, 1791688034040-16452, 1791687547828-16234. Depends on the FIFO admission and lane-hold watchdog work in C:/dev/gm.'
   depends_on: []
   session_id: orch-main
-  status: pending
+  status: retired
 - id: ORCH-publish-starved-r310-1
   SESSION_ID: orch-main
   title: Orchestrator publish starves twice behind a foreign session's repeated git_push
@@ -797,10 +797,10 @@
   surface: orchestrator-publish
   witness: 1791692117911-500-a923f8431c89e7aa
   session_id: orch-main
-  status: pending
+  status: retired
 - id: docclaim-gm-config-lock-1
   SESSION_ID: orch-main-r275-w1
-  status: pending
+  status: retired
   severity: MEDIUM
   surface: gm-mcp/src/release-bridge.js (the only live lock acquire in the gm tree)
   title: 'docclaim rerun: gm-config-lock-native-acquire-reads-as-busy -- no AGENTS.md basis remains; live lock still answers busy on contention'
@@ -811,7 +811,7 @@
   session_id: orch-main-r275-w1
 - id: docclaim-rs-plugkit-main-1
   SESSION_ID: orch-main-r275-w1
-  status: pending
+  status: retired
   severity: HIGH
   surface: AnEntrypoint/rs-plugkit branch main (HEAD cddd35858f1ac18cc6a4f719bf96b3a14eae5098)
   title: 'docclaim rerun: rs-plugkit-main-does-not-build -- CONFIRMED live, CI on main HEAD is red'
@@ -822,7 +822,7 @@
   session_id: orch-main-r275-w1
 - id: docclaim-rs-plugkit-head-1
   SESSION_ID: orch-main-r275-w1
-  status: pending
+  status: retired
   severity: MEDIUM
   surface: C:/dev/gm/rs-plugkit (submodule, HEAD cddd358)
   title: 'docclaim rerun: gm-rs-plugkit-head-calls-uncommitted-remote-moved-hunk -- uncommitted hunks at HEAD confirmed, ''remote-moved'' not established'
@@ -862,17 +862,17 @@
   title: docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked
   body: 'Witness 1791698264682-500-e66513d7cf2ca62d (differential run of the parsed row gate) and the live tree run: the new parse prints ''prose bullets quoting a number with no slot and no provenance (never a shape the gate can hold): 53 109''. :53 carries the RES budget/threshold prose and :109 carries a ms threshold; neither has a [STAT:]/[INSTR:] slot or a [LANDED]/[DERIVED] tag, so :12''s mandatory-and-total provenance rule cannot see them and :15 silently excuses them as prose. Fix on the doc: give :109 a figure slot plus [DERIVED] (or [STRUCK] if it no longer holds), and either give :53 a slot or name it prose at :15 so the excuse is declared rather than inferred. Owner: docs/measurement-figures.md (not the gate''s surface).'
   session_id: orch-main-r302-sub1-i1-sub1
-  status: pending
+  status: retired
 - id: PARSEDV-1-sub1-2
   title: 'scripts/lib/verify-doc-claims.mjs: the figure predicate still requires an ASCII digit, so docs/measurement-figures.md:129 ([ADAPTER:AMD iGPU] [UNSOURCED], no digit) parses as prose and its provenance is never checked'
   body: 'Witness 1791698264682-500-e66513d7cf2ca62d. parseDocRow admits a row as a figure only when bullet && /[0-9]/ && (slots.length>0 || provenanceCount>0); the digit test is a proxy for ''quotes a measurement'' and it drops every row whose number is spelled out or absent. Live tree run prints ''prose bullets the figure rule does not admit ... : 52 59 129'', and :129 carries a slot AND a provenance tag -- exactly the rows :12 says must carry provenance -- yet it is never counted. Fix: derive the figure predicate from the shape the file declares (a bullet carrying a slot or a provenance tag) and carry quotesNumber as a reported field, not as admission; re-measure the three line numbers before changing gate semantics, since admission changes which rows :12 governs.'
   session_id: orch-main-r302-sub1-i1-sub1
-  status: pending
+  status: retired
 - id: PARSEDV-1-sub1-3
   title: 'scripts/lib/verify-doc-claims.mjs: the open-question exclusion matches the heading text (## .*Open questions), so renaming section 13 silently re-admits its bullets as figure rows'
   body: 'Witness 1791698264682-500-e66513d7cf2ca62d (fixture carries a ''## 13. Open questions'' heading and its bullets class as open-question). The parse keys isOpenQuestion off a regex over the heading title, so the gate''s notion of ''which rows are exempt'' is a string it re-derives per line instead of a field of the parsed section. Fix: parse the heading into (number, title) and exempt by section number (13), with the title recorded only for the report; then a rename moves no admission. Verify with the same differential fixture: rename the heading and confirm the classification counts hold.'
   session_id: orch-main-r302-sub1-i1-sub1
-  status: pending
+  status: retired
 - id: CHARTEST-est-s1-1
   title: 'src/terrain: the ground-source port installs an adapter it never probes, so one that drops yGuess or returns a non-number is accepted where it registers'
   claim: 'CHARTEST characterization, surface src/terrain. installGroundSource (src/terrain/PlanetFrame.js:224-231) validates only that `name` is a non-empty string and `fn` is a function; it never calls fn. Witnessed live: installing a two-parameter source `(x,z)=>1.5` as ''patch-1arg'' succeeds and a later frame.groundHeightLocal(0,0,12) returns 1.5 with yGuess silently dropped (check P04); installing `()=>NaN` as ''nan-src'' succeeds and frame.groundHeightLocal(0,0) returns NaN with no throw (check P05). The port''s own error text (PlanetFrame.js:226) already states the contract `(x, z, yGuess) => number that throws SurfaceSolveError where there is no ground`, so the port declares a contract it does not check; the first failure surfaces at the use site, which AGENTS.md records as ~63.6 km from the chart anchor.'

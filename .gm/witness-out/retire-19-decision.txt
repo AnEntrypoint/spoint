@@ -1,0 +1,20 @@
+Decision (user, option 1): retire all 19 pending rows with these reasons.
+csproto-1: owned by spoint-debug-research session
+csproto-4: owned by spoint-debug-research session
+csproto-5: owned by spoint-debug-research session
+csproto-6: owned by spoint-debug-research session
+csproto-7: owned by spoint-debug-research session
+csproto-8: owned by spoint-debug-research session
+DRY-n-r141-1-blocker-orch-main-r195: blocker hold on files owned by other lanes
+DRY-n-r200-4-blocker-orch-main-r210: blocker hold on files owned by other lanes
+DRY-n-r200-9-blocker-orch-main-r214: blocker hold on files owned by other lanes
+OWNERSHIP-n-r192-2-blocker-orch-main-r203: blocker hold on files owned by other lanes
+OWNERSHIP-n-r192-4-blocker-orch-main-r205: blocker hold on files owned by other lanes
+docclaim-gm-config-lock-1: external gm config state
+docclaim-rs-plugkit-head-1: external rs-plugkit state
+docclaim-rs-plugkit-main-1: external rs-plugkit state
+ORCH-publish-git-lane-starved: gm infrastructure defect; reported to gm
+ORCH-publish-starved-r310-1: gm infrastructure defect; reported to gm
+PARSEDV-1-sub1-1: inconclusive in earlier review
+PARSEDV-1-sub1-2: inconclusive in earlier review
+PARSEDV-1-sub1-3: inconclusive in earlier review
