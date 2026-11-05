@@ -1,5 +1,6 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { vecOK } from '../shared/vecGuard.js'
+import { parseMaterialSlots } from '../shared/materialSlots.js'
 import { minimapDescriptor, resolveTerrainConfig, withTerrainSeed } from '../shared/terrainConfig.js'
 import { BIOME_PRESETS } from '../terrain/BiomeOverride.js'
 import { createGrassDecal } from '../terrain/GrassDecal.js'
@@ -240,7 +241,15 @@ export function createEditorHandlers(ctx) {
   const HANDLERS = {
     ...createRelocationHandlers(ctx),
     [MSG.EDITOR_UPDATE]: (payload, clientId) => {
-      const { entityId, changes } = payload || {}
+      const { entityId, changes: rawChanges } = payload || {}
+      const materialSlots = rawChanges?.custom && Object.prototype.hasOwnProperty.call(rawChanges.custom, '_materialSlots')
+        ? parseMaterialSlots(rawChanges.custom._materialSlots)
+        : null
+      if (materialSlots && !materialSlots.ok) {
+        sendError(clientId, 'EDITOR_UPDATE: malformed _materialSlots, ignored', { entityId, field: '_materialSlots', reason: materialSlots.reason, detail: materialSlots.detail })
+        return
+      }
+      const changes = materialSlots ? { ...rawChanges, custom: { ...rawChanges.custom, _materialSlots: materialSlots.value } } : rawChanges
       if (entityId && changes) {
         const entity = appRuntime.entities.get(entityId)
         if (entity) {
