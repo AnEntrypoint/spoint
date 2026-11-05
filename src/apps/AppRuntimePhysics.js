@@ -257,6 +257,11 @@ export function mixinPhysics(runtime) {
     if (!e || e._vehicleId == null || !this._physics) return null
     return this._physics.getVehicleWheelTransform(e._vehicleId, wheelIndex)
   }
+  runtime.solveEntityTurretAim = function(entityId, targetDirection, limits) {
+    const e = this.entities.get(entityId)
+    if (!e || e._vehicleId == null || !this._physics) return null
+    return this._physics.solveEntityTurretAim(e._vehicleId, targetDirection, limits)
+  }
   runtime.getEntityVehicleWheelState = function(entityId, wheelIndex) {
     const e = this.entities.get(entityId)
     if (!e || e._vehicleId == null || !this._physics) return null
