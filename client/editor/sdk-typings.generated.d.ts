@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: e890cd60a934f31eda86ad72bdabed4efb8a3bd20e8c3cf90a3fb7bab049a76d
+// source digest: 6d702def80a1506b01a1fd30c39b10d74dac3f196fab768b7a77ce5cff6bc2cd
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 import { capsuleRadiusM, capsuleHeightM } from './AppGameplay.js';
@@ -298,15 +298,15 @@ export declare class AppContext {
             ok: boolean;
             reason: string;
         } | {
-            ok: boolean;
             reason?: undefined;
+            ok: boolean;
         };
         completeObjective(pid: any, questId: any, objectiveIndex: any, amount?: number): {
             ok: boolean;
             reason: string;
         } | {
-            ok: boolean;
             reason?: undefined;
+            ok: boolean;
         };
         claimReward(pid: any, questId: any): {
             ok: boolean;
@@ -315,11 +315,11 @@ export declare class AppContext {
             items?: undefined;
             statBonuses?: undefined;
         } | {
+            reason?: undefined;
             ok: boolean;
             xp: any;
             items: any;
             statBonuses: any;
-            reason?: undefined;
         };
         push(pid: any): void;
         getQuestState(pid: any, questId: any): {
@@ -377,7 +377,132 @@ export declare class AppContext {
             })[];
         };
     };
-    defineProgression(spec: any): any;
+    defineProgression(spec: any): {
+        progression: {
+            calculateXpThreshold: (level: any, curve?: any) => number;
+            getPlayerState: (playerId: any) => any;
+            addXp: (playerId: any, amount: any) => boolean;
+            addXpResult: (playerId: any, amount: any) => {
+                ok: boolean;
+                reason: string;
+                leveledUp: boolean;
+            } | {
+                ok: boolean;
+                reason: null;
+                leveledUp: boolean;
+            };
+            getProgress: (playerId: any) => {
+                level: any;
+                xp: any;
+                totalXp: any;
+                xpForLevel: number;
+                xpInLevel: any;
+                progressRatio: number;
+            };
+            getState: (playerId: any) => any;
+            getAllStates: () => any[];
+            applySnapshot: (snapshotData: any) => void;
+            buildSnapshot: () => {
+                progressions: {
+                    id: any;
+                    xp: any;
+                    level: any;
+                    totalXp: any;
+                    lastLevelUpTick: any;
+                    levelUpEvents: any;
+                }[];
+            };
+            drainLevelUpEvents: (playerId: any) => any;
+            tick: (dt: any) => void;
+            removePlayer: (playerId: any) => void;
+            getConfig: () => any;
+        };
+        abilityTree: {
+            getPlayerAbilityState: (playerId: any) => any;
+            getUnlockedAbilities: (playerLevel: any) => any[];
+            castRefusal: (playerId: any, abilityId: any, playerLevel: any) => string | null;
+            bindRefusal: (hotkeyNumber: any, abilityId: any) => string | null;
+            canCastAbility: (playerId: any, abilityId: any, playerLevel: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            getAbilityCooldown: (playerId: any, abilityId: any) => number;
+            castAbility: (playerId: any, abilityId: any, playerLevel: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            tick: (dt: any) => void;
+            bindHotkey: (hotkeyNumber: any, abilityId: any) => {
+                ok: boolean;
+                reason: any;
+            };
+            getHotkeyBinding: (hotkeyNumber: any) => any;
+            getAllHotkeyBindings: () => {};
+            getAbility: (abilityId: any) => any;
+            getAllAbilities: () => any[];
+            getDefinitionRefusals: () => any[];
+            getHotkeyRefusals: () => any[];
+            applySnapshot: (snapshotData: any) => {
+                ok: boolean;
+                reason: string;
+                hotkeys: number;
+                players: number;
+                dropped: never[];
+            } | {
+                ok: boolean;
+                reason: null;
+                hotkeys: number;
+                players: number;
+                dropped: {
+                    field: string;
+                    reason: string;
+                }[];
+            };
+            buildSnapshot: () => {
+                hotkeys: {};
+                playerStates: {
+                    playerId: any;
+                    cooldowns: any[];
+                }[];
+            };
+            removePlayer: (playerId: any) => void;
+            getCooldownsForNetwork: (playerId: any) => {
+                abilityId: any;
+                remaining: number;
+            }[];
+            getPlayerAbilityInfo: (playerId: any, playerLevel: any) => {
+                unlockedAbilities: any[];
+                cooldowns: {
+                    abilityId: any;
+                    remaining: any;
+                }[];
+                activeAbilities: any[];
+            };
+        };
+        setup(ctx: any): void;
+        tick(ctx: any, dt: any): void;
+        snapshotGameState(state: any): any;
+        restoreGameState(state: any): any;
+        onPlayerJoin(playerId: any): void;
+        onPlayerLeave(playerId: any): void;
+        getNetworkState(playerId: any): {
+            progression: {
+                level: any;
+                xp: any;
+                totalXp: any;
+                xpForLevel: number;
+                xpInLevel: any;
+                progressRatio: number;
+            };
+            abilityTree: {
+                unlockedAbilities: any[];
+                cooldowns: {
+                    abilityId: any;
+                    remaining: number;
+                }[];
+            };
+        };
+    };
     fallFloorY(x: any, z: any, depth: any): number;
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
     persisted(key: any, initial: any, opts: any): any;
@@ -433,10 +558,10 @@ export declare class AppContext {
             event: string;
             state: any;
         } | {
+            reason?: undefined;
             ok: boolean;
             event: string;
             state: any;
-            reason?: undefined;
         };
         onTransition(fn: any): () => void;
         tick(dt: any): void;
@@ -727,10 +852,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
+            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
-            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};
