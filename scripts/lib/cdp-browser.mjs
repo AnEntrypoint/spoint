@@ -169,6 +169,13 @@ class Page {
     return this
   }
 
+  async addInitScript(source) {
+    await this._send('Page.enable').catch(() => {})
+    const text = typeof source === 'function' ? `(${source.toString()})()` : String(source)
+    await this._send('Page.addScriptToEvaluateOnNewDocument', { source: text })
+    return this
+  }
+
   async _installExternalRelay() {
     await this._send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] })
   }
