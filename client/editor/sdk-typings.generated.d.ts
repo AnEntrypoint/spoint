@@ -244,6 +244,16 @@ export declare class AppContext {
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
     persisted(key: any, initial: any, opts: any): any;
     leaderboard(key: any, opts: any): any;
+    achievements(defs: any): {
+        ready: any;
+        defs: Map<any, any>;
+        unlocked(scope: any): string[];
+        unlock(scope: any, id: any): {
+            unlocked: boolean;
+            def: any;
+        };
+        flush(): any;
+    };
     _store(id: any, create: any): any;
     get bus(): any;
     get eventLog(): any;
