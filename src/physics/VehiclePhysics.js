@@ -1,6 +1,34 @@
 const LAYER_DYNAMIC = 1
 const LEFT_TRACK = 0, RIGHT_TRACK = 1
 
+function readSlipCurve(points, name) {
+  if (!Array.isArray(points) || points.length < 2) throw new Error(`[vehicle-tyre] ${name} needs at least 2 points`)
+  let prevSlip = -Infinity
+  for (const p of points) {
+    if (!Array.isArray(p) || p.length !== 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || p[1] < 0 || p[0] <= prevSlip) {
+      throw new Error(`[vehicle-tyre] ${name} points must be [slip, force] with slip strictly increasing and force >= 0`)
+    }
+    prevSlip = p[0]
+  }
+  return points
+}
+
+function applyTyreCurves(ws, tyre) {
+  const write = (curve, points) => { curve.Clear(); for (const [slip, force] of points) curve.AddPoint(slip, force) }
+  if (tyre.longitudinal) write(ws.mLongitudinalFriction, readSlipCurve(tyre.longitudinal, 'longitudinal'))
+  if (tyre.lateral) write(ws.mLateralFriction, readSlipCurve(tyre.lateral, 'lateral'))
+}
+
+function applySuspensionSpring(J, ws, spring) {
+  const { frequency, damping } = spring
+  if (!Number.isFinite(frequency) || frequency <= 0 || !Number.isFinite(damping) || damping < 0 || damping > 1) {
+    throw new Error('[vehicle-suspension] frequency must be > 0 and damping within [0, 1]')
+  }
+  ws.mSuspensionSpring.mMode = J.ESpringMode_FrequencyAndDamping
+  ws.mSuspensionSpring.mFrequency = frequency
+  ws.mSuspensionSpring.mDamping = damping
+}
+
 export function installVehiclePhysics(PhysicsWorld) {
   const proto = PhysicsWorld.prototype
 
@@ -32,6 +60,8 @@ export function installVehiclePhysics(PhysicsWorld) {
         ws.mMaxSteerAngle = w.steer ? (w.maxSteerAngle ?? 0.6) : 0
         ws.mMaxBrakeTorque = w.maxBrakeTorque ?? 1500
         ws.mMaxHandBrakeTorque = w.maxHandBrakeTorque ?? 0
+        if (w.suspensionSpring) applySuspensionSpring(J, ws, w.suspensionSpring)
+        if (w.tyre) applyTyreCurves(ws, w.tyre)
         wheelSettingsList.push(ws)
         wheelsArr.push_back(ws)
         if (w.drive) { if (p[0] < 0) driveIdxL.push(i); else driveIdxR.push(i) }
