@@ -1,0 +1,7 @@
+id: "prd-mw3zosb67858"
+kind: "prd"
+title: "Verify and implement the remaining savi/spawn feature claims"
+body: ".gm/witness-out/savi-spawn-feature-gap.md lists 60 reader claims from the savi Tome/skills and spawn tooling corpora. 16 were implemented and witnessed in this run. The remaining 44 need the adversarial verify phase that the stalled read workflow never ran, then one implementation lane each. Parked, not abandoned."
+status: "parked"
+createdAt: "2026-11-05T20:19:46.386Z"
+parkReason: "The parallel read workflow was stopped after four of eight readers stalled; the vote and synthesis phases never ran. The 44 unchecked claims in .gm/witness-out/savi-spawn-feature-gap.md need independent refutation before implementation, each with its own node-witnessable slice."

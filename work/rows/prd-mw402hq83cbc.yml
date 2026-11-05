@@ -1,0 +1,9 @@
+id: "prd-mw402hq83cbc"
+kind: "prd"
+title: "Independent count verification"
+body: "scripts/lib/count-verifier.mjs recomputes row counts from files, refuses a short report with count-mismatch, and computes a coverage verdict. scripts/count-verifier-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:30:25.856Z"
+witnessEvent: 4022
+witnessCommit: "1d0184b"
+resolvedAt: "2026-11-05T20:30:52.975Z"

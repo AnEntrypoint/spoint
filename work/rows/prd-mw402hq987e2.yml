@@ -1,0 +1,9 @@
+id: "prd-mw402hq987e2"
+kind: "prd"
+title: "Private-body redaction"
+body: "scripts/lib/private-body.mjs exports only key names from raw HTTP bodies, drops values and uses an explicit allowlist. scripts/private-body-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:30:25.857Z"
+witnessEvent: 4022
+witnessCommit: "1d0184b"
+resolvedAt: "2026-11-05T20:31:46.029Z"

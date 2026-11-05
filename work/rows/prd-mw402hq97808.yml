@@ -1,0 +1,9 @@
+id: "prd-mw402hq97808"
+kind: "prd"
+title: "Generated-script preflight with line and column"
+body: "scripts/lib/script-preflight.mjs parses generated JS with node --check before execution, reports line/column, and refuses unresolved ${...} in shell commands. scripts/script-preflight-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:30:25.857Z"
+witnessEvent: 4022
+witnessCommit: "1d0184b"
+resolvedAt: "2026-11-05T20:31:19.957Z"

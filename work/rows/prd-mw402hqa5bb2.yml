@@ -1,0 +1,9 @@
+id: "prd-mw402hqa5bb2"
+kind: "prd"
+title: "Content-addressed asset registry"
+body: "scripts/lib/asset-registry.mjs builds stable value.<sha256>.<ext> names and an inline/upload-target plan with a size threshold. scripts/asset-registry-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:30:25.858Z"
+witnessEvent: 4022
+witnessCommit: "1d0184b"
+resolvedAt: "2026-11-05T20:32:12.251Z"
