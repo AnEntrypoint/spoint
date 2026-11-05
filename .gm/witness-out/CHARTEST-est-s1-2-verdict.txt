@@ -1,0 +1,5 @@
+  function anonymousSourceName(fn) {
+    for (const [name, served] of groundSources) if (served === fn) return name
+    _anonymousInstalls++
+    return _anonymousInstalls === 1 ? 'substituted' : `substituted#${_anonymousInstalls}`
+  }

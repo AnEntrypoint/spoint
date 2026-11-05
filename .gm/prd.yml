@@ -880,7 +880,9 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P08 groundSourceOf(''substituted'')===second=true names=["cpu-solve","substituted"]; check P06/P07 confirm the setter is the naming path'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/CHARTEST-est-s1-2-verdict.txt
+  note: anonymousSourceName numbers each install: substituted, substituted#2, ... so no two anonymous adapters share a key
 - id: CHARTEST-est-s1-3
   claim: 'CHARTEST characterization, surface src/terrain. createExactPatchFrame (client/core/ExactPatchFrame.js:5-11) builds Object.create(frame) and Object.assigns `groundHeightLocal` onto it. Object.assign performs a [[Set]], finds the inherited accessor on the real frame and runs the port setter, so the placement-only adapter lands on the SHARED frame. Witnessed live (check P09): after createExactPatchFrame(frame), placementFrame has no own groundHeightLocal (own_property=false), frame.groundSource === ''substituted'', and frame.groundHeightLocal !== frame.cpuGroundHeightLocal -- the real frame''s ground is now the patch adapter. Every consumer of that shared frame then reads patch height: src/terrain/TerrainPhysics.js:202 (fractalGHL) and :325/:348, src/shared/MinimapBiome.js:35, src/sdk/WorkerEntry.js:279, client/core/Grass.js:123, Rocks.js:165, Vegetation.js:401, Weather.js:190, ColliderDebug.js:46, camera.js:5, app.js:372/798/1137.'
   notes: 'CLOSE (not by this hop): the placement view must not write the shared port -- give createExactPatchFrame its own holder (a wrapper object the placement callers read) instead of assigning onto a prototype-linked frame, or make the port refuse an install that arrives through an inherited accessor. Pin first: this row is the pin. Back-verify after any change: TerrainPhysics.js:202 captures fractalGHL once at build time, so it keeps the pre-swap cpu-solve closure while everything else reads the patch -- that split is itself worth a row once the install path is fixed.'
