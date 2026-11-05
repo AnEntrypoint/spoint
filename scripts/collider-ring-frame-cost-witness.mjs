@@ -1,7 +1,7 @@
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import { createServer as createNetServer } from 'node:net'
 import { resolve } from 'node:path'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { createServer as createSpointServer } from '../src/sdk/server.js'
 import { loadWorldModule } from '../src/sdk/WorldLocator.js'
 import { resolveTerrainConfig } from '../src/shared/terrainConfig.js'
@@ -124,6 +124,7 @@ function watchGrade(streamer) {
 
 async function main() {
   process.env.SPOINT_NO_WATCH = '1'
+  await rm(WORK_DIR, { recursive: true, force: true })
   await mkdir(resolve(WORK_DIR, 'data'), { recursive: true })
   process.chdir(WORK_DIR)
 
