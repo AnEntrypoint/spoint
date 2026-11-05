@@ -1,5 +1,17 @@
 import { createElement, applyDiff } from 'webjsx'
 
+export function worldToScreen(position, camera, renderer, THREE) {
+  if (!camera || !renderer || !position || !THREE) return null
+  const ndc = new THREE.Vector3(position.x, position.y, position.z).project(camera)
+  const el = renderer.domElement
+  return {
+    x: (ndc.x + 1) / 2 * el.clientWidth,
+    y: (1 - ndc.y) / 2 * el.clientHeight,
+    depth: ndc.z,
+    onScreen: ndc.z >= -1 && ndc.z <= 1 && Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1
+  }
+}
+
 export function createAppModuleSystem(client, uiRoot) {
   const appModules = new Map()
   let _appModuleList = []
@@ -97,7 +109,7 @@ export function createAppModuleSystem(client, uiRoot) {
       if (!appClient?.render) continue
       try {
         const _engine = _ctxFor(appName, engineCtx)
-        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: _engine, editor: _engine.editor, kit: engineCtx.kit, players: state.players, network: { send: (msg) => c.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: c.playerId, clock: { elapsed: performance.now() / 1000 } }
+        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: _engine, editor: _engine.editor, kit: engineCtx.kit, players: state.players, network: { send: (msg) => c.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: c.playerId, clock: { elapsed: performance.now() / 1000 }, worldToScreen: (position) => worldToScreen(position, camera, renderer, engineCtx.THREE) }
         const result = appClient.render(renderCtx)
         if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
       } catch (e) { console.error('[ui]', entity.id, e.message) }
