@@ -201,7 +201,7 @@
   body: 'Property (HUGHES, universal over the surface): every envelope emitEnvelope produces is accepted by validateEnvelope - one module''s producer and its validator agree on their shared type. FALSIFIED. src/sdk/SharedEventEnvelope.js:10-19 emitEnvelope(bus, channel, data) copies channel straight into kind with no check; :21-30 validateEnvelope rejects kind that is not a non-empty string (''kind is required (string)''). Live witness exec_js 1791679479055-500-a957d8f4fb578293 against the real modules: emitEnvelope(bus, '''', {}) returns {id, ts, source, kind:'''', payload} and validateEnvelope(env) answers {valid:false, errors:[''kind is required (string)'']}; every generated non-empty channel (''a'', ''x.y'', ''system.handover'', ''*'', ''fire:ignite'', '' '', ''0'') validates. Minimal counterexample: channel '''' - shrinks to a one-character input. The producer is total over strings and the validator is partial, so the round trip emit->validate, the only contract the file states, is false for one member of the generator''s domain. Adjacent fact from the same run: EventBus.emit (src/apps/EventBus.js:49) reads channel.length, so a non-string channel throws instead of returning an envelope - the empty string is the only case that passes silently through both. Fix: reject a blank channel at the producer (throw a named error or return null), or replace the pair with one parseEnvelope that both the producer and the consumer use, so kind has exactly one accepted set. No file edited this hop: src/sdk/SharedEventEnvelope.js carries another lane''s uncommitted hunk (ts finiteness check, git_diff dispatch 1791679545295). Supersedes the contract-duplication half of PARSEDV-n-r234-2 (same file); that row is merged here.'
 - id: ILLEGAL-r250-1
   SESSION_ID: orch-main-r250
-  status: completed
+  status: fixed
   subject: client/hud/VoiceIndicator.js carries the team channel as a boolean, so "Team only" is reachable with no team to filter by
   acceptance: 'Replace teamChannelOn (boolean) with teamChannelTeamId (null or the team id): onToggleTeamChannel sets it from getLocalTeam() or clears it, the button label and the gain filter both read teamChannelTeamId != null, and onScoreboard clears teamChannelTeamId when getLocalTeam() returns null. A browser witness (this module cannot be imported under node) boots createVoiceIndicator with a stub uiRoot, joins, calls onToggleTeamChannel, then delivers a scoreboard that no longer lists the local player and shows the button absent with teamChannelTeamId null rather than a stuck true.'
   why: 'Hop ILLEGAL over client/hud, session orch-main-r250. teamChannelOn (VoiceIndicator.js:39) is a boolean while getLocalTeam() (line 68) is nullable, so the pair admits four combinations, one illegal: on with no local team. The render gate is joined && localTeam != null (line 49) but onToggleTeamChannel (line 210) flips the boolean regardless, so once the local team disappears the button stops rendering while the mode stays on and the user is stuck with no control to leave it. updateProximity (line 128) already guards teamChannelOn && localTeam != null, so the illegal state silently plays everyone behind a label that says otherwise.'
@@ -212,7 +212,7 @@
   - RETIRED-BY LAMPORT-2-sub3-1 (apps/tps-game). Closed and landed; nothing in the spawn-clearance path reads the VoiceIndicator team channel. The live ordering witness for this walk is exec_js 1791688145369-500-aedf0e06181ad4c7. Do not re-walk this id.
 - id: ILLEGAL-r250-2
   SESSION_ID: orch-main-r250
-  status: completed
+  status: fixed
   subject: client/hud/Chat.js destroy() sets destroyed but leaves joined true, so a destroyed HUD reports a live join
   acceptance: 'Carry the lifecycle as one value instead of two booleans: a single phase of ''idle''|''joined''|''destroyed'' with get joined() === (phase === ''joined''), so no state can be both destroyed and joined. A browser witness (this module cannot be imported under node) creates the HUD, joins, calls destroy(), and reads get joined() === false.'
   why: Hop ILLEGAL over client/hud, session orch-main-r250. Chat.js holds joined and destroyed (lines 28-29) as independent booleans, four combinations, one illegal. destroy() (line 118) sets destroyed and removes the card but never clears joined, and render() early-returns on destroyed (line 34), so the returned object keeps advertising joined true; callers read chatHUD?.joined to decide whether a chat exists (client/app.js:946 and :2795).
@@ -244,7 +244,7 @@
   title: worldMobileButtons makes a declared-empty button set unrepresentable and drops declared buttons silently
   principle: ILLEGAL
   surface: src/shared
-  status: completed
+  status: fixed
   claim: 'src/shared/worldDefaults.js:46 `return out.length > 0 ? out : DEFAULT_MOBILE_BUTTONS.map(...)` turns a world that declares `input.mobileButtons: []` into a world with three default buttons, so ''no mobile buttons'' cannot be expressed; lines 37, 38 and 42 `continue` on a malformed entry, a duplicate action and a full 3x3 grid, so a declared button can vanish with no signal'
   evidence: 'live read of the module: an empty declared array is an Array, so the `!Array.isArray(declared)` branch at line 32 is not taken; the loop yields nothing and the length check silently substitutes the default three'
   action: fall back to the default only when mobileButtons is undeclared (undefined), and reject (not drop) a malformed or duplicate entry and a declaration that exceeds the 3x3 grid
@@ -269,7 +269,7 @@
   title: createChartAnchorLattice encodes one invalid-config class two ways
   principle: ILLEGAL
   surface: src/shared
-  status: completed
+  status: fixed
   claim: src/shared/chartAnchor.js:13 returns null for a non-finite or non-positive radius while line 14 throws for anchorsPerFace < 1, so the same class (an invalid lattice request) has two encodings and every caller re-derives which one it got
   evidence: src/shared/clusterConfig.js:38-39 and src/terrain/ChartReanchorService.js:5-6 each write `if (!lattice) throw ...` to convert the silent null back into the failure it already was
   action: pick one encoding for an invalid lattice request (throw a named error at both lines) and delete the caller-side re-derivation
@@ -279,7 +279,7 @@
   title: chartAnchorDecision returns overlapping shapes discriminated by a field's absence
   principle: ILLEGAL
   surface: src/shared
-  status: completed
+  status: fixed
   claim: 'src/shared/chartReanchorPolicy.js:32-47 returns four shapes: null (no players, same anchor, below hysteresis), {refusal:''players-straddle-the-planet''} with no worstPlayerAngleDeg, {refusal:''party-spread-exceeds-walkable-chart'', worstPlayerAngleDeg, walkableLimitDeg}, and the success {anchorDir, centroidDir, gainDeg, worstPlayerAngleDeg}; success and one refusal share worstPlayerAngleDeg, so callers discriminate out of band'
   evidence: src/terrain/ChartReanchorService.js:38 tests `decision.worstPlayerAngleDeg === undefined` to decide whether the refusal carries an angle, and line 35 tests `decision.refusal` to tell refusal from success; a decision with neither anchorDir nor refusal is representable and would be treated as success
   action: return a tagged union ({kind:'stay'|'reanchor'|'refusal', ...}) so 'accepted with no anchorDir' and 'refused with no reason' are unrepresentable
@@ -488,7 +488,7 @@
   blocked: true
   blocked_by: git serial lane held by task f73df536-0f66-49a1-8888-2a064d23416a-zuhiclaf
   session_id: orch-main-r260-sub1-s2
-  status: completed
+  status: fixed
   witness: 'git_status 1791690276000-500-fea75568f4be7e19: modified [src/game/AbilityTree.js, src/game/QuestSystem.js] at HEAD 4747096e - the owed change is still uncommitted, so WADLER-ub1-s2-4 (added 1791690693608-500-6e5030373df53690) carries it and this row is discharged.'
   commit_comment: 'Retire PARSEDV-ub1-s2-4: superseded by WADLER-ub1-s2-4, the same owed src/game commit with the current witness ids and starved git dispatch ids.'
 - id: ILLEGAL-n-r256-7
@@ -497,7 +497,7 @@
   principle: ILLEGAL
   witness: 'prd-list dispatch 1791694175435-500-8d28ee0962cb9e62 (live, .gm/prd.yml at HEAD cd170761cf): item `id: ILLEGAL-n-r256-7`, `status: completed`, title field EMPTY -- no claim text, no file:line and no body survives on the row, so there is nothing to act on. Retirement is the merge/retire counterpart to the two rows this hop added: PARNAS-cylinder-ub2-p1 and PARNAS-ringbranch-ub2-p1 (added by prd-add 1791694246974-500-205ff9252268653d and 1791694247661-500-5ef7a9099be10ce1).'
   session_id: orch-main-r256
-  status: completed
+  status: fixed
   commit_comment: 'RETIRED (stale) ILLEGAL-n-r256-7: completed with an empty title, so no claim survives to act on. Paired with the two rows added by the PARNAS hop over src/spatial.'
 - id: HICKEY-272sub1s4sub1sub1-4
   detail: 'Merged into HICKEY-272sub1s4sub1sub1-3 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Both rows are the same owe on commit ad21ca7172: -3 carries the re-witness half, this row the push half. One delivery closes both, so they are one condition. Substance now belongs on HICKEY-272sub1s4sub1sub1-3.'
@@ -775,7 +775,7 @@
   witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
 - id: docclaim-dpr-auto-1
   SESSION_ID: orch-main-r275-w1
-  status: completed
+  status: refuted
   severity: LOW
   surface: AGENTS.md (doc-claim rerun, spoint)
   title: 'docclaim rerun: dpr-auto-registry-default-true-enables-adaptive-dpr -- refuted by current AGENTS.md:178'
@@ -833,7 +833,7 @@
   session_id: orch-main-r275-w1
 - id: docclaim-gm-git-push-1
   SESSION_ID: orch-main-r275-w1
-  status: completed
+  status: refuted
   severity: LOW
   surface: AGENTS.md:27 (spoint Working rules)
   title: 'docclaim rerun: gm-git-push-head-publishes-other-lanes-commits -- refuted by current AGENTS.md:27'
@@ -843,7 +843,7 @@
   session_id: orch-main-r275-w1
 - id: docclaim-gm-dirty-filter-1
   SESSION_ID: orch-main-r275-w1
-  status: completed
+  status: refuted
   severity: LOW
   surface: spoint git_status dirty filter over shared doc names
   title: 'docclaim rerun: gm-dirty-filter-over-matches-shared-doc-names -- not reproducible on the current tree'

@@ -1,0 +1,11 @@
+Checked 11 completed rows (run 13-14-57), evidence from current source:
+ILLEGAL-r250-1 fixed: client/hud/VoiceIndicator.js carries teamChannelTeamId as an id or null, not a boolean.
+ILLEGAL-r250-2 fixed: client/hud/Chat.js destroy() sets phase 'destroyed' and the joined getter reads phase === 'joined', so joined is false after destroy.
+ILLEGAL-n-r256-2 fixed: worldMobileButtons([]) returns [] (empty set representable) and overflow throws button-grid-exhausted.
+ILLEGAL-n-r256-4 fixed: chartAnchorDecision refuses with named ChartAnchorDecisionError codes (src/shared/chartReanchorPolicy.js:43,45); the lattice check is a named refusal.
+ILLEGAL-n-r256-5 fixed: same chartAnchorDecision named refusals replace shape discrimination by absence.
+ILLEGAL-n-r256-7 fixed: spawnSurfaceY throws RangeError for bad arguments (probe PARSEDV-n-r248-3, badArgs); null means no surface.
+PARSEDV-ub1-s2-4 fixed: git status --short src/game is clean; the src/game change is committed.
+LAMPORT-n-r129-1 refuted: scan_deps and src/transport/NetworkSimTransport.js do not exist (git grep and git ls-files empty).
+docclaim-dpr-auto-1, docclaim-gm-git-push-1 refuted: the row's own text says refuted by current AGENTS.md.
+docclaim-gm-dirty-filter-1 refuted: the row's own text says not reproducible on the current tree.
