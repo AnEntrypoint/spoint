@@ -244,4 +244,32 @@ export function installVehiclePhysics(PhysicsWorld) {
     v.controller.SetDriverInput(forward, leftRatio, rightRatio, brake)
     return true
   }
+
+  proto.solveTurretAim = function (chassisRotation, targetDirection, limits = {}) {
+    const [qx, qy, qz, qw] = chassisRotation
+    const [dx0, dy0, dz0] = targetDirection
+    const len = Math.hypot(dx0, dy0, dz0)
+    if (!(len > 0)) return null
+    const dx = dx0 / len, dy = dy0 / len, dz = dz0 / len
+    const ux = -qx, uy = -qy, uz = -qz
+    const cx = uy * dz - uz * dy, cy = uz * dx - ux * dz, cz = ux * dy - uy * dx
+    const c2x = uy * cz - uz * cy, c2y = uz * cx - ux * cz, c2z = ux * cy - uy * cx
+    const lx = dx + 2 * qw * cx + 2 * c2x
+    const ly = dy + 2 * qw * cy + 2 * c2y
+    const lz = dz + 2 * qw * cz + 2 * c2z
+    const yawRaw = Math.atan2(lx, lz)
+    const pitchRaw = Math.atan2(ly, Math.hypot(lx, lz))
+    const yaw = Math.min(Math.max(yawRaw, limits.minYaw ?? -Infinity), limits.maxYaw ?? Infinity)
+    const pitch = Math.min(Math.max(pitchRaw, limits.minPitch ?? -Infinity), limits.maxPitch ?? Infinity)
+    return { yaw, pitch, clamped: yaw !== yawRaw || pitch !== pitchRaw }
+  }
+
+  proto.solveEntityTurretAim = function (vehicleId, targetDirection, limits) {
+    const v = this._vehicles && this._vehicles.get(vehicleId); if (!v) return null
+    const chassis = this._getBody(v.chassisBodyId); if (!chassis) return null
+    const r = chassis.GetRotation()
+    const aim = this.solveTurretAim([r.GetX(), r.GetY(), r.GetZ(), r.GetW()], targetDirection, limits)
+    this.Jolt.destroy(r)
+    return aim
+  }
 }
