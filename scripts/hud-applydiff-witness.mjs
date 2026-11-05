@@ -109,6 +109,20 @@ class ShimElement extends ShimNode {
   set style(v) { this._style = v }
   setAttribute(k, v) { this._attrs.set(String(k), String(v)); counters.attrWrites++ }
   removeAttribute(k) { this._attrs.delete(String(k)) }
+  querySelectorAll(selector) {
+    const attr = /^\[([\w-]+)\]$/.exec(selector)?.[1]
+    if (!attr) throw new Error(`${TAG} querySelectorAll supports only [attr] selectors, got ${selector}`)
+    const found = []
+    const walk = (node) => {
+      for (const child of node._children) {
+        if (child.nodeType !== 1) continue
+        if (child._attrs.has(attr)) found.push(child)
+        walk(child)
+      }
+    }
+    walk(this)
+    return found
+  }
   getAttribute(k) { return this._attrs.has(String(k)) ? this._attrs.get(String(k)) : null }
   hasAttribute(k) { return this._attrs.has(String(k)) }
   addEventListener() {}
