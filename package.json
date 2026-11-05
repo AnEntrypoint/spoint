@@ -50,7 +50,6 @@
  "check:scratch": "node scripts/check-scratch.mjs",
     "gen-typings": "node scripts/gen-sdk-typings.mjs",
     "check:sdk-types": "node scripts/check-sdk-types.mjs",
-    "test": "node scripts/check.mjs",
     "build:sph": "asc src/fluid/as-src/sph.ts --outFile src/fluid/sph.wasm --textFile src/fluid/sph.wat --optimize --runtime stub --exportRuntime",
     "build:sph3d": "asc src/fluid/as-src/sph3d.ts --outFile src/fluid/sph3d.wasm --textFile src/fluid/sph3d.wat --optimize --runtime stub --exportRuntime",
     "bake-navmesh": "node scripts/bake-navmesh.mjs"

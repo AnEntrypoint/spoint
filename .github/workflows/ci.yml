@@ -22,8 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run bundle-apps-manifest
-      - run: node scripts/apps-manifest-fresh-witness.mjs
-      - run: npm test
+      - run: npm run check
 
   frame-time-coverage:
     name: frame-time gate -- ${{ vars.CI_GPU_RUNNER_ONLINE == 'true' && 'accelerated nvidia and amd arms run below on the self-hosted gpu runner' || 'SKIPPED, no self-hosted gpu runner is online, so no accelerated frame time was measured on this commit' }}
