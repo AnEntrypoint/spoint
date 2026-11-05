@@ -15,6 +15,7 @@ const arg = name => {
 const url = arg('url') || 'https://anentrypoint.github.io/spoint/'
 const seconds = Number(arg('seconds') || 60)
 const altM = Number(arg('alt') || 40)
+const shotPath = arg('shot')
 const periodS = Number(arg('period') || 45)
 
 const ready = () => !!(window.__camera && window.__floatingOrigin && window.__camCtrl && window.__terrain?.frame)
@@ -69,7 +70,7 @@ const browser = await chromium.launch({ viewport: DEFAULT_VIEWPORT })
 try {
   const page = await browser.newPage({ viewport: DEFAULT_VIEWPORT })
   await page.goto(url, { waitUntil: 'load', timeout: 60000 })
-  const deadline = Date.now() + 120000
+  const deadline = Date.now() + 240000
   while (Date.now() < deadline) {
     if (await page.evaluate(ready)) break
     await page.waitForTimeout(500)
@@ -79,6 +80,7 @@ try {
   await page.waitForTimeout((seconds + 2) * 1000)
   const result = await page.evaluate(() => window.__orbitResult)
   if (!result) throw new Error('orbit never finished; the page stopped driving frames')
+  if (shotPath) await page.screenshot({ path: shotPath })
   const summary = summarise(result.dts, result.worst)
   console.log(JSON.stringify({ url, seconds, altM, periodS, ...started, ...summary }, null, 2))
 } finally {
