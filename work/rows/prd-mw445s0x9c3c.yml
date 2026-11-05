@@ -1,0 +1,9 @@
+id: "prd-mw445s0x9c3c"
+kind: "prd"
+title: "Nav cost-weighted corridor search"
+body: "src/pathfinding/costCorridor.js adds Dijkstra with per-node costAt, budget and ignore list. scripts/nav-cost-witness.mjs prints RESULT: PASS and npm run check exits 0."
+status: "resolved"
+createdAt: "2026-11-05T22:24:57.633Z"
+witnessEvent: 711
+witnessCommit: "48759e6cbb4268f6b0ba42b5fca0c95634f230a7"
+resolvedAt: "2026-11-05T22:24:57.830Z"
