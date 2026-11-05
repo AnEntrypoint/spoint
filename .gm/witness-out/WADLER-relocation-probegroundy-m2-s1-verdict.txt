@@ -1,0 +1,6 @@
+export function probeSpawnHoldGround(ctx, sp, { rejoin = false } = {}) {
+  if (terrainFieldMissingAt(ctx, sp)) return spawnHoldOutcome(null, SPAWN_HOLD_REASON.HEIGHTFIELD_NOT_LANDED)
+  if (staticCollidersPendingNear(ctx, sp)) return spawnHoldOutcome(null, SPAWN_HOLD_REASON.STATIC_COLLIDERS_PENDING)
+  return rejoin ? spawnRejoinGround(ctx, sp) : spawnSurfaceGround(ctx, sp)
+  if (!physics || typeof physics.raycast !== 'function') return spawnHoldOutcome(null, SPAWN_HOLD_REASON.NO_RAYCAST)
+  return spawnHoldOutcome(y, SPAWN_HOLD_REASON.RAY_MISSED_GROUND)

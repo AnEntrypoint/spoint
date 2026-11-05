@@ -937,7 +937,9 @@
   title: src/sdk/Relocation.js probeGroundY collapses four distinct spawn-hold outcomes (heightfield collider not landed, static colliders pending near, no raycast capability, ray missed ground) into one bare null that holdSpawnUntilGrounded cannot name
   witness_dispatch_id: 1791705050847-500-11e0349d20177369
   session_id: orch-main-spatial-m2-s1
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/WADLER-relocation-probegroundy-m2-s1-verdict.txt
+  note: probeSpawnHoldGround returns a distinct SPAWN_HOLD_REASON for each of its four outcomes, and the reason is logged
 - id: WADLER-octree-mutations-contract-m2-s1
   depth: 3
   principle: WADLER
