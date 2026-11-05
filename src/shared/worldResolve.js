@@ -1,19 +1,26 @@
 import { resolveNetcodeProfile } from '../netcode/NetcodeProfile.js'
 import { parseTerrainConfig } from './terrainConfig.js'
+import { DEFAULT_MOVEMENT } from './movement.js'
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isNum = v => typeof v === 'number' && Number.isFinite(v)
 const isVec = (v, n) => Array.isArray(v) && v.length === n && v.every(isNum)
 const PLAYER_POSITIVE_KEYS = ['capsuleRadius', 'capsuleHalfHeight', 'crouchHalfHeight', 'mass', 'health']
+const MOVEMENT_EXTENSION_FIELDS = Object.freeze([
+  'sprintSpeed', 'crouchSpeedMul', 'coyoteTime', 'jumpBuffer', 'slideMinSpeed',
+  'airMaxSpeed', 'airSpeedCap', 'collisionRestitution', 'collisionDamping'
+])
 
 export let WORLD_NOT_A_PLAIN_OBJECT = 'world-not-a-plain-object'
 export let WORLD_FIELD_INVALID = 'world-field-invalid'
 
 export class WorldResolveError extends TypeError {
-  constructor({ path, reason, code, worldName = null }) {
+  constructor({ path, reason, code, reasonCode = null, field = null, worldName = null }) {
     super(`[world] invalid world ${JSON.stringify(worldName ?? '(unnamed)')}: ${path || '(root)'} ${reason}`)
     this.name = 'WorldResolveError'
     this.code = code
+    this.reasonCode = reasonCode ?? code
+    this.field = field
     this.path = path || ''
     this.reason = reason
     this.worldName = worldName ?? null
@@ -21,6 +28,37 @@ export class WorldResolveError extends TypeError {
 }
 
 const reject = (path, reason) => ({ ok: false, path, reason, code: path ? WORLD_FIELD_INVALID : WORLD_NOT_A_PLAIN_OBJECT })
+
+const isMovementField = field => Object.hasOwn(DEFAULT_MOVEMENT, field) || MOVEMENT_EXTENSION_FIELDS.includes(field)
+const movementFieldNames = () => [...Object.keys(DEFAULT_MOVEMENT), ...MOVEMENT_EXTENSION_FIELDS].join(', ')
+const describeMovementValue = v => {
+  if (v === undefined || v === null) return String(v)
+  if (typeof v === 'string') return JSON.stringify(v)
+  if (typeof v === 'number' || typeof v === 'symbol' || typeof v === 'bigint') return String(v)
+  return Array.isArray(v) ? 'array' : typeof v
+}
+const movementRefusal = (field, path, reason) => ({
+  ok: false,
+  path,
+  field,
+  reason,
+  code: WORLD_FIELD_INVALID,
+  reasonCode: WORLD_FIELD_INVALID
+})
+
+export function validateMovement(movement) {
+  if (!isObj(movement)) return movementRefusal('movement', 'movement', 'movement must be an object of finite positive numbers')
+  const parsed = {}
+  for (const field of Object.keys(movement)) {
+    const path = `movement.${field}`
+    if (!isMovementField(field)) return movementRefusal(field, path, `${path} is not a movement field (known: ${movementFieldNames()})`)
+    const value = movement[field]
+    if (value === null && !Object.hasOwn(DEFAULT_MOVEMENT, field)) continue
+    if (!isNum(value) || value <= 0) return movementRefusal(field, path, `${path} must be a finite number > 0, got ${describeMovementValue(value)} (typeof ${typeof value})`)
+    parsed[field] = value
+  }
+  return { ok: true, movement: parsed }
+}
 
 function checkSlices(w) {
   if (!isObj(w)) return reject('', 'world definition must be a plain object (the default export of the world module)')
@@ -38,7 +76,13 @@ function checkSlices(w) {
     if (!isObj(w.player)) return reject('player', 'must be an object')
     for (const k of PLAYER_POSITIVE_KEYS) if (w.player[k] !== undefined && !(isNum(w.player[k]) && w.player[k] > 0)) return reject(`player.${k}`, 'must be a positive finite number')
   }
-  for (const k of ['movement', 'camera', 'animation', 'scene', 'input']) if (w[k] !== undefined && !isObj(w[k])) return reject(k, 'must be an object')
+  for (const k of ['camera', 'animation', 'scene', 'input']) if (w[k] !== undefined && !isObj(w[k])) return reject(k, 'must be an object')
+  let movement = null
+  if (w.movement !== undefined) {
+    const m = validateMovement(w.movement)
+    if (!m.ok) return m
+    movement = m.movement
+  }
   let terrain = null
   if (w.terrain === true) return reject('terrain', 'must be a terrain config object, false or null: true declares no terrain config and no terrain consumer parses it')
   if (w.terrain !== undefined && w.terrain !== null && typeof w.terrain !== 'boolean') {
@@ -91,6 +135,7 @@ function checkSlices(w) {
   try { profile = resolveNetcodeProfile(w) } catch (e) { return reject('netcode', e.message) }
   const world = { ...w, netcode: { ...(w.netcode ?? {}), ...profile } }
   if (terrain !== null) world.terrain = terrain
+  if (movement !== null) world.movement = movement
   return { ok: true, world }
 }
 
@@ -100,22 +145,14 @@ export function parseWorld(worldDef) {
 
 export function assertWorld(worldDef, worldName = null) {
   const r = parseWorld(worldDef)
-  if (!r.ok) throw new WorldResolveError({ path: r.path, reason: r.reason, code: r.code, worldName: worldName ?? worldDef?.name ?? null })
+  if (!r.ok) throw new WorldResolveError({ path: r.path, reason: r.reason, code: r.code, reasonCode: r.reasonCode, field: r.field, worldName: worldName ?? worldDef?.name ?? null })
   return r.world
 }
 
-// --- hot swap -----------------------------------------------------------------------------
-// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
-// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
-// fix that, because a re-import is a new module instance and every importer keeps reading the
-// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
-// instance's export bindings, so re-assigning them here is visible to every importer already
-// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
-// This re-points code only. It does not rebuild state the page already built, and every export
-// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
 const _hotSwapWorldResolve = (next) => {
   parseWorld = next.parseWorld
   assertWorld = next.assertWorld
+  validateMovement = next.validateMovement
   WorldResolveError = next.WorldResolveError
   WORLD_NOT_A_PLAIN_OBJECT = next.WORLD_NOT_A_PLAIN_OBJECT
   WORLD_FIELD_INVALID = next.WORLD_FIELD_INVALID
