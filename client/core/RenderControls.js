@@ -238,7 +238,14 @@ const CONTROLS = [
     doc: 'Enable per-frame render.checkGlError() (a real gl.getError() GPU sync per frame) in mapspinner planet-orchestrator.js frame() loop. Default off -- the GPU sync is a real perf cost, only for debugging.' },
   { key: 'elevEdgeInset', group: 'mapspinner-composeheight', type: 'number', default: 0.5,
     doc: 'Edge-inset offset (gl-render.js _collectElevEdgeSample, per-frame-per-edge hot path) for GPU collision probe elevation queries. 0.5 = centre of edge texel (the inset-sampler default, matches the hpfInset seam fix). Smaller = closer to the edge corner, more likely to fall outside the face and sample a zero/NULL elevation. Parity-critical: the render pass and the _PROBE_ collision program must see the identical inset value.' },
+  { key: 'reduceFlashing', group: 'accessibility', type: 'boolean', default: false,
+    doc: 'Photosensitive-safe rendering: suppresses rapid luminance changes (lightning, muzzle and fire flicker, emissive strobes). Player setting; a creator floor set through setAccessibilityFloor can only turn it on, never off.' },
+  { key: 'reduceMotion', group: 'accessibility', type: 'boolean', default: false,
+    doc: 'Reduced camera shake, screen sway and particle travel. Player setting; a creator floor set through setAccessibilityFloor can only turn it on, never off.' },
 ]
+
+const ACCESSIBILITY_KEYS = new Set(['reduceFlashing', 'reduceMotion'])
+const _accessibilityFloor = new Map([...ACCESSIBILITY_KEYS].map(k => [k, false]))
 
 const _byKey = new Map(CONTROLS.map(c => [c.key, c]))
 for (const c of CONTROLS) c.globalName = '__' + c.key
@@ -303,9 +310,20 @@ function list() {
   return text
 }
 
+function setAccessibilityFloor(key, on) {
+  if (!_accessibilityFloor.has(key)) { console.warn(`[render-controls] setAccessibilityFloor('${key}'): not an accessibility key`); return false }
+  if (on === true) _accessibilityFloor.set(key, true)
+  return _accessibilityFloor.get(key)
+}
+
+function accessibility(key) {
+  if (!ACCESSIBILITY_KEYS.has(key)) return false
+  return _accessibilityFloor.get(key) || get(key) === true
+}
+
 export let RenderControls = {
   controls: CONTROLS, get, set, list, keys: () => CONTROLS.map(c => c.key),
-  bindTonemapping, applyToneMapping,
+  bindTonemapping, applyToneMapping, accessibility, setAccessibilityFloor,
 }
 
 const FLAGS = [
