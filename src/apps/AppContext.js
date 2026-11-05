@@ -62,6 +62,7 @@ async function _buildNavmesh(worldName, sdkRoot) {
   return new NavmeshQuery(data)
 }
 const DEFAULT_LOS_TARGET_COLLIDER_TOLERANCE_M = 0.5
+const APP_FILE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/
 
 function _runLogged(label, fn) {
   const report = e => console.error(`[AppContext] ${label} error:`, e?.message || e)
@@ -296,6 +297,24 @@ export class AppContext {
       delete: (key) => adapter.delete(`${ns}/${key}`),
       list: (prefix = '') => adapter.list(`${ns}/${prefix}`),
       has: (key) => adapter.has(`${ns}/${key}`)
+    }
+  }
+
+  get files() {
+    const store = this.storage
+    if (!store) return null
+    const fileName = (name) => {
+      if (typeof name !== 'string' || !APP_FILE_NAME.test(name)) throw new TypeError(`[AppContext] files: name must match ${APP_FILE_NAME}, got ${JSON.stringify(name)}`)
+      return name
+    }
+    return {
+      read: async (name) => { const text = await store.get(fileName(name)); return typeof text === 'string' ? text : null },
+      write: (name, text) => {
+        if (typeof text !== 'string') throw new TypeError('[AppContext] files.write: text must be a string')
+        return store.set(fileName(name), text)
+      },
+      remove: (name) => store.delete(fileName(name)),
+      has: (name) => store.has(fileName(name))
     }
   }
 
