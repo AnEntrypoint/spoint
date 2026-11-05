@@ -510,7 +510,9 @@
   status: retired
   title: 'RETIRED (merged into ILLEGAL-sub1-3): Stage and SpatialIndex admit invalid relevanceRadius -5 and "50" instead of falling back to the 200 default'
 - id: WADLER-ub1-s2-1
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/WADLER-ub1-s2-1-verdict.txt
+  note: addXpResult carries invalid-amount, xp-saturated and accepted-with-level-up as distinct reasons; addXp keeps its boolean API for existing callers and is a thin wrapper over addXpResult
   title: src/game/ProgressionSystem.js:70 addXp returns one false for refused-invalid, u32-saturated and accepted-with-no-level-up (:71,:80,:106)
   body: |-
     WADLER over src/game. addXp conflates three cases in one boolean: :71 refuses a non-finite or negative amount with no mutation; :76-81 MUTATES (clamps totalXp to 0xFFFFFFFF, sets level to cfg.maxLevel) and then returns false; :106 returns leveledUp, so false also means 'accepted, no level-up'. A caller cannot destructure the refusal, and the saturation branch is the only one that writes before refusing.

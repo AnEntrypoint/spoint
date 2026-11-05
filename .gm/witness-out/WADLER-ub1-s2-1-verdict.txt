@@ -1,0 +1,4 @@
+  function addXpResult(playerId, amount) {
+    if (!Number.isFinite(amount) || amount < 0) return { ok: false, reason: 'invalid-amount', leveledUp: false }
+  function addXp(playerId, amount) {
+    return addXpResult(playerId, amount).leveledUp
