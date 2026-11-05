@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: c8f15ef47f07c703ab5c5dacba0a3d39116f69793bcbc63e7f1f4c4c01963935
+// source digest: 2dda89a6bc904dcf815003cd18713c1c29fb068a73baffc153ef1cd64f1b4121
 
 export type NonNegFinite = number;
 
@@ -110,7 +110,14 @@ export declare class AppContext {
     canSee(fromPos: any, toPos: any, opts?: {}): boolean;
     constructor(entity: any, runtime: any);
     createAnimationSystem(model: any, options: any): AnimationSystem;
-    createTween(spec: any): any;
+    createTween(spec: any): {
+        cancel(): void;
+        readonly cancelled: boolean;
+        readonly done: boolean;
+        readonly progress: number;
+        readonly value: any;
+        update(dtMs: any): boolean;
+    };
     defineBuffStack(spec: any): {
         apply(playerId: any, buffKey: any, delta: any): any;
         clear(playerId: any, buffKey: any): void;
@@ -677,7 +684,7 @@ export declare class AppContext {
         setAmmo(n: any): any;
     };
     easing(name: any, t: any): any;
-    easingNames(): any;
+    easingNames(): readonly string[];
     fallFloorY(x: any, z: any, depth: any): number;
     get bus(): any;
     get combat(): Readonly<{
