@@ -8,6 +8,7 @@ export function generateEventId() {
 }
 
 export function emitEnvelope(bus, channel, data, meta = {}) {
+  if (typeof channel !== 'string' || !channel) throw new TypeError('[envelope] emitEnvelope requires a non-empty channel')
   const event = bus.emit(channel, data, meta)
   return {
     id: generateEventId(),
