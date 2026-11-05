@@ -2,7 +2,7 @@
 
 Source: the parallel read workflow `savi-spawn-feature-gap` over /workspace/savi/.spawn/reference (208 indexed files) and /workspace/spawn (runs, sources, tooling). Four of eight readers returned structured feature claims; four stalled and the workflow was stopped. The adversarial vote and synthesis phases did not run, so these claims are reader evidence, not verified findings.
 
-Implemented in this coder run: 12 claims (marked [x] below). The rest are parked as one PRD row for verification and implementation.
+Implemented in this coder run: 16 claims (marked [x] below). The rest are parked as one PRD row for verification and implementation.
 
 ## skills-world: world and interaction features
 
@@ -92,13 +92,13 @@ Implemented in this coder run: 12 claims (marked [x] below). The rest are parked
   - files: `scripts/lib/world-identity.mjs`, `scripts/world-identity-witness.mjs`, `docs/world-identity.md`
 - [x] **Post-write verification and retry** (small) — No shared `writeAllVerified()` helper checks every output's size after a Promise.all write batch and retries empty ones. gm.search for 'parallel writes verify every file size retry empty output' returned unrelated docs/rendering.md and client/editor/EditorFsBrowse.js hits.
   - files: `scripts/lib/write-verified.mjs`, `scripts/write-verified-witness.mjs`
-- [ ] **Independent count verification** (small) — No generic verifier recomputes expected counts from files and refuses a workflow's `no gaps` claim when output is short; `research_notes/.../spoint_agent_tooling.md '## Gaps'` records unverified claims but no executable gate.
+- [x] **Independent count verification** (small) — No generic verifier recomputes expected counts from files and refuses a workflow's `no gaps` claim when output is short; `research_notes/.../spoint_agent_tooling.md '## Gaps'` records unverified claims but no executable gate.
   - files: `scripts/lib/count-verifier.mjs`, `scripts/count-verifier-witness.mjs`
-- [ ] **Generated-script preflight with line and column** (small) — No preflight parses a generated JS body before execution and reports line/column, and no helper builds shell commands by concatenation with a check that no `${...}` leaks into the command string.
+- [x] **Generated-script preflight with line and column** (small) — No preflight parses a generated JS body before execution and reports line/column, and no helper builds shell commands by concatenation with a check that no `${...}` leaks into the command string.
   - files: `scripts/lib/script-preflight.mjs`, `scripts/script-preflight-witness.mjs`
-- [ ] **Private-body redaction** (small) — No allowlist-only exporter for raw HTTP bodies that emits key names and drops values. gm.grep for `personal fields|http/raw|allowlist|redact` in /workspace/spoint/scripts returned 0 matches.
+- [x] **Private-body redaction** (small) — No allowlist-only exporter for raw HTTP bodies that emits key names and drops values. gm.grep for `personal fields|http/raw|allowlist|redact` in /workspace/spoint/scripts returned 0 matches.
   - files: `scripts/lib/private-body.mjs`, `scripts/private-body-witness.mjs`
-- [ ] **Content-addressed asset registry** (small) — No content-addressed asset naming or size-threshold upload-target in spoint. gm.grep for `value.<sha256>|upload-target|assets/{name}` in /workspace/spoint returned 0 matches.
+- [x] **Content-addressed asset registry** (small) — No content-addressed asset naming or size-threshold upload-target in spoint. gm.grep for `value.<sha256>|upload-target|assets/{name}` in /workspace/spoint returned 0 matches.
   - files: `scripts/lib/asset-registry.mjs`, `scripts/asset-registry-witness.mjs`, `docs/asset-upload.md`
 - [ ] **Read-only live exec** (medium) — No single command runs async JS in a live room/body page with realm, JSON input, out file, module, place and an explicit read-only/persist gate.
   - files: `bin/spoint-exec.js`, `scripts/lib/live-exec.mjs`, `scripts/live-exec-witness.mjs`
@@ -136,4 +136,4 @@ Implemented in this coder run: 12 claims (marked [x] below). The rest are parked
 - [ ] **Fail-loud asset loading gate for model errors** (large) — SKILL.md documents a five-condition Asset Loading Gate and says remote 404s are silent. client/app.js sends loadingMachine 'MODELS_DONE' before calling el.prefetchModels(modelUrls).catch(() => {}); client/EntityLoader.js prefetchModels catches failures with only console.warn('[prefetch]', url, e.message), and _doLoadEntityModel's catch calls onFirstEntityLoaded(entityId, true) plus loadingMgr.completeDownload(url) with no reason code. client/BrowserServer.js already assigns err.reasonCode='worker-load-error'/'worker-module-error', so a coded refusal pattern exists for this layer.
   - files: `client/EntityLoader.js`, `client/app.js`, `client/LoadingManager.js`, `scripts/model-load-gate-witness.mjs`, `SKILL.md`
 
-Total claims: 60. Implemented here: 12. Remaining: 48.
+Total claims: 60. Implemented here: 16. Remaining: 44.

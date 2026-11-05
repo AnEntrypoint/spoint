@@ -9,6 +9,8 @@ const IMPLEMENTED = [
   'Two-sided atomic trade', 'Wired provider-neutral decision runtime', 'Post-write verification and retry',
   'Reinstate the documented AGENTS.md/SKILL.md fact witness', 'AppLoader structured refusals with reason codes',
   'One-boundary world movement validation', 'Machine-checked SKILL.md ctx API coverage',
+  'Independent count verification', 'Generated-script preflight with line and column',
+  'Private-body redaction', 'Content-addressed asset registry',
 ]
 const lines = [
   '# savi / spawn feature-gap report',
