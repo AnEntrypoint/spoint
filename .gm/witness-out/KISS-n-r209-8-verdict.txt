@@ -1,0 +1,6 @@
+KISS-n-r209-8 verdict: fixed (already landed, no edit this hop)
+The three wristUI aliases are gone: wristUI is one object {mesh, canvas, ctx, texture} read as wristUI.ctx / wristUI.canvas. The vrSettingsPanel.visible copy is gone (widgets read vrSettingsPanel.mesh.visible). XRWidgets holds no handsDetected; the single declaration is XRSystem.js:30.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (static scans).
+Quoted output:
+PASS KISS-8 widgets holds no handsDetected copy :: static source scan of XRWidgets.js
+PASS KISS-8 wristUI read through one object (no three aliases) :: static source scan

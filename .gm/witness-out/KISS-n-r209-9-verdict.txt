@@ -1,0 +1,5 @@
+KISS-n-r209-9 verdict: fixed (already gone, no edit this hop)
+XRWidgets.js has no _tmp1/_tmp2 scratch vectors and no clone() use sites; origin/direction are built where needed.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (static scan).
+Quoted output:
+PASS KISS-9 no _tmp1/_tmp2 scratch vectors :: static source scan

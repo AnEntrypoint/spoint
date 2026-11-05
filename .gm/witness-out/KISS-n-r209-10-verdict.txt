@@ -1,0 +1,6 @@
+KISS-n-r209-10 verdict: fixed (already gone, no edit this hop)
+XRWidgets.js no longer exports __freshnessProbe. The witness scripts/bundle-freshness-witness.mjs writes its own marker into scratch copies and does not read the committed one, so nothing depends on it.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (static scan).
+Quoted output:
+PASS KISS-10 no __freshnessProbe export in XRWidgets :: static source scan
+RESULT: PASS (full probe run, exit 0)

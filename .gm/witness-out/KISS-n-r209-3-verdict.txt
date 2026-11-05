@@ -1,0 +1,5 @@
+KISS-n-r209-3 verdict: fixed (already landed, no edit this hop)
+placeAtCamera, getPlacementInfo and options.scale are gone from XRControls.js (removed in c9f4ee4 and 9d531fa). setInitialFPSPosition is not in client/xr.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (real XRControls instance).
+Quoted output:
+PASS KISS-3 placeAtCamera / getPlacementInfo / options.scale absent :: placeAtCamera=undefined getPlacementInfo=undefined options={"placementMode":true}

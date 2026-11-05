@@ -1,0 +1,7 @@
+KISS-n-r209-1 verdict: fixed (already landed, no edit this hop)
+Commit that made the change: 1d0199b "xr: fade teleport with one phase variable"
+Current XRWidgets.js has no xstate import; the fade is one string phase (fadePhase: idle|fadeIn|delay|fadeOut).
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (run with node, real XRWidgets imported)
+Quoted output:
+PASS KISS-1 no xstate import or fadeMachine in XRWidgets :: static source scan
+RESULT: PASS (whole probe; see KISS-n-r209-probe output)

@@ -1,0 +1,5 @@
+KISS-n-r209-4 verdict: fixed (already landed, no edit this hop)
+reticleVisible and placeAnchor no longer exist on XRControls; the anchor/plane surface was dropped in c9f4ee4. The live reticle is shown and hidden through this.reticle.visible only.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs.
+Quoted output:
+PASS KISS-4 reticleVisible mirror and placeAnchor absent :: reticleVisible=false placeAnchor=undefined

@@ -1,0 +1,7 @@
+KISS-n-r209-2 verdict: fixed (already landed, no edit this hop)
+Commit that made the change: 772feaa "let an aborted teleport cancel the fade it started"
+endTeleport(true) now sets fadeOpacity 0 and phase idle in one place, no event needed.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs; drives the real createXRWidgets: trigger a teleport, abort via moveXROrigin returning false.
+Quoted output:
+PASS KISS-2 teleport pending after trigger :: isTeleporting=true
+PASS KISS-2 aborted teleport leaves no fade behind :: opacityMidFade=0.25 opacityAfterAbort=0 isTeleporting=false

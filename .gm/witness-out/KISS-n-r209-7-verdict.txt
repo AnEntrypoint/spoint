@@ -1,0 +1,7 @@
+KISS-n-r209-7 verdict: needs-design
+Half 1, the dead guard: fixed (already gone). computeParabolicArc writes positions[idx++] unconditionally; no "idx < positions.length" remains.
+Half 2, the hardcoded ground: still open and a behaviour change. The hit point y is the constant ARC_GROUND_Y (0.1), not 0, and the marker is placed at that height whatever the controller height or scene geometry is. Fixing it means a raycast against the scene or solving the parabola for ground, which changes where teleports land, so it is not a behaviour-preserving simplification.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs.
+Quoted output:
+PASS KISS-7 marker y independent of origin height (hardcoded ground) :: markerY(originY=1.7)=0.12000000000000001 markerY(originY=5)=0.12000000000000001
+PASS KISS-7 dead idx<positions.length guard removed :: static source scan

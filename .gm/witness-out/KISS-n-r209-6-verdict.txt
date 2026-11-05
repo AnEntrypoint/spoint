@@ -1,0 +1,6 @@
+KISS-n-r209-6 verdict: fixed (already landed, no edit this hop)
+Commit that made the change: 4b2e979 "refresh the wrist UI and controller visibility from dt, not the frame clock"
+XRSystem.update now accumulates the clamped frame step (wristUiElapsed / visibilityElapsed) and fires when it crosses the interval. The modulo gates are gone.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs (static scan of XRSystem.js; XRSystem cannot be imported under node because the VRButton addon is not present in node_modules).
+Quoted output:
+PASS KISS-6 no absolute-clock modulo gates in XRSystem :: static source scan: accumulator "+= step" present, "% 66" and "% 100" absent

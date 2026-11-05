@@ -1,0 +1,5 @@
+KISS-n-r209-5 verdict: fixed (already landed, no edit this hop)
+onPlanesDetected and planeMeshes are gone from client/xr (dropped in c9f4ee4 "drop the unread AR anchor and plane surface from XRControls"), so no unparented plane mesh can be built.
+Probe: .gm/witness-out/KISS-n-r209-probe.mjs.
+Quoted output:
+PASS KISS-5 no plane mesh surface on XRControls :: onPlanesDetected=undefined
