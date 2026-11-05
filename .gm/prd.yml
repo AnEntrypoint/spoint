@@ -586,7 +586,9 @@
   session_id: orch-main-r270-sub1-w1
 - id: DBC-ub1-s2-1
   title: src/game/ProgressionSystem.js:40 calculateXpThreshold's explicit `curve` arg bypasses the config contract -- an unknown curve silently falls to the switch default (linear), so one predicate has two bodies
-  status: pending
+  status: refuted
+  witness_path: .gm/witness-out/DBC-ub1-s2-1-verdict.txt
+  note: an explicit curve is validated by isLegalCurve and throws, so an unknown curve no longer reaches the linear default
   principle: DBC
   surface: src/game/ProgressionSystem.js
   witness: 1791692068682-500-1a3d975fce1ea427
