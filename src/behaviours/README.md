@@ -279,3 +279,13 @@ or a `ModelPool` proxy root, satisfies this) -- the constructor throws
 otherwise. A re-`trigger()` mid-distortion restarts the impact clock from the
 new impact (re-entrant safe, no accumulation).
 
+## Plate pattern: trigger volume + cross-entity state write
+
+Two entities, existing primitives only. The trigger volume is `stdlib-apps/trigger-volume`
+(`definePickup` underneath): it emits its `channel` on the bus with `targets` when a player
+enters `radius`, and `once`/`cooldownMs` gate re-firing. The plate's app reaches the other entity with
+`ctx.getEntity(gateId)` and the gate reacts on its own `update()`; `ctx.bus` carries the
+channel event. A trap pushes the body that entered with
+`ctx.applyImpulse(entityId, impulse, worldPoint)`; a `false` return means no body received
+the impulse, so do not mirror it into entity velocity.
+
