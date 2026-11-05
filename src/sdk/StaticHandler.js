@@ -146,6 +146,7 @@ export function createStaticHandler(dirs, opts = {}) {
       if (!bakedRel.includes('..')) for (const { prefix, dir } of dirs) {
         if (!sourceUrl.startsWith(prefix)) continue
         const srcPath = join(dir, sourceUrl.slice(prefix.length))
+        if (!resolve(srcPath).startsWith(resolve(dir) + sep)) continue
         if (!existsSync(srcPath) || !statSync(srcPath).isFile()) continue
         getProgressive(srcPath)
         const bakedFp = resolveBakedFile(srcPath, bakedRel)
@@ -190,6 +191,7 @@ export function createStaticHandler(dirs, opts = {}) {
       if (m) for (const { prefix, dir } of dirs) {
         if (!sourceUrl.startsWith(prefix)) continue
         const srcPath = join(dir, sourceUrl.slice(prefix.length))
+        if (!resolve(srcPath).startsWith(resolve(dir) + sep)) continue
         if (!existsSync(srcPath) || !statSync(srcPath).isFile()) continue
         getKtx2Extracted(srcPath)
         const ktx2Fp = resolveKtx2File(srcPath, m[1])
