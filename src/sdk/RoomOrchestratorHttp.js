@@ -44,6 +44,14 @@ export function scoreWorkerRooms(rooms) {
   return rooms.reduce((sum, r) => sum + scoreRoom(r), 0)
 }
 
+export function parseRoomPickRequest(searchParams) {
+  return {
+    requestedRoom: searchParams.get('requested') || null,
+    rejectedRooms: (searchParams.get('rejected') || '').split(',').filter(Boolean),
+    worldName: searchParams.get('world') || null,
+  }
+}
+
 export function startRoomOrchestratorRouter(orch, port) {
   orch.httpServer = createHttpServer(async (req, res) => {
     try {
@@ -94,6 +102,12 @@ export function startRoomOrchestratorRouter(orch, port) {
         const rooms = await orch.getStatus()
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ workerCount: orch.workers.length, rooms }))
+        return
+      }
+      if (url.pathname === '/pick') {
+        const loc = await orch.pickRoomForJoin(parseRoomPickRequest(url.searchParams))
+        res.writeHead(loc ? 200 : 404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(loc || { error: 'no open room' }))
         return
       }
       const m = url.pathname.match(/^\/route\/(.+)$/)
