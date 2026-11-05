@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '/node_modules/three/build/three.module.js'
 
 function worldDistance(from, to) {
   return from.getWorldPosition(new THREE.Vector3()).distanceTo(to.getWorldPosition(new THREE.Vector3()))

@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '/node_modules/three/build/three.module.js'
 
 export class SkeletonUtils {
   static findBoneByName(skeleton, boneName) {

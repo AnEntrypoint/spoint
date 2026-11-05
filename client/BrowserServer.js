@@ -99,7 +99,7 @@ export class BrowserServer extends BaseClient {
 
   async connect() {
     await ensurePacked
-    const workerUrl = new URL('src/sdk/WorkerEntry.js', _root)
+    const workerUrl = new URL('src/sdk/WorkerBoot.js', _root)
     this._worker = new Worker(workerUrl, { type: 'module' })
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisibilityChange)
     if (this.config.peerSession) this._relayPeerFrames(this.config.peerSession)
@@ -136,8 +136,21 @@ export class BrowserServer extends BaseClient {
         const ps = this.config.peerSession
         _sourcesReady.then(({ worldDef, apps }) => this._worker.postMessage({ type: 'INIT', worldDef, worldName: this.config.worldName || null, apps, migrationSnapshot: this.config.migrationSnapshot || null, localPubkey: this.config.localPubkey || null, timeOfDaySeed: _lastTodSync, peerSession: ps ? { roster: [...ps.roster], localPubkey: ps.localPubkey } : null })).catch(reject)
       }
-      this._worker.onerror = reject
+      this._worker.onerror = (event) => {
+        const location = event?.filename ? ` at ${event.filename}:${event.lineno ?? 0}:${event.colno ?? 0}` : ''
+        const err = new Error(`[browser-server] worker failed to load: ${event?.message || 'unknown worker error'}${location}`)
+        err.reasonCode = 'worker-load-error'
+        err.filename = event?.filename || null
+        err.lineno = event?.lineno ?? null
+        reject(err)
+      }
       this._worker.onmessage = ({ data }) => {
+        if (data.type === 'BOOT_ERROR') {
+          const err = new Error(`[browser-server] worker module failed to load: ${data.message}${data.stack ? '\n' + data.stack : ''}`)
+          err.reasonCode = 'worker-module-error'
+          reject(err)
+          return
+        }
         if (data.type === 'WORKER_READY') { _workerReady = true; _tryInit(); return }
         if (data.type === 'INIT_ERROR') { reject(new Error(data.error + '\n' + data.stack)); return }
         if (data.type === 'TRANSFORM_RING') {

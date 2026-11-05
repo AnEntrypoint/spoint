@@ -1,0 +1,22 @@
+Fresh-room host boot root cause and fix, 2026-11-05.
+
+Before: a fresh room logged "Connection failed: {\"isTrusted\":true}" at client/app.js:3068 and window.__app.wireweave/voiceIndicator/chatHUD were absent. The rejecting value was a worker ErrorEvent, not an Error.
+
+Diagnosis chain (playwriter browser, page 3507294FC40921EE43C62CE5599B145B in a private context, dev server pid 150056 on 127.0.0.1:3102):
+1. client/BrowserServer.js:139 had "this._worker.onerror = reject", so app.js's catch received a trusted DOM Event with no message.
+2. Wrapped onerror into an Error with reasonCode worker-load-error, filename and lineno. Live console then read: "Connection failed: Error: [browser-server] worker failed to load: unknown worker error".
+3. Added src/sdk/WorkerBoot.js, which imports WorkerEntry.js inside try/catch and posts BOOT_ERROR with the real message. BrowserServer now boots through WorkerBoot.js and rejects with reasonCode worker-module-error.
+4. Live console then read: "Connection failed: Error: [browser-server] worker module failed to load: Failed to resolve module specifier \"three\". Relative references must start with either \"/\", \"./\", or \"../\"".
+5. Root cause: six src/animation/*.js files imported bare 'three'. They are in src/apps/AppContext.js's import closure, so WorkerEntry.js's module graph reached them. A module worker has no import map; the page's index.html import map does not apply inside it.
+6. Changed those six imports to the same URL the import map names: /node_modules/three/build/three.module.js.
+
+Runtime after the fix (same private playwriter page):
+- ?room=probe1793906623834v5&fresh=1: bridgeUp true, voice true, chat true. Before: all false.
+- VoiceIndicator team-id check (ILLEGAL-r250-1), real app-owned indicator: initial buttons ["Join Voice"], pid 1, joined false; after clicking Join Voice and 8 s: buttons ["Mute"], joined true; after onScoreboard([{id:'red-team',members:[1]}]): ["Everyone","Mute"]; after clicking Everyone: ["Team only","Mute"]; after onScoreboard([{id:'blue-team',members:[1]}]): ["Team only","Mute"]; after onScoreboard([{id:null,members:[1]}]): ["Mute"]. The team control follows an id, not a boolean.
+- Three further fresh rooms (host1793906711111r0, host1793906720774r1, host1793906730732r2): each bridgeUp true, voice true, chat true. The bridge intermittency on this path was the same worker failure.
+
+Node witnesses:
+- scripts/browser-server-worker-error-witness.mjs: RESULT: PASS worker load refusal carries reasonCode, message, filename and lineno; module load refusal carries the real cause
+- scripts/worker-entry-bare-specifier-witness.mjs: RESULT: PASS 216 worker-module file(s) resolve without a static bare import-map specifier (negative control: a synthetic import of bare 'three' is detected)
+
+Generated client/editor/sdk-typings.generated.d.ts was regenerated because the AppContext import closure changed.

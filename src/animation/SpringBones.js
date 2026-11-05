@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '/node_modules/three/build/three.module.js'
 
 const GRAVITY_MS2 = 9.81
 const SPRING_RATE_PER_S2 = 40

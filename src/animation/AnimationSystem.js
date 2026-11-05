@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '/node_modules/three/build/three.module.js'
 import { SkeletonUtils } from './SkeletonUtils.js'
 import { AnimationBlender, BlendTree1D, BlendTree2D } from './BlendTree.js'
 import { IKRig, TwoBoneIKSolver } from './IKSolver.js'
