@@ -1,4 +1,5 @@
 import { createElement, applyDiff } from 'webjsx'
+import { placeAnchoredPlates } from './hudAnchor.js'
 
 export function worldToScreen(position, camera, renderer, THREE) {
   if (!camera || !renderer || !position || !THREE) return null
@@ -122,6 +123,7 @@ export function createAppModuleSystem(client, uiRoot) {
       ...(interactPrompt ? [interactPrompt] : [])
     )
     try { applyDiff(_appHudContainer, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
+    placeAnchoredPlates(_appHudContainer, state.entities, camera, renderer, engineCtx.THREE, worldToScreen)
   }
 
   const dispatchKeyDown = createDispatcher('onKeyDown', null)
