@@ -1,0 +1,13 @@
+ILLEGAL-n-r256-4 and ILLEGAL-n-r256-5 verified by running .gm/witness-out/ILLEGAL-n-r256-4-5-probe.mjs (node):
+noLattice: THREW ChartAnchorDecisionError: decision-needs-a-lattice
+noFrameUp: THREW ChartAnchorDecisionError: decision-needs-a-frame-up
+noPlayers: kind=stay reason=no-players
+straddle: kind=refusal reason=players-straddle-the-planet
+zeroLength: kind=refusal reason=player-direction-has-no-length
+spread: kind=reanchor
+onAnchor: kind=stay reason=gain-below-hysteresis
+latticeRadius0: THREW ChartAnchorLatticeError: radius-not-positive-finite
+latticeRadiusNaN: THREW ChartAnchorLatticeError: radius-not-positive-finite
+latticeAnchorsZero: THREW ChartAnchorLatticeError: anchors-per-face-below-one
+Note: the probe cut messages at 80 chars, which made the lattice message look wrong. Full message at src/shared/chartAnchor.js:25 names both checks; no defect.
+Every decision outcome carries kind (refusal|stay|reanchor): ILLEGAL-n-r256-5 is fixed by run, not only by source.

@@ -1,0 +1,17 @@
+import { createChartAnchorLattice } from '/workspace/spoint/src/shared/chartAnchor.js';
+import { chartAnchorDecision } from '/workspace/spoint/src/shared/chartReanchorPolicy.js';
+const out = {};
+const run = (name, f) => { try { const v = f(); out[name] = v && typeof v === 'object' ? 'kind=' + v.kind + (v.reason ? ' reason=' + v.reason : '') : String(v); } catch (e) { out[name] = 'THREW ' + e.name + ': ' + String(e.message).slice(0, 80); } };
+const lat = createChartAnchorLattice(6371000);
+const frame = { up: [0, 1, 0] };
+run('noLattice', () => chartAnchorDecision({ lattice: null, frame, dirs: [] }));
+run('noFrameUp', () => chartAnchorDecision({ lattice: lat, frame: {}, dirs: [] }));
+run('noPlayers', () => chartAnchorDecision({ lattice: lat, frame, dirs: [] }));
+run('straddle', () => chartAnchorDecision({ lattice: lat, frame, dirs: [[1,0,0],[-1,0,0]] }));
+run('zeroLength', () => chartAnchorDecision({ lattice: lat, frame, dirs: [[0,0,0]] }));
+run('spread', () => chartAnchorDecision({ lattice: lat, frame, dirs: [[0,1,0],[0.9,0.1,0]] }));
+run('onAnchor', () => chartAnchorDecision({ lattice: lat, frame, dirs: [[0,1,0]] }));
+run('latticeRadius0', () => createChartAnchorLattice(0));
+run('latticeRadiusNaN', () => createChartAnchorLattice(NaN));
+run('latticeAnchorsZero', () => createChartAnchorLattice(6371000, 0));
+console.log(JSON.stringify(out, null, 1));
