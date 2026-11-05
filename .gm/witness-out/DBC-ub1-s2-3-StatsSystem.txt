@@ -1,0 +1,151 @@
+witness: StatsSystem-witness
+variant: honest
+module: /workspace/spoint/src/game/StatsSystem.js
+ts: 2026-10-19T21:08:16.090Z
+ok - spec defaults to an empty object
+ok - missing appCtx throws a TypeError
+ok - default export is the named factory
+ok - default level is 1
+ok - default stats at level 1
+ok - fresh snapshot is empty
+ok - _xpForLevel(0) is 0
+ok - _xpForLevel(1) is 0
+ok - _xpForLevel(2) is 100
+ok - _xpForLevel(5) is 400
+ok - _levelFromXP(0) is 1
+ok - _levelFromXP(99) is 1
+ok - _levelFromXP(100) is 2
+ok - _levelFromXP(199) is 2
+ok - _levelFromXP(200) is 3
+ok - _levelFromXP(4899) is 49
+ok - _levelFromXP(4900) is 50
+ok - _levelFromXP(1e9) is capped at 50
+ok - addXP rejects 0
+ok - addXP rejects -5
+ok - addXP rejects NaN
+ok - addXP rejects Infinity
+ok - addXP rejects 5
+ok - addXP rejects null
+ok - rejected addXP leaves level 1
+ok - rejected addXP sends nothing
+ok - addXP(200) is accepted
+ok - level after 200 xp is 3
+ok - stats scale with level
+ok - addXP pushes one stats message
+ok - applyBonus accepts a known stat
+ok - bonus adds to the scaled stat
+ok - negative bonus is accepted
+ok - bonuses accumulate
+ok - health reflects the net bonus
+ok - applyBonus rejects zero
+ok - applyBonus rejects an unknown stat
+ok - applyBonus rejects an inherited property name
+ok - applyBonus rejects NaN
+ok - applyBonus rejects a string amount
+ok - rejected applyBonus leaves bonuses unchanged
+ok - push sends exactly one message
+ok - push targets the player
+ok - addXP(150) is accepted
+ok - level-up callback fires once
+ok - callback receives the app context first
+ok - callback payload carries the string id and new level
+ok - addXP(10) inside the same level is accepted
+ok - no callback without a level change
+ok - xp accumulates
+ok - client push carries nextLevelXP
+ok - addXP(450) is accepted
+ok - one addXP crossing several levels fires once
+ok - that single callback carries the final level
+ok - addXP is still accepted
+ok - the level still advances
+ok - the throw is reported through debug.warn
+ok - the client is still pushed
+ok - addXP(1e9) is accepted
+ok - level is capped at 50
+ok - xp is clamped to the cap threshold and stats follow
+ok - a startXP above the level curve lifts the level past startLevel
+ok - custom baseStats replace the defaults
+ok - xpPerLevel override drives _xpForLevel
+ok - maxLevel override caps _levelFromXP
+ok - applyBonus rejects a stat outside custom baseStats
+ok - applyBonus accepts a custom stat
+ok - channel override names the push type
+ok - invalid numeric spec values fall back to defaults
+ok - an empty channel falls back to stats
+ok - unknown id is rejected
+ok - id from a non-array slot is rejected
+ok - known id is accepted
+ok - equipped item is reported with its bonuses
+ok - equipment bonus adds to the stat
+ok - armor is accepted
+ok - armor adds defense and health
+ok - relic is accepted
+ok - bonus on a stat outside baseStats is added
+ok - charm is accepted
+ok - item without bonuses reports an empty bonuses map
+ok - axe replaces the sword in the weapon slot
+ok - the replaced item bonus is removed
+ok - getLoadout maps slot to id
+ok - saveLoadout stores the current slots
+ok - saveLoadout rejects a blank name
+ok - saveLoadout rejects a non-string name
+ok - getLoadouts reports the saved set
+ok - getLoadouts returns copies
+ok - unequipSlot reports a filled slot
+ok - unequipSlot reports an empty slot
+ok - cleared equipment is empty
+ok - loadLoadout restores a saved set
+ok - restored slots match the saved loadout
+ok - restored stats match the saved loadout
+ok - onLoadoutSwap receives the loadout
+ok - loadLoadout rejects a missing name
+ok - snapshot keys players by string id
+ok - snapshot holds the player state
+ok - restore reproduces level
+ok - restore reproduces stats
+ok - restore reproduces equipment
+ok - restore reproduces loadouts
+ok - restore reproduces bonuses
+ok - restore ignores non-object input
+ok - restore derives level from clamped xp, not declared level
+ok - restore clamps negative xp to zero
+ok - restore keeps only known equipment
+ok - restore keeps only known numeric bonuses
+ok - restore keeps only loadouts with known entries
+ok - restore defaults a zero level to the start level
+ok - restore replaces previous players
+ok - a startLevel head start keeps its level when startXP does not outrank it
+ok - a startXP head start equals the same xp granted by addXP
+ok - addXP(250) equals addXP(100) then addXP(150)
+ok - addXP reaching the cap in one call equals 200 calls
+ok - created level is max(1, _levelFromXP(xp)) {}
+ok - snapshot then restore reproduces the created pair {}
+ok - addXP(1) never lowers xp {}
+ok - addXP(1) never lowers level {}
+ok - level stays at the law after addXP {}
+ok - restore then addXP equals addXP then restore {}
+ok - addXP after restore is additive {}
+ok - created level is max(1, _levelFromXP(xp)) {"startLevel":5,"startXP":0}
+ok - snapshot then restore reproduces the created pair {"startLevel":5,"startXP":0}
+ok - addXP(1) never lowers xp {"startLevel":5,"startXP":0}
+ok - addXP(1) never lowers level {"startLevel":5,"startXP":0}
+ok - level stays at the law after addXP {"startLevel":5,"startXP":0}
+ok - restore then addXP equals addXP then restore {"startLevel":5,"startXP":0}
+ok - addXP after restore is additive {"startLevel":5,"startXP":0}
+ok - created level is max(1, _levelFromXP(xp)) {"startXP":1000}
+ok - snapshot then restore reproduces the created pair {"startXP":1000}
+ok - addXP(1) never lowers xp {"startXP":1000}
+ok - addXP(1) never lowers level {"startXP":1000}
+ok - level stays at the law after addXP {"startXP":1000}
+ok - restore then addXP equals addXP then restore {"startXP":1000}
+ok - addXP after restore is additive {"startXP":1000}
+ok - created level is max(1, _levelFromXP(xp)) {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - snapshot then restore reproduces the created pair {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - addXP(1) never lowers xp {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - addXP(1) never lowers level {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - level stays at the law after addXP {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - restore then addXP equals addXP then restore {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - addXP after restore is additive {"startLevel":5,"startXP":1000,"xpPerLevel":50,"maxLevel":10}
+ok - restore of a full snapshot keeps every player
+checks: 145 passed, 0 failed, 145 total
+RESULT: PASS

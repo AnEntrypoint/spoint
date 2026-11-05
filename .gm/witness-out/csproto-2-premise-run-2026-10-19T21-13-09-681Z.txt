@@ -1,0 +1,5 @@
+msgName(0xdead)="unknown(0xdead)" typeof=string
+isUnreliable(0xdead)=false typeof=boolean
+premise null-return holds: false
+premise strict-false mismatch holds: false
+RESULT: PASS premise refuted

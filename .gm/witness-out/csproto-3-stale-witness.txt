@@ -1,0 +1,5 @@
+cmd: node --input-type=module -e "const m = await import('./src/protocol/msgpack.js'); ..." (cwd /workspace/spoint)
+session: drain-csproto-3 (row author: orch-main-cs-protocol)
+isPacked_sync_after_import: true
+roundtrip: {"a":1,"b":[1,2]}
+RESULT: PASS (Node sync loader _loadPackrSync runs at module load; async ensurePacked path is browser-only)

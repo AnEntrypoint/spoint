@@ -1,0 +1,4 @@
+csproto-7 live probe: encode 20 inputs, MAX=8
+decoded sequences: [12,13,14,15,16,17,18,19] (match)
+console.warn count: 1 text: "[InputCodec] input packet was given 20 records and holds 8, so the oldest 12 were not sent"
+RESULT: PASS premise refuted: drop is announced via console.warn

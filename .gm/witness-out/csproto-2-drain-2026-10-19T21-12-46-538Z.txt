@@ -1,0 +1,10 @@
+ok   msgName(HEARTBEAT) === "HEARTBEAT" got=HEARTBEAT
+ok   isUnreliable(HEARTBEAT) === true got=true
+ok   isRegisteredMessage(HEARTBEAT) === true got=true
+ok   isRegisteredMessage(0xdead) === false got=false
+FAIL msgName(0xdead) throws got=null
+FAIL msgName(0xdead) reasonCode got=null
+FAIL isUnreliable(0xdead) throws got=null
+FAIL isUnreliable(0xdead) reasonCode got=null
+ok   harness line guards with isRegisteredMessage before isUnreliable got=true
+RESULT: FAIL 4

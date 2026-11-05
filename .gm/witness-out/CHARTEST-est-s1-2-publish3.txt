@@ -1,0 +1,14 @@
+[git-api-publish] stale base gate: 1 changed path(s) checked against the last 20 revision(s) main took on each; none is a revision main has moved past
+[git-api-publish] closure gate: no published path moves the src/apps/AppContext.js import closure (de0e860b3952, 88 files)
+{
+  "attempts": 1,
+  "parent": "e63b1891516082bcd09b20935370c0e9b0392ead",
+  "commit": "79e16496f0487821aa9afcc5a073a488d71d307c",
+  "verify": {
+    "apps/world/tps-game.hf": {
+      "remote": "3359a0977fbd2e52259b06735694bf06e31709d5",
+      "local": "3359a0977fbd2e52259b06735694bf06e31709d5",
+      "match": true
+    }
+  }
+}

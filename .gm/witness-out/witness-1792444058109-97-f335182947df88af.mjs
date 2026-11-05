@@ -1,0 +1,3 @@
+import { createRequire as __gmCreateRequire } from 'node:module';
+const require = __gmCreateRequire(process.cwd() + '/');
+const m = await import('/workspace/spoint/src/protocol/msgpack.js'); const k = m.WIRE_STRUCTURES[1]; const want = 'seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch'; const ok = k.length === 10 && k.join(',') === want; console.log('struct1_len=' + k.length + ' match=' + ok); console.log(ok ? 'RESULT: PASS' : 'RESULT: FAIL');

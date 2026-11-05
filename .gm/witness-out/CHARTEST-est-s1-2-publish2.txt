@@ -1,0 +1,15 @@
+[git-api-publish] stale base gate: 1 changed path(s) checked against the last 20 revision(s) main took on each; none is a revision main has moved past
+[git-api-publish] closure gate: no published path moves the src/apps/AppContext.js import closure (de0e860b3952, 88 files)
+{
+  "attempts": 1,
+  "parent": "48359a665fe51464c8fb8270159233ed2a51c0ba",
+  "commit": "e63b1891516082bcd09b20935370c0e9b0392ead",
+  "verify": {
+    "apps/world/tps-game.hf": {
+      "remote": "872898e30c236d85966078294bb2957c2f5c6d1f",
+      "local": "3359a0977fbd2e52259b06735694bf06e31709d5",
+      "match": false
+    }
+  }
+}
+git-api-publish: remote blob sha disagrees with git hash-object

@@ -1,0 +1,22 @@
+witness: witness-gap-ClientCoreExactPatchFrame
+script: scripts/client-core-exact-patch-frame-witness.mjs
+run: honest
+ts: 2026-11-04T17:30:43.452Z
+module: /workspace/spoint/client/core/ExactPatchFrame.js
+module_sha256: 86f76e973b25cdc75ce48683f543dc45b75b8169e3f424e9266a9cb314b39206
+check M00-module-path: ok present /workspace/spoint/client/core/ExactPatchFrame.js
+check M01-module-import: ok imported under node
+check E01-export: ok createExactPatchFrame typeof=function
+check E02-exact-handle-shape-and-prototype-link: ok shape=true linked=true
+check E03-exact-forwards-sample-and-arguments: ok y=34 calls=1 missing=false
+check E04-null-sample-throws-NoGroundHeightError-and-marks-missing: ok before=false threw=NoGroundHeightError after=true
+check E05-missing-sticky-until-beginChunk: ok sticky=true y=7 reset_after_beginChunk=true
+check E06-zero-sample-is-a-value-not-missing: ok y=0 missing=false
+check E07-placement-inherits-frame-state-live: ok inherited=true live=true
+check E08-wrapper-leaves-frame-method-untouched: ok frame_method_same=true
+check E09-absent-hook-passes-frame-through: FAIL identity=false missing=false
+check E10-prefetch-forwards-args-with-live-hook: ok calls=[[5,-7]]
+check E11-prefetch-without-hook-is-noop: ok returns=undefined,undefined
+check E12-handles-keep-independent-missing-state: ok a_missing=true b_missing=false
+check E13-sample-reads-hook-at-call-time: ok y=42
+RESULT: FAIL checks=15 failed=1

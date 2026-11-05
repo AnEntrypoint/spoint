@@ -1,0 +1,13 @@
+const M = await import('file:///workspace/spoint/src/protocol/MessageTypes.js');
+const unknown = 0xdead;
+const name = M.msgName(unknown);
+const unrel = M.isUnreliable(unknown);
+const premiseNull = name === null || unrel === null;
+const premiseFalsyConflation = unrel !== false;
+console.log('msgName(0xdead)=' + JSON.stringify(name) + ' typeof=' + typeof name);
+console.log('isUnreliable(0xdead)=' + JSON.stringify(unrel) + ' typeof=' + typeof unrel);
+console.log('premise null-return holds: ' + premiseNull);
+console.log('premise strict-false mismatch holds: ' + premiseFalsyConflation);
+const refuted = !premiseNull && unrel === false && typeof name === 'string';
+console.log(refuted ? 'RESULT: PASS premise refuted' : 'RESULT: FAIL premise holds');
+process.exit(refuted ? 0 : 1);

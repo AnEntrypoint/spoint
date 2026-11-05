@@ -1,0 +1,58 @@
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+const REPO = '/workspace/spoint'
+const imp = (p) => import(pathToFileURL(path.join(REPO, p)).href)
+const { Quadtree } = await import('mapspinner/quadtree.js')
+const { resolveLodConfig, applyLodConfig } = await import('mapspinner/lod-config.js')
+const { TERRAIN_DEFAULTS: TD } = await import('mapspinner/terrain-defaults.js')
+const { worldToFaceLocal } = await import('mapspinner/planet-orchestrator-cull.js')
+const { cubeFaceOf } = await import(pathToFileURL(path.join(REPO, 'src/terrain/PlacementLattice.js')).href)
+const { loadWorldModule } = await imp('src/sdk/WorldLocator.js')
+const { resolveTerrainConfig } = await imp('src/shared/terrainConfig.js')
+const { loadPlanetSampler, planetSamplerOptsOf } = await imp('src/terrain/TerrainPhysics.js')
+const { createPlanetFrame } = await imp('src/terrain/PlanetFrame.js')
+const { createTerrainMeshSurface } = await import(pathToFileURL(path.join(REPO, 'src/terrain/TerrainMeshSurface.js')).href)
+const loaded = await loadWorldModule(path.join(REPO, 'apps', 'world', 'tps-game.js'))
+const tcfg = resolveTerrainConfig(loaded)
+const sampler = await loadPlanetSampler(planetSamplerOptsOf(tcfg))
+const frame = createPlanetFrame({ sampler, anchorDir: tcfg.anchorDir || [0, 1, 0], offsetY: tcfg.offsetY || 0, reliefScale: tcfg.reliefScale })
+const R = frame.radius
+const lod = resolveLodConfig({ maxLevel: tcfg.maxLevel, splitFactor: tcfg.splitFactor }, 70 * Math.PI / 180)
+function payloadAt(Cx, Cz) {
+  const gh = frame.cpuGroundHeightLocal(Cx, Cz)
+  const camWorld = frame.localToWorld(Cx, gh + 1.7, Cz)
+  const camAlt = Math.hypot(camWorld[0], camWorld[1], camWorld[2]) - R
+  const qt = new Quadtree(R)
+  applyLodConfig(qt, R, 1080, lod)
+  const leaves = []
+  for (let face = 0; face < 6; face++) {
+    const lc = worldToFaceLocal(face, camWorld, R)
+    for (const q of qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], undefined, undefined, camAlt, null)) leaves.push({ face, ...q })
+  }
+  const offsets = new Float32Array(leaves.length * 4), faces = new Float32Array(leaves.length)
+  for (let i = 0; i < leaves.length; i++) { const q = leaves[i]; offsets[i*4] = q.ox; offsets[i*4+1] = q.oy; offsets[i*4+2] = q.l; offsets[i*4+3] = q.level; faces[i] = q.face }
+  return { offsets, faces, count: leaves.length, gridSize: TD.gridMeshSize, radius: R }
+}
+
+const focusRadiusM = Number(process.env.FOCUS || 450), D = 0
+const payload = payloadAt(D, 0)
+const surface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads: () => payload, focusRadiusM })
+surface.setFocus(D, 0); surface.sync()
+{
+const { PerformanceObserver } = await import('node:perf_hooks')
+let gcCount = 0, gcMs = 0
+const obs = new PerformanceObserver((list) => { for (const e of list.getEntries()) { gcCount++; gcMs += e.duration } })
+obs.observe({ entryTypes: ['gc'] })
+const N = 20000
+const dirs = []
+for (let i = 0; i < N; i++) { const a = Math.random() * 2 - 1, b = Math.random() * 2 - 1, c2 = Math.random() * 2 - 1; const l = Math.hypot(a, b, c2) || 1; dirs.push([a / l, b / l, c2 / l]) }
+await new Promise(r => setTimeout(r, 50))
+gcCount = 0; gcMs = 0
+const t0 = performance.now()
+let acc = 0
+for (let i = 0; i < N; i++) acc += sampler.heightAt(dirs[i])
+const elapsed = performance.now() - t0
+await new Promise(r => setTimeout(r, 50))
+obs.disconnect()
+console.log(JSON.stringify({ calls: N, elapsedMs: +elapsed.toFixed(1), usPerCall: +(elapsed * 1000 / N).toFixed(2), gcCount, gcMs: +gcMs.toFixed(1), acc: +acc.toFixed(3) > 0 }))
+}

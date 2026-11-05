@@ -1,0 +1,20 @@
+witness: webgpu-hiz-shaders
+row: witness-gap-webgpu-hiz-shaders
+label: honest-tree
+module: /workspace/spoint/packages/streaming-gltf/src/webgpu-hiz-shaders.js
+module_sha256: 99c94e065fc5bb16215ee1cf53ab3a8c4767bfdd15aafb2765876fc0125b6c9c
+ts: 2026-11-05T05:20:37Z
+CHECK C00-module-present PASS /workspace/spoint/packages/streaming-gltf/src/webgpu-hiz-shaders.js
+CHECK C09-no-browser-or-gpu-api PASS 0 hits in module source
+CHECK C10-dependency-free PASS no import or re-export statement
+CHECK C01-module-loads PASS imported under node with no globals
+CHECK C11-cpu-parser-loads PASS meshlet-codec.js imported under node
+CHECK C02-exports-typed PASS 7 exports typed as contracted
+CHECK C03-entry-points-and-workgroups PASS one @compute main per shader with contracted workgroup size
+CHECK C04-bindings-declared PASS group 0 bindings match contract for every shader
+CHECK C05-delimiters-balanced PASS braces, parentheses and brackets balanced
+CHECK C06-strides-match-wgsl-layout PASS cluster 80 vs wgsl 80; indirect 20 vs wgsl 20; lodSlots 3 vs wgsl 3
+CHECK C07-wgsl-field-order PASS Cluster field order matches; IndirectArgs types match
+CHECK C08-packer-direct-matches-wgsl-layout PASS 2 clusters read back at WGSL offsets
+CHECK C12-parser-to-packer-matches-wgsl-layout PASS 2 parsed clusters packed and read back at WGSL offsets
+RESULT: PASS -- 13 of 13 checks passed module_sha256=99c94e065fc5bb16215ee1cf53ab3a8c4767bfdd15aafb2765876fc0125b6c9c

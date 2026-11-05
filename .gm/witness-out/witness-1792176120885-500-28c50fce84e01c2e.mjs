@@ -1,0 +1,3 @@
+import { createRequire as __gmCreateRequire } from 'node:module';
+const require = __gmCreateRequire(process.cwd() + '/');
+const r = require('child_process').spawnSync('node',['scripts/lib/verify-doc-claims.mjs'],{encoding:'utf8'}); const out=(r.stdout||'')+(r.stderr||''); const slotProse=out.split('\n').filter(l=>/carries a figure slot but no provenance/.test(l)).length; const ok = slotProse===0 && /provenance findings \(figure row without exactly one provenance tag\): 0/.test(out); console.log(ok ? 'RESULT: PASS slot-without-provenance=0 line52-tagged' : 'RESULT: FAIL slotProse='+slotProse); console.log('gate exit '+r.status+' (fold drift REGRESSION is foreign, pre-existing at HEAD)');
