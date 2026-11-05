@@ -1,0 +1,5 @@
+Runtime runs with ?room=diagroom&fresh=1 (.gm/witness-out/hud-runtime-probe.mjs), three attempts, raw output:
+{"bridgeUp":true,"chat":{"joinedBeforeDestroy":true,"joinedAfterDestroy":false}} exit=0  (x3)
+Chat ILLEGAL-r250-2: PASS at runtime, 3 of 3. joined is true before destroy and false after it.
+VoiceIndicator ILLEGAL-r250-1: NOT verified. A later run with the bridge up clicked Join Voice and the button still reads Join Voice after 4 s (joinClicked true, buttons ["Join Voice"]), so the team control never renders. The team-id check is still open.
+Bridge: intermittent per spoint-debug-research (v6 hook, .gm/witness-out/hud-bridge-diagnosis-verdict.txt); root cause not pinned.

@@ -12,12 +12,24 @@ try {
   const ctx = await browser.newContext()
   const page = await ctx.newPage(); pages.push(page)
   await page.enableDomain('Runtime')
-  await page.goto('http://127.0.0.1:' + PORT + '/?multiplayer=1&fresh=1')
+  await page.goto('http://127.0.0.1:' + PORT + '/?room=diagroom&fresh=1')
   let bridgeUp = false
   for (let i = 0; i < 30 && !bridgeUp; i++) { await page.waitForTimeout(1000); bridgeUp = await page.evaluate(() => !!(window.__app && window.__app.wireweave)) }
   result.bridgeUp = bridgeUp
   if (bridgeUp) {
-    result.chat = await page.evaluate(async () => {
+  
+  result.voice = await page.evaluate(async () => {
+    const { createVoiceIndicator } = await import('/hud/VoiceIndicator.js')
+    const root = document.createElement('div'); document.body.appendChild(root)
+    const vi = createVoiceIndicator(root, () => window.__app.wireweave, { playerId: window.__app.wireweave ? (window.__app.wireweave.localPlayerId ?? 1) : 1 }, null)
+    const join = [...root.querySelectorAll('button')].find(b => /join voice/i.test(b.textContent))
+    if (join) join.click()
+    await new Promise(r => setTimeout(r, 4000))
+    const labels = [...root.querySelectorAll('button')].map(b => b.textContent.trim())
+    vi.destroy && vi.destroy()
+    return { joinClicked: !!join, buttons: labels }
+  })
+  result.chat = await page.evaluate(async () => {
       const { createChatHUD } = await import('/hud/Chat.js')
       const root = document.createElement('div'); document.body.appendChild(root)
       const hud = createChatHUD(root, () => window.__app.wireweave)
