@@ -1,0 +1,11 @@
+## Client and app runtime
+
+- webjsx (`node_modules/webjsx`, used by `client/AppModuleSystem.js`) has no `newVNode instanceof Node` branch, so a real DOM node in a vdom throws and `renderAppUI`'s try/catch silently freezes the HUD; `anentrypoint-design` re-exports vendored `vendor/design/vendor/webjsx`, which has that branch.
+- `_buildWorldScenery` is joinable: boot adopts a running build. `app.js animate()` returns early while `window.__warmupInFlight`; never park a wait inside warmup.
+- Client `WORLD_DEF` from `sendWorldDefAndModules` has `entities` STRIPPED and carries `_modelUrls`: derive world-entity facts from `_modelUrls`.
+- Hot reload releases ctx via `AppRuntime._releaseAppContext`; `update()` keeps running with a torn-down ctx unless `_updateList`/`_rebuildCollisionList` are rebuilt. `AppRuntime._attachApp` does `apps.set` BEFORE awaiting `setup()`.
+- `src/apps/CustomVersion.js`: `Reflect.set` is a deliberate raw write; a read must not reach the set trap and bump `_customV`.
+- Spawn: `holdSpawnUntilGrounded` gates release on `terrainFieldMissingAt`/`coversPosition` (max `SPAWN_HOLD_MAX_MS=20000`); `staticCollidersPendingNear` is true whenever `AppRuntime._pendingTrimeshBuilds.size > 0`.
+- Respawn clearance is shared: `AppGameplay.js pickSpawnPoint` and tps-game use one `footprintBlockers` sampler (`MAX_FOOTPRINT_INTRUSION_M` 0.15 m).
+- `BrowserServer.js`: `_lastTodSync` + `_deliveredWorldFingerprints` are MODULE level, so stall recovery + HostMigration rebuild a fresh BrowserServer in the same page. Singleplayer worker identity comes from `INIT.worldName`. `FloatingOrigin.js update()` does `camera.position.set(0,0,0)` on rebase, not `+= -delta`.
+- client/hud IS node-witnessable: a `node:module` `registerHooks` resolve hook redirects bare `anentrypoint-design`, the dynamic `wireweave`/`xstate` imports and root-relative `/src/...`.

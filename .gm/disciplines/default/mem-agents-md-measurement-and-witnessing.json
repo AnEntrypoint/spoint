@@ -1,0 +1,16 @@
+## Measurement and witnessing
+
+- Measured figures, refutations and instrument/adapter notes: `docs/measurement-figures.md`.
+- Per-pass GPU timings (`p50Ms`,`p95Ms`,`avgMs`) are INVALID as GPU-bound measures (s0).
+- rAF-to-rAF frame wall is vsync-quantized: every median is a multiple of 16.68 ms. Main-thread CPU (ThreadTime) is NOT quantized. `scripts/maxlevel-crossover-witness.mjs` unlocks vsync (`--lock-raf` opts out) and refuses a run still on the k*16.68 ms grid.
+- **A spot-sampled maximum under-reports**: measure per predicted step. `prediction-wedge-witness.mjs`: exhaustive penetration 0.0825..0.39667 m against a clear-lane lead 0.41452..1.22937 m; `APPROACH_PEN_TOL_M`/`TRANSIENT_PEN_TOL_M` are 0.6. Non-vacuous: `--probe=wallpush --probeOvershootM=1` reads 2.4 m.
+- **A nearest-surface probe caps its reading at HALF the probe thickness** (`PEN_M` / `WALL_HALF_THICK_M` 3, `prediction-wedge-witness.mjs`).
+- **Quality and fidelity are two claims**: a knob that sheds a tier works as designed even when the picture is unacceptable; verify any GOVERNED_KNOB or LOD/impostor threshold change visually, per tier and across near/mid/mesh-far bands, and never buy frame time by widening a distance band.
+- Pin each GPU arm's adapter: `vendorGpuArgs(vendor)` adds `--use-adapter-luid=0,<luid>`; assert `window.__rendererInfo`.
+- Decide perf rows on counted work units: a never-incremented counter is a silent pass (`vegProfile.meshInstances` is absent on `WebGPULodInstancer`). Authoritative draw count = `drawsInstrument.authoritativeField` (`wgpuDrawsPerFrame`/`glDrawCallsPerFrame`).
+- `perf-run.mjs`: `?gpuhide=`/`?gpuab=<name>`, `?gpuabms=<ms>`, `--knob=<key>=<value>[,...]`. Keys are registry `key`s verbatim (`maxLevel`, not `__maxLevel`); one bad key fails the run. Limits: `maxLevel` 2..22, `splitFactor` >= 0.05.
+- WebGPU parity: a region matches iff cross-renderer meanAbs/channel <= `K` x the same-renderer noise floor (`scripts/tsl-parity/analyze.mjs`); establish the same-code floor first (s8).
+- CDP (`cdp-browser.mjs`): an init script `(() => { ... })` is a discarded EXPRESSION — end it in `())`; `page.evaluate(string)` takes an EXPRESSION. Assert `installed === true`, else an absent counter reads as a measured zero.
+- A hook that never fires in the main pass is a broken instrument: assert `mainRenders > 0`. Classify a shadow draw by `light.shadow.camera === camera` with `onBeforeRender` patched on the prototype that OWNS it.
+- `edge-collider-draco-witness.mjs` rewrites tracked `apps/tps-game/*.glb` in place: never run it in a gate.
+- **A `?singleplayer` walk arm does not translate the player**: the client is corrected to spawn every server tick, so a commanded 7 m/s walk nets 0.38 m as a sawtooth, while `?multiplayer` nets 37.72 m. Floor a walk window on its EXCURSION (`walkExcursion` / `walkFloorFailure` in `scripts/lib/walk-translation.mjs`, `--min-walk-moved`, 10 m), never on path length or net. `getLocalState().position` is an ARRAY `[x,y,z]`; `asXYZ` accepts either shape.
