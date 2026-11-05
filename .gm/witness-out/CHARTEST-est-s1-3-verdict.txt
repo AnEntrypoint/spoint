@@ -1,0 +1,8 @@
+  const placementFrame = Object.create(frame)
+  Object.defineProperty(placementFrame, 'elevationAtDir', {
+    value: (d) => {
+      const at = meshAtNow()
+      return at === null ? frame.elevationAtDir(d) : meshElev(d)
+    }, writable: true, configurable: true,
+  })
+  Object.defineProperty(placementFrame, 'groundHeightLocal', {

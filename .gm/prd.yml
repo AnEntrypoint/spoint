@@ -900,7 +900,9 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P09 own_property=false shared_frame_swapped=true frame.groundSource=substituted; check P14 names=["cpu-solve","a","b","substituted"] current=substituted'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: pending
+  status: fixed
+  witness_path: .gm/witness-out/CHARTEST-est-s1-3-verdict.txt
+  note: the placement view is Object.create(frame) with groundHeightLocal and elevationAtDir defined as own data properties via Object.defineProperty, so the shared frame setter never runs
 - id: WADLER-aoi-positionofentity-m2-s1
   title: src/sdk/TickHandlerAOI.js _positionOfEntity collapses 'index has no such entity' and 'entity carries no position' into one bare null on the AOI hot path
   surface: src/sdk
