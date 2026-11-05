@@ -1,0 +1,9 @@
+id: "prd-mw3zhqu67928"
+kind: "prd"
+title: "Machine-check AGENTS.md path claims and SKILL.md ctx API facts"
+body: "scripts/agents-md-facts-witness.mjs checks 68 path claims and 17 symbol claims; scripts/skill-md-facts-witness.mjs checks 27 ctx members and the maxSpeed default. SKILL.md corrected 8.0 -> 7.0; AGENTS.md stale citations corrected. Both witnesses print RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:14:17.886Z"
+witnessEvent: 3924
+witnessCommit: "a40190b2058d9b99a104795fdd384eb484f7e87c"
+resolvedAt: "2026-11-05T20:14:44.221Z"
