@@ -21,10 +21,12 @@ import { defineTeams } from '../behaviours/teams.js'
 import { defineWeapon } from '../behaviours/weapon.js'
 import { definePlayerInventory } from '../behaviours/inventory.js'
 import { definePath } from '../behaviours/path.js'
+import { defineCameraRig } from '../behaviours/cameraRig.js'
 import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
 import { ChartNavmeshQuery } from '../pathfinding/ChartNavmeshQuery.js'
 import { isWorldName } from '../shared/worldName.js'
 import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard, achievements } from './AppGameplay.js'
+import { createLlmJobs } from '../sdk/llmJobs.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -181,6 +183,13 @@ export class AppContext {
       attachEntity: (pid, entityId, offset, bone) => runtime.attachEntityToPlayer?.(entityId, pid, offset, bone ?? null),
       detachEntity: (entityId) => runtime.detachEntityFromPlayer?.(entityId),
       attachmentOf: (entityId) => runtime.getEntityAttachment?.(entityId) ?? null,
+      defineSeats: (entityId, seats) => runtime.defineSeats?.(entityId, seats),
+      undefineSeats: (entityId) => runtime.undefineSeats?.(entityId),
+      mountInSeat: (pid, entityId, seatId) => runtime.mountPlayerInSeat?.(pid, entityId, seatId) ?? null,
+      dismount: (pid) => runtime.dismountPlayer?.(pid) ?? null,
+      handoffSeat: (fromPid, toPid) => runtime.handoffSeat?.(fromPid, toPid) ?? null,
+      seatOf: (pid) => runtime.seatOf?.(pid) ?? null,
+      seatsOf: (entityId) => runtime.seatsOf?.(entityId) ?? [],
       onPlayerContact: (radius, cb) => {
         if (typeof cb !== 'function') throw new TypeError('[AppContext] onPlayerContact: callback must be a function')
         if (!this._admitsRegistration('players.onPlayerContact')) return () => {}
@@ -273,6 +282,8 @@ export class AppContext {
 
   leaderboard(key, opts) { return this._store('leaderboard:' + key, () => leaderboard(this, key, opts)) }
 
+  accountState(playerId, key, initial) { return this._runtime.accountState().open(playerId, key, initial) }
+
   achievements(defs) { return achievements(this, defs) }
 
   _store(id, create) {
@@ -282,6 +293,8 @@ export class AppContext {
   }
 
   get bus() { return this._busScope }
+
+  get llm() { return this._store('llm', () => createLlmJobs({ provider: this._runtime._llmProvider ?? null })) }
 
   get eventLog() { return this._runtime._eventLog || null }
 
@@ -411,6 +424,8 @@ export class AppContext {
 
   defineSteering(spec) { return defineSteering(spec, this) }
 
+  defineCameraRig(spec) { return defineCameraRig(spec, this) }
+
   defineCheckpoint(spec) { return this._chartAware(defineCheckpoint(spec, this)) }
 
   definePickup(spec) { return definePickup(spec, this) }
@@ -452,15 +467,19 @@ export class AppContext {
     return local
   }
 
-  raycast(origin, direction, maxDistance = 1000, excludeBodyId = null) {
+  raycast(origin, direction, maxDistance = 1000, excludeBodyId = null, cellSize = 1) {
     if (this._runtime._physics) {
       const r = this._runtime._physics.raycast(origin, direction, maxDistance, excludeBodyId)
       if (r && r.hit && r.bodyId != null && this._runtime._physicsBodyToEntityId) {
         r.entityId = this._runtime._physicsBodyToEntityId.get(r.bodyId) ?? null
       } else if (r) r.entityId = null
+      if (r && r.hit && r.normal && r.position) {
+        r.digAt = r.position.map((p, i) => p - r.normal[i] * cellSize)
+        r.placeAt = r.position.map((p, i) => p + r.normal[i] * cellSize)
+      } else if (r) { r.digAt = null; r.placeAt = null }
       return r
     }
-    return { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null, entityId: null }
+    return { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null, entityId: null, digAt: null, placeAt: null }
   }
 
   canSee(fromPos, toPos, opts = {}) {

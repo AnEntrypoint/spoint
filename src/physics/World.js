@@ -4,7 +4,7 @@ import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
 import { createStaticTileIndex } from './StaticTileIndex.js'
 import { createDormantStatics } from './DormantStatics.js'
-import { swingTwistLimits } from './constraintLimits.js'
+import { swingTwistLimits, hingeLimits } from './constraintLimits.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
@@ -631,9 +631,10 @@ export class PhysicsWorld {
     const aB = opts.anchorB || this.getBodyPosition(bodyIdB)
     const p = this._tmpRVec3, v = this._tmpVec3
     const swing = type === 'swingTwist' ? swingTwistLimits(opts.limits, opts.softness) : null
+    const hinge = type === 'hinge' && opts.limits ? hingeLimits(opts.limits, opts.softness) : null
     let settings = null
     try {
-      settings = type === 'point' ? new J.PointConstraintSettings()
+      settings = type === 'point' || type === 'spherical' ? new J.PointConstraintSettings()
         : type === 'distance' ? new J.DistanceConstraintSettings()
         : type === 'hinge' ? new J.HingeConstraintSettings()
         : type === 'swingTwist' ? new J.SwingTwistConstraintSettings()
@@ -649,6 +650,16 @@ export class PhysicsWorld {
         const ax = opts.axis || [0, 1, 0]
         v.Set(ax[0], ax[1], ax[2]); settings.mHingeAxis1 = v; settings.mHingeAxis2 = v
         v.Set(1, 0, 0); settings.mNormalAxis1 = v; settings.mNormalAxis2 = v
+        if (hinge) {
+          settings.mLimitsMin = hinge.min; settings.mLimitsMax = hinge.max
+          if (hinge.spring) {
+            const spring = new J.SpringSettings()
+            spring.mMode = J.ESpringMode_FrequencyAndDamping
+            spring.mFrequency = hinge.spring.frequency; spring.mDamping = hinge.spring.damping
+            settings.mLimitsSpringSettings = spring
+            J.destroy(spring)
+          }
+        }
       } else if (type === 'swingTwist') {
         const ax = opts.axis || [0, 1, 0]
         v.Set(ax[0], ax[1], ax[2]); settings.mTwistAxis1 = v; settings.mTwistAxis2 = v

@@ -1,4 +1,5 @@
 import { QualityPresets } from '../core/QualityPresets.js'
+import { RenderControls } from '../core/RenderControls.js'
 import { AudioMixer } from '../../src/client/AudioMixer.js'
 import { getCacheStats, clearCache } from '../ModelCache.js'
 import { ensureStyle } from './ensureStyle.js'
@@ -14,6 +15,8 @@ const DEFAULTS = {
   musicVolume: 1,
   qualityPreset: 'Medium',
   dprAuto: false,
+  reduceFlashing: false,
+  reduceMotion: false,
 }
 
 const scopedKey = scope => `${STORAGE_KEY}.${scope}`
@@ -168,6 +171,8 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
   function _applyDprAuto(v) {
     values.dprAuto = v; _persist()
   }
+  function _applyReduceFlashing(v) { values.reduceFlashing = v; _persist(); RenderControls.set('reduceFlashing', v) }
+  function _applyReduceMotion(v) { values.reduceMotion = v; _persist(); RenderControls.set('reduceMotion', v) }
 
   function applyAllOnLoad() {
     const cam = getCam()
@@ -175,6 +180,8 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     AudioMixer.setVolume('master', values.masterVolume)
     AudioMixer.setVolume('sfx', values.sfxVolume)
     AudioMixer.setVolume('music', values.musicVolume)
+    RenderControls.set('reduceFlashing', values.reduceFlashing === true)
+    RenderControls.set('reduceMotion', values.reduceMotion === true)
   }
 
   function _buildCacheSection() {
@@ -270,6 +277,8 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     panel.appendChild(_row('Music Volume', _range(0, 1, 0.01, values.musicVolume, _applyMusicVolume)))
     panel.appendChild(_row('Quality Preset', _select(QualityPresets.names, values.qualityPreset, _applyQualityPreset)))
     panel.appendChild(_row('Auto Resolution', _checkbox(values.dprAuto, _applyDprAuto)))
+    panel.appendChild(_row('Reduce Flashing', _checkbox(values.reduceFlashing, _applyReduceFlashing)))
+    panel.appendChild(_row('Reduce Motion', _checkbox(values.reduceMotion, _applyReduceMotion)))
 
     const cacheSection = _buildCacheSection()
     _cacheSectionCancel = cacheSection.cancel

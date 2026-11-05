@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { SkeletonUtils } from './SkeletonUtils.js'
 import { AnimationBlender, BlendTree1D, BlendTree2D } from './BlendTree.js'
-import { IKRig, TwoBoneIKSolver, FootIKSolver } from './IKSolver.js'
+import { IKRig, TwoBoneIKSolver } from './IKSolver.js'
 import createAnimationController from './AnimationController.js'
+import { RagdollPose } from './RagdollPose.js'
+import { createShapeKeyDriver } from './ShapeKeys.js'
 
 export class AnimationSystem {
   constructor(model, options = {}) {
@@ -81,19 +83,76 @@ export class AnimationSystem {
     }
 
     if (this.options.enableFootIK && this.options.raycastCallback) {
-      const leftFoot = SkeletonUtils.findBoneByHumanoidName(this.skeleton, 'leftFoot')
-      if (leftFoot) {
-        const leftFootIK = new FootIKSolver(leftFoot, this.options.raycastCallback)
-        const leftFootChain = this.ikRig.createChain('leftFoot')
-        leftFootChain.addSolver(leftFootIK)
-      }
+      this._setupFootGrounding()
+    }
+  }
 
-      const rightFoot = SkeletonUtils.findBoneByHumanoidName(this.skeleton, 'rightFoot')
-      if (rightFoot) {
-        const rightFootIK = new FootIKSolver(rightFoot, this.options.raycastCallback)
-        const rightFootChain = this.ikRig.createChain('rightFoot')
-        rightFootChain.addSolver(rightFootIK)
+  _setupFootGrounding() {
+    const hips = SkeletonUtils.findBoneByHumanoidName(this.skeleton, 'hips')
+    const legs = []
+    for (const side of ['left', 'right']) {
+      const upper = SkeletonUtils.findBoneByHumanoidName(this.skeleton, `${side}UpperLeg`)
+      const lower = SkeletonUtils.findBoneByHumanoidName(this.skeleton, `${side}LowerLeg`)
+      const foot = SkeletonUtils.findBoneByHumanoidName(this.skeleton, `${side}Foot`)
+      if (!upper || !lower || !foot) continue
+      const ik = new TwoBoneIKSolver(upper, lower, foot, { useWorldSpace: true })
+      ik.enabled = false
+      if (this.options.kneePole) ik.setPoleVector(this.options.kneePole)
+      const chain = this.ikRig.createChain(`${side}Leg`)
+      chain.addSolver(ik)
+      legs.push({ foot, ik, targetY: null })
+    }
+    if (legs.length === 0) return
+    this._grounding = {
+      hips: hips || null,
+      legs,
+      hipOffset: 0,
+      rayDistance: this.options.footRayDistance > 0 ? this.options.footRayDistance : 2,
+      maxDrop: this.options.footMaxDrop > 0 ? this.options.footMaxDrop : 0.6,
+      ankleHeight: Number.isFinite(this.options.footAnkleHeight) ? this.options.footAnkleHeight : 0,
+    }
+  }
+
+  _groundFeet() {
+    const g = this._grounding
+    if (!g) return
+    const raycast = this.options.raycastCallback
+    const foot = new THREE.Vector3()
+    const origin = new THREE.Vector3()
+    const down = new THREE.Vector3(0, -1, 0)
+
+    let drop = 0
+    for (const leg of g.legs) {
+      leg.foot.getWorldPosition(foot)
+      origin.set(foot.x, foot.y + g.rayDistance / 2, foot.z)
+      const hit = raycast(origin, down, g.rayDistance)
+      if (!hit || !Number.isFinite(hit.y)) {
+        leg.targetY = null
+        continue
       }
+      leg.targetY = hit.y + g.ankleHeight
+      drop = Math.min(drop, Math.max(leg.targetY - foot.y, -g.maxDrop))
+    }
+
+    if (g.hips) {
+      const delta = drop - g.hipOffset
+      if (delta !== 0) {
+        const parent = g.hips.parent
+        const from = parent ? parent.worldToLocal(new THREE.Vector3()) : new THREE.Vector3()
+        const to = parent ? parent.worldToLocal(new THREE.Vector3(0, delta, 0)) : new THREE.Vector3(0, delta, 0)
+        g.hips.position.add(to.sub(from))
+        g.hipOffset = drop
+      }
+    }
+
+    for (const leg of g.legs) {
+      if (leg.targetY === null) {
+        leg.ik.enabled = false
+        continue
+      }
+      leg.foot.getWorldPosition(foot)
+      leg.ik.enabled = true
+      leg.ik.setTarget({ x: foot.x, y: leg.targetY, z: foot.z })
     }
   }
 
@@ -139,9 +198,24 @@ export class AnimationSystem {
     }
 
     if (this.options.enableIK) {
+      this._groundFeet()
       this.ikRig.update()
     }
 
+    if (this.ragdoll) {
+      this.ragdoll.apply(dt)
+    }
+
+    return this
+  }
+
+  createRagdoll(options = {}) {
+    this.ragdoll = new RagdollPose(this.skeleton, options)
+    return this.ragdoll
+  }
+
+  removeRagdoll() {
+    this.ragdoll = null
     return this
   }
 
@@ -182,6 +256,11 @@ export class AnimationSystem {
 
   unpackSkeletonState(buffer, offset = 0) {
     return SkeletonUtils.unpackSkeletonState(this.skeleton, buffer, offset)
+  }
+
+  shapeKeys() {
+    if (!this._shapeKeys) this._shapeKeys = createShapeKeyDriver(this.model)
+    return this._shapeKeys
   }
 
   dispose() {

@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: de0e860b3952a101abd0261bb75633378cda7ddd2ef1fea0d8350d8dd13239d5
+// source digest: 03ef8104d8b06b8b49ee2683b19618e23575801ac63835c15adac14e0d5b515b
 
 import { CliDebugger } from '../debug/CliDebugger.js';
 export declare class AppContext {
@@ -173,8 +173,16 @@ export declare class AppContext {
         setMovementOverride: (pid: any, overrides: any) => any;
         setLifecycle: (pid: any, state: any, opts: any) => any;
         playAnimation: (pid: any, clip: any, opts: any) => any;
-        attachEntity: (pid: any, entityId: any, offset: any) => any;
+        attachEntity: (pid: any, entityId: any, offset: any, bone: any) => any;
         detachEntity: (entityId: any) => any;
+        attachmentOf: (entityId: any) => any;
+        defineSeats: (entityId: any, seats: any) => any;
+        undefineSeats: (entityId: any) => any;
+        mountInSeat: (pid: any, entityId: any, seatId: any) => any;
+        dismount: (pid: any) => any;
+        handoffSeat: (fromPid: any, toPid: any) => any;
+        seatOf: (pid: any) => any;
+        seatsOf: (entityId: any) => any;
         onPlayerContact: (radius: any, cb: any) => () => void;
         nearestOtherPlayer: (playerId: any, radius: any) => any;
     };
@@ -244,6 +252,7 @@ export declare class AppContext {
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
     persisted(key: any, initial: any, opts: any): any;
     leaderboard(key: any, opts: any): any;
+    accountState(playerId: any, key: any, initial: any): any;
     achievements(defs: any): {
         ready: any;
         defs: Map<any, any>;
@@ -256,6 +265,7 @@ export declare class AppContext {
     };
     _store(id: any, create: any): any;
     get bus(): any;
+    get llm(): any;
     get eventLog(): any;
     get storage(): {
         get: (key: any) => any;
@@ -263,6 +273,12 @@ export declare class AppContext {
         delete: (key: any) => any;
         list: (prefix?: string) => any;
         has: (key: any) => any;
+    } | null;
+    get files(): {
+        read: (name: any) => Promise<string | null>;
+        write: (name: any, text: any) => any;
+        remove: (name: any) => any;
+        has: (name: any) => any;
     } | null;
     get debug(): CliDebugger;
     interactable(config?: {}): void;
@@ -466,6 +482,20 @@ export declare class AppContext {
             state: any;
         };
     };
+    defineCameraRig(spec: any): {
+        push(playerId: any, layerId: any): void;
+        pop(playerId: any, layerId: any): void;
+        top(playerId: any): any;
+        remove(playerId: any): void;
+        onInput(playerId: any, input: any): boolean;
+        update(playerId: any, pose: any, dt: any): {
+            position: any;
+            target: any;
+            layer: any;
+            done: boolean;
+        };
+        layerIds(): any[];
+    };
     defineCheckpoint(spec: any): any;
     definePickup(spec: any): {
         readonly collected: boolean;
@@ -567,10 +597,10 @@ export declare class AppContext {
             currency?: undefined;
             granted?: undefined;
         } | {
+            reason?: undefined;
             ok: boolean;
             currency: any;
             granted: {};
-            reason?: undefined;
         };
         dropOnDeath(pid: any): {
             dropped: {};
@@ -583,7 +613,7 @@ export declare class AppContext {
     definePath(points: any): any;
     navmesh(worldName?: any): any;
     _chartLocalNavmesh(navmesh: any): any;
-    raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null): any;
+    raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null, cellSize?: number): any;
     canSee(fromPos: any, toPos: any, opts?: {}): boolean;
     get terrainBodyId(): any;
     terrainHeightAt(x: any, z: any): any;

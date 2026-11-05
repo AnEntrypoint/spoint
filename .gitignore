@@ -80,3 +80,4 @@ scripts/.*
 !.gm/pool/
 .gm/pool/*
 !.gm/pool/pool.log
+.playwriter/

@@ -1,5 +1,6 @@
 import { createElement, applyDiff } from 'webjsx'
 import { placeAnchoredPlates } from './hudAnchor.js'
+import { createWorldPanels } from './core/WorldPanels.js'
 
 export function worldToScreen(position, camera, renderer, THREE) {
   if (!camera || !renderer || !position || !THREE) return null
@@ -100,8 +101,11 @@ export function createAppModuleSystem(client, uiRoot) {
     return best ? createElement('div', { style: 'position:fixed;bottom:40%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:8px;pointer-events:none' }, best.prompt) : null
   }
 
+  let _worldPanels = null
+
   function renderAppUI(state, engineCtx, scene, camera, renderer, fpsDisplay, runtimeStatsUI = null) {
     const c = engineCtx.client; if (!c) return
+    if (!_worldPanels && scene && engineCtx.THREE) _worldPanels = createWorldPanels(engineCtx.THREE, scene)
     const uiFragments = []
     for (const entity of state.entities) {
       const appName = engineCtx.entityAppMap?.get(entity.id)
@@ -110,11 +114,12 @@ export function createAppModuleSystem(client, uiRoot) {
       if (!appClient?.render) continue
       try {
         const _engine = _ctxFor(appName, engineCtx)
-        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: _engine, editor: _engine.editor, kit: engineCtx.kit, players: state.players, network: { send: (msg) => c.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: c.playerId, clock: { elapsed: performance.now() / 1000 }, worldToScreen: (position) => worldToScreen(position, camera, renderer, engineCtx.THREE) }
+        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: _engine, editor: _engine.editor, kit: engineCtx.kit, players: state.players, network: { send: (msg) => c.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: c.playerId, clock: { elapsed: performance.now() / 1000 }, worldToScreen: (position) => worldToScreen(position, camera, renderer, engineCtx.THREE), worldPanel: (key, spec) => _worldPanels?.set(`${entity.id}:${key}`, spec) }
         const result = appClient.render(renderCtx)
         if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
       } catch (e) { console.error('[ui]', entity.id, e.message) }
     }
+    _worldPanels?.commit(camera)
     const interactPrompt = _buildInteractPrompt(state, c.playerId)
     const hudVdom = createElement('div', { id: 'hud' },
       runtimeStatsUI ? null : createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${c.currentTick} | RTT: ${Math.round(c.getRTT())}ms | Buf: ${c.getBufferHealth()}`),

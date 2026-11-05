@@ -7,6 +7,7 @@ import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
+if (new URLSearchParams(location.search).has('livereload')) import('./core/PreviewReload.js').then(m => m.startPreviewReload())
 import { createElement, applyDiff } from 'webjsx'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
 import { editorKit } from './core/EditorKit.js'
@@ -1060,7 +1061,7 @@ if (globalThis.__spointHmr) {
     renderGraph = _buildMainRenderGraph()
   })
   const menus = {
-    '/hud/SettingsMenu.js': () => { const old = settingsMenu; const d = old.destroy || old.dispose; if (!d) throw new Error('SettingsMenu has no destroy/dispose to swap it in place'); d.call(old); settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer }); if (window.__app) window.__app.settingsMenu = settingsMenu },
+    '/hud/SettingsMenu.js': () => { const old = settingsMenu; const d = old.destroy || old.dispose; if (!d) throw new Error('SettingsMenu has no destroy/dispose to swap it in place'); d.call(old); settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer, scope: _worldParam || null }); if (window.__app) window.__app.settingsMenu = settingsMenu },
     '/hud/PauseMenu.js': () => { const old = pauseMenu; const d = old.destroy || old.dispose; if (!d) throw new Error('PauseMenu has no destroy/dispose to swap it in place'); d.call(old); pauseMenu = _hmrFactories.createPauseMenu({ requestPointerLock: _safeRequestPointerLock, settingsMenu, getRoomInfo: () => _wwRoom ? { code: _wwRoom, joinLink: `${location.origin}${location.pathname}?wwjoin&room=${_wwRoom}` } : null }); if (window.__app) window.__app.pauseMenu = pauseMenu },
   }
   hmr.accept('/hud/SettingsMenu.js', m => { _hmrFactories.createSettingsMenu = m.createSettingsMenu; menus['/hud/SettingsMenu.js'](); menus['/hud/PauseMenu.js']() })
@@ -2216,7 +2217,7 @@ function _safeRequestPointerLock() {
     return false
   }
 }
-let settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer })
+let settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer, scope: _worldParam || null })
 if (window.__app) window.__app.settingsMenu = settingsMenu
 let _hasEverLocked = false
 let pauseMenu = _hmrFactories.createPauseMenu({
@@ -2302,7 +2303,7 @@ const _cameraAuthForRebase = new THREE.Vector3()
 const _colliderDebugFocus = new THREE.Vector3()
 const _entityPosRebased = new THREE.Vector3()
 let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastInteractState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _entityCullAt=0, _profileFrames=0, _profileSum=0; const _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400, _PLAYER_ANIM_LOD_D2=1600, _leakProbeOn=(typeof location!=='undefined'&&location.search.includes('leak')); let _frameParity=0
-function _nearestInteractable(state, playerId) {
+function _nearestInteractableEntity(state, playerId) {
   if (!state) return null
   const local = state.players?.find(p => p.id === playerId)
   if (!local?.position) return null
@@ -2313,9 +2314,22 @@ function _nearestInteractable(state, playerId) {
     if (!cfg || !entity.position) continue
     const dx = entity.position[0] - lx, dy = entity.position[1] - ly, dz = entity.position[2] - lz
     const d2 = dx * dx + dy * dy + dz * dz
-    if (d2 < cfg.radius * cfg.radius && d2 < bestD2) { bestD2 = d2; best = entity.id }
+    if (d2 < cfg.radius * cfg.radius && d2 < bestD2) { bestD2 = d2; best = entity }
   }
   return best
+}
+let _mobileInteractId = null
+function _syncMobileInteractable(state, playerId) {
+  if (!mobileControls) return
+  const target = _nearestInteractableEntity(state, playerId)
+  const id = target ? target.id : null
+  if (id === _mobileInteractId) return
+  if (_mobileInteractId != null) mobileControls.unregisterInteractable(_mobileInteractId)
+  _mobileInteractId = id
+  if (target) mobileControls.registerInteractable(id, target.custom._interactable.prompt)
+}
+function _nearestInteractable(state, playerId) {
+  return _nearestInteractableEntity(state, playerId)?.id ?? null
 }
 const TICK_ANIM_SAMPLE_CAPACITY = 240
 const _tickAnimSamples = new Float32Array(TICK_ANIM_SAMPLE_CAPACITY); let _tickAnimIdx = 0, _tickAnimCount = 0
@@ -2380,6 +2394,7 @@ function startInputLoop() {
     xrSystem?.handleSettingsInput(input,inputHandler)
     const _editing = clientMachine.isEditor || clientMachine.isSpectator
     if (!_editing && input.shoot && !lastShootState) inputHandler.pulse('right',0.5,100); lastShootState = _editing ? false : input.shoot
+    _syncMobileInteractable(latestState, client.playerId)
     if (!_editing && input.interact && !lastInteractState) { const _tid = _nearestInteractable(latestState, client.playerId); if (_tid != null) client.send(MSG.APP_EVENT, { entityId: _tid }) }
     lastInteractState = _editing ? false : input.interact
     const local=pm.playerStates.get(client.playerId); if (local?.health<lastHealth) { inputHandler.pulse('left',0.8,200); inputHandler.pulse('right',0.8,200) }; if (local) lastHealth=local.health

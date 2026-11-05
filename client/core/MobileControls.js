@@ -1,3 +1,6 @@
+import { touchDraftFromBindings } from './TouchDraft.js'
+import { parseSurfaceSelector, selectSurface } from '../../src/apps/SurfaceSelector.js'
+
 const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 const MAX_GYRO_DEGREES_PER_SAMPLE = 8
 
@@ -8,6 +11,7 @@ export class MobileControls {
     this.options = { joystickRadius: this.responsive.joystickRadius, lookJoystickRadius: this.responsive.joystickRadius, buttonSize: this.responsive.buttonSize, buttonSpacing: this.responsive.spacing, deadzone: 0.12, movementDeadzone: 0.15, rotationSensitivity: 0.003, zoomSensitivity: 0.008, autoShow: true, ...options }
     this.layout = this._calcLayout()
     this.bindings = null
+    this.touchDraft = null
     this.state = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, lookDelta: { yaw: 0, pitch: 0 }, jump: false, shoot: false, reload: false, sprint: false, crouch: false, zoom: 0, zoomDelta: 0, interact: false, menu: false, chatWheel: false, release: null }
     this.dragActions = new Set()
     this.dragTouches = new Map()
@@ -58,6 +62,7 @@ export class MobileControls {
     this.moveJoystick.centerX = this.layout.moveLeft + r; this.moveJoystick.centerY = this.layout.h - this.layout.moveBottom - r
     this.lookJoystick.centerX = this.layout.w - this.layout.lookRight - r; this.lookJoystick.centerY = this.layout.h - this.layout.lookBottom - r
     this._ui?.onLayoutUpdate(this.layout, this.responsive)
+    if (this.bindings) this.projectTouchDraft()
   }
 
   async setGyroAimEnabled(v) {
@@ -96,7 +101,16 @@ export class MobileControls {
   setInputBindings(bindings) {
     this.bindings = bindings ?? null
     this.dragActions = new Set(Object.entries(this.bindings ?? {}).filter(([, b]) => b?.touch === 'drag').map(([action]) => action))
+    this.touchDraft = bindings ? this.projectTouchDraft() : null
+    return this.touchDraft
   }
+  projectTouchDraft() {
+    if (!this.bindings) return null
+    this.touchDraft = touchDraftFromBindings(this.bindings, this.layout, this.responsive)
+    return this.touchDraft
+  }
+  setSurfaceSelector(spec) { this.surfaceSelector = spec ? parseSurfaceSelector(spec) : null; return this.surfaceSelector }
+  activeSurface(playerState) { return this.surfaceSelector ? selectSurface(this.surfaceSelector, playerState) : null }
   registerInteractable(id, label = 'INTERACT') { if (!this.interactableTargets.has(id)) { this.interactableTargets.set(id, label); this._ui?.onInteractablesChanged(this.interactableTargets) } }
   unregisterInteractable(id) { this.interactableTargets.delete(id); this._ui?.onInteractablesChanged(this.interactableTargets) }
 
@@ -223,7 +237,7 @@ export class MobileControls {
     return { forward: forwardVal < -dz, backward: forwardVal > dz, left: move.x < -dz, right: move.x > dz, jump: this.state.jump, shoot: this.state.shoot, reload: this.state.reload, sprint: this.state.sprint, crouch: this.state.crouch, yaw, pitch, zoom: this.state.zoomDelta, resetZoom: () => { this.state.zoomDelta = 0 }, moveX: move.x, moveY: move.y, mouseX: 0, mouseY: 0, interact: this.state.interact, analogForward: forwardVal, analogRight: move.x, chatWheel: this.state.chatWheel, aim: { ...this.aim }, release }
   }
 
-  hasInteraction() { return this.moveJoystick.active || this.lookJoystick.active || this.pinch.active || this.aim.active || this.state.release !== null || this.state.jump || this.state.shoot || this.state.reload || this.state.sprint || this.state.crouch || this.state.interact || this.state.chatWheel || this.state.zoomDelta !== 0 || (this.gyroAimEnabled && (this._gyroDelta.yaw !== 0 || this._gyroDelta.pitch !== 0)) }
+  hasInteraction() { return this.moveJoystick.active || this.lookJoystick.active || this.pinch.active || this.aim.active || this.state.release !== null ||this.state.jump || this.state.shoot || this.state.reload || this.state.sprint || this.state.crouch || this.state.interact || this.state.chatWheel || this.state.zoomDelta !== 0 || (this.gyroAimEnabled && (this._gyroDelta.yaw !== 0 || this._gyroDelta.pitch !== 0)) }
   resetLookDelta() { this.state.lookDelta.yaw = 0; this.state.lookDelta.pitch = 0; this._gyroDelta.yaw = 0; this._gyroDelta.pitch = 0 }
   setEnabled(v) { this.enabled = v && (isMobile || this.options.forceEnable); this._ui?.onEnabledChanged(this.enabled) }
   show() { this._ui?.onShow() }

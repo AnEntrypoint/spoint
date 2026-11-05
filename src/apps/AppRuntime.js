@@ -9,6 +9,7 @@ import { vecOK, vec3, nonNeg } from '../shared/vecGuard.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { equipResolve } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
+import { createSeatTable } from './AppSeats.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
 const _UNIT_SCALE = [1, 1, 1]
 const _ZERO_VEL = [0, 0, 0]
@@ -23,6 +24,7 @@ import { extractAllVerticesFromGLBAsync } from '../physics/GLBLoader.js'
 import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
+import { createAccountState, accountIdOf } from './AccountState.js'
 
 class HookedSet extends Set {
   constructor(onChange) { super(); this._onChange = onChange }
@@ -73,6 +75,7 @@ export class AppRuntime {
     this._proximityWatches = new Map()
     this._playerContactWatches = new Map()
     this._attachments = new Map()
+    this._seats = createSeatTable()
     this._shutdownHooks = new Set()
     this._pendingSetupIds = new Set()
     this._pendingSetupQueues = new Map()
@@ -356,6 +359,7 @@ export class AppRuntime {
     this._interactableIds.delete(entityId)
     this._proximityWatches.delete(entityId)
     if (entity._vehicleId != null && this._physics) { this._physics.removeVehicle(entity._vehicleId); entity._vehicleId = null }
+    this.undefineSeats(entityId)
     if (entity._physicsBodyId !== undefined) {
       this._physicsBodyToEntityId.delete(entity._physicsBodyId)
       if (this._physics) this._physics.removeBody(entity._physicsBodyId)
@@ -686,6 +690,11 @@ export class AppRuntime {
   addTimer(e, d, fn, r) { if (!this._timers.has(e)) this._timers.set(e, []); this._timers.get(e).push({ remaining: d, fn, repeat: r, interval: d }) }
   clearTimers(eid) { this._timers.delete(eid) }
   setPlayerManager(pm) { this._playerManager = pm }
+  accountState() {
+    if (!this._accountState) this._accountState = createAccountState({ storage: this._storage, accountOf: pid => accountIdOf(this.getPlayerById(pid)?.socket) })
+    return this._accountState
+  }
+  releaseAccountState(playerId) { return this._accountState ? this._accountState.release(playerId) : Promise.resolve() }
   setStageLoader(sl) { this._stageLoader = sl }
   setPlacedModelStorage(pms) { this._placedModelStorage = pms }
   getPlayers() { return this._playerManager ? this._playerManager.getConnectedPlayers() : [] }
@@ -760,13 +769,54 @@ export class AppRuntime {
     return true
   }
   setPlayerMovementOverride(id, overrides) { return this._playerManager ? this._playerManager.setMovementOverride(id, overrides) : false }
-  attachEntityToPlayer(entityId, playerId, offset = [0, 1, 0]) {
+  attachEntityToPlayer(entityId, playerId, offset = [0, 1, 0], bone = null) {
     if (!this.entities.has(entityId)) return false
     vec3(offset, 'attachEntityToPlayer offset')
-    this._attachments.set(entityId, { playerId, offset: [...offset] })
+    if (bone !== null && (typeof bone !== 'string' || bone === '')) throw new TypeError('attachEntityToPlayer bone must be a non-empty string or null')
+    const att = { playerId, offset: [...offset], bone }
+    this._attachments.set(entityId, att)
+    this.broadcastToPlayers({ type: 'entity_attach', entityId, playerId, offset: att.offset, bone })
     return true
   }
-  detachEntityFromPlayer(entityId) { return this._attachments.delete(entityId) }
+  defineSeats(entityId, seats) {
+    const seatIds = this._seats.define(entityId, seats)
+    this.broadcastToPlayers({ type: 'seats_define', entityId, seats: this._seats.seatsOf(entityId) })
+    return seatIds
+  }
+  undefineSeats(entityId) {
+    const released = this._seats.undefine(entityId)
+    if (released === null) return []
+    this.broadcastToPlayers({ type: 'seats_undefine', entityId, released })
+    return released
+  }
+  mountPlayerInSeat(playerId, entityId, seatId) {
+    if (!this._playerManager?.getPlayer(playerId)) return null
+    const seat = this._seats.mount(playerId, entityId, seatId)
+    this.broadcastToPlayers({ type: 'seat_mount', playerId, ...seat })
+    return seat
+  }
+  dismountPlayer(playerId) {
+    const released = this._seats.dismount(playerId)
+    if (released) this.broadcastToPlayers({ type: 'seat_dismount', playerId, entityId: released.entityId, seatId: released.seatId })
+    return released
+  }
+  handoffSeat(fromPlayerId, toPlayerId) {
+    if (!this._playerManager?.getPlayer(toPlayerId)) return null
+    const seat = this._seats.handoff(fromPlayerId, toPlayerId)
+    this.broadcastToPlayers({ type: 'seat_handoff', fromPlayerId, toPlayerId, entityId: seat.entityId, seatId: seat.seatId })
+    return seat
+  }
+  seatOf(playerId) { return this._seats.seatOf(playerId) }
+  seatsOf(entityId) { return this._seats.seatsOf(entityId) }
+  getEntityAttachment(entityId) {
+    const att = this._attachments.get(entityId)
+    return att ? { entityId, playerId: att.playerId, offset: [...att.offset], bone: att.bone } : null
+  }
+  detachEntityFromPlayer(entityId) {
+    const had = this._attachments.delete(entityId)
+    if (had) this.broadcastToPlayers({ type: 'entity_detach', entityId })
+    return had
+  }
   _tickAttachments() {
     if (this._attachments.size === 0) return
     for (const [entityId, att] of this._attachments) {

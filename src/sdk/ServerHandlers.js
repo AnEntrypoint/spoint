@@ -9,7 +9,7 @@ import { createInputSchema, decodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../p
 import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint, holdSpawnUntilGrounded, rankSpawnPointsByWalkingRoom, resolveSpawnPointOnGround } from './Relocation.js'
-import { playerDefault } from '../shared/worldDefaults.js'
+import { playerDefault, worldMaxPlayers } from '../shared/worldDefaults.js'
 import { resolveRelevanceRadius } from '../shared/relevanceRadius.js'
 import { chartHandshakeFields, currentChartEpoch, resolveEpochTransfer, reexpressInputEntries, reexpressShot, createChartResyncReply, chartWireStatsOf } from './chartWire.js'
 
@@ -125,6 +125,12 @@ export function createConnectionHandlers(ctx) {
   }
 
   function _joinNewPlayer(transport) {
+    const cap = worldMaxPlayers(ctx.currentWorldDef)
+    if (cap !== null && playerManager.getConnectedPlayers().length >= cap) {
+      try { transport.send(pack({ type: MSG.DISCONNECT_REASON, payload: { code: DISCONNECT_REASONS.ROOM_FULL, maxPlayers: cap } })) } catch {}
+      try { transport.close() } catch {}
+      return null
+    }
     const playerId = ctx.peerSession ? ctx.peerSession.claimLocalPlayer(transport) : _spawnJoiningPlayer(transport)
     const sp = [...playerManager.getPlayer(playerId).state.position]
     const client = connections.addClient(playerId, transport)
@@ -239,7 +245,8 @@ export function createConnectionHandlers(ctx) {
         return
       }
       if (admission.way === SOCKET_ADMISSION.MIGRATE) { _handleMigrate(transport, admission.message); return }
-      _replayFirstMessage(_joinNewPlayer(transport), data)
+      const playerId = _joinNewPlayer(transport)
+      if (playerId !== null) _replayFirstMessage(playerId, data)
     }
     transport.on('message', peek)
 
@@ -461,6 +468,7 @@ export function createConnectionHandlers(ctx) {
     _abandonPendingMigration(clientId)
     const client = connections.getClient(clientId)
     if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }); sessions.release(client.sessionToken) }
+    appRuntime.releaseAccountState(clientId)
     appRuntime.broadcastMessage(stampSender({ type: 'player_leave', playerId: clientId }, { id: clientId, fromClient: false }))
     physicsIntegration.removePlayerCollider(clientId)
     lagCompensator.clearPlayerHistory(clientId)

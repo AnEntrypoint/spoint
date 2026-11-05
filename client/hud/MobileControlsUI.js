@@ -1,13 +1,16 @@
 import { worldMobileButtons } from '/src/shared/worldDefaults.js'
 import { ensureStyle } from './ensureStyle.js'
 const CSS = `
-@keyframes joyGlow{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 40%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 10%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 60%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 20%, transparent)}}
-@keyframes joyGlowLook{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 35%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 8%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 55%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 18%, transparent)}}
+@keyframes joyGlow{0%{opacity:.4}100%{opacity:1}}
+@keyframes joyGlowLook{0%{opacity:.35}100%{opacity:.9}}
 @keyframes fadeIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
 .mobile-joystick-container{position:absolute;pointer-events:auto;touch-action:none;opacity:0;animation:fadeIn .4s ease-out forwards;animation-delay:.1s;padding:0;background:transparent;border:0}
 .mobile-joystick-base{position:absolute;width:100%;height:100%;border-radius:50%;background:transparent;border:1px solid color-mix(in oklab, var(--rule) 50%, transparent);box-shadow:0 2px 10px color-mix(in oklab, var(--panel-text) 8%, transparent),inset 0 1px 5px color-mix(in oklab, var(--panel-text) 4%, transparent);transition:border-color .15s,box-shadow .15s}
-.mobile-joystick-base.active{border-color:color-mix(in oklab, var(--accent) 70%, transparent);animation:joyGlow 1.5s ease-in-out infinite}
-.mobile-joystick-base.look-active{border-color:color-mix(in oklab, var(--accent) 60%, transparent);animation:joyGlowLook 1.5s ease-in-out infinite}
+.mobile-joystick-base::after{content:'';position:absolute;inset:0;border-radius:50%;pointer-events:none;opacity:0}
+.mobile-joystick-base.active{border-color:color-mix(in oklab, var(--accent) 70%, transparent)}
+.mobile-joystick-base.active::after{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 60%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 20%, transparent);animation:joyGlow 1.5s ease-in-out infinite alternate}
+.mobile-joystick-base.look-active{border-color:color-mix(in oklab, var(--accent) 60%, transparent)}
+.mobile-joystick-base.look-active::after{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 55%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 18%, transparent);animation:joyGlowLook 1.5s ease-in-out infinite alternate}
 .mobile-joystick-knob{position:absolute;top:50%;left:50%;width:40px;height:40px;border-radius:50%;background:radial-gradient(circle at 35% 35%, color-mix(in oklab, var(--panel-text) 30%, transparent), color-mix(in oklab, var(--panel-text-3) 40%, transparent));border:1px solid color-mix(in oklab, var(--panel-text) 30%, transparent);transform:translate(-50%,-50%);box-shadow:0 2px 8px color-mix(in oklab, var(--panel-text) 8%, transparent),inset 0 1px 4px color-mix(in oklab, var(--panel-text) 15%, transparent);transition:transform .05s ease-out,background .1s}
 .mobile-joystick-knob.active{background:radial-gradient(circle at 35% 35%, color-mix(in oklab, var(--accent) 70%, transparent), color-mix(in oklab, var(--accent) 50%, transparent));border-color:color-mix(in oklab, var(--accent) 70%, transparent)}
 .mobile-joystick-knob.look-active{background:radial-gradient(circle at 35% 35%, color-mix(in oklab, var(--accent) 65%, transparent), color-mix(in oklab, var(--accent) 50%, transparent));border-color:color-mix(in oklab, var(--accent) 70%, transparent)}

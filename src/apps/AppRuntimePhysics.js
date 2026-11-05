@@ -1,6 +1,9 @@
 import { resolveCCD, liveBodyIdOf } from './AppPhysics.js'
+import { mixinRagdoll } from './Ragdoll.js'
+import { flightForces } from '../physics/FlightModel.js'
 
 export function mixinPhysics(runtime) {
+  mixinRagdoll(runtime)
   runtime._rebindTierBodyId = function(e, tier) {
     const previousId = e._physicsBodyId
     if (tier === 'kinematic' && e._bodyDef.motionType === 'dynamic') {
@@ -286,6 +289,19 @@ export function mixinPhysics(runtime) {
       if (Array.isArray(rotation) && rotation.length >= 4 && typeof this._physics.setBodyRotation === 'function') this._physics.setBodyRotation(bodyId, e.rotation)
     }
     return true
+  }
+
+  runtime.applyFlightModelToEntity = function(entityId, dt, opts) {
+    const e = this.entities.get(entityId)
+    const bodyId = liveBodyIdOf(this, e)
+    if (bodyId === undefined || !(dt > 0)) return null
+    const velocity = this._physics.getBodyVelocity(bodyId)
+    if (!velocity) return null
+    const rotation = e.rotation || [0, 0, 0, 1]
+    const r = flightForces({ velocity, rotation }, opts)
+    const impulse = [r.force[0] * dt, r.force[1] * dt, r.force[2] * dt]
+    this._physics.addImpulse(bodyId, impulse, e.position)
+    return r
   }
 
   runtime.setEntityVelocity = function(entityId, velocity) {
