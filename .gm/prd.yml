@@ -40,61 +40,61 @@
   subject: 'client/xr: the one-way teleport fade is a 4-state xstate machine read as a string'
   description: 'KISS / client/xr. XRWidgets.js:2 is the file only non-three import and pulls createMachine/createActor from /node_modules/xstate/dist/xstate.esm.js STATICALLY; :12-21 declares fadeMachine with four states and four transitions, zero guards, zero actions and no context; :29 starts an actor; :178-181 read _fadeActor.getSnapshot().value only to compare it against three string literals. The machine is a string-valued phase variable reached through a dependency, and because the import is static it drags xstate into the browser bundle on every load while every other client module imports xstate dynamically behind an _isNode guard. EVIDENCE exec_js dispatch 1791674671727-500-b00b6b86a408ac01 over the real module source with a stubbed xstate: states=4, guards=0, actions=0, context={}, start=idle, after START=fadeIn -- every field matched the values written before the dispatch. FIX: one phase variable (or a single numeric timer) and delete the import. Node-only row: client/xr/XRWidgets.js is dirty under another lane this session; not resolved by this hop.'
   notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal client/xr fadeMachine 1791674449159 (2 occurrences: definition :12, actor :28). node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-2
   subject: 'client/xr: an aborted teleport is dropped by the fade machine - DONE is accepted only in fadeOut'
   description: 'KISS / client/xr. XRWidgets.js:124-128 endTeleport(aborted) sends DONE only when aborted, and DONE is listed only on fadeOut (:19), so an abort raised during fadeIn or delay lands in no state: the screen still fades to full black and back by itself, and teleportPending is already null so no later event can stop it. The only caller passing true is the missing-reference-space path at :119; cancelTeleport, wired for the same case, has zero call sites tree-wide (codesearch 1791674199237). It is the transition table that makes this possible: a phase string set to idle directly cannot swallow an event. EVIDENCE exec_js dispatch 1791674671727-500-b00b6b86a408ac01: after START then DONE the snapshot value is still fadeIn, exactly as written before the dispatch. FIX: on abort set the phase to idle and fadeOpacity to 0 in one place; no event is needed.'
   notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal cancelTeleport tree-wide 1791674199237 (0 occurrences outside this file). node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-3
   subject: 'client/xr: XRControls ships a dead public surface - placeAtCamera, getPlacementInfo and options.scale have no reader'
   description: 'KISS / client/xr. XRControls.js:71 placeAtCamera() and :99 getPlacementInfo() are public methods with zero call sites anywhere in the tree; :6 puts scale: 1 into this.options and nothing on the surface reads it (it is not a WebXR feature: it is never sent to a session and never applied to a mesh). Three knobs shaped like API on a class whose live path is createReticle/start/update/placeAnchor. EVIDENCE codesearch literal tree-wide placeAtCamera dispatch 1791674306401 (1 occurrence: the definition), getPlacementInfo dispatch 1791674241210 (definition plus prd text only), scoped literal scale over client/xr dispatch 1791674334255 (exhaustive:true, 1 occurrence: the default at :6); exec_js 1791674670580 over the real class shows scaleOption=1 and no read. FIX: delete all three. setInitialFPSPosition (:76) is dead too, but DRY-n-r200-3 already names it for its 1.6 literal; this row carries the dead-surface half of that finding so the two do not duplicate.'
   notes: 'witness: codesearch literal 1791674306401, 1791674241210, 1791674334255 (all exhaustive:true); exec_js 1791674670580-500-28dc34af9f8cff1. Merges the dead-surface half of DRY-n-r200-3. node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-4
   subject: 'client/xr: reticleVisible mirrors this.reticle.visible by hand and the two disagree during placement'
   description: 'KISS / client/xr. XRControls.js:12 declares this.reticleVisible and :60/:63 keep it in step with this.reticle.visible manually; :66 placeAnchor() gates on the flag rather than on the mesh, so one fact has two holders and the gate can be satisfied by a reticle that is not being shown. EVIDENCE exec_js dispatch 1791674700932-500-ca0dd4cbb6a92743 over the real class with a stub renderer, printing the flag BEFORE the call: pre reticleVisible=true meshVisible=false, post placeAnchor=true anchorPlaced=true reticleVisible=false -- an anchor was placed from a reticle marked visible while its mesh was not, matching the values written before the dispatch. FIX: gate on this.reticle?.visible and delete the flag.'
   notes: 'witness: exec_js 1791674700932-500-ca0dd4cbb6a92743 (live, exact match; an earlier read taken after placeAnchor is superseded by this ordering). node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-5
   subject: 'client/xr: detected planes build meshes that are never parented, so plane detection is invisible by construction'
   description: 'KISS / client/xr. XRControls.js:50-53 onPlanesDetected creates a mesh per plane, stores it in this.planes and pushes it into planeMeshes; no mesh is ever added to a scene, so the entire visualisation is inert whatever the hardware reports. EVIDENCE exec_js dispatch 1791674670580-500-28dc34af9f8cff1 over the real class fed a synthetic planesdetected event: planeMeshes=2 planes=2 planeDetected=true parents=[null,null]. MERGES HUGHES-n-r163-4 (planeMeshes has zero readers): that row asks for the field to be deleted or derived; this row records that deleting it is only half the fix, because the meshes are also unparented -- either parent them on create or drop the visualisation and keep this.planes alone.'
   notes: 'witness: exec_js 1791674670580-500-28dc34af9f8cff1 (live, exact match). Merges HUGHES-n-r163-4. node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-6
   subject: 'client/xr: update() throttles on the absolute clock with now % 66 < 16 and now % 100 < 16'
   description: 'KISS / client/xr. XRSystem.js:151 gates the wrist-UI refresh on (now % 66 < 16) and :155 gates updateControllerVisibility on (now % 100 < 16). now is not a frame counter: client/app.js:2586 calls xrSystem?.update(ctx.res.frameDt, local, ctx.now), a millisecond clock, so both are modulo samples of wall time whose firing count per second tracks the frame rate instead of expressing a rate. EVIDENCE exec_js dispatch 1791674660915-500-e4bb063fa0da389c stepping the real expressions over 1000 ms at four frame rates: 30fps modulo66=15 modulo100=8, 60fps modulo66=16 modulo100=6, 120fps modulo66=30 modulo100=16, 144fps modulo66=32 modulo100=24, against a dt accumulator holding 15/15/15/14. The claim under test (the refresh rate scales with frame rate, so the wrist UI and controller visibility update at whatever rate the device happens to run) is confirmed; the pre-declared expectation missed by one at 60 and 144 fps from float stepping, and the observed numbers above are the record. FIX: accumulate dt and refresh when it crosses the interval.'
   notes: 'witness: exec_js 1791674660915-500-e4bb063fa0da389c (live); codesearch literal xrSystem scoped to client/app.js 1791674734849 (exhaustive:true, 7 lines) pins now = ctx.now at :2586. node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-7
   subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'
   description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'
   notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop.'
-  status: pending
+  status: refuted
   session_id: orch-main-r209
 - id: KISS-n-r209-8
   subject: 'client/xr: alias bindings and a duplicated handsDetected flag carry state the objects already own'
   description: 'KISS / client/xr. XRWidgets.js:25 keeps wristUI, wristUICanvas and wristUIContext as three bindings to one object fields (:43, read at :48/:49/:59); :68/:96 keep vrSettingsPanel.visible in step with vrSettingsPanel.mesh.visible by hand; and handsDetected exists twice -- XRSystem.js:21/:75/:156 and XRWidgets.js:31/:147/:151 -- where the second copy is only a restatement of the argument passed in. EVIDENCE codesearch literal client/xr, exhaustive:true: wristUI dispatch 1791674770189 (7 lines, 16 occurrences, every canvas/ctx read going through the aliases), handsDetected dispatch 1791674774853 (8 occurrences across both files, two independent declarations). FIX: read wristUI.canvas/.ctx directly, drop the visible field and test mesh.visible, delete the widgets copy of handsDetected. MERGES OWNERSHIP-n-r192-4, whose no-single-writer finding on vrSettings is the same one-fact-two-holders shape on an adjacent object.'
   notes: 'witness: codesearch literal 1791674770189, 1791674774853 (both exhaustive:true). Merges OWNERSHIP-n-r192-4. node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-9
   subject: 'client/xr: _tmp1/_tmp2 scratch vectors are cloned at every use, so the scratch buys nothing'
   description: 'KISS / client/xr. XRWidgets.js:32 allocates _tmp1/_tmp2 as scratch, but both use sites copy out of them anyway: :157 origin = _tmp1.clone(); direction = _tmp2.clone().multiplyScalar(-1), and :165 origin = _tmp1.clone(); direction = _tmp2.clone(). The values are then held across updateTeleportArc and handed to computeParabolicArc, so the shared temporaries cannot be reused in any case -- two allocations per frame dressed up as zero. EVIDENCE codesearch literal client/xr clone() dispatch 1791674780005 (exhaustive:true, 4 occurrences, all on those two lines). FIX: write into pre-allocated origin/direction vectors and keep them, or delete _tmp1/_tmp2 and allocate at the use site; do not keep both.'
   notes: 'witness: codesearch literal 1791674780005 (exhaustive:true). node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: KISS-n-r209-10
   subject: 'client/xr: __freshnessProbe is a committed witness marker with no reader'
   description: 'KISS / client/xr. XRWidgets.js:203 exports const __freshnessProbe = 1. Nothing in the tree reads it: the only other occurrences of the string are scripts/bundle-freshness-witness.mjs:155 and :174, which APPEND that exact line to a scratch-root copy of a client input (:146 makeScratchRoot) or to a dist artifact so the freshness check sees a changed input. The witness writes the marker; it never reads the committed one, so a marker whose only purpose is to mutate a temporary copy ships in source and rides every bundle. EVIDENCE codesearch literal __freshnessProbe dispatch 1791674219166 (3 occurrences: the export plus the two witness append sites). FIX: delete the export; nothing depends on it.'
   notes: 'witness: codesearch literal 1791674219166; scripts/bundle-freshness-witness.mjs:145-181 read directly (scratch-root append path). node-only row; not resolved by this hop.'
-  status: pending
+  status: fixed
   session_id: orch-main-r209
 - id: OWNERSHIP-n-r192-4-blocker-orch-main-r205
   subject: 'OWNERSHIP-n-r192-4 delivery blocked: another lane owns client/xr/XRSystem.js and client/xr/XRWidgets.js'
@@ -184,7 +184,7 @@
 - id: PARSEDV-n-r248-4
   SESSION_ID: orch-main-r248
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/worldResolve.js checkSlices/parseWorld/assertWorld is the world boundary, but it returns the SAME untyped object it was given ({ ok: true, world: w }, line 74; assertWorld line 84 returns r.world). Nothing in the result carries the proof, so the interior repeats the same checks: src/shared/worldDefaults.js:70 re-tests Number.isFinite(v) && v > 0 for exactly the PLAYER_POSITIVE_KEYS checkSlices already proved at line 24, and src/shared/terrainConfig.js re-checks terrain.seed (line 62) and hashVersion (line 20) after checkSlices proved them at lines 29 and via terrainHashVersionOf. Fix: have parseWorld build the typed world it vouches for (defaults filled, slices as named records) and let interior consumers read it without re-validating. Note worldResolve.js itself is the best-shaped file on the surface; this row is about the value it hands back. Evidence: Read src/shared/worldResolve.js and src/shared/terrainConfig.js; Number.isFinite literal sweep dispatch 1791678775821-500-2f531e02bf1d2452.'
-  status: pending
+  status: fixed
   title: src/shared/worldResolve.js validates but returns the same untyped object, so the interior re-validates (worldDefaults:70, terrainConfig)
   session_id: orch-main-r248
 - id: HUGHES-n-r251-1
@@ -364,7 +364,7 @@
   title: 'src/protocol/MessageTypes.js: MSG and DISCONNECT_REASONS are mutable tables, a duplicate id is invisible, and an id outside the table reads as reliable'
   body: 'MSG (line 3) and DISCONNECT_REASONS (line 156) are exported unfrozen while the sibling table DEFAULT_INPUT_BUTTONS is Object.freeze''d (InputCodec.js:1-4); nameMap is built with set() in a loop (lines 140-141), so two names sharing one id silently overwrite and msgName reports whichever came last, making a duplicate-id protocol unrepresentable as an error; isUnreliable(type) (lines 152-154) returns false for any id not in MSG, so an unknown or newly added message type defaults to reliable. Fix: Object.freeze both tables, assert id uniqueness while building nameMap, and refuse an unknown id in isUnreliable.'
   session_id: orch-main-r259
-  status: pending
+  status: refuted
 - id: PARSEDV-0-sub1-1
   SESSION_ID: orch-main-r250-sub1-2
   acceptance: 'Nothing further: commit 0a53e6c367 already satisfies this row''s stated acceptance (renderedSpeciesOf returns the total ALL_SPECIES_RENDERED mask, the rock kind''s rendered hook returns that mask, packTree''s `rendered &&` guard is gone), and the standing witness re-asserts it on every run.'
@@ -474,7 +474,7 @@
     ProgressionSystem.js :71 returns false for a non-finite or negative amount and :80 for the level cap — commit 14746964d2e04d408e07ce1980591a640064c64f already moved u32 level saturation and the xp remainder into this file and left both as bare false.
 
     NEEDED: one declared refusal type per file, landed with each file's witness. Do not start while scripts/StatsSystem-witness.mjs and scripts/EventChainManager-witness.mjs (both untracked and pre-existing; left byte-identical by this hop) still pin the boolean, and while another lane holds apps/tps-game/* and client/core/*.
-  status: pending
+  status: fixed
   title: 'src/game: StatsSystem.js (:95,:111,:112,:183,:213,:230), EventChainManager.js (:106,:110,:114,:118,:122) and ProgressionSystem.js (:71,:80) return one bare false for every refusal cause'
   session_id: orch-main-r260-sub1-s2
 - id: PARSEDV-ub1-s2-4
@@ -583,7 +583,7 @@
   SESSION_ID: orch-main-r270-sub1-w1
   acceptance_criteria: 'A live dispatch shows client/editor/sdk-typings.generated.d.ts carrying the sink parameter types declared in types/ctx.d.ts (no bare `(v: any)` for a sink whose runtime guard is nonNeg), regenerated by scripts/bundle-client.mjs or its generator rather than hand-edited, and byte-identical to a committed re-bake.'
   claim: 'WADLER hop over types/ctx.d.ts (literal setLinearDamping, dispatch 1791690731866-500-e2652279c1c648c6). client/editor/sdk-typings.generated.d.ts:36 and :110 declare `setLinearDamping: (v: any) => void;` and the same `any` for every other physics sink. That generated file is a third description of the same surface shipped beside the source (AGENTS.md: AppContext.js -> sdk-typings.generated.d.ts), weaker than both types/ctx.d.ts, which this hop tightened to NonNegFinite, and the nonNeg guard in src/shared/vecGuard.js. An editor author typing against the generated file sees `any` where the server throws, so the bound this hop stated once is invisible on the surface app authors actually read.'
-  status: pending
+  status: fixed
   title: 'client/editor/sdk-typings.generated.d.ts:36/:110 declares every physics sink as (v: any), a third description weaker than both ctx.d.ts and nonNeg'
   session_id: orch-main-r270-sub1-w1
 - id: DBC-ub1-s2-1
@@ -617,7 +617,7 @@
   session_id: orch-main-r260-sub1-s2
 - id: DBC-ub1-s2-4
   title: BLOCKER (file held) src/game/AbilityTree.js enforces no precondition -- zero `throw` in the file -- and carries another lane's uncommitted dirt at HEAD e475048e
-  status: pending
+  status: refuted
   principle: DBC
   surface: src/game/AbilityTree.js
   witness: 1791692024029-500-67f8ac7db849da8b
@@ -711,7 +711,7 @@
   why: 'createVoiceIndicator keeps `let session = null` next to `let joined = false`, `let muted = true` and `let destroyed = false` (client/hud/VoiceIndicator.js:29-32). The lifecycle really has four states - idle, session created but not connected, connected, destroyed - because `joined` is NOT redundant with session: after a failed `s.connect` or the session''s `disconnected` event the session stays non-null while joined goes false, so those two booleans were presumably kept precisely because the pair encodes three live states. The encoding still admits combinations no transition ever produces: {session:null, joined:true} (joined is only set after ensureSession returned a session) and {joined:true, destroyed:true} (destroy sets destroyed but never clears joined, so the exported `joined` getter keeps reporting true after teardown). destroy''s only path that could reset joined is `await session?.disconnect()` at :234, wrapped in a swallowing `catch (_) {}`, so if disconnect rejects the flag stays true with no signal. Minsky: make the illegal state unrepresentable - one `phase` of ''idle''|''connecting''|''connected''|''destroyed'', with `joined` derived as phase === ''connected'', exactly the shape row ILLEGAL-r250-1 gave Chat.js. NOT resolved here: a hop logs rows by live execution and resolves none, and the change moves render plus the `disconnected` and `destroy` paths and the exported `joined` getter together, so it belongs to a resolver lane that owns client/hud.'
 - id: REPRO-r250-1
   principle: REPRO
-  status: pending
+  status: fixed
   surface: scripts
   title: 'gen-sdk-typings is platform-dependent: the same committed src/apps/AppContext.js emits the same members in a different ORDER on Windows and on the Linux CI runner, so npm test''s stale check cannot be satisfied from either box'
   why: 'scripts/gen-sdk-typings.mjs generates from a detached worktree at HEAD (materializeHeadSnapshot: `git worktree add --detach .gm/tmp/sdk-typings-head HEAD`, then symlinkSync(ROOT/node_modules, SNAPSHOT/node_modules, ''junction'')) and check.mjs re-runs it with --check to compare against the committed client/editor/sdk-typings.generated.d.ts. Two CI runs on the same source show the failure is ORDERING, not content: run 38113141392 at sha 22768ac831 reported committed 620 lines vs generated 620 lines with the only differences at lines 550-553 (committed `reason?: undefined; ok: boolean; currency: any; granted: {}` against generated `ok: boolean; currency: any; granted: {}; reason?: undefined;`), and run 38113697341 at sha e9176362b4 - after regenerating the file on this Windows box and pushing it - reported committed 625 vs generated 625 with exactly the INVERSE rotation at lines 555-558. Same member set, same line count, members rotated: the emitted declaration comes from tsc''s structural inference over a symlinked node_modules whose link type (''junction'') is honoured on Windows and ignored on POSIX, so resolution - and hence member emit order - differs per platform. Consequence: no committed file generated on Windows can satisfy the Linux CI check and vice versa, so `npm test` is red on main for every lane regardless of content. Fix belongs to a resolver lane that owns scripts/: either make the comparison order-insensitive (compare a normalised/sorted member set) or make the emit order deterministic (sort members before writing), and drop the Windows-only ''junction'' link type or replace it with a platform-neutral node_modules link. NOT resolved here: this lane''s surface is client/hud, scripts/ is contested by several hop lanes, and the fix has to be verified by a CI run. Note the committed file is now the Windows-ordered regeneration from the CURRENT AppContext.js (commit e9176362b4), which is content-current; only its order disagrees with CI.'
