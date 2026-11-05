@@ -1,0 +1,12 @@
+TOTALITY-w1-p-1-2: REFUTED as a current defect (the guards are already committed on HEAD)
+
+Claim: nearbyPlayerIds/getNearestPlayer accept negative or NaN radius and return []/scan as |r|; _hydrateInteractable turns -1/NaN/Infinity/'7' into 3/500 silently; _nonNegOrDefault at AppRuntime.js:23-29.
+
+Source at HEAD:
+- src/apps/AppRuntime.js:643 nearbyPlayerIds and :702 getNearestPlayer call vecOK(pos,3) and nonNeg(r, ...) and throw TypeError before any scan. _nonNegOrDefault no longer exists in src/apps/AppRuntime.js.
+- src/apps/AppRuntime.js:484 _hydrateInteractable routes through parseInteractable (src/apps/AppPhysics.js:14-20), which calls nonNeg on radius and cooldown, so invalid values throw instead of substituting 3/500.
+
+Probe: .gm/witness-out/TOTALITY-w1-p-1-2-probe.mjs output:
+{"vecOK_len3":true,"nonNeg_neg5":{"threw":"TypeError","msg":"[probe] radius must be a non-negative finite number"},"nonNeg_NaN":{"threw":"TypeError","msg":"[probe] radius must be a non-negative finite number"},"interactable_radius_m1":{"threw":"TypeError","msg":"interactable: radius must be a non-negative finite number"},"interactable_radius_NaN":{"threw":"TypeError","msg":"interactable: radius must be a non-negative finite number"},"interactable_cooldown_Inf":{"threw":"TypeError","msg":"interactable: cooldown must be a non-negative finite number"},"interactable_radius_str":{"threw":"TypeError","msg":"interactable: radius must be a non-negative finite number"},"interactable_valid":{"ok":{"prompt":"E","radius":4,"cooldown":250}}}
+
+Note: the acceptance text expects -1 to yield 3 with a console.warn; HEAD throws instead, which is the stricter contract (no silent default). The uncommitted hop it describes is not in the tree. Residual scope (ccd policy at :194, Infinity admission at :418) belongs to DBC-n-r270-1 and is not covered here. No edit made.

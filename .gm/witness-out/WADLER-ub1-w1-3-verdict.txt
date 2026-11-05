@@ -1,0 +1,12 @@
+WADLER-ub1-w1-3: needs-design
+
+Claim: client/editor/sdk-typings.generated.d.ts:36 and :110 declare setLinearDamping as (v: any), and every physics sink is bare any, weaker than types/ctx.d.ts NonNegFinite and the nonNeg guard.
+
+Found: the cited lines moved. At HEAD line 39 and line 110 read `setLinearDamping: (v: number) => void;`, so the setLinearDamping line is no longer bare any, but it is still not the NonNegFinite type that types/ctx.d.ts:33 declares (`setLinearDamping(value: NonNegFinite): void;`). Many other physics sinks remain bare any (setStatic, setDynamic, setKinematic, setVelocity, setPosition, setFriction, setRestitution, setMotionType, setCCDPolicy, addForce, ...). The file is produced by scripts/gen-sdk-typings.mjs (checked by scripts/check.mjs), so the fix belongs in the generator's type mapping (carry NonNegFinite branded types from types/ctx.d.ts into the generated output), not a hand edit.
+
+Probe: .gm/witness-out/WADLER-ub1-w1-3-probe.mjs output (abridged to the setLinearDamping lines and the count):
+ "generated": ["39: setLinearDamping: (v: number) => void;", "110: setLinearDamping: (v: number) => void;", ...]
+ "ctx": ["33: setLinearDamping(value: NonNegFinite): void;"]
+ "bareAnyParamCount": 11 (lines with `(v: any)`), plus other `any` parameters.
+
+Why not fixed here: the fix changes scripts/gen-sdk-typings.mjs, types/ctx.d.ts handling and the regenerated file (more than three files, and it needs a decision on how the generator represents branded numeric types). No edit made.

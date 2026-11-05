@@ -1,0 +1,10 @@
+PARSEDV-n-r248-2: REFUTED (the cited sentinels are not in the code)
+
+Claim: sampleMinimapCell (src/shared/MinimapBiome.js:38,41) writes zeros and returns NaN on failure; reliefShade (:63) returns a literal 1 when non-finite.
+
+Source at HEAD: sampleMinimapCell returns null on both failure paths (lines 38 and 41). reliefShade (line 57-64) has no non-finite branch; it only clamps finite values to [SHADE_MIN, SHADE_MAX]. The literal 1 sits in shadeHeightGrid line 77 (a neutral multiplier when a slope is non-finite), not in reliefShade and not in a return slot of sampleMinimapCell.
+
+Probe: .gm/witness-out/PARSEDV-n-r248-2-probe.mjs output:
+{"sampleMinimapCell_returned":null,"out":[0,0,0,0,null],"reliefShade_flat":1,"shadeGrid_withNaNNeighbour":[1,0.925374408777804,1,1]}
+
+sampleMinimapCell returns null (not NaN) on failure, so the caller can distinguish a failed cell. No edit made.

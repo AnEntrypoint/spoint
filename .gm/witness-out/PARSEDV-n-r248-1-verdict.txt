@@ -1,0 +1,10 @@
+PARSEDV-n-r248-1: REFUTED (a parse boundary already exists and the accessors use it)
+
+Claim: resolveTerrainConfig is a getter; every accessor (minimapExtentOf, minimapResOf, minimapDescriptor, terrainHashVersionOf, terrainCarvesOf) re-validates on every call; no parseTerrainConfig boundary.
+
+Source at HEAD (src/shared/terrainConfig.js): parseTerrainConfig(tcfg) (line 65) validates once and returns a frozen normalized config carrying a PARSED_TERRAIN_CONFIG symbol marker (line 88). Each accessor short-circuits on isParsedTerrainConfig: terrainHashVersionOf (line 37), terrainCarvesOf (line 50), minimapExtentOf (line 108), minimapResOf (line 113), parsedTerrainOf (line 25) used by minimapDescriptor and the bake keys. Re-validation only runs for raw, unparsed input.
+
+Probe: .gm/witness-out/PARSEDV-n-r248-1-probe.mjs output:
+{"parsedAccessors":{"isParsed":true,"extent":250,"res":256,"hashVersion":2,"carves":1},"rawAccessors":{"extent":50,"res":64,"hashVersion":2},"badParse":{"ok":false,"path":"radius","reason":"must be a positive finite number"}}
+
+Parsed input returns stored values with no re-check; invalid input is refused at the parse boundary. Residual: raw-input accessors still validate, which is the intended path for unparsed callers. No edit made.
