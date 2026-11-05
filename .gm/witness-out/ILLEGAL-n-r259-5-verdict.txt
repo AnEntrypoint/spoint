@@ -1,0 +1,11 @@
+ILLEGAL-n-r259-5: src/protocol/EventEmitter.js
+Status: fixed
+
+Defects as stated, checked on HEAD (original emit/once, run from a /tmp copy of `git show HEAD:src/protocol/EventEmitter.js`):
+  {"removalDuringEmit":{"seen":["a","b"],"returned":true},"onceThrowing":{"calls":2,"remaining":1},"allThrew":{"returned":true},"delivered":{"returned":true}}
+  c was skipped after b removed a; a throwing once() listener stayed registered and fired again; emit returned true when every listener threw.
+
+Fix: emit iterates a snapshot (.slice()), counts delivered listeners and returns delivered > 0; once removes its wrapper before calling fn (so a throw cannot leave it registered).
+
+After fix, probe .gm/witness-out/ILLEGAL-n-r259-5-probe.mjs:
+  {"removalDuringEmit":{"seen":["a","b","c"],"returned":true},"onceThrowing":{"calls":1,"remaining":0},"allThrew":{"returned":false},"delivered":{"returned":true}}

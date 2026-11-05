@@ -46,6 +46,7 @@ export function chartAnchorDecision({ lattice, frame, dirs, hysteresisDeg = CHAR
   let centroidDir
   try { centroidDir = playerCentroidDir(dirs) } catch (e) {
     if (e instanceof PlayersStraddlePlanetError) return { kind: 'refusal', reason: 'players-straddle-the-planet' }
+    if (e instanceof ChartAnchorDecisionError && e.reason === 'player-direction-has-no-length') return { kind: 'refusal', reason: 'player-direction-has-no-length' }
     throw e
   }
   if (!centroidDir) return { kind: 'stay', reason: 'no-players' }

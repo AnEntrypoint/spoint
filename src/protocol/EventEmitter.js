@@ -21,8 +21,8 @@ export class EventEmitter {
 
   once(event, fn) {
     const wrapper = (...args) => {
-      fn(...args)
       this.off(event, wrapper)
+      fn(...args)
     }
     this.on(event, wrapper)
     return this
@@ -30,14 +30,16 @@ export class EventEmitter {
 
   emit(event, ...args) {
     if (!this.listeners.has(event)) return false
-    this.listeners.get(event).forEach(fn => {
+    let delivered = 0
+    for (const fn of this.listeners.get(event).slice()) {
       try {
         fn(...args)
+        delivered++
       } catch (err) {
         console.error(`Error in listener for event '${event}':`, err)
       }
-    })
-    return true
+    }
+    return delivered > 0
   }
 
   removeListener(event, fn) {

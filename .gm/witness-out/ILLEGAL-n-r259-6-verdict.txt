@@ -1,0 +1,11 @@
+ILLEGAL-n-r259-6: src/protocol/MessageTypes.js
+Status: needs-design
+
+Probe .gm/witness-out/ILLEGAL-n-r259-6-probe.mjs on HEAD:
+  {"MSG_frozen":true,"DISCONNECT_REASONS_frozen":true,"unknownId_isUnreliable":false,"knownUnreliable_isUnreliable":true,"unknown_msgName":"unknown(0xfe)","UNRELIABLE_MSGS_frozen":false}
+
+Findings:
+- MSG and DISCONNECT_REASONS are already Object.freeze'd. The row's first claim is stale.
+- Duplicate ids already throw at module load: nameMap build (lines 140-144) throws "[MessageTypes] message id ... is declared by both ...". Second claim is stale.
+- isUnreliable(unknown) returns false, which the file documents as deliberate ("not unreliable ... strict false"). The row asks it to refuse unknown ids. Callers are src/client/PhysicsNetworkClient.js:373, src/connection/ConnectionManager.js:133,146,156, which would then have to handle a throw on every send. Changing that is a contract decision, so it is not made here.
+- Still real but minor: UNRELIABLE_MSGS is a mutable Set (frozen=false). Freezing a Set does not stop .add(), so it needs a different shape (e.g. a frozen object map) — also a design choice.

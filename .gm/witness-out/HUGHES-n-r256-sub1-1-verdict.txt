@@ -1,0 +1,9 @@
+HUGHES-n-r256-sub1-1: invalid chart-anchor request encodings
+Status: fixed
+
+Probe .gm/witness-out/HUGHES-n-r256-sub1-1-probe.mjs on HEAD (before this change):
+  {"lattice(0,0)":{"throws":"ChartAnchorLatticeError","message":"radius-not-positive-finite+anchors-per-face-below-one: ..."},"lattice(6371e3,0)":{"throws":"ChartAnchorLatticeError","message":"anchors-per-face-below-one: ..."},"decision(lattice null)":{"throws":"ChartAnchorDecisionError","message":"decision-needs-a-lattice: chartAnchorDecision needs a chart anchor lattice, got none"},"decision(zero-length dir)":{"ok":{"kind":"refusal","reason":"player-direction-has-no-length"}}, ... }
+
+Stale parts: createChartAnchorLattice now validates both guards before throwing one named error (the null return and the masked guard are gone); chartAnchorDecision has a named lattice precondition; so the first three claims are already fixed.
+
+Remaining real gap: a zero-length member dir in playerCentroidDir raised ChartAnchorDecisionError, and chartAnchorDecision rethrew it. Fix (src/shared/chartReanchorPolicy.js, one catch branch): map reason 'player-direction-has-no-length' to { kind: 'refusal', reason: 'player-direction-has-no-length' }, the same refusal shape as players-straddle-the-planet. After the fix the probe prints "decision(zero-length dir)":{"ok":{"kind":"refusal","reason":"player-direction-has-no-length"}}; centroid(zero-length dir) still throws the named error for direct callers. The null-guard lines in clusterConfig.js and ChartReanchorService.js are not reachable any more, so they are left alone.

@@ -1,0 +1,7 @@
+ILLEGAL-n-r256-6: CI-red on SNAPSHOT_ENCODE bake pin
+Status: refuted (the pin is consistent on current main)
+
+Probe .gm/witness-out/ILLEGAL-n-r256-6-probe.mjs on HEAD:
+  {"pin":"ee6b4acfc424","sourceHash":"ee6b4acfc424","match":true,"inputs":["../apps/AppRuntime.js","../apps/EcsEntityMap.js"]}
+
+The row cites pin f25a7a74ecc2 vs source 6f3c065f8d3b. Those values are no longer present: src/shared/cacheCodeVersions.js pins ee6b4acfc424, and BakeCodeVersion's SNAPSHOT_ENCODE_CODE_VERSION_SOURCE computes the same value. The pin was bumped in later commits (d754905, ba8ee6f). Nothing to fix here.
