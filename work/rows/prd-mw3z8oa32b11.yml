@@ -1,0 +1,9 @@
+id: "prd-mw3z8oa32b11"
+kind: "prd"
+title: "Preserve AGENTS.md rebuild facts as memories"
+body: "Five memory files under .gm/disciplines/default preserve 47 bullets dropped by the compact AGENTS.md rebuild, including the nine netcode bullets. Commit 57afd48 plus fcb91fa."
+status: "resolved"
+createdAt: "2026-11-05T20:07:14.667Z"
+witnessEvent: 3853
+witnessCommit: "57afd48"
+resolvedAt: "2026-11-05T20:08:54.327Z"

@@ -1,0 +1,9 @@
+id: "prd-mw3z8oa1d417"
+kind: "prd"
+title: "Shared vec3 array law"
+body: "src/shared/vec3.js adds pure add/sub/scale/dot/cross/normalize/lerp/clampLength/reflect/angleTo over [x,y,z] arrays with coded refusals. scripts/vec3-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:07:14.665Z"
+witnessEvent: 3853
+witnessCommit: "c36fd9c"
+resolvedAt: "2026-11-05T20:07:36.612Z"

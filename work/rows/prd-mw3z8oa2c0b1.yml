@@ -1,0 +1,9 @@
+id: "prd-mw3z8oa2c0b1"
+kind: "prd"
+title: "Per-entity provider-neutral decision runtime"
+body: "src/behaviours/decisionRuntime.js wraps createDecisionPipe with per-entity cadence, no-players gate, named callbacks and coded refusals. scripts/decision-runtime-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-05T20:07:14.666Z"
+witnessEvent: 3853
+witnessCommit: "c36fd9c"
+resolvedAt: "2026-11-05T20:07:58.479Z"
