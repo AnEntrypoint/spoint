@@ -48,6 +48,17 @@ assert.ok(vegExcluded.length < vegBaseline.length, 'vegetation placements inside
 assert.ok(rockExcluded.every(p => !exclusion.blockedAt(p.x, p.z)), 'no surviving rock may sit inside the footprint')
 assert.ok(vegExcluded.every(p => !exclusion.blockedAt(p.x, p.z)), 'no surviving plant may sit inside the footprint')
 
+const interior = { id: 'interior', model: 'arena.glb', position: [50, 0, 50], scale: [20, 20, 20], custom: { _interior: true } }
+const interiorExclusion = createModelExclusionField([interior])
+assert.equal(interiorExclusion.circleCount, 1, 'an interior placed model must still produce a footprint')
+const interiorField = interiorExclusion.wrapClimateField(baseField)
+const interiorRocks = collect(rockKeys, rockFrame, interiorField, placementsForRockChunk)
+const interiorVeg = collect(vegKeys, vegFrame, interiorField, placementsForChunk)
+assert.ok(interiorRocks.length < rockBaseline.length, 'an interior footprint must remove rocks')
+assert.ok(interiorVeg.length < vegBaseline.length, 'an interior footprint must remove plants')
+assert.equal(interiorRocks.filter(p => interiorExclusion.blockedAt(p.x, p.z)).length, 0, 'interior rock survivor count must be 0')
+assert.equal(interiorVeg.filter(p => interiorExclusion.blockedAt(p.x, p.z)).length, 0, 'interior plant survivor count must be 0')
+
 const rocksSrc = readFileSync('client/core/Rocks.js', 'utf8')
 const vegSrc = readFileSync('client/core/Vegetation.js', 'utf8')
 const appSrc = readFileSync('client/app.js', 'utf8')
@@ -56,4 +67,4 @@ assert.match(vegSrc, /createModelExclusionField\(opts\.placedModels\)/)
 assert.match(appSrc, /createVegetation\([^)]*placedModels: worldConfig\.entities/)
 assert.match(appSrc, /createRocks\([^)]*placedModels: worldConfig\.entities/)
 
-console.log(`RESULT: PASS placed-model footprint removes ${rockBaseline.length - rockExcluded.length} rock(s) and ${vegBaseline.length - vegExcluded.length} plant(s); no survivor sits inside it; Rocks.js, Vegetation.js and app.js are wired`)
+console.log(`RESULT: PASS ordinary placed-model footprint removes ${rockBaseline.length - rockExcluded.length} rock(s) and ${vegBaseline.length - vegExcluded.length} plant(s); no survivor sits inside it; _interior map models also exclude with 0 survivors; Rocks.js, Vegetation.js and app.js are wired`)

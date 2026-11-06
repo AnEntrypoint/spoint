@@ -49,6 +49,7 @@ const IMPLEMENTED = [
   "Agent command registry: numbers, logs, events, prefetch",
   "Read-only live exec",
   "Offline remote-model URL manifest check",
+  "Rocks and vegetation respect placed-model footprints",
 ]
 const lines = [
   '# savi / spawn feature-gap report',

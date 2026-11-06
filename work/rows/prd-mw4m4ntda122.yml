@@ -1,7 +1,7 @@
 id: "prd-mw4m4ntda122"
 kind: "prd"
 title: "Rocks and vegetation respect placed-model footprints"
-body: "Rocks.js and Vegetation.js wrap their anchor fields with createModelExclusionField(opts.placedModels) like Grass.js; app.js passes worldConfig.entities to both. scripts/rock-model-exclusion-witness.mjs prints RESULT: PASS."
+body: "Rocks.js and Vegetation.js wrap their anchor fields with createModelExclusionField(opts.placedModels) like Grass.js; app.js passes worldConfig.entities to both. scripts/rock-model-exclusion-witness.mjs prints RESULT: PASS. _interior map models are included too, with zero survivors."
 status: "resolved"
 createdAt: "2026-11-06T06:47:58.609Z"
 witnessEvent: 308

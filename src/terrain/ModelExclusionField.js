@@ -3,7 +3,6 @@ export function createModelExclusionField(entities) {
   if (Array.isArray(entities)) {
     for (const e of entities) {
       if (!e || !e.model || !Array.isArray(e.position)) continue
-      if (e.custom && e.custom._interior) continue
       const x = e.position[0], z = e.position[2]
       if (!Number.isFinite(x) || !Number.isFinite(z)) continue
       const scale = Array.isArray(e.scale) ? Math.max(e.scale[0] || 1, e.scale[2] || 1) : (Number.isFinite(e.scale) ? e.scale : 1)
