@@ -7,24 +7,40 @@ function refusal(reasonCode, message, field = null) {
 
 function matches(rule, value, partial) {
   if (rule.nullable && value === null) return true
+  let base = false
   switch (rule.type) {
     case 'number':
-      return typeof value === 'number' && Number.isFinite(value)
+      base = typeof value === 'number' && Number.isFinite(value)
         && (rule.min === undefined || (rule.exclusiveMin ? value > rule.min : value >= rule.min))
         && (rule.max === undefined || value <= rule.max)
-    case 'boolean': return typeof value === 'boolean'
-    case 'string': return typeof value === 'string' && (!rule.nonEmpty || value.length > 0)
-    case 'function': return typeof value === 'function'
-    case 'array': return Array.isArray(value) && (!rule.nonEmpty || value.length > 0)
-    case 'custom': return rule.check(value, partial) === true
-    default: return false
+      break
+    case 'boolean': base = typeof value === 'boolean'; break
+    case 'string': base = typeof value === 'string' && (!rule.nonEmpty || value.length > 0); break
+    case 'function': base = typeof value === 'function'; break
+    case 'array': base = Array.isArray(value) && (!rule.nonEmpty || value.length > 0); break
+    case 'custom': base = rule.check(value, partial) === true; break
+    default: base = false
+  }
+  return base && (rule.check ? rule.check(value, partial) === true : true)
+}
+
+function assertSpecShape(name, spec) {
+  const proto = Object.getPrototypeOf(spec)
+  if (proto !== Object.prototype && proto !== null) throw refusal('define-spec-inherited-key', `${name} spec must not carry a prototype`)
+  for (const key in spec) {
+    if (!Object.hasOwn(spec, key)) throw refusal('define-spec-inherited-key', `${name} spec inherited key "${key}"`, key)
+  }
+  for (const key of Reflect.ownKeys(spec)) {
+    if (typeof key === 'symbol') throw refusal('define-spec-symbol-key', `${name} spec must not use symbol keys`)
+    if (!Object.prototype.propertyIsEnumerable.call(spec, key)) throw refusal('define-spec-hidden-key', `${name} spec has hidden key "${key}"`, key)
   }
 }
 
 export function parseDefineSpec(name, spec, schema) {
   if (!schema) throw refusal('define-spec-unknown-factory', `no spec schema is registered for ${name}`)
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) throw refusal('define-spec-invalid', `${name} spec must be a plain object`)
-  for (const key of Object.keys(spec)) {
+  assertSpecShape(name, spec)
+  for (const key of Reflect.ownKeys(spec)) {
     if (!Object.hasOwn(schema, key)) throw refusal('define-spec-unknown-key', `${name} has no spec key "${key}"`, key)
   }
   const parsed = {}
@@ -86,7 +102,7 @@ export const DEFINE_SPEC_SCHEMAS = Object.freeze({
     spawn: { type: 'custom', required: true, check: v => Array.isArray(v) && v.length >= 3 },
     minY: { type: 'number', default: -50 },
     radius: { type: 'number', min: 0, exclusiveMin: true, default: 3 },
-    checkpoints: { type: 'array', default: () => [] },
+    checkpoints: { type: 'array', default: () => [], check: v => v.every(c => c && typeof c === 'object' && (c.radius === undefined || (Number.isFinite(c.radius) && c.radius > 0))) },
     onCheckpoint: callback(), onRespawn: callback(),
   }),
 })
@@ -122,7 +138,8 @@ export function assertDefineSpecKeys(name, spec) {
   const keys = DEFINE_SPEC_KEYS[name]
   if (!keys) throw refusal('define-spec-unknown-factory', `no spec key list is registered for ${name}`)
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) throw refusal('define-spec-invalid', `${name} spec must be a plain object`)
-  for (const key of Object.keys(spec)) {
+  assertSpecShape(name, spec)
+  for (const key of Reflect.ownKeys(spec)) {
     if (!keys.includes(key)) throw refusal('define-spec-unknown-key', `${name} has no spec key "${key}"`, key)
   }
   return spec
