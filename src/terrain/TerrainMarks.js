@@ -155,3 +155,9 @@ export function compileTerrainMarks(specs) {
     },
   })
 }
+
+export function wrapHeightWithMarks(specs, heightFn) {
+  const marks = compileTerrainMarks(specs ?? [])
+  if (marks.count === 0) return heightFn
+  return (x, z, yGuess) => marks.height(x, z, heightFn(x, z, yGuess))
+}

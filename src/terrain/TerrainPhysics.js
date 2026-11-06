@@ -3,6 +3,7 @@ import { createCachedAnchorField } from './ClimateCache.js'
 import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
+import { wrapHeightWithMarks } from './TerrainMarks.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
 // The artifact -> sample-field construction lives in one place so the server's collider, the rendered
@@ -307,7 +308,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const baseHeightFn = colliderSource.heightFn
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))
-  const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(baseHeightFn)))
+  const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(wrapHeightWithMarks(tcfg.marks, baseHeightFn))))
   const outOfChartLimitM = frame.radius - (tphys.extent || 510)
   let outOfChartWarned = 0
   const getCenters = () => {
