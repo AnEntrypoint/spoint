@@ -12,6 +12,34 @@ const SKIP_DIRS = new Set(['basis', 'draco', 'maps'])
 const SKIP_VENDORED_FILE = /(\.min\.js$|basis_transcoder|draco_decoder|jolt-physics)/
 const MAX_PARALLEL_CHECKS = 16
 const GUARDED = ['src/netcode/NetworkState.js', 'src/sdk/EditorHandlers.js', 'src/apps/AppContext.js']
+const GENERATED = [
+  {
+    label: 'apps-manifest.json',
+    generator: 'scripts/bundle-apps-manifest.mjs',
+    checkArgs: ['scripts/bundle-apps-manifest.mjs', '--check'],
+    writeArgs: ['scripts/bundle-apps-manifest.mjs'],
+    freshLine: 'check: apps-manifest.json is in sync with ./apps',
+    regeneratedLine: 'check: apps-manifest.json was stale and has been regenerated from ./apps',
+  },
+  {
+    label: 'generated SDK typings',
+    generator: 'scripts/gen-sdk-typings.mjs',
+    checkArgs: ['scripts/gen-sdk-typings.mjs', '--check'],
+    writeArgs: ['scripts/gen-sdk-typings.mjs'],
+    freshLine: 'check: generated SDK typings match src/apps/AppContext.js',
+    regeneratedLine: 'check: generated SDK typings were stale and have been regenerated from src/apps/AppContext.js',
+  },
+]
+
+async function regenerateIfStale({ checkArgs, writeArgs }) {
+  try {
+    await execFileAsync(process.execPath, checkArgs)
+    return 'fresh'
+  } catch {}
+  await execFileAsync(process.execPath, writeArgs)
+  await execFileAsync(process.execPath, checkArgs)
+  return 'regenerated'
+}
 
 function collect(out) {
   for (const root of ROOTS) walk(root, out)
@@ -120,20 +148,15 @@ async function main() {
       process.exit(1)
     }
   }
-  try {
-    await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--check'])
-    console.log('check: apps-manifest.json is in sync with ./apps')
-  } catch (e) {
-    console.error('check: apps-manifest.json is stale; run: node scripts/bundle-apps-manifest.mjs', e.stderr || e.message)
-    process.exit(1)
+  for (const artifact of GENERATED) {
+    try {
+      const state = await regenerateIfStale(artifact)
+      console.log(state === 'fresh' ? artifact.freshLine : artifact.regeneratedLine)
+    } catch (e) {
+      console.error(`check: ${artifact.label} is stale and could not be regenerated; run: node ${artifact.generator}`, (e.stderr || e.message || '').toString().trim())
+      process.exit(1)
+    }
   }
-  try {
-    await execFileAsync(process.execPath, ['scripts/gen-sdk-typings.mjs', '--check'])
-  } catch (e) {
-    console.error('check: generated SDK typings are stale; run: node scripts/gen-sdk-typings.mjs', (e.stderr || e.message || '').toString().trim())
-    process.exit(1)
-  }
-  console.log('check: generated SDK typings match src/apps/AppContext.js')
 
   const imports = await checkAppImports()
   if (imports.problems.length) {
