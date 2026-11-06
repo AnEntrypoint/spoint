@@ -4,6 +4,7 @@ import { AnimationBlender, BlendTree1D, BlendTree2D } from './BlendTree.js'
 import { IKRig, TwoBoneIKSolver } from './IKSolver.js'
 import createAnimationController from './AnimationController.js'
 import { RagdollPose } from './RagdollPose.js'
+import { applyRagdollActivation } from './ragdollActivation.js'
 import { createShapeKeyDriver } from './ShapeKeys.js'
 
 export class AnimationSystem {
@@ -216,6 +217,12 @@ export class AnimationSystem {
 
   removeRagdoll() {
     this.ragdoll = null
+    return this
+  }
+
+  setRagdollPlan(plan) {
+    if (!this.ragdoll) this.createRagdoll()
+    applyRagdollActivation(this.ragdoll, plan)
     return this
   }
 
