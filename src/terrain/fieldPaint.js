@@ -21,15 +21,17 @@ export function createFieldPaint({ cellSize, chunkCells }) {
     return grid
   }
 
-  function stroke({ field, layer, center, radius, fn }) {
+  function stroke({ field, layer, center, radius, fn, place = [0, 0] }) {
     const grid = layerOf(field, layer)
     if (!Array.isArray(center) || center.length !== 2 || !center.every(Number.isFinite)) throw refusal('center-invalid', 'center must be [x, z] of finite numbers')
+    if (!Array.isArray(place) || place.length !== 2 || !place.every(Number.isFinite)) throw refusal('place-invalid', 'place must be [x, z] of finite numbers')
+    const origin = [center[0] + place[0], center[1] + place[1]]
     if (!(radius > 0)) throw refusal('radius-invalid', 'radius must be a positive number')
     if (typeof fn !== 'function') throw refusal('stroke-fn-invalid', 'fn must be a function of (p, inset, current)')
     const cells = []
-    for (let x = center[0] - radius; x <= center[0] + radius; x += cellSize) {
-      for (let z = center[1] - radius; z <= center[1] + radius; z += cellSize) {
-        const d = Math.hypot(x - center[0], z - center[1])
+    for (let x = origin[0] - radius; x <= origin[0] + radius; x += cellSize) {
+      for (let z = origin[1] - radius; z <= origin[1] + radius; z += cellSize) {
+        const d = Math.hypot(x - origin[0], z - origin[1])
         if (d > radius) continue
         const current = grid.readField(x, z)
         const delta = fn([x, z], 1 - d / radius, current) - current
