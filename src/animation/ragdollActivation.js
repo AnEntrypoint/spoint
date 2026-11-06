@@ -24,8 +24,18 @@ export function parseRagdollActivation(spec) {
   return Object.freeze({ strengths: Object.freeze(Object.fromEntries(strengths)), explicit: Object.freeze(Object.keys(bones)), active: spec.active !== false })
 }
 
+export function checkRagdollPlan(plan) {
+  if (!plan || typeof plan !== 'object' || plan.strengths === null || typeof plan.strengths !== 'object' || !Array.isArray(plan.explicit)) return 'plan-invalid'
+  for (const [name, value] of Object.entries(plan.strengths)) {
+    if (!RAGDOLL_JOINTS.includes(name)) return 'unknown-bone'
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) return 'strength-invalid'
+  }
+  return null
+}
+
 export function applyRagdollActivation(pose, plan) {
-  if (!plan || typeof plan !== 'object' || plan.strengths === undefined) throw new RagdollActivationError('plan-invalid', 'plan must come from parseRagdollActivation')
+  const refusal = checkRagdollPlan(plan)
+  if (refusal) throw new RagdollActivationError(refusal, 'plan must come from parseRagdollActivation')
   if (!plan.active) return pose.setAll(0)
   for (const [name, value] of Object.entries(plan.strengths)) {
     if (!plan.explicit.includes(name) && pose.byName && !pose.byName.has(name)) continue

@@ -1,10 +1,10 @@
-
 export async function setup(scene, world, appCtx) {
   const { gltfLoader, modelPool } = appCtx
   let animationSystem = null
   let model = null
   let commandedMotion = {}
   let appliedRagdollKey = null
+  let ragdollRefusal = null
 
   async function loadCharacter(modelUrl, animationClipsUrl) {
     try {
@@ -66,8 +66,15 @@ export async function setup(scene, world, appCtx) {
     if (!plan || !animationSystem) return
     const key = JSON.stringify(plan)
     if (key === appliedRagdollKey) return
-    animationSystem.setRagdollPlan(plan)
     appliedRagdollKey = key
+    try {
+      animationSystem.setRagdollPlan(plan)
+      ragdollRefusal = null
+    } catch (error) {
+      if (!error?.reasonCode) throw error
+      if (error.reasonCode !== ragdollRefusal) console.warn('[character-animator] refused ragdoll plan:', error.reasonCode)
+      ragdollRefusal = error.reasonCode
+    }
   }
 
   function tick(dt) {
@@ -97,6 +104,7 @@ export async function setup(scene, world, appCtx) {
     dispose,
     getAnimationSystem() { return animationSystem },
     getModel() { return model },
+    getRagdollRefusal() { return ragdollRefusal },
   }
 }
 
