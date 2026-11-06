@@ -1,0 +1,2 @@
+wss://relay.damus.io open
+wss://nos.lol open

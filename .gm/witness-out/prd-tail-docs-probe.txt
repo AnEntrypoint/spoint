@@ -1,0 +1,5 @@
+SPECDRIFT-ag-88-1 NOT-CONFIRMED AGENTS.md:88 mentions nearbyHorizontal=false verifier-lines=[49,430] octreeHasNearbyCylinder=true octreeHasNearbyHorizontal=false
+PARSEDV-1-sub1-1 NOT-CONFIRMED :53="- `[STAT:count] [INSTR:scripts/lib/witness-args.mjs, live refusal runs over 51 tracked scripts] [LAN" :109=""
+PARSEDV-1-sub1-2 NOT-CONFIRMED :129="" digitPredicatePresent=true
+PARSEDV-1-sub1-3 NOT-CONFIRMED exclusion line="none"
+REPRO-r250-1 NOT-CONFIRMED generator sorts members=true; cross-platform order cannot be witnessed on this Linux box

@@ -1,0 +1,17 @@
+PRD tail-43 summary by spoint-debug-research: the 8 protocol rows, the 5 doc or script rows, and the owed commit row.
+Witness files: .gm/witness-out/prd-tail-protocol-probe.txt, prd-tail-protocol-probe-v2.txt, prd-tail-msgpack-settle-probe.txt, prd-tail-docs-probe.txt (this file is the summary).
+
+csproto-1  CONFIRMED      WIRE_STRUCTURES[1].length=10 (seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch). The AGENTS.md 8-key citation was not checked.
+csproto-2  REFUTED       msgName(0x7fff)="unknown(0x7fff)" (a string), isUnreliable(0x7fff)=false. Neither returns null.
+csproto-3  REFUTED(node) pack() succeeds immediately after module load; the throw is not reproduced under node. Browser path not tested on this box.
+csproto-4  CONFIRMED     msgpack.js contains an IIFE around the msgpackr specifier.
+csproto-5  CONFIRMED     MSG ids are not ascending; uniqueness holds (105 ids).
+csproto-6  PARTIAL       source names NEVER and DECIMAL_ROUND; the pack/unpack asymmetry is not measured behaviourally.
+csproto-7  CONFIRMED-PARTIAL keeps the newest 8 of 10 (seqs 3..10). The row's "silently drops" is wrong: the drop is reported as an input_records_dropped case and a console warning.
+csproto-8  CONFIRMED     quantizeInput pitch out of +-HALF_PI produces a CLAMPED case; yaw out of [0,TAU) produces a WRAPPED case.
+SPECDRIFT-ag-88-1 REFUTED(stale) AGENTS.md:88 no longer names nearbyHorizontal; scripts/lib/verify-doc-claims.mjs:49 and :430 mention it only as a "symbol gone" note.
+PARSEDV-1-sub1-1 INCONCLUSIVE  the cited lines :53 and :109 no longer match the claim; the row's line numbers have moved.
+PARSEDV-1-sub1-2 INCONCLUSIVE  the cited line :129 is now empty; the predicate needs reading at verify-doc-claims.mjs ~520 before a verdict.
+PARSEDV-1-sub1-3 INCONCLUSIVE  no "Open questions" text found in verify-doc-claims.mjs by gm.grep, so the exclusion may already be gone; not confirmed by reading the parser.
+REPRO-r250-1   PARTIAL       scripts/gen-sdk-typings.mjs:266-267 sorts the member names, which argues against the claimed platform-dependent order. Cross-platform order cannot be witnessed on this Linux box.
+WADLER-ub1-s2-4 NOTHING TO COMMIT  src/game/QuestSystem.js reason-code change is already in history at ce65f83 (Oct 16). src/game working tree is clean. No commit made.

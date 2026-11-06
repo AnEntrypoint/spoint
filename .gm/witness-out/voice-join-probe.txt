@@ -1,0 +1,10 @@
+{
+ "bridgeUp": true,
+ "clicked": "no Join Voice button",
+ "afterSixSeconds": {
+  "label": null,
+  "media": [
+   "hook-installed gUM=true"
+  ]
+ }
+}

@@ -1,0 +1,27 @@
+wireweave bridge diagnosis (spoint-debug-research), status: PARTIAL, not root-caused.
+1. Probe error (established): hud-runtime-probe.mjs loaded /?multiplayer=1&fresh=1 with no room=. client/app.js:965 reads _wwRoom = _params.get('room'), and the bridge is only created when _wwRoom is set (app.js:~3012 host branch, app.js:~1494 peer branch). So the original probe could never bring the bridge up. Not a product bug by itself.
+2. With ?room=diagroom&fresh=1 (hud-bridge-diagnosis-probe.txt, v3 output): bridgeUp still false after 40 s.
+3. The page boots (scene, camera, renderer, engine, HUD objects present) and logs: "CONSOLE error Connection failed: Event" (hud-bridge-diagnosis-v3.txt). That message is app.js:3069 console.error('Connection failed:', err) in the room boot's .catch. The err is a DOM Event, not an Error, so a WebSocket or WebRTC error event rejected the boot promise. The bridge is assigned to window.__app.wireweave only after await bridge.connect() (app.js:~3019-3021), so a rejected connect leaves it unset. That fits bridgeUp:false.
+4. Relays reachable from node: TCP to relay.damus.io, relay.primal.net, nos.lol, relay.snort.social all connect (relay-reachability-probe.txt). WebSocket wss://relay.damus.io and wss://nos.lol open from node (relay-websocket-probe.txt). So the public relays are not down from this box.
+5. Not yet established: which socket fails in the browser (the room boot could be failing on the local game-server WebSocket or on a WebRTC data channel, not the relays). Next step: a WebSocket/WebRTC error hook installed before app scripts run. scripts/lib/cdp-browser.mjs has no addInitScript (v4 failed with TypeError), so it needs one, or a CDP Page.addScriptToEvaluateOnNewDocument call.
+
+UPDATE after addInitScript was added to scripts/lib/cdp-browser.mjs (Page.addScriptToEvaluateOnNewDocument):
+- Browser can reach all four public relays when probed directly (browser-relay-egress-probe.txt: all four "open").
+- Room boot (?room=diagroom&fresh=1), 6 runs: 4 with bridgeUp true, 2 with bridgeUp false.
+  - v3 (no hook) false, logged "Connection failed: Event" (app.js:3069).
+  - v5 (hook) false, recorded WS-ERROR and WS-UNCLEAN-CLOSE 1006 on wss://relay.damus.io.
+  - v6 true, repeat runs 1, 2 true with no socket error; repeat run 3 true even though it recorded WS-ERROR wss://relay.damus.io 1006.
+- So a relay.damus.io socket error during boot does NOT by itself stop the bridge (repeat run 3). The failing boots are intermittent, and their rejection source is not pinned: the unhandledrejection capture in v6 ran on a passing boot.
+- wireweave relay-pool.js ws.onerror only records status (no rejection). connect() (node_modules/wireweave/src/data.js:85) rethrows from its catch. The Event rejection came from somewhere inside connect or presence publish, not yet located.
+- Verdict: intermittent bridge boot failure, correlated with flaky relay.damus.io sockets. Root cause of the rejection NOT established. Next: capture the rejection on a failing boot (v6 hook, run until a failing boot).
+
+UPDATE 2 (host path, fresh room):
+- client/app.js else-if (_wwRoom) (around 1500-1535): if an existing host is found, the page does location.replace(?wwjoin) and becomes a joiner (WireweaveJoinClient). That explains the joiner results on diagroom. If no host is found, the page sets _preboundBridge and becomes the host (BrowserServer); the host branch (3012-3026) then sets wireweave and voiceIndicator.
+- Fresh room (fresh-room-trace-probe.json, -ws.json): no bridge after 40 s. The boot logs "Connection failed: {"isTrusted":true}" from app.js:3069. That is a trusted DOM Event, not an Error, so a socket or resource error rejects the boot. The main-thread WebSocket hook records NO WS-ERROR, so the failing socket is not a main-thread relay WebSocket. Candidates not yet tested: a socket created inside a worker (the BrowserServer worker), an RTCPeerConnection or data-channel error, or a script/resource load error.
+- Status: fresh-room host path NOT reached. Root cause open, narrowed to a non-main-thread or non-WebSocket Event.
+
+UPDATE 3 (module-graph check, run after UPDATE 2)
+- /src/sdk/WorkerEntry.js: HTTP 200, Content-Type text/javascript, COOP same-origin, COEP require-corp, Cache-Control no-cache.
+- /src/protocol/msgpack.js and /src/connection/ConnectionManager.js: same headers and MIME.
+- Static import graph from src/sdk/WorkerEntry.js: 216 modules, all present on disk, all HTTP 200 with a JavaScript MIME type (node script /tmp/worker-graph-http.mjs, server on 127.0.0.1).
+- Conclusion: the WORKER-ERROR with empty msg/file/line is NOT a missing, mis-served or wrong-MIME module. The cause is still open: a runtime throw inside the worker after module evaluation, or a worker-side error that the page-level error event does not forward. Next step if pursued: hook the Worker's own onerror/onmessageerror, or post a probe message from WorkerEntry init.

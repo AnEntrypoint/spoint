@@ -73,6 +73,7 @@ scripts/.*
 
 !.gm/witness-log.md
 !.gm/witness-out/
+.gm/witness-out/*.json
 .gm/witness-out/**/*.wasm
 !.gm/pool/
 .gm/pool/*

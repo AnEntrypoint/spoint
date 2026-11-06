@@ -1,0 +1,1 @@
+{"relays":{"wss://relay.damus.io":"open","wss://relay.primal.net":"open","wss://relay.snort.social":"open","wss://nos.lol":"open"}}

@@ -1,0 +1,4 @@
+{
+ "bridgeUp": true,
+ "wsErrors": []
+}

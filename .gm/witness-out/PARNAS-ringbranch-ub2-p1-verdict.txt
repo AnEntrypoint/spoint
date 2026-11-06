@@ -1,0 +1,10 @@
+14:import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumul
+374:          const relevantIds = resolveDeliveredIds(ring.relevantIds, unmanagedIds, _cellViewersScratch.get(cellKey), planetRadius, relevanceRadius, appRuntime)
+399:        const relevantIds = resolveDeliveredIds(getPlayerPriorityIds(player.id, ring.relevantIds, dynCache, viewerPos, tick), unmanagedIds, viewerPos, planetRadius, relevanceRadius, appRuntime)
+function _withinAny(p, gatePoints, planetRadius, r2) {
+  const points = gatePoints.length / 3 | 0
+  for (let i = 0; i < points; i++) {
+    const dx = p[0] - gatePoints[i * 3]
+    const dy = planetRadius > 0 ? p[1] - gatePoints[i * 3 + 1] : 0
+    const dz = p[2] - gatePoints[i * 3 + 2]
+    if (dx * dx + dy * dy + dz * dz <= r2) return true

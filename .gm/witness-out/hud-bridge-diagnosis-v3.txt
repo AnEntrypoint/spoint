@@ -1,0 +1,32 @@
+{
+ "bridgeUp": false,
+ "hostLogLines": [
+  "scene",
+  "camera",
+  "renderer",
+  "sun",
+  "ambient",
+  "studio",
+  "THREE",
+  "devTools",
+  "loadingMachine",
+  "sceneryBuild",
+  "el",
+  "modelPool",
+  "agentStaging",
+  "engine",
+  "clientMachine",
+  "editorAPI",
+  "editor",
+  "editPanel",
+  "cam",
+  "multiViewport",
+  "settingsMenu",
+  "pauseMenu",
+  "spectatorMode",
+  "overdrawProbe"
+ ],
+ "errors": [
+  "CONSOLE error Connection failed: Event"
+ ]
+}

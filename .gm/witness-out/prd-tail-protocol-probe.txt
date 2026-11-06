@@ -1,0 +1,8 @@
+csproto-1 CONFIRMED WIRE_STRUCTURES[1].length=10 keys=["seq","tick","serverTime","players","entities","removed","delta","dots","me","chartEpoch"]
+csproto-2 NOT-CONFIRMED msgName(32767)="unknown(0x7fff)" isUnreliable(32767)=false
+csproto-3 NOT-CONFIRMED pack before settle threw=false (""); after settle roundtrip={"a":1}
+csproto-4 CONFIRMED msgpack.js contains an IIFE near the msgpackr specifier: true
+csproto-5 CONFIRMED MSG ids=105 ascending=false unique=true
+csproto-6 CONFIRMED source names NEVER and DECIMAL_ROUND: true true line=""
+csproto-7 NOT-CONFIRMED cap=MAX_INPUT_BUTTONS = 32 line="if (bytes.length < 1) return rejection(INPUT_CASE.PAYLOAD_EMPTY, {})"
+csproto-8 NOT-CONFIRMED quantizeInput references HALF_PI=false TAU=false

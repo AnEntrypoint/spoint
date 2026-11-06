@@ -1,0 +1,4 @@
+relay.damus.io reachable
+relay.primal.net reachable
+nos.lol reachable
+relay.snort.social reachable

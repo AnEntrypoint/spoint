@@ -1,0 +1,1 @@
+{ "bridgeUp": true, "wsErrors": []}{ "bridgeUp": true, "wsErrors": []}{ "bridgeUp": true, "wsErrors": [  "WS-ERROR wss://relay.damus.io",  "WS-UNCLEAN-CLOSE wss://relay.damus.io code 1006" ]}

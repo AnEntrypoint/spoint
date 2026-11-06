@@ -1,0 +1,45 @@
+PRD tail-43 triage (orchestrator-of-tail: spoint-debug-research)
+status: UNVERIFIED. No row here has a witness yet; each class says what its witness needs.
+WADLER-ub1-s2-2 | code fix in named src file - needs implement + witness
+WADLER-ub1-s2-3 | code fix in named src file - needs implement + witness
+WADLER-ub1-s2-4 | owed commit of already-witnessed src/game change - coder lane decision
+WADLER-ub1-w1-1 | code fix in named src file - needs implement + witness
+WADLER-ub1-w1-2 | code fix in named src file - needs implement + witness
+WADLER-ub1-w1-3 | code fix in named src file - needs implement + witness
+DBC-ub1-s2-1 | code fix in named src file - needs implement + witness
+DBC-ub1-s2-2 | code fix in named src file - needs implement + witness
+DBC-ub1-s2-3 | code fix in named src file - needs implement + witness
+DBC-ub1-s2-4 | status-in-row (delivered-uncommitted or blocked) - needs commit or unblock
+GUARD-2-sub1-1 | code fix in named src file - needs implement + witness
+GUARD-2-sub1-2 | code fix in named src file - needs implement + witness
+TOTALITY-w1-p-1-1 | code fix in named src file - needs implement + witness
+TOTALITY-w1-p-1-2 | status-in-row (delivered-uncommitted or blocked) - needs commit or unblock
+PARNAS-cylinder-ub2-p1 | code fix in named src file - needs implement + witness
+PARNAS-ringbranch-ub2-p1 | code fix in named src file - needs implement + witness
+ILLEGAL-r250-4 | code fix in named src file - needs implement + witness
+REPRO-r250-1 | doc/script claim - witness by running scripts/lib/verify-doc-claims.mjs or gen-sdk-typings
+csproto-1 | src/protocol claim - witness by node probe on the named module
+csproto-3 | src/protocol claim - witness by node probe on the named module
+csproto-4 | src/protocol claim - witness by node probe on the named module
+csproto-5 | src/protocol claim - witness by node probe on the named module
+csproto-6 | src/protocol claim - witness by node probe on the named module
+csproto-7 | src/protocol claim - witness by node probe on the named module
+csproto-8 | src/protocol claim - witness by node probe on the named module
+csproto-2 | src/protocol claim - witness by node probe on the named module
+ORCH-publish-git-lane-starved | ops-or-external (git lane / other repo) - not a code witness here
+ORCH-publish-starved-r310-1 | ops-or-external (git lane / other repo) - not a code witness here
+docclaim-gm-config-lock-1 | ops-or-external (git lane / other repo) - not a code witness here
+docclaim-rs-plugkit-main-1 | ops-or-external (git lane / other repo) - not a code witness here
+docclaim-rs-plugkit-head-1 | ops-or-external (git lane / other repo) - not a code witness here
+SPECDRIFT-ag-88-1 | doc/script claim - witness by running scripts/lib/verify-doc-claims.mjs or gen-sdk-typings
+PARSEDV-1-sub1-1 | doc/script claim - witness by running scripts/lib/verify-doc-claims.mjs or gen-sdk-typings
+PARSEDV-1-sub1-2 | doc/script claim - witness by running scripts/lib/verify-doc-claims.mjs or gen-sdk-typings
+PARSEDV-1-sub1-3 | doc/script claim - witness by running scripts/lib/verify-doc-claims.mjs or gen-sdk-typings
+CHARTEST-est-s1-1 | code fix in named src file - needs implement + witness
+CHARTEST-est-s1-2 | code fix in named src file - needs implement + witness
+CHARTEST-est-s1-3 | code fix in named src file - needs implement + witness
+WADLER-aoi-positionofentity-m2-s1 | code fix in named src file - needs implement + witness
+CHARTEST-est-s1-4 | code fix in named src file - needs implement + witness
+WADLER-staticcache-readcacheentry-m2-s1 | code fix in named src file - needs implement + witness
+WADLER-relocation-probegroundy-m2-s1 | code fix in named src file - needs implement + witness
+WADLER-octree-mutations-contract-m2-s1 | code fix in named src file - needs implement + witness

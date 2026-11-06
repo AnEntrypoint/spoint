@@ -1,0 +1,4 @@
+{
+ "error": "TypeError: page.addInitScript is not a function\n    at file:///workspace/spoint/.gm/witness-out/hud-bridge-diagnosis-v4.mjs:17:50",
+ "errors": []
+}
