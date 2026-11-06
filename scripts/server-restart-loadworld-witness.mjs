@@ -10,7 +10,13 @@ const { wrapHeightWithFieldPaint } = await import('../src/terrain/fieldPaint.js'
 
 const lake = { kind: 'lake', center: [0, 0], radius: 5, falloff: 0, level: 4 }
 const server = await createServer({ port: 0, staticDirs: [], appsDirs: [] })
-await server.loadWorld({ name: 'restart-probe', terrain: { radius: 512, seed: 1, marks: [lake] }, entities: [] }, 'restart-probe')
+const stdoutLog = console.log
+console.log = (...args) => console.error(...args)
+try {
+  await server.loadWorld({ name: 'restart-probe', terrain: { radius: 512, seed: 1, marks: [lake] }, entities: [] }, 'restart-probe')
+} finally {
+  console.log = stdoutLog
+}
 
 const src = readFileSync('src/sdk/ServerAPI.js', 'utf8')
 const loadWorldAt = src.indexOf('async loadWorld(')
