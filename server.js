@@ -60,6 +60,9 @@ try {
   process.exit(1)
 }
 
+const { installSpecifierHooks } = await import('./scripts/lib/install-specifier-hooks.mjs')
+await installSpecifierHooks()
+
 const { boot } = await import('./src/sdk/server.js')
 const { scaffold } = await import('./src/sdk/scaffold.js')
 
