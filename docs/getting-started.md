@@ -19,13 +19,13 @@ npm start
 
 # Open in browser
 # Multiplayer (connects to server via WebSocket):
-http://localhost:3001
+http://localhost:3002
 
 # Singleplayer (runs server inside a Web Worker - same origin, no separate process):
-http://localhost:3001/?singleplayer
+http://localhost:3002/?singleplayer
 
 # Select a different world:
-http://localhost:3001/?singleplayer&world=matrix-construct
+http://localhost:3002/?singleplayer&world=matrix-construct
 ```
 
 ---
@@ -87,7 +87,7 @@ const MATRIX_CONSTRUCT = {
 }
 
 export default {
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   gravity: [0, -9.81, 0],
   movement: { maxSpeed: 7, sprintSpeed: 12, groundAccel: 300, airAccel: 30, friction: 5 },
@@ -313,8 +313,8 @@ Press `P` to toggle in-browser editor:
 Add `?singleplayer` to run the **same server inside a Web Worker** (same origin, same code, no separate process):
 
 ```
-http://localhost:3001/?singleplayer
-http://localhost:3001/?singleplayer&world=matrix-construct
+http://localhost:3002/?singleplayer
+http://localhost:3002/?singleplayer&world=matrix-construct
 ```
 
 - Uses `BrowserServer` + `WorkerEntry.js`

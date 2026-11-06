@@ -10,16 +10,16 @@ Physics and netcode SDK for authoritative-server multiplayer games. Jolt physics
 npx spoint
 # or
 npm install && npm start
-# open http://localhost:3001              -> multiplayer (WebSocket to this server)
-# open http://localhost:3001/?singleplayer -> in-browser server (runs the same server in a Worker)
+# open http://localhost:3002              -> multiplayer (WebSocket to this server)
+# open http://localhost:3002/?singleplayer -> in-browser server (runs the same server in a Worker)
 ```
 
 There is **one** server. `npm start` runs a single `node server.js` on one port (`worldDef.port`,
-default `3001`). Multiplayer is `/`; the in-browser / singleplayer mode is `/?singleplayer` on the
+default `3002`). Multiplayer is `/`; the in-browser / singleplayer mode is `/?singleplayer` on the
 **same origin** — the client (`client/app.js`) picks a WebSocket client vs an in-Worker `BrowserServer`
 from the query string, not a second port. Do **not** run a second `node server.js` on a different
 `PORT` for the same project: each process freezes its own `node_modules`/asset snapshot at boot, so two
-instances drift (the "`:3001` and a script-default `:8090` look different" trap). Dev/eval scripts that
+instances drift (the "`:3002` and a script-default `:8090` look different" trap). Dev/eval scripts that
 default to `PORT=8090` just start that one server on another port; use one instance and `/?singleplayer`
 instead. The server refuses a second instance on an in-use port with a clear message.
 
@@ -56,7 +56,7 @@ export default {
 
 ```javascript
 export default {
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   gravity: [0, -18, 0],
   movement: { maxSpeed: 14, sprintSpeed: 24, groundAccel: 300, airAccel: 30, friction: 5, stopSpeed: 1, jumpImpulse: 5.5 },

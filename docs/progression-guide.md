@@ -23,7 +23,7 @@ The **tutorial-rpg** world demonstrates all framework features in a 20-30 minute
 # Start the server
 npx spoint
 
-# Visit http://localhost:3001/?world=tutorial-rpg
+# Visit http://localhost:3002/?world=tutorial-rpg
 ```
 
 **What it includes:**
@@ -599,7 +599,7 @@ const LEVELS = 10  // or higher
 ```javascript
 // apps/world/your-game.js
 export default {
-  port: 3001,
+  port: 3002,
   tickRate: 30,
   entities: [
     { id: 'floor', app: 'box-static', config: { /* ... */ } },
@@ -638,7 +638,7 @@ export default {
 
 ```bash
 npx spoint
-# Visit http://localhost:3001/?world=your-game
+# Visit http://localhost:3002/?world=your-game
 
 # In browser console (the last progress payload your client's onEvent kept):
 window.__app.engine._yourGame.progress.level  // check level

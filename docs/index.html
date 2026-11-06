@@ -101,9 +101,9 @@
 <pre><code class="language-bash">npx spoint
 # or
 npm install &amp;&amp; npm start
-# open http://localhost:3001              -&gt; multiplayer (WebSocket to this server)
-# open http://localhost:3001/?singleplayer -&gt; in-browser server (runs the same server in a Worker)</code></pre>
-<p>There is <strong>one</strong> server. <code>npm start</code> runs a single <code>node server.js</code> on one port (<code>worldDef.port</code>, default <code>3001</code>). Multiplayer is <code>/</code>; the in-browser / singleplayer mode is <code>/?singleplayer</code> on the <strong>same origin</strong> — the client (<code>client/app.js</code>) picks a WebSocket client vs an in-Worker <code>BrowserServer</code> from the query string, not a second port. Do <strong>not</strong> run a second <code>node server.js</code> on a different <code>PORT</code> for the same project: each process freezes its own <code>node_modules</code>/asset snapshot at boot, so two instances drift (the &quot;<code>:3001</code> and a script-default <code>:8090</code> look different&quot; trap). Dev/eval scripts that default to <code>PORT=8090</code> just start that one server on another port; use one instance and <code>/?singleplayer</code> instead. The server refuses a second instance on an in-use port with a clear message.</p>
+# open http://localhost:3002              -&gt; multiplayer (WebSocket to this server)
+# open http://localhost:3002/?singleplayer -&gt; in-browser server (runs the same server in a Worker)</code></pre>
+<p>There is <strong>one</strong> server. <code>npm start</code> runs a single <code>node server.js</code> on one port (<code>worldDef.port</code>, default <code>3002</code>). Multiplayer is <code>/</code>; the in-browser / singleplayer mode is <code>/?singleplayer</code> on the <strong>same origin</strong> — the client (<code>client/app.js</code>) picks a WebSocket client vs an in-Worker <code>BrowserServer</code> from the query string, not a second port. Do <strong>not</strong> run a second <code>node server.js</code> on a different <code>PORT</code> for the same project: each process freezes its own <code>node_modules</code>/asset snapshot at boot, so two instances drift (the &quot;<code>:3002</code> and a script-default <code>:8090</code> look different&quot; trap). Dev/eval scripts that default to <code>PORT=8090</code> just start that one server on another port; use one instance and <code>/?singleplayer</code> instead. The server refuses a second instance on an in-use port with a clear message.</p>
 <h2>Creating Apps</h2>
 <pre><code class="language-bash">node ./bin/create-app.js my-app</code></pre>
 <p>Or manually create <code>apps/&lt;name&gt;/index.js</code>:</p>
@@ -127,7 +127,7 @@ npm install &amp;&amp; npm start
 }</code></pre>
 <h2>World Config (<code>apps/world/index.js</code>)</h2>
 <pre><code class="language-javascript">export default {
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   gravity: [0, -18, 0],
   movement: { maxSpeed: 14, sprintSpeed: 24, groundAccel: 300, airAccel: 30, friction: 5, stopSpeed: 1, jumpImpulse: 5.5 },
@@ -650,13 +650,13 @@ npm start
 
 # Open in browser
 # Multiplayer (connects to server via WebSocket):
-http://localhost:3001
+http://localhost:3002
 
 # Singleplayer (runs server inside a Web Worker - same origin, no separate process):
-http://localhost:3001/?singleplayer
+http://localhost:3002/?singleplayer
 
 # Select a different world:
-http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre>
+http://localhost:3002/?singleplayer&amp;world=matrix-construct</code></pre>
 <p>---</p>
 <h2>Project Structure</h2>
 <pre><code class="language-">spoint/
@@ -701,7 +701,7 @@ http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre>
 }
 
 export default {
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   gravity: [0, -9.81, 0],
   movement: { maxSpeed: 7, sprintSpeed: 12, groundAccel: 300, airAccel: 30, friction: 5 },
@@ -836,8 +836,8 @@ ctx.definePath(points)          // waypoint path</code></pre>
 <p>---</p>
 <h2>Singleplayer Mode</h2>
 <p>Add <code>?singleplayer</code> to run the <strong>same server inside a Web Worker</strong> (same origin, same code, no separate process):</p>
-<pre><code class="language-">http://localhost:3001/?singleplayer
-http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre>
+<pre><code class="language-">http://localhost:3002/?singleplayer
+http://localhost:3002/?singleplayer&amp;world=matrix-construct</code></pre>
 <ul><li>Uses <code>BrowserServer</code> + <code>WorkerEntry.js</code></li><li>Same physics, same apps, same world config</li><li>No WebSocket - direct function calls</li></ul>
 <p>---</p>
 <h2>Verification Commands</h2>
@@ -1716,7 +1716,7 @@ await prefabLibrary.createVariant(&quot;tower-default&quot;, &quot;tower-lava&qu
 <pre><code class="language-bash"># Start the server
 npx spoint
 
-# Visit http://localhost:3001/?world=tutorial-rpg</code></pre>
+# Visit http://localhost:3002/?world=tutorial-rpg</code></pre>
 <p><strong>What it includes:</strong></p>
 <ul><li>5-quest tutorial chain (kill goblins → collect coins → reach tower → defeat mini-boss → defeat final boss)</li><li>Levels 1-10 progression (100 XP to level 2, scaling exponentially)</li><li>3 abilities unlocking at levels 1, 5, and 10</li><li>Enemy spawning (goblins, mini-boss, final boss)</li><li>Mana regeneration, cooldowns</li><li>Multiplayer-safe XP/quest tracking</li></ul>
 <p>---</p>
@@ -2148,7 +2148,7 @@ const LEVELS = 10  // or higher</code></pre>
 <h3>Step 2: Create World Definition</h3>
 <pre><code class="language-javascript">// apps/world/your-game.js
 export default {
-  port: 3001,
+  port: 3002,
   tickRate: 30,
   entities: [
     { id: 'floor', app: 'box-static', config: { /* ... */ } },
@@ -2179,7 +2179,7 @@ export default {
 }</code></pre>
 <h3>Step 4: Test Progression Flow</h3>
 <pre><code class="language-bash">npx spoint
-# Visit http://localhost:3001/?world=your-game
+# Visit http://localhost:3002/?world=your-game
 
 # In browser console (the last progress payload your client's onEvent kept):
 window.__app.engine._yourGame.progress.level  // check level
@@ -2345,11 +2345,11 @@ npx spoint
 WORLD=tps-game node server.js
 
 # Singleplayer mode (in-browser server)
-# http://localhost:3001/?singleplayer
+# http://localhost:3002/?singleplayer
 
 # Custom world
 WORLD=matrix-construct node server.js
-# http://localhost:3001/?singleplayer&amp;world=matrix-construct
+# http://localhost:3002/?singleplayer&amp;world=matrix-construct
 
 # Create new app
 npx spoint-create-app my-app
@@ -2366,7 +2366,7 @@ npm run check
 npm test</code></pre>
 <h2>World Config Keys</h2>
 <pre><code class="language-javascript">{
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   entityTickRate: 15,
   gravity: [0, -9.81, 0],

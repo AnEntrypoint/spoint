@@ -11,11 +11,11 @@ npx spoint
 WORLD=tps-game node server.js
 
 # Singleplayer mode (in-browser server)
-# http://localhost:3001/?singleplayer
+# http://localhost:3002/?singleplayer
 
 # Custom world
 WORLD=matrix-construct node server.js
-# http://localhost:3001/?singleplayer&world=matrix-construct
+# http://localhost:3002/?singleplayer&world=matrix-construct
 
 # Create new app
 npx spoint-create-app my-app
@@ -36,7 +36,7 @@ npm test
 
 ```javascript
 {
-  port: 3001,
+  port: 3002,
   tickRate: 64,
   entityTickRate: 15,
   gravity: [0, -9.81, 0],

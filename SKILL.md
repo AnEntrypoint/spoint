@@ -8,7 +8,7 @@ description: "Build multiplayer physics games with the Spoint engine. Use when a
 Setup:
 ```bash
 npx spoint scaffold   # first time — copies default apps/ into cwd
-npx spoint            # start server (localhost:3001)
+npx spoint            # start server (localhost:3002)
 npx spoint-create-app my-app
 npx spoint-create-app --template physics my-crate
 ```
@@ -29,7 +29,7 @@ Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js`
 ### `apps/world/index.js`
 ```js
 export default {
-  port: 3001, tickRate: 64, gravity: [0, -9.81, 0],
+  port: 3002, tickRate: 64, gravity: [0, -9.81, 0],
   movement: { maxSpeed: 4.0, groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0, jumpImpulse: 4.0 },
   player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, modelScale: 1.323, feetOffset: 0.027 },
   scene: { skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200, sunIntensity: 1.5, sunPosition: [20, 40, 20] },
@@ -70,7 +70,7 @@ All fields optional. `apps/world/index.js` exports a plain object.
 
 ```js
 export default {
-  port: 3001, tickRate: 64, gravity: [0,-9.81,0],
+  port: 3002, tickRate: 64, gravity: [0,-9.81,0],
   entityTickRate: 16,      // app update() Hz (default = tickRate). Lower = fewer update() calls, less CPU
   physicsRadius: 0,        // dynamic body LOD radius (0 = disabled). Bodies outside all players suspended from Jolt
   movement: {
