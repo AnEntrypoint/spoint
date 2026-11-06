@@ -80,3 +80,8 @@ export function naturalMaskAt(paint, x, z) {
   if (typeof paint?.read !== 'function') throw refusal('paint-invalid', 'paint must be a createFieldPaint instance')
   return paint.read(NATURAL_MASK_FIELD, x, z)
 }
+
+export function createHostFieldPaint(terrainCfg) {
+  const fp = terrainCfg?.fieldPaint
+  return createFieldPaint({ cellSize: fp?.cellSize ?? 1, chunkCells: fp?.chunkCells ?? 64 })
+}

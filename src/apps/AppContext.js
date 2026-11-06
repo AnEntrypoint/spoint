@@ -592,7 +592,8 @@ export class AppContext {
         // A computed specifier: the adapter carries node:fs, and both the client bundle and the
         // src/apps/AppContext.js import closure must stay blind to it.
         const { nodeBakedSource } = await import(['..', 'terrain', 'BakedSourceAdapter.js'].join('/'))
-        return setupTerrainStreaming({ physics, playerManager, terrain: tcfg, bakedSource: nodeBakedSource() })
+        const { createHostFieldPaint } = await import('../terrain/fieldPaint.js')
+        return setupTerrainStreaming({ physics, playerManager, terrain: tcfg, bakedSource: nodeBakedSource(), fieldPaint: createHostFieldPaint(tcfg) })
       }
     }
   }
