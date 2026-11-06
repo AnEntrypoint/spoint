@@ -4,6 +4,7 @@ import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { wrapHeightWithMarks } from './TerrainMarks.js'
+import { wrapHeightWithFieldPaint } from './fieldPaint.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
 // The artifact -> sample-field construction lives in one place so the server's collider, the rendered
@@ -263,7 +264,7 @@ export function stopTerrainStreaming(physics, streamer) {
   if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, '[terrain] stopping terrain streaming failed')
 }
 
-export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null, bakedSource = null }) {
+export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null, bakedSource = null, fieldPaint = null }) {
   const tcfg = terrain || (worldDef && worldDef.terrain) || null
   if (!tcfg || tcfg.enabled === false || !physics || typeof physics.addHeightField !== 'function') return null
   const tphys = tcfg.physics || {}
@@ -308,7 +309,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const baseHeightFn = colliderSource.heightFn
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))
-  const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(wrapHeightWithMarks(tcfg.marks, baseHeightFn))))
+  const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(wrapHeightWithFieldPaint(fieldPaint, wrapHeightWithMarks(tcfg.marks, baseHeightFn)))))
   const outOfChartLimitM = frame.radius - (tphys.extent || 510)
   let outOfChartWarned = 0
   const getCenters = () => {

@@ -66,3 +66,17 @@ export function createFieldPaint({ cellSize, chunkCells }) {
 
   return Object.freeze({ stroke, undo, read, chunkObject, fieldNames: TERRAIN_FIELD_NAMES, layerNames: FIELD_LAYER_NAMES })
 }
+
+export const PAINTED_HEIGHT_FIELD = 'terrain:height'
+export const NATURAL_MASK_FIELD = 'terrain:natural-mask'
+
+export function wrapHeightWithFieldPaint(paint, heightFn) {
+  if (paint === null) return heightFn
+  if (typeof paint.read !== 'function') throw refusal('paint-invalid', 'paint must be a createFieldPaint instance')
+  return (x, z, yGuess) => heightFn(x, z, yGuess) + paint.read(PAINTED_HEIGHT_FIELD, x, z)
+}
+
+export function naturalMaskAt(paint, x, z) {
+  if (typeof paint?.read !== 'function') throw refusal('paint-invalid', 'paint must be a createFieldPaint instance')
+  return paint.read(NATURAL_MASK_FIELD, x, z)
+}
