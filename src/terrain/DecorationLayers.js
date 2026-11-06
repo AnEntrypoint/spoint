@@ -31,6 +31,20 @@ function optionalBudget(value, where) {
   return value
 }
 
+function flag(value, where) {
+  if (value === undefined) return false
+  if (typeof value !== 'boolean') throw new DecorationConfigError('badFlag', `${where} must be a boolean`)
+  return value
+}
+
+function itemsPerM2Of(value, where) {
+  if (value === undefined) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new DecorationConfigError('badDensity', `${where} must be a finite number >= 0`)
+  }
+  return value
+}
+
 function saltOf(id) {
   let h = 0x811c9dc5
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0
@@ -50,10 +64,14 @@ export function parseDecorationDef(def) {
     layers.set(id, Object.freeze({
       id,
       salt: saltOf(id),
-      density: unitInterval(spec.density, `layers.${id}.density`),
+      density: spec.itemsPerM2 === undefined ? unitInterval(spec.density, `layers.${id}.density`) : 0,
       slopeRange: optionalRange(constraints.slopeRange, `layers.${id}.constraints.slopeRange`),
       heightRange: optionalRange(constraints.heightRange, `layers.${id}.constraints.heightRange`),
       budget: optionalBudget(spec.budget, `layers.${id}.budget`),
+      itemsPerM2: itemsPerM2Of(spec.itemsPerM2, `layers.${id}.itemsPerM2`),
+      paintedOnly: flag(spec.paintedOnly, `layers.${id}.paintedOnly`),
+      avoidWater: flag(spec.avoidWater, `layers.${id}.avoidWater`),
+      maxWaterDepth: itemsPerM2Of(spec.maxWaterDepth, `layers.${id}.maxWaterDepth`) ?? 0,
     }))
   }
   const bindings = new Map()
@@ -75,7 +93,13 @@ function inRange(range, value) {
 
 export function acceptsCell(layer, cell) {
   if (!inRange(layer.slopeRange, cell.slope) || !inRange(layer.heightRange, cell.height)) return false
-  return rand(hash3(cell.seed, cell.ix, cell.iz), layer.salt) < layer.density
+  if (layer.paintedOnly && cell.painted !== true) return false
+  if (layer.avoidWater) {
+    if (!Number.isFinite(cell.waterDepth)) throw new DecorationConfigError('noWaterDepth', `layer ${layer.id} avoids water but the cell has no waterDepth`)
+    if (cell.waterDepth > layer.maxWaterDepth) return false
+  }
+  const chance = layer.itemsPerM2 === null ? layer.density : Math.min(1, layer.itemsPerM2 * cell.area)
+  return rand(hash3(cell.seed, cell.ix, cell.iz), layer.salt) < chance
 }
 
 export function decorateCells(decor, cells) {
