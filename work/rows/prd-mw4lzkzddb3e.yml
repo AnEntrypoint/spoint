@@ -1,0 +1,9 @@
+id: "prd-mw4lzkzddb3e"
+kind: "prd"
+title: "Refuse symbol, hidden and inherited define* spec keys"
+body: "assertSpecShape rejects symbol keys, non-enumerable own keys and inherited/prototype keys for both the key list and typed boundary. scripts/define-spec-shape-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-06T06:44:01.657Z"
+witnessEvent: 308
+witnessCommit: "fda5822"
+resolvedAt: "2026-11-06T06:44:01.696Z"

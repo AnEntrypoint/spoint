@@ -1,0 +1,9 @@
+id: "prd-mw4lzkze9175"
+kind: "prd"
+title: "Validate nested checkpoints[].radius at the boundary"
+body: "The checkpoint spec schema now refuses negative, zero, non-finite, wrong-type and null nested radii. scripts/checkpoint-nested-radius-witness.mjs prints RESULT: PASS."
+status: "resolved"
+createdAt: "2026-11-06T06:44:01.658Z"
+witnessEvent: 308
+witnessCommit: "fda5822"
+resolvedAt: "2026-11-06T06:44:01.733Z"
