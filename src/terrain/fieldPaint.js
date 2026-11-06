@@ -83,5 +83,11 @@ export function naturalMaskAt(paint, x, z) {
 
 export function createHostFieldPaint(terrainCfg) {
   const fp = terrainCfg?.fieldPaint
-  return createFieldPaint({ cellSize: fp?.cellSize ?? 1, chunkCells: fp?.chunkCells ?? 64 })
+  if (fp === undefined) return createFieldPaint({ cellSize: 1, chunkCells: 64 })
+  if (fp === null || typeof fp !== 'object') throw refusal('field-paint-config-invalid', 'terrain.fieldPaint must be an object with cellSize and chunkCells')
+  const cellSize = fp.cellSize ?? 1
+  const chunkCells = fp.chunkCells ?? 64
+  if (typeof cellSize !== 'number' || !Number.isFinite(cellSize) || cellSize <= 0) throw refusal('field-paint-cell-size-invalid', 'terrain.fieldPaint.cellSize must be a positive finite number')
+  if (!Number.isInteger(chunkCells) || chunkCells < 1) throw refusal('field-paint-chunk-cells-invalid', 'terrain.fieldPaint.chunkCells must be an integer of at least 1')
+  return createFieldPaint({ cellSize, chunkCells })
 }
