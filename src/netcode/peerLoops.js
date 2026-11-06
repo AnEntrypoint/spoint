@@ -24,9 +24,6 @@ export let PEER_LOOP_FACTORIES = Object.freeze({
 
 export let PEER_SIMULATED_PROFILES = new Set(Object.keys(PEER_LOOP_FACTORIES))
 
-// --- hot swap -----
-// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
-// so importers already holding the live binding read the edited code without a page reload.
 const _hotSwapExports = (next) => {
   PEER_LOOP_FACTORIES = next.PEER_LOOP_FACTORIES
   PEER_SIMULATED_PROFILES = next.PEER_SIMULATED_PROFILES

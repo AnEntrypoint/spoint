@@ -244,9 +244,6 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   }
 }
 
-// --- hot swap -----
-// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
-// so importers already holding the live binding read the edited code without a page reload.
 const _hotSwapExports = (next) => {
   LOCKSTEP_DEFAULTS = next.LOCKSTEP_DEFAULTS
   INPUT_RETAIN_TICKS = next.INPUT_RETAIN_TICKS
