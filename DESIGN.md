@@ -187,7 +187,7 @@ One build per version is the bound that keeps this from becoming per-read work: 
 
 That bound is on the ATTEMPT, never on the coverage: the version latch below is set only by a sync that actually earned quads. A sync that earned nothing is bounded by the payload it ran on instead -- the same drawn quads cannot cover what they did not cover, so repeating it per read would buy nothing and would cost a sync per read, while a payload that has GROWN since the attempt is a different question and is re-asked. Latched unconditionally, the boot ring's first read -- the one made before the renderer had drawn anything -- claimed the whole version as covered, and every read after it in that version answered "no ground" and fell through to the CPU sampler even once the quads existed.
 
-A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad it wrongly claims costs a 144-vertex materialisation, so the box only pre-rejects: the actual test is winding-uniform containment in the quad's own corners.
+A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad it wrongly claims costs a 144-vertex materialisation, so the box only pre-rejects: the actual test is winding-uniform containment on the footprint corners, bloated 1.06 about the centroid (FOOTPRINT_BLOAT).
 
 The quad that answers is the finest one covering the point, and among equals the one the linear scan would have reached first: the index must not decide a tie by its own order.
 
@@ -207,13 +207,13 @@ How far the player may close before a chunk's population is re-checked. A blade 
 
 How far past the reach the gate materialised it for a blade has to fall before its slot is given back. The gate works SPREAD_M + SLACK_M ahead of the law, so this is the dead band that keeps walking back over the same ground from re-extending a prefix it has just released.
 
-A compaction is a pass over the whole population, so a release is held until it is one worth taking: a sixteenth of the chunk, or 64 blades for a chunk too small to have a sixteenth.
+A compaction is a pass over the whole population, so a release is held until it is one worth taking: min(64, population/16) blades: a sixteenth of the chunk below 1024 blades, and 64 at or above 1024.
 
 Where in `blades` each cell's materialised ranks live, in rank order: a release is a suffix of a cell's ranking, and the array is in the order the ranks were materialised, not in cell order.
 
 Positions whose blades have been released and whose rows the holder has not compacted yet.
 
-The nearest a blade of this cell can be to the focus now, less the distance the focus can close before the next re-check: the law holds a blade LEAD_M past its own edge, so a blade drawn anywhere in that band has to have been materialised already.
+The nearest a blade of this cell can be to the focus now, less SPREAD_M (the blades' own spread) and SLACK_M (how far the focus may close before the next re-check), clamped at zero; a release also subtracts RELEASE_M: the law holds a blade LEAD_M past its own edge, so a blade drawn anywhere in that band has to have been materialised already.
 
 The other half of the prefix: a blade the law has stopped drawing still costs the slot it was materialised into, and the chunk the player has walked straight through keeps the population it needed going past. Reach is monotone down the ranking, so everything the law has finished with is a suffix of it and giving it back costs the suffix alone. The cut is RELEASE_M past the reach the gate materialised it for, so it cannot fight the gate: closing on the cell again re-extends the same ranking and produces the same blade.
 
@@ -241,9 +241,9 @@ Source: `src/shared/colliderLattice.js`. Text moved from the file comments, para
 
 One derivation of the collider lattice, read by both sides of the terrain: the server's Jolt heightfield and the client's near-band rendered mesh. A near field coarser than the surface the engine already computes and holds is a decimation of work already paid for, so the spacing is not a dial either side may set: it is the finer of the configured lattice and the source the collider follows, from here, once.
 
-The rule mirrors src/terrain/HeightfieldStreamer.js's floorN exactly (same inputs, same expression). HeightfieldStreamer is the authority that BUILDS the field; this module is the one that ANSWERS what spacing that field has, so the renderer can built the same lattice without loading physics. scripts/nearfield-lattice-parity-witness.mjs asserts the two agree.
+The rule mirrors src/terrain/HeightfieldStreamer.js's floorN exactly (same inputs, same expression). HeightfieldStreamer is the authority that BUILDS the field; this module is the one that ANSWERS what spacing that field has, so the renderer can built the same lattice without loading physics. No witness file currently backs this agreement.
 
-The bound that keeps a fine field under a megabyte of samples; the streamer clamps its floor to the same number, so the two cannot disagree about what the lattice is.
+The bound that keeps a fine field under 1 MiB of bytes (262144 float32 samples, N <= 512); the streamer clamps its floor to the same number, so the two cannot disagree about what the lattice is.
 
 A lattice coarser than the source it follows is a pure decimation, and that decimation is the whole of the collider's disagreement with the ground. So the answer is the FINER of the two, and a world that follows its source gets the source's spacing instead of the configured one.
 
@@ -259,11 +259,11 @@ Bounded: this runs on the boot path and a hung asset fetch must never hold up th
 
 Source: `src/terrain/GrassPlacement.js`. Text moved from the file comments, paragraph order kept.
 
-The distance-density law: a blade's stable rank q is the coin that decided whether it exists at all, divided by the cell density it was drawn against, so it is uniform on [0,1) and never re-chosen. Dropping the blades with q >= f(d) removes exactly the fraction f(d) of them, and f(d) = (FULL_R / d) ** P is what makes the population grow as R ** (2 - P) and not R ** 2.
+The distance-density law: a blade's stable rank q is the coin that decided whether it exists at all, divided by the cell density it was drawn against, so it is uniform on [0,1) and never re-chosen. Dropping the blades with q >= f(d) removes exactly the fraction f(d) of them, and the reach law grassBladeEdgeM keeps a blade while grassBladeEdgeM(q) + LEAD_M >= d, which is q <= (FULL_R / (d - FADE_M - LEAD_M)) ** P. The simpler f(d) = (FULL_R / d) ** P is grassKeepFractionAt, which has no fade or lead margin.
 
-Surface reads one blade's own foot costs where the frame carries a drawn mesh: two converge it to 0.0000056 m worst case, a third moves nothing, and one leaves 0.0003824 m. Counted, so the witness can price a blade without re-deriving it.
+Surface reads one blade's own foot costs where the frame carries a drawn mesh: two converge it to 0.0000056 m worst case, a third moves nothing, and one leaves 0.0003824 m. GRASS_FOOT_READS = 2 is the number of mesh reads riseAt makes per blade foot. It is a constant only; no counter records the reads.
 
-A blade is not placed at its cell centre: GRASS.CLUMP_R offsets it, and the height it needs is the height AT THE OFFSET. It is read, not extrapolated from the cell's own gradient and curvature -- the extrapolation is a second-order Taylor step over a clump a metre wide, and its remainder is what put blades up to 0.24 m off the surface they were placed on.
+A blade is not placed at its cell centre: GRASS.CLUMP_R offsets it, and the height it needs is the height AT THE OFFSET. It is read, not extrapolated from the cell's own gradient and curvature -- the extrapolation is a second-order Taylor step over a clump of radius GRASS.CLUMP_R = 1.15 m (about 2.3 m across), and its remainder is what put blades up to 0.24 m off the surface they were placed on.
 
 The read is taken off the frame's own drawn mesh, at the blade's own horizontal position, rather than by solving along the blade's direction: a solve is a fixed point in the radius and costs 2.35 reads of the SAME mesh (2.53 us a read, 5.94 us a solve -- the micro-benchmark in scripts/grass-seam-card-witness.mjs), while a read converges in two because rise enters the blade's (x,z) only through the up axis' own horizontal component. It is also the more accurate of the two -- 0.0000003 / 0.0000013 / 0.0000056 m against the solve's 0.0000056 / 0.0000107 / 0.0000423 m -- because it never carries a solve tolerance into the blade's foot.
 
@@ -275,7 +275,7 @@ The same authority client/core/ExactPatchFrame.js reads: the frame's drawn-mesh 
 
 Source: `src/terrain/PlacementChart.js`. Text moved from the file comments, paragraph order kept.
 
-The project's own surface tolerance (SURFACE_SOLVE_TOLERANCE_M, src/terrain/PlanetFrame.js): the lattice's 1 m bilinear step is an order of magnitude finer than the ground it replaces, so what bounds a solve here is the same number that bounds one there.
+PlacementChart keeps its own tolerances: SURFACE_LATERAL_TOL_M (1e-4) and LATTICE_SOLVE_TOL_M (1e-4). Neither reads PlanetFrame's SURFACE_SOLVE_TOLERANCE_M. The lattice's 1 m bilinear step is an order of magnitude finer than the ground it replaces.
 
 The collider's own sample buffer, read along a direction.
 
@@ -283,7 +283,7 @@ src/terrain/LatticeSurface.js holds the one copy the server collides against and
 
   rho * du - base = sharedLattice(rho * de, rho * dn) + offsetY
 
-is one fixed point in rho -- the same one frame.elevationAtDir solves and the same one the iterate branch below solves, so all three agree about what "the ground along this direction" means. Two seeds are tried, the chart's own anchor height first because it is already known and costs nothing: an answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the caller keeps solving. No placement silently loses its ground.
+is one fixed point in rho -- the same one the iterate branch below solves, so both agree; frame.elevationAtDir is a one-shot sampler read consumed as a height, not a fixed-point solve about what "the ground along this direction" means. Two seeds are tried, the chart's own anchor height first because it is already known and costs nothing: an answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the caller keeps solving. No placement silently loses its ground.
 
 The field refuses itself once the chart is re-anchored under it, so a stale lattice cannot answer here: covers() goes false and the caller falls through to the sampler for the new chart.
 
@@ -295,7 +295,7 @@ Source: `src/sdk/Relocation.js`. Text moved from the file comments, paragraph or
 
 A world authors its spawn point, not the terrain under it: apps/world/tps-game.js declares [-25, 8.39, -45] where the collider probes ground at -0.02 m, so the declared y authors ~8.1 m of air and the player falls on every spawn and every respawn. The y is therefore resolved through the same probe that decides where a held spawn is released, because a corrected literal is a number that is right for today's terrain and wrong after the next terrain change. A probe that finds no ground YET is not a licence to guess: the declared y stands and holdSpawnUntilGrounded places the player when its field lands.
 
-The collider streamer belongs to the physics world (TerrainPhysics sets physics._terrainStreamer); the server boot also mirrors it onto its internal ctx. A relocation is handed the PUBLIC server API, which carries neither, so reading only ctx._terrainStreamer answered "covered" for every field and the hold trusted the surface ray, which released the player the moment the ray first hit a field.
+The collider streamer belongs to the physics world (TerrainPhysics sets physics._terrainStreamer); the server boot also mirrors it onto its internal ctx. A relocation is handed the PUBLIC server API, which carries physics (and so physics._terrainStreamer) but not a top-level ctx._terrainStreamer, so reading only ctx._terrainStreamer answered "covered" for every field and the hold trusted the surface ray, which released the player the moment the ray first hit a field.
 
 A relocation to a point waits for the same ground, on the same budget, as a spawn: the teleport hold's own 8 s ceiling and its bare 60 m raycast cannot tell "no collider field here yet" from "no ground here at all", so on a world whose collider has to be solved on the CPU -- which is what ?terrainhash=<n> forces, because the shipped bake is rejected for the other hash version -- it released the player into the air long before its field landed and the fall kill took it again on every respawn. One question, one probe, one budget.
 
@@ -305,7 +305,7 @@ Source: `src/terrain/BakedSourceAdapter.js`. Text moved from the file comments, 
 
 The two adapters for the port src/terrain/TerrainPhysics.js declares. A baked artifact is bytes, a decoder for those bytes and the height code version this tree bakes, and which platform supplies them is the caller's business, never the loader's: TerrainPhysics.js imports neither adapter, so the module that answers what the ground is still parses where neither node:fs nor fetch exists.
 
-Both adapters derive every refusal from bakedFieldError, the one factory the loader throws from, so "absent is a silent fallback, anything else is [baked-heightfield]" has exactly one source.
+Both adapters derive every refusal from bakedFieldError, the one factory the loader throws from, so the thrown refusals have one source. A null bake falls back silently; read, decode, shape and stale-code failures throw [baked-heightfield]; a hash mismatch, a missing code version or a terrain mismatch warns "[terrain] ignoring baked heightfield" and falls back.
 
 A bake url is a served path ('/worlds/x.hf', relative to the repo root) or an absolute filesystem path. A rooted url that exists as itself is the filesystem path; anything else is served-relative. Stripping the slash unconditionally read a POSIX absolute path as cwd-relative, so an existing artifact came back ENOENT and was taken for an absent bake.
 
@@ -327,19 +327,19 @@ A computed specifier: the adapter carries node:fs, and both the client bundle an
 
 Source: `src/terrain/HeightfieldStreamer.js`. Text moved from the file comments, paragraph order kept.
 
-One fine field stays under a megabyte of height samples, so a source finer than the configured lattice cannot be followed all the way down into a field that costs more than it is worth.
+One fine field stays under 1 MiB of bytes (FINE_FIELD_WASM_BUDGET_BYTES), which is 262144 float32 samples at N <= 512. A source finer than that cap is followed down to the cap; a source that wants more than the cap makes the streamer throw at construction, and cost never refuses a field.
 
-A guard against a frozen source that turns out not to be cheap, not a dial: 600 ms is above the slowest field the shipped streamer already builds (487 ms of sampling for 16384 live terrain solves), so a fine field over a genuinely cheap source -- measured at 17-31 ms -- is never refused here, while a source that would make it dear still is. It is deliberately not tight, because a tight bound makes the collider's accuracy depend on how fast the machine is.
+600 ms only selects a log line; gridNFor returns the near-field floor on every path. For reference, 600 ms is above the slowest field the shipped streamer already builds (487 ms of sampling for 16384 live terrain solves), so a fine field over a genuinely cheap source -- measured at 17-31 ms -- is logged as cheap, and a dear one is logged as dear; neither is refused. The log threshold is deliberately loose, because a tight one would make the logged price depend on how fast the machine is.
 
-A field loses the fine lattice unless the frozen source answers essentially all of it. The two cases are far apart, not adjacent: a field snapped onto the source's own grid is either wholly inside the source (1.0) or overhangs it by a whole number of source cells, and one cell of a 256 m field is 1/256 = 0.0039 of it, so the nearest a straddling field reads is 0.9961.
+Every field takes the near-field floor. FROZEN_FRACTION_MIN (0.999) only changes the log line that gridNFor prints. The two cases are far apart, not adjacent: a field snapped onto the source's own grid is either wholly inside the source (1.0) or overhangs it by a whole number of source cells, and one cell of a 256 m field is 1/256 = 0.0039 of it, so the nearest a straddling field reads is 0.9961.
 
 Solved fields kept after the body that solved them is retired, so ground the player has already walked over stays solved. One is a floor-lattice field's sample array: N*N*4 B, 264 KB at N=257, so the whole retain set is a few megabytes next to the 32 MB field wasm budget.
 
-A field whose footprint a frozen source answers can carry a lattice as fine as that source, because a lattice coarser than its source is a pure decimation and that decimation is the whole of the collider's disagreement with the ground (measured on the default world: a 2.02 m lattice over a 1 m source is 0.0383 m mean / 0.5010 m m apart). Where the collider has to re-solve terrain the sample is the cost, so there the configured lattice stands.
+A field whose footprint a frozen source answers can carry a lattice as fine as that source, because a lattice coarser than its source is a pure decimation and that decimation is the whole of the collider's disagreement with the ground (measured on the default world: a 2.02 m lattice over a 1 m source is 0.0383 m mean / 0.5010 m m apart). Where the collider has to re-solve terrain the sample is the cost, but gridNFor still returns the near-field floor there. The configured N stands only when targetSpacingN or isFrozenAt is unset.
 
 extent/(N-1) is the spacing, so N-1 intervals of frozenSpacing span the field: that lands the lattice ON the source's own nodes instead of near them. Measured at extent 256 over the 1 m bake, the difference is the whole residual -- 1.0039 m nodes drift half a cell across the field and leave 0.0080 m mean / 0.1667 m max of pure lattice error, 1.0000 m nodes sitting on the bake's leave 0.0002 m / 0.0005 m. Jolt takes the odd sample count.
 
-NEAR-FIELD FLOOR. Every field this streamer builds covers a player, so every field is a near field, and a near field is never allowed to be coarser than the surface the rest of the engine already reads: grass places a cell every GRASS.CELL metres and reads the ground at every one of them, and this streamer's own fine lattice is the spacing of the source it follows. A collider coarser than either is a decimation of height the terrain system has already produced and is still holding -- the least dense surface in the engine, sitting directly under the player. So the floor is the FINER of the configured lattice and the source's own lattice, from one place, and nothing below may coarsen it. It is derived, not dialled. The old rule let the frozen fraction decide, which made the player's own movement the thing that coarsened the ground under them: a field only ever upgraded to the fine lattice once its footprint was already frozen, so walking out of the bake downgraded the collider from 1 m to 2 m at the exact moment the player arrived.
+NEAR-FIELD FLOOR. Every field pass() builds covers a player, and start() builds one at fallbackCenter when no player exists, so every field is a near field, and a near field is never allowed to be coarser than the surface the rest of the engine already reads: grass places a cell every GRASS.CELL metres and reads the ground at every one of them, and this streamer's own fine lattice is the spacing of the source it follows. A collider coarser than either is a decimation of height the terrain system has already produced and is still holding -- the least dense surface in the engine, sitting directly under the player. So the floor is the FINER of the configured lattice and the source's own lattice, from one place, and nothing below may coarsen it. It is derived, not dialled. The old rule let the frozen fraction decide, which made the player's own movement the thing that coarsened the ground under them: a field only ever upgraded to the fine lattice once its footprint was already frozen, so walking out of the bake downgraded the collider from 1 m to 2 m at the exact moment the player arrived.
 
 The one bound on the floor is the fine field's wasm budget, and a floor it cannot honour is a config error, not a quieter collider: the clamp used to be invisible, so the streamer built a coarser near field and never said why.
 
@@ -349,13 +349,13 @@ Ground this streamer has already solved, kept after the field that solved it is 
 
 A patch's corner is in the lattice it was solved in, so a change of lattice orphans every one of them: donating across it would shift a whole field by the difference between the bases.
 
-One sample, one price, and there are two prices: a frozen source answers in ~0.58 us, a live terrain solve in ~35.7 us on this tree, a factor of 60. So the question a field has to answer is WHICH of the two it is made of, and that is a predicate, not a clock. A single mean over the footprint cannot settle it either: the expensive part is a fixed ~1 m strip at the edge of the frozen source, and a sample set coarse enough to be affordable either misses it or over-counts it -- a 16x16 grid calls a 0.8% strip 12% of the field (measured: it priced a 15 ms field at 59 ms). The probe points must also be distinct, because a repeated point hits PlanetFrame's direct-mapped height memo and would price a solve as a hit. Per-sample cost, as a guard against a frozen source that happens to be dear, not as a dial. It also carries the frozen fraction: the predicate is a box test, so that fraction is a property of the field and the source, not of the clock, and answers the same on an idle box and on a box with ten agents running. Minimum of several short batches: a 64-point group of 0.58 us reads is ~37 us of work, which a scheduler preemption anywhere inside it inflates by an order of magnitude, and the minimum over three batches is the batch nothing interrupted.
+One sample, one price, and there are two prices: a frozen source answers in ~0.58 us, a live terrain solve in ~35.7 us on this tree, a factor of about 62 (35.7 / 0.58). So the question a field has to answer is WHICH of the two it is made of, and that is a predicate, not a clock. A single mean over the footprint cannot settle it either: the expensive part is a fixed ~1 m strip at the edge of the frozen source, and a sample set coarse enough to be affordable either misses it or over-counts it -- a 16x16 grid calls a 0.8% strip 12% of the field (measured: it priced a 15 ms field at 59 ms). The probe points must also be distinct, because a repeated point hits PlanetFrame's direct-mapped height memo and would price a solve as a hit. Per-sample cost feeds only a log line, not a guard or a dial. It also carries the frozen fraction: the predicate is a box test, so that fraction is a property of the field and the source, not of the clock, and answers the same on an idle box and on a box with ten agents running. Minimum of several short batches: a 64-point group of 0.58 us reads is ~37 us of work, which a scheduler preemption anywhere inside it inflates by an order of magnitude, and the minimum over three batches is the batch nothing interrupted.
 
 A field takes the near-field floor, full stop. What that costs is a number the project should be able to read, so it is priced and printed -- but the price no longer decides the lattice. A gate here would make the collider's accuracy a function of how fast the machine is (the same field has been priced at 0.79 us and 1.47 us a sample on a loaded box) or of where the player happens to be standing, and both are the Silent-default class: a measurement quietly turning into a resolution. FINE_SAMPLE_BUDGET_MS therefore names a dear field, it does not refuse one.
 
 Nothing here is frozen, so every node at the floor is a live terrain solve. That is the whole cost of the floor and the reason it used to be traded away; it is printed instead.
 
-A node this streamer has already solved at THIS lattice is donated, not re-solved, wherever the new footprint overlaps an old one. The ruling made every field take the near-field floor, so gridN is now floorN and the old guard (`gridN !== N`, N being the CONFIGURED lattice) answered null for every field from that commit on: each 66049-node field was solved from scratch, including the ~half of it the previous field along the travel path had already solved. Matching a source on its own N and spacing is the same claim, stated where it holds. The lattice a patch was solved in is part of its identity: a patch's corner is in that lattice's coordinates, so donating it across a lattice change would silently shift a whole field.
+A node this streamer has already solved at THIS lattice is donated, not re-solved, wherever the new footprint overlaps an old one. Every field takes the near-field floor: gridNFor returns floorN on every path. gridN is the parameter seedFromSolved receives, and a solved field is reused only when its N equals that gridN (f.N !== gridN). Matching a source on its own N and spacing is the same claim, stated where it holds. The lattice a patch was solved in is part of its identity: a patch's corner is in that lattice's coordinates, so donating it across a lattice change would silently shift a whole field.
 
 A source that is not ON this lattice cannot donate: rounding a fraction of a cell would shift the whole donated block and call the shift a reuse.
 
@@ -371,7 +371,7 @@ ONE copy of the ground near the player.
 
 The server's terrain collider already builds its field from a baked artifact (apps/world/tps-game.hf: N=257 over 256 m, a 1.0000 m lattice of the chart-local ground). That artifact is a sample buffer, so anything that needs the height of a chart-local (x,z) inside its coverage can READ it instead of solving the terrain again -- and a read is a bilinear step at 0.075 us where the chart-local solve costs 12.1 us and the raw sampler 3.4 us (measured by scripts/shared-lattice-surface-witness.mjs).
 
-This module owns the artifact -> sample-field construction. src/terrain/TerrainPhysics.js is the server's reader and keeps its fail-loud behaviour; this module is the reader everything else uses, including the browser, so the collider, the rendered near band's CPU mirror and the placement sampler are three readers of one buffer rather than three solvers of one function.
+This module decodes and builds its own sample field, sharing only createBakedHeightField with TerrainPhysics.js. src/terrain/TerrainPhysics.js is the server's reader and keeps its fail-loud behaviour; this module (loadLatticeSurface) is a separate browser-side loader for the same artifact: the rendered near band and the placement sampler read the buffer it returns.
 
 Nothing here computes a height: the only height that exists is the one the bake carries.
 
@@ -383,7 +383,7 @@ epochOf answers the live world frame's chartEpoch. A lattice is chart-local, so 
 
 A bake is only the ground if it is the SAME ground. A different terrain key, chart epoch, radius, anchor direction or relief scale is a different surface, and reading it would move every height the readers report -- so it is refused rather than used.
 
-Bounded: this runs on the boot path and a hung asset fetch must never hold up the planet.
+The browser fetch is bounded by a 4 s abort (LATTICE_READ_TIMEOUT_MS = 4000); the Node read path has no timeout.
 
 The one copy, resolved from the same artifact the server's collider builds from. Returns null -- never a guess -- wherever the artifact is absent, unreadable, stale or for other ground, and the caller keeps whatever it did before; a lattice that refuses is not a regression.
 
@@ -393,7 +393,7 @@ The field is bound to the live frame's anchor here, so the refusal is the anchor
 
 Source: `src/terrain/TerrainPhysics.js`. Text moved from the file comments, paragraph order kept.
 
-The artifact -> sample-field construction lives in one place so the server's collider, the rendered near band's CPU mirror and the placement sampler are readers of one buffer, not three solvers of one function. Nothing here may compute a height the bake does not carry.
+Two loaders decode the artifact: loadBakedHeightField (server, TerrainPhysics.js) and loadLatticeSurface (browser, LatticeSurface.js). Only createBakedHeightField, the builder, is shared. Nothing here may compute a height the bake does not carry.
 
 A baked artifact is read through a port, not through a platform: the caller supplies the source that owns readBytes, heightfieldCodec and bakeCodeVersion, and this loader asks it for them. What reads bytes is a fact about the runtime, so a caller that supplies no source is refused instead of being guessed at -- a guessed platform turns an unreadable bake into a silent CPU fallback.
 
@@ -419,7 +419,7 @@ Same reason: the tombstone-known-ids walk is one of the per-tick stages a witnes
 
 Source: `src/shared/inputDepthWire.js`. Text moved from the file comments, paragraph order kept.
 
-The server-reported input-buffer depth is one byte on the wire in both directions, and hasInputDepth is the one predicate that decides whether a value is one: the encoder (src/netcode/SnapshotEncoder.js inputBufferByte) reports null for anything else and this parse reports NO_INPUT_DEPTH for that same set, so 300, -5, 3.9 and 2^32+7 all mean "not reported" rather than a clamped, truncated or wrapped number.
+The server-reported input-buffer depth is one byte on the wire in both directions, and hasInputDepth is the one predicate that decides whether a value is one: the encoder (src/netcode/SnapshotEncoder.js inputBufferByte) reports null for anything else and inputDepthFromWire returns NO_INPUT_DEPTH (-1) for that same set, so 300, -5, 3.9 and 2^32+7 all mean "not reported" rather than a clamped, truncated or wrapped number.
 
 One parse means one place that decides what a wire byte means, so no consumer re-guesses the sentinel with its own ?? -1 and then re-validates the result.
 
