@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
-import { prefetchModel, modelLoadRefusal } from './core/modelLoadGate.js'
+import { prefetchModel, refuseModelLoad } from './core/modelLoadGate.js'
 import { MeshoptSimplifier } from '/node_modules/meshoptimizer/meshopt_simplifier.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { fetchCached } from './ModelCache.js'
@@ -464,7 +464,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       if (loadingScreenHidden) _scheduleLodUpgrades()
       _releaseGltfRef(url)
     } catch (err) {
-      const refusal = modelLoadRefusal(url, err); console.error('[gltf]', url, refusal); pendingLoads.delete(entityId); onFirstEntityLoaded(entityId, true); loadingMgr.completeDownload(url)
+      const refusal = refuseModelLoad(url, err); console.error('[gltf]', url, refusal); pendingLoads.delete(entityId); onFirstEntityLoaded(entityId, true, refusal); loadingMgr.completeDownload(url)
     }
   }
   function _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {

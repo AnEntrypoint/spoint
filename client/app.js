@@ -6,7 +6,7 @@ import { resolveNetcodeProfile } from '/src/netcode/NetcodeProfile.js'
 import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
-import { runModelLoadGate } from './core/modelLoadGate.js'
+import { runModelLoadGate, refuseModelLoad, shouldSendEnvironmentDone } from './core/modelLoadGate.js'
 import './core/Relocation.js'
 if (new URLSearchParams(location.search).has('livereload')) import('./core/PreviewReload.js').then(m => m.startPreviewReload())
 import { createElement, applyDiff } from 'webjsx'
@@ -474,9 +474,13 @@ async function _revealWorld() {
   if (_pendingSpPrefetch && _pendingSpPrefetch.length > 0) {
     const urls = _pendingSpPrefetch; _pendingSpPrefetch = null
     try {
-      const sched = getSharedStreamingScheduler()
-      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(err => console.error('[model-load] lazy prefetch failed:', err?.reasonCode, err?.url, err?.message)) } })
-    } catch (e) { _dbgBoot('singleplayer prefetch enqueue failed:', e?.message || e) }
+      await Promise.all(urls.map(u => el.prefetchModels([u])))
+      if (_spPrefetchResolve) { _spPrefetchResolve(); _spPrefetchResolve = null; _spPrefetchReject = null }
+    } catch (err) {
+      const refusal = refuseModelLoad(urls[0], err)
+      if (_spPrefetchReject) { _spPrefetchReject(refusal); _spPrefetchResolve = null; _spPrefetchReject = null }
+      console.error('[model-load] singleplayer prefetch failed:', refusal.reasonCode, refusal.url, refusal.message)
+    }
   }
   try { window.__app?.clientMachine?.send('ASSETS_READY') } catch (e) { _dbgBoot('ASSETS_READY send failed:', e?.message || e) }
 }
@@ -744,6 +748,7 @@ let _bootSceneryStarted = false
 let terrainBackdrop=null, _terrainCfg=null, vegetation=null, rocks=null, grass=null, colliderDebug=null, weather=null, sculptOverlay=null, caveMeshes=null
 let _pendingSculptBackfill = null
 let _pendingSpPrefetch = null
+let _spPrefetchPromise = null, _spPrefetchResolve = null, _spPrefetchReject = null
 function _applyPendingSculptBackfill() {
   if (!_pendingSculptBackfill || !sculptOverlay) return
   const { json, x, z } = _pendingSculptBackfill
@@ -950,7 +955,7 @@ el.onTrimeshReady=(id,v,i)=>{if(client)client.send(MSG.TRIMESH_DATA,{entityId:id
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;requestShadowRedraw(renderer);try{shadowPipeline&&shadowPipeline.forceUpdate()}catch(_){}},200) }
 let _anyEntityDone = false
 const _envEntityIds = new Set()
-const onFirstEntityLoaded=id=>{ const isEnv = _envEntityIds.has(id); if (isEnv || (!_envEntityIds.size && !_anyEntityDone)) loadingMachine.send('ENVIRONMENT_DONE'); _anyEntityDone = true; if (firstSnapshotEntityPending.has(id)) firstSnapshotEntityPending.delete(id); loadingMachine.send('SET_PENDING', { count: firstSnapshotEntityPending.size }) }
+const onFirstEntityLoaded=(id, failed, refusal)=>{ if (refusal) console.error('[model-load]', refusal.reasonCode, refusal.url, refusal.message); if (failed) { if (firstSnapshotEntityPending.has(id)) firstSnapshotEntityPending.delete(id); loadingMachine.send('SET_PENDING', { count: firstSnapshotEntityPending.size }); return } const isEnv = _envEntityIds.has(id); if (shouldSendEnvironmentDone(failed, isEnv, _anyEntityDone)) loadingMachine.send('ENVIRONMENT_DONE'); _anyEntityDone = true; if (firstSnapshotEntityPending.has(id)) firstSnapshotEntityPending.delete(id); loadingMachine.send('SET_PENDING', { count: firstSnapshotEntityPending.size }) }
 let _assetsKicked = false
 function initAssets(url) { if (_assetsKicked) return; _assetsKicked = true; loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibraryIfUncached(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
@@ -1321,13 +1326,16 @@ let client; const _clientConfig = {
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id,e.app) }
     if (wd._entityApps) for (const [id,app] of Object.entries(wd._entityApps)) entityAppMap.set(id,app)
     const modelUrls = wd._modelUrls || (wd.entities || []).map(e => e.model).filter(Boolean)
+    if (modelUrls.length > 0 && _isSingleplayer) {
+      _spPrefetchPromise = new Promise((resolve, reject) => { _spPrefetchResolve = resolve; _spPrefetchReject = reject })
+      _pendingSpPrefetch = modelUrls
+    }
     runModelLoadGate({
-      urls: _isSingleplayer ? [] : modelUrls,
-      prefetch: urls => el.prefetchModels(urls),
+      urls: modelUrls,
+      prefetch: urls => _isSingleplayer && _spPrefetchPromise ? _spPrefetchPromise : el.prefetchModels(urls),
       sendMark: () => loadingMachine.send('MODELS_DONE'),
-      onFailure: err => { console.error('[model-load]', err.reasonCode, err.url, err.message); try { loadingMgr.setLabel(STRINGS.connectionFailed(err.message)) } catch (_) {} },
-    }).catch(err => console.error('[model-load] gate failed:', err?.message || err))
-    if (modelUrls.length > 0 && _isSingleplayer) _pendingSpPrefetch = modelUrls
+      onFailure: err => { loadingMachine.send('MODEL_LOAD_FAILED', { reasonCode: err.reasonCode, url: err.url }); console.error('[model-load]', err.reasonCode, err.url, err.message); try { loadingMgr.setLabel(STRINGS.connectionFailed(err.message)) } catch (_) {} },
+    }).catch(err => { const refusal = refuseModelLoad('<gate>', err); loadingMachine.send('MODEL_LOAD_FAILED', { reasonCode: refusal.reasonCode, url: refusal.url }); console.error('[model-load] gate failed:', refusal.reasonCode, refusal.url, refusal.message); try { loadingMgr.setLabel(STRINGS.connectionFailed(refusal.message)) } catch (_) {} })
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
     if (_loadingFinished && _terrainCfg && !terrainBackdrop) _buildWorldScenery().catch(e => console.error('[terrain] late scenery build failed:', e?.message || e))
     try { minimapHUD.dispose() } catch (_) {}

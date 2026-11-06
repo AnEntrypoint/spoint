@@ -1,5 +1,6 @@
 import { createServer as createHttpServer } from 'node:http'
 import { WebSocketServer as WSServer } from 'ws'
+import { loadPlacedModelRecords, recordModelLoadError } from '../shared/modelLoadErrors.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { createStaticHandler } from './StaticHandler.js'
 import { WebSocketTransport } from '../transport/WebSocketTransport.js'
@@ -102,18 +103,15 @@ export function createServerAPI(ctx) {
       try {
         const { readFile, access } = await import('node:fs/promises')
         const fp = process.cwd() + '/data/placed-models.json'
-        await access(fp).then(async () => {
-          const text = await readFile(fp, 'utf-8')
-          const placed = JSON.parse(text)
-          const worldDefEntityIds = new Set((worldDef.entities || []).map(e => e.id).filter(Boolean))
-          let _skipped = 0
-          for (const p of placed) {
-            if (worldDefEntityIds.has(p.id)) { _skipped++; continue }
-            appRuntime.spawnEntity(p.id, { model: p.model, position: p.position, rotation: p.rotation, scale: p.scale, app: p.app || 'placed-model', custom: p.custom, config: p.appConfig || p.config || {} })
-          }
-          console.log(`[placed-model] loaded ${placed.length - _skipped} saved entities${_skipped ? ` (skipped ${_skipped} stale world-def-duplicate records)` : ''}`)
-        }).catch(() => {})
-      } catch (e) { console.error('[placed-model] load error:', e.message) }
+        const placed = await loadPlacedModelRecords({ access, readFile, fp })
+        const worldDefEntityIds = new Set((worldDef.entities || []).map(e => e.id).filter(Boolean))
+        let _skipped = 0
+        for (const p of placed) {
+          if (worldDefEntityIds.has(p.id)) { _skipped++; continue }
+          appRuntime.spawnEntity(p.id, { model: p.model, position: p.position, rotation: p.rotation, scale: p.scale, app: p.app || 'placed-model', custom: p.custom, config: p.appConfig || p.config || {} })
+        }
+        console.log(`[placed-model] loaded ${placed.length - _skipped} saved entities${_skipped ? ` (skipped ${_skipped} stale world-def-duplicate records)` : ''}`)
+      } catch (e) { throw recordModelLoadError(e) }
       try { await appRuntime.waitForPendingTrimeshBuilds?.() } catch (e) { console.error('[world-persistence] waitForPendingTrimeshBuilds error:', e.message) }
       try { await restoreWorldSnapshot(ctx) } catch (e) { console.error('[world-persistence] restore error:', e.message) }
       return { entities: new Map(), apps: new Map(), count: stage.entityCount }

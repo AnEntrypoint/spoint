@@ -53,10 +53,10 @@ await assert.rejects(() => runModelLoadGate({ urls: [], prefetch: async () => {}
 
 const loaderSrc = readFileSync('client/EntityLoader.js', 'utf8')
 const appSrc = readFileSync('client/app.js', 'utf8')
-assert.match(loaderSrc, /import \{ prefetchModel, modelLoadRefusal \} from '\.\/core\/modelLoadGate\.js'/)
+assert.match(loaderSrc, /import \{ prefetchModel, refuseModelLoad \} from '\.\/core\/modelLoadGate\.js'/)
 assert.match(loaderSrc, /await prefetchModel\(url, async \(\) =>/)
-assert.match(loaderSrc, /const refusal = modelLoadRefusal\(url, err\); console\.error\('\[gltf\]'/)
-assert.match(appSrc, /import \{ runModelLoadGate \} from '\.\/core\/modelLoadGate\.js'/)
+assert.match(loaderSrc, /const refusal = refuseModelLoad\(url, err\); console\.error\('\[gltf\]'/)
+assert.match(appSrc, /import \{ runModelLoadGate, refuseModelLoad, shouldSendEnvironmentDone \} from '\.\/core\/modelLoadGate\.js'/)
 assert.match(appSrc, /sendMark: \(\) => loadingMachine\.send\('MODELS_DONE'\)/)
 assert.equal(appSrc.includes("prefetchModels(modelUrls).catch(() => {})"), false)
 assert.equal(appSrc.includes("prefetchModels([u]).catch(() => {})"), false)

@@ -1,4 +1,5 @@
 import { MSG } from '../protocol/MessageTypes.js'
+import { loadPrefabRecords } from '../shared/modelLoadErrors.js'
 import { vecOK } from '../shared/vecGuard.js'
 import { parseMaterialSlots } from '../shared/materialSlots.js'
 import { minimapDescriptor, resolveTerrainConfig, withTerrainSeed } from '../shared/terrainConfig.js'
@@ -84,10 +85,8 @@ function _prefabsPath() { return resolvePath(process.cwd(), 'data', 'prefabs.jso
 function _loadPrefabsFromDisk() {
   if (_prefabsLoaded || !isNode || !readFileSync) return
   _prefabsLoaded = true
-  try {
-    const p = _prefabsPath()
-    if (existsSync(p)) { const arr = JSON.parse(readFileSync(p, 'utf8')); for (const pf of arr) _prefabs.set(pf.name, pf) }
-  } catch (e) { console.error('[prefab] load error:', e.message) }
+  const records = loadPrefabRecords({ existsSync, readFileSync, path: _prefabsPath() })
+  for (const pf of records) _prefabs.set(pf.name, pf)
 }
 function _persistPrefabs() {
   if (!isNode || !writeFileSync) return

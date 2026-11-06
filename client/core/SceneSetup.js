@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { createModelErrorHandler } from '../../src/shared/modelLoadErrors.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'streaming-gltf/draco-loader'
 import { ensureSharedKtx2Loader } from 'streaming-gltf'
@@ -304,7 +305,9 @@ export function limitTextureSize(texture) {
 export function createLoaders(renderer) {
   THREE.Cache.enabled = true
   const loadingManager = new THREE.LoadingManager()
-  loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
+  const modelErrors = createModelErrorHandler({ onError: err => console.error('[THREE] Failed to load:', err.url, err.reasonCode) })
+  loadingManager.onError = url => modelErrors.onError(url)
+  loadingManager.modelLoadErrors = modelErrors
   const gltfLoader = new GLTFLoader(loadingManager)
   const dracoLoader = new DRACOLoader(loadingManager)
   gltfLoader.setDRACOLoader(dracoLoader)

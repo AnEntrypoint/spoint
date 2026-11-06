@@ -4,11 +4,13 @@ import { STRINGS } from './strings.js'
 
 const STEPS = ['assets', 'environment', 'firstSnapshot', 'models']
 
-const allDone = ({ context }) => STEPS.every((s) => context[s]) && context.entityPending <= 0
+export const notModelFailure = ({ context }) => context.modelFailure !== true
 
-const hasContent = ({ context }) => context.firstSnapshot && context.environment
+export const allDone = ({ context }) => !context.modelFailure && STEPS.every((s) => context[s]) && context.entityPending <= 0
 
-const worldExists = ({ context }) => context.world === true
+export const hasContent = ({ context }) => !context.modelFailure && context.firstSnapshot && context.environment
+
+export const worldExists = ({ context }) => context.world === true
 
 export const LOADING_FALLBACK_MS = 10000
 export const LOADING_HARD_MS = 45000
@@ -18,16 +20,17 @@ export const loadingMachine = createMachine({
   initial: 'loading',
   context: {
     assets: false, worldConfig: false, environment: false,
-    firstSnapshot: false, models: false, entityPending: 0, world: false,
+    firstSnapshot: false, models: false, entityPending: 0, world: false, modelFailure: false,
     label: STRINGS.loadingConnecting
   },
   states: {
     loading: {
       after: {
         [LOADING_FALLBACK_MS]: [{ guard: hasContent, target: 'ready' }, { target: 'loading' }],
-        [LOADING_HARD_MS]: { target: 'ready' }
+        [LOADING_HARD_MS]: [{ guard: notModelFailure, target: 'ready' }, { target: 'loading' }]
       },
       on: {
+        MODEL_LOAD_FAILED: { actions: assign({ modelFailure: true, label: ({ event }) => STRINGS.connectionFailed(event.reasonCode || 'model load failed') }) },
         ASSETS_DONE: { actions: assign({ assets: true, label: () => STRINGS.loadingEnvironment }), target: 'checking' },
         WORLD_CONFIG: { actions: assign({ worldConfig: true, label: () => STRINGS.loadingSyncingServer }), target: 'checking' },
         ENVIRONMENT_DONE: { actions: assign({ environment: true }), target: 'checking' },
@@ -46,10 +49,11 @@ export const loadingMachine = createMachine({
       ],
       after: {
         [LOADING_FALLBACK_MS]: [{ guard: hasContent, target: 'ready' }, { target: 'loading' }],
-        [LOADING_HARD_MS]: { target: 'ready' }
+        [LOADING_HARD_MS]: [{ guard: notModelFailure, target: 'ready' }, { target: 'loading' }]
       },
       on: {
-        WORLD_EXISTS: { actions: assign({ world: true }) }
+        WORLD_EXISTS: { actions: assign({ world: true }) },
+        MODEL_LOAD_FAILED: { actions: assign({ modelFailure: true, label: ({ event }) => STRINGS.connectionFailed(event.reasonCode || 'model load failed') }), target: 'loading' }
       }
     },
     ready: {

@@ -1,7 +1,7 @@
 id: "prd-mw4mb2kgbb20"
 kind: "prd"
 title: "Fail-loud asset loading gate for model errors"
-body: "modelLoadGate.js wraps prefetch failures in coded refusals, runModelLoadGate withholds MODELS_DONE on failure, EntityLoader rethrows and app.js surfaces the error instead of swallowing it. scripts/model-load-gate-witness.mjs prints RESULT: PASS."
+body: "modelLoadGate.js wraps prefetch failures in coded refusals, runModelLoadGate withholds MODELS_DONE on failure, EntityLoader rethrows and app.js surfaces the error instead of swallowing it. Eight witnesses cover all fail-loud sites, singleplayer gating, loading-machine fallback/hard stops and failed-entity handling; all print RESULT: PASS."
 status: "resolved"
 createdAt: "2026-11-06T06:52:57.664Z"
 witnessEvent: 349

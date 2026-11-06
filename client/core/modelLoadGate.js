@@ -1,14 +1,9 @@
+import { modelLoadRefusal, refuseModelLoad, recordModelLoadError } from '../../src/shared/modelLoadErrors.js'
+export { modelLoadRefusal, refuseModelLoad, recordModelLoadError, takeModelLoadErrors, modelLoadErrorCount, shouldSendEnvironmentDone } from '../../src/shared/modelLoadErrors.js'
+
 function refusal(reasonCode, message) {
   const err = new TypeError(`[model-load] ${message}`)
   err.reasonCode = reasonCode
-  return err
-}
-
-export function modelLoadRefusal(url, cause) {
-  const err = new Error(`[model-load] ${url}: ${cause?.message ?? cause}`)
-  err.reasonCode = 'model-load-failed'
-  err.url = url
-  if (cause) err.cause = cause
   return err
 }
 
@@ -18,7 +13,7 @@ export async function prefetchModel(url, load) {
   try {
     return await load(url)
   } catch (cause) {
-    throw modelLoadRefusal(url, cause)
+    throw refuseModelLoad(url, cause)
   }
 }
 
@@ -33,7 +28,7 @@ export async function runModelLoadGate({ urls = [], prefetch, sendMark, onFailur
   try {
     await prefetch(urls)
   } catch (cause) {
-    const err = cause?.reasonCode === 'model-load-failed' ? cause : modelLoadRefusal(cause?.url ?? urls[0], cause)
+    const err = cause?.reasonCode === 'model-load-failed' ? recordModelLoadError(cause) : refuseModelLoad(cause?.url ?? urls[0], cause)
     if (onFailure) onFailure(err)
     return { ok: false, refusal: err, mark: null }
   }
