@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: aa98264eb8a29e2cfe672ea85d60ecee357083bcc891548475cd8e3431d64fe3
+// source digest: 701e17b18add224395a669124785566eceb2cdb664c795cf202e0c8e4abde67e
 
 export type NonNegFinite = number;
 

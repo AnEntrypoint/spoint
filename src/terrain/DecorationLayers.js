@@ -45,6 +45,20 @@ function itemsPerM2Of(value, where) {
   return value
 }
 
+function itemOf(value, where) {
+  if (value === undefined) return null
+  if (value === null || typeof value !== 'object') throw new DecorationConfigError('badItem', `${where} must be an object`)
+  if (value.kind === 'sprite') {
+    if (typeof value.sprite !== 'string' || value.sprite.length === 0) throw new DecorationConfigError('badItem', `${where}.sprite must name a sprite`)
+    return Object.freeze({ kind: 'sprite', ref: value.sprite })
+  }
+  if (value.kind === 'scripted') {
+    if (typeof value.script !== 'string' || value.script.length === 0) throw new DecorationConfigError('badItem', `${where}.script must name a script`)
+    return Object.freeze({ kind: 'scripted', ref: value.script })
+  }
+  throw new DecorationConfigError('badItem', `${where}.kind must be sprite or scripted`)
+}
+
 function saltOf(id) {
   let h = 0x811c9dc5
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0
@@ -70,6 +84,7 @@ export function parseDecorationDef(def) {
       budget: optionalBudget(spec.budget, `layers.${id}.budget`),
       itemsPerM2: itemsPerM2Of(spec.itemsPerM2, `layers.${id}.itemsPerM2`),
       paintedOnly: flag(spec.paintedOnly, `layers.${id}.paintedOnly`),
+      item: itemOf(spec.item, `layers.${id}.item`),
       avoidWater: flag(spec.avoidWater, `layers.${id}.avoidWater`),
       maxWaterDepth: itemsPerM2Of(spec.maxWaterDepth, `layers.${id}.maxWaterDepth`) ?? 0,
     }))
