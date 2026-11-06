@@ -50,6 +50,8 @@ export class LagCompensator {
 
   get windowTicks() { return Math.max(1, Math.round(this.historyWindow * this.tickRate / 1000)) }
 
+  get retainedTicks() { return Math.min(this.windowTicks, HISTORY_CAPACITY - 1) }
+
   get referenceTick() { return this._passOpen ? this.tickPass : this.latestTick }
 
   beginTick(tick) {
@@ -95,7 +97,7 @@ export class LagCompensator {
     if (typeof reportedTick !== 'number' || !Number.isFinite(reportedTick)) { this.stats.rejected++; return null }
     if (typeof currentTick !== 'number' || !Number.isFinite(currentTick)) throw new RangeError(`resolveViewTick needs a finite currentTick, got ${String(currentTick)}`)
     if (reportedTick > currentTick + FUTURE_TOLERANCE_TICKS) { this.stats.rejected++; return null }
-    const oldest = currentTick - this.windowTicks
+    const oldest = currentTick - this.retainedTicks
     if (reportedTick < oldest) { this.stats.clamped++; return oldest }
     return Math.min(reportedTick, currentTick)
   }
@@ -126,7 +128,7 @@ export class LagCompensator {
       while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (at(mid).tick <= tick) lo = mid; else hi = mid }
       a = at(lo); b = at(hi); t = (tick - a.tick) / ((b.tick - a.tick) || 1)
     }
-    o.tick = tick
+    o.tick = a === b ? a.tick : tick
     for (let i = 0; i < 3; i++) { o.position[i] = a.position[i] + (b.position[i] - a.position[i]) * t; o.velocity[i] = a.velocity[i] + (b.velocity[i] - a.velocity[i]) * t }
     nlerpQuat(o.rotation, a.rotation, b.rotation, t)
     const rewoundTicks = this.referenceTick - tick
