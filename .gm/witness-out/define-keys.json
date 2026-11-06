@@ -1,0 +1,321 @@
+{
+  "defineQuestSystem": {
+    "file": "src/game/QuestSystem.js",
+    "keys": [
+      "channel",
+      "inventory",
+      "onObjectiveProgress",
+      "onQuestComplete",
+      "onQuestStart",
+      "quests",
+      "stats"
+    ]
+  },
+  "defineStatsSystem": {
+    "file": "src/game/StatsSystem.js",
+    "keys": [
+      "baseStats",
+      "channel",
+      "equipment",
+      "maxLevel",
+      "onLevelUp",
+      "onLoadoutSwap",
+      "startLevel",
+      "startXP",
+      "statScaling",
+      "xpPerLevel"
+    ]
+  },
+  "defineProgression": {
+    "file": "src/apps/Progression.js",
+    "keys": [
+      "abilities",
+      "hotkeys",
+      "onLevelUp",
+      "onLevelUpTick",
+      "progressionConfig",
+      "setup",
+      "tick"
+    ]
+  },
+  "defineGameFSM": {
+    "file": "src/behaviours/game-fsm.js",
+    "keys": [
+      "context",
+      "id",
+      "initial",
+      "states"
+    ]
+  },
+  "defineGameMode": {
+    "file": "src/behaviours/gamemode.js",
+    "keys": [
+      "channel",
+      "countdownMs",
+      "id",
+      "intermissionMs",
+      "messages",
+      "minPlayers",
+      "onEnd",
+      "onLobbyEnter",
+      "onLobbyTick",
+      "onRoundEnd",
+      "onRoundStart",
+      "onRoundTick",
+      "onWarmupEnter",
+      "onWarmupTick",
+      "phaseNames",
+      "roundMs",
+      "roundsPerMatch",
+      "scoring",
+      "teams",
+      "winCondition"
+    ]
+  },
+  "defineBuffStack": {
+    "file": "src/behaviours/buffs.js",
+    "keys": [
+      "decayPerSec",
+      "decayTarget",
+      "maxStack"
+    ]
+  },
+  "defineShrinkingZone": {
+    "file": "src/behaviours/shrinking-zone.js",
+    "keys": [
+      "affectDynamicEntities",
+      "center",
+      "curve",
+      "damagePerSec",
+      "durationSec",
+      "endRadius",
+      "onComplete",
+      "onPhaseChange",
+      "outsidePenalty",
+      "phases",
+      "pushForce",
+      "ringColor",
+      "ringHeight",
+      "showRing",
+      "startDelaySec",
+      "startRadius"
+    ]
+  },
+  "defineHealth": {
+    "file": "src/behaviours/health.js",
+    "keys": [
+      "hp",
+      "invulnMs",
+      "max",
+      "onDamage",
+      "onDeath",
+      "onRespawn"
+    ]
+  },
+  "defineCombat": {
+    "file": "src/behaviours/combat.js",
+    "keys": [
+      "$",
+      "config",
+      "onDeath",
+      "onHit",
+      "onKill",
+      "onPowerup",
+      "onRespawn",
+      "onWorldHit",
+      "powerupRespawnMs",
+      "powerups",
+      "scoreboardKey",
+      "shotBlocked",
+      "spawnPoints"
+    ]
+  },
+  "defineFire": {
+    "file": "src/behaviours/fire.js",
+    "keys": [
+      "gameplay",
+      "onExtinguish",
+      "onIgnite",
+      "radius",
+      "role"
+    ]
+  },
+  "defineSteering": {
+    "file": "src/behaviours/steering.js",
+    "keys": [
+      "arriveRadius",
+      "clampToTerrain",
+      "separation",
+      "speed",
+      "useNavCost",
+      "yOffset"
+    ]
+  },
+  "defineCameraRig": {
+    "file": "src/behaviours/cameraRig.js",
+    "keys": [
+      "default",
+      "distance",
+      "eyeHeight",
+      "frames",
+      "height",
+      "init",
+      "layers",
+      "loop",
+      "maxPitch",
+      "minPitch",
+      "onInput",
+      "sensitivity",
+      "targetHeight",
+      "update"
+    ]
+  },
+  "defineCheckpoint": {
+    "file": "src/behaviours/checkpoint.js",
+    "keys": [
+      "checkpoints",
+      "minY",
+      "onCheckpoint",
+      "onRespawn",
+      "radius",
+      "spawn"
+    ]
+  },
+  "definePickup": {
+    "file": "src/behaviours/pickup.js",
+    "keys": [
+      "cooldown",
+      "onCollect",
+      "oneShot",
+      "radius"
+    ]
+  },
+  "defineDestructible": {
+    "file": "src/behaviours/destructible.js",
+    "keys": [
+      "debrisCount",
+      "debrisFreezeAfter",
+      "debrisImpulsePattern",
+      "debrisLifetime",
+      "debrisSettleGrace",
+      "debrisShape",
+      "fracturedAsset",
+      "fracturedPieceCount",
+      "health",
+      "impactRadius",
+      "impactThreshold",
+      "onDestroyed",
+      "onRespawn",
+      "respawnDelay"
+    ]
+  },
+  "defineSoftbody": {
+    "file": "src/behaviours/softbody.js",
+    "keys": [
+      "bendSprings",
+      "cols",
+      "damping",
+      "gravity",
+      "mass",
+      "pins",
+      "rows",
+      "spacing",
+      "stiffness",
+      "substeps",
+      "wind"
+    ]
+  },
+  "defineFluid": {
+    "file": "src/behaviours/fluid.js",
+    "keys": [
+      "boundary",
+      "emitRate",
+      "gasConstant",
+      "gravity",
+      "initialCount",
+      "maxParticles",
+      "restDensity",
+      "smoothingRadius",
+      "viscosity",
+      "worldY"
+    ]
+  },
+  "defineFluid3D": {
+    "file": "src/behaviours/fluid3d.js",
+    "keys": [
+      "boundary",
+      "emitRate",
+      "gasConstant",
+      "gravity",
+      "initialCount",
+      "maxParticles",
+      "restDensity",
+      "smoothingRadius",
+      "viscosity"
+    ]
+  },
+  "defineBuoyancy": {
+    "file": "src/behaviours/buoyancy.js",
+    "keys": [
+      "buoyantForce",
+      "floatFactor",
+      "halfHeight",
+      "linearDrag"
+    ]
+  },
+  "defineTeams": {
+    "file": "src/behaviours/teams.js",
+    "keys": [
+      "autoBalance",
+      "broadcast",
+      "channel",
+      "colorblindSafe",
+      "onAssign",
+      "onScore",
+      "onWin",
+      "scoreLimit",
+      "teams"
+    ]
+  },
+  "defineWeapon": {
+    "file": "src/behaviours/weapon.js",
+    "keys": [
+      "damage",
+      "excludeBodyId",
+      "fireRateMs",
+      "headshot",
+      "headshotMult",
+      "magazine",
+      "onFire",
+      "onHit",
+      "onKill",
+      "onReload",
+      "range",
+      "reloadMs"
+    ]
+  },
+  "definePlayerInventory": {
+    "file": "src/behaviours/inventory.js",
+    "keys": [
+      "catalog",
+      "channel",
+      "itemDefs",
+      "onBuy",
+      "onChange",
+      "onDrop",
+      "startCurrency",
+      "startItems"
+    ]
+  },
+  "createTween": {
+    "file": "src/shared/tween.js",
+    "keys": [
+      "durationMs",
+      "easingName",
+      "from",
+      "onComplete",
+      "onUpdate",
+      "to"
+    ]
+  }
+}
