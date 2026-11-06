@@ -1,0 +1,9 @@
+id: "prd-mw4ibc04bb48"
+kind: "prd"
+title: "SES availability preflight with distinct reason codes"
+body: "preflightSes distinguishes SES_IMPORT_FAILED, SES_LOCKDOWN_FAILED, SES_COMPARTMENT_MISSING and SES_INTRINSICS_NOT_HARDENED, fails closed and keeps SandboxUnavailableError.code compatibility; check.mjs runs scripts/check-ses-preflight.mjs."
+status: "resolved"
+createdAt: "2026-11-06T05:01:11.428Z"
+witnessEvent: 93
+witnessCommit: "4055ad8"
+resolvedAt: "2026-11-06T05:01:11.434Z"
