@@ -16,23 +16,44 @@ export class SandboxUnavailableError extends Error {
     super(`[SESCompartmentEvaluator] refusing to evaluate untrusted app "${appName}": SES is unavailable (${cause?.message ?? cause}); untrusted code has no non-SES isolation tier`, { cause })
     this.name = 'SandboxUnavailableError'
     this.code = 'SANDBOX_UNAVAILABLE'
+    this.reasonCode = cause?.reasonCode ?? 'SES_UNAVAILABLE'
     this.appName = appName
   }
 }
 
 const isAlreadyLockedDown = (e) => String(e?.message).includes('SES_ALREADY_LOCKED_DOWN')
+const importSes = () => import((() => 'ses')())
+
+function sesRefusal(reasonCode, cause) {
+  const message = cause?.message ? `${reasonCode}: ${cause.message}` : reasonCode
+  const err = new Error(`[SESCompartmentEvaluator] ${message}`, cause ? { cause } : undefined)
+  err.reasonCode = reasonCode
+  return err
+}
+
+export async function preflightSes({ importSes: doImport = importSes, lockdown: doLockdown = null, getCompartment = null, isFrozen = null } = {}) {
+  try {
+    await doImport()
+  } catch (cause) {
+    return { ok: false, Compartment: null, reasonCode: 'SES_IMPORT_FAILED', cause }
+  }
+  const lock = doLockdown ?? (() => globalThis.lockdown(LOCKDOWN_OPTIONS))
+  try {
+    lock()
+  } catch (cause) {
+    if (!isAlreadyLockedDown(cause)) return { ok: false, Compartment: null, reasonCode: 'SES_LOCKDOWN_FAILED', cause }
+  }
+  const Compartment = getCompartment ? getCompartment() : globalThis.Compartment
+  if (typeof Compartment !== 'function') return { ok: false, Compartment: null, reasonCode: 'SES_COMPARTMENT_MISSING', cause: null }
+  const hardened = isFrozen ? isFrozen(Object.prototype) : Object.isFrozen(Object.prototype)
+  if (!hardened) return { ok: false, Compartment: null, reasonCode: 'SES_INTRINSICS_NOT_HARDENED', cause: null }
+  return { ok: true, Compartment, reasonCode: null, cause: null }
+}
 
 async function lockDownAndGetCompartment() {
-  await import('ses')
-  try {
-    globalThis.lockdown(LOCKDOWN_OPTIONS)
-  } catch (e) {
-    if (!isAlreadyLockedDown(e)) throw e
-  }
-  if (typeof Compartment !== 'function' || !Object.isFrozen(Object.prototype)) {
-    throw new Error('lockdown completed without hardened intrinsics and a Compartment constructor')
-  }
-  return Compartment
+  const result = await preflightSes()
+  if (!result.ok) throw sesRefusal(result.reasonCode, result.cause)
+  return result.Compartment
 }
 
 let sesSettlement = null

@@ -108,6 +108,7 @@ async function main() {
     ['relative import resolution', 'scripts/check-relative-imports.mjs', (out) => `check: ${out}`],
     ['bake code-version closure', 'scripts/check-cache-keys.mjs', (out) => out],
     ['three export-name resolution', 'scripts/check-tsl-imports.mjs', (out) => `check: ${out}`],
+    ['SES preflight refusals', 'scripts/check-ses-preflight.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {
