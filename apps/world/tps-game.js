@@ -17,7 +17,7 @@ const TERRAIN = {
 export default parseWorldDef('tps-game', {
   planetRadius: 0,
   presets: ['tps', 'planet'],
-  port: 3001,
+  port: 3002,
   physicsBodyBudget: 512,
   scene: {
     skyColor: 0xff9a5c,

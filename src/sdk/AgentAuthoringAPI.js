@@ -147,7 +147,7 @@ export function createAgentAuthoringHandler() {
         const toBase = ctx?.chartEpochLedger?.canonicalTransfer() ?? null
         for (const [id, e] of appRuntime.entities) entities.push(encodeWorldEntity(id, e, toBase))
         const def = {
-          port: ctx?.port || 3001,
+          port: ctx?.port || 3002,
           tickRate: ctx?.tickRate || DEFAULT_TICK_RATE_HZ,
           gravity: worldGravity(ctx?.currentWorldDef),
           spawnPoint: worldSpawnPoints(ctx?.currentWorldDef)[0],

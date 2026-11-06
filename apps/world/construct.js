@@ -18,7 +18,7 @@ const CONSTRUCT = {
 export default parseWorldDef('construct', {
   planetRadius: 0,
   presets: ['tps'],
-  port: 3001,
+  port: 3002,
   gravity: [0, -9.81, 0],
   relevanceRadius: 100,
   physicsRadius: 50,
