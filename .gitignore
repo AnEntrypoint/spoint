@@ -81,3 +81,4 @@ scripts/.*
 .gm/pool/*
 !.gm/pool/pool.log
 .playwriter/
+client/assets/.glb-cache/
