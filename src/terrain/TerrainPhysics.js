@@ -4,7 +4,7 @@ import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { wrapHeightWithMarks } from './TerrainMarks.js'
-import { wrapHeightWithFieldPaint } from './fieldPaint.js'
+import { wrapHeightWithFieldPaint, naturalMaskAt } from './fieldPaint.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
 // The artifact -> sample-field construction lives in one place so the server's collider, the rendered
@@ -374,6 +374,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     }
     streamer.biomeOverride = biomeOverride
     streamer.splineCarve = splineCarve
+    streamer.naturalMask = fieldPaint ? Object.freeze({ at: (x, z) => naturalMaskAt(fieldPaint, x, z) }) : null
     streamer.caveCarve = caveCarve
     streamer.repaintBiome = async function repaintBiome() {
       if (trunkStreamer) { trunkStreamer.clearChunkCache(); await trunkStreamer._rebuildMulti((trunkStreamer.centers && trunkStreamer.centers.length) ? trunkStreamer.centers : getCenters(), true) }
