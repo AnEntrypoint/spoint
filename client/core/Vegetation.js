@@ -7,6 +7,7 @@ import { buildSharedImpostorAtlas, createSharedImpostorMesh, impostorHandoffDist
 import { placementsForChunk, VEG, SPECIES, VEG_SHAPE_VARIANTS } from '/src/terrain/VegPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
+import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createPlacementRing } from './PlacementRing.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
@@ -62,7 +63,8 @@ export async function createVegetation(opts = {}) {
   const tierWarmPromises = []
   const warmCamera = new THREE.PerspectiveCamera()
   const biomeOverride = createBiomeOverride()
-  const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
+  const modelExclusion = createModelExclusionField(opts.placedModels)
+  const anchorField = modelExclusion.wrapClimateField(biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame)))
   const cfg = opts.cfg || {}
   const TEX_BUDGET = resolveTreeTextureBudget({ search: (typeof location !== 'undefined') ? location.search : '', cfg })
   const worldSeed = (opts.worldSeed ?? cfg.seed ?? 0) | 0

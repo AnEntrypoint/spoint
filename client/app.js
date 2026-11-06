@@ -527,7 +527,7 @@ function _ensureVegetation(tb) {
   if (typeof location !== 'undefined' && /[?&]veg=none/.test(location.search)) { console.warn('[veg] ?veg=none -> vegetation skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
-  const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, shadowPipeline, onProgress: (done, total) => _markSceneryPhase('vegetation-species-' + done + '-of-' + total) })
+  const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities, shadowPipeline, onProgress: (done, total) => _markSceneryPhase('vegetation-species-' + done + '-of-' + total) })
     .then(v => { _markSceneryPhase('vegetation-created'); performance.mark('boot:vegetation-created'); if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
@@ -542,7 +542,7 @@ function _ensureRocks(tb) {
   if (typeof location !== 'undefined' && /[?&]norocks/.test(location.search)) { console.warn('[rocks] ?norocks -> rocks skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
-  const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+  const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
     .then(r => { _markSceneryPhase('rocks-created'); performance.mark('boot:rocks-created'); if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.rocks === pending) _foliagePending.rocks = null })

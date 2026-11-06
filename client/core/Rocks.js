@@ -7,6 +7,7 @@ import { createCullFreeze, setBatchedMeshCullAuto } from './CullFreeze.js'
 import { createPlacementRing } from './PlacementRing.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
+import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { dbg } from './debug-log.js'
 import { makeRocksMaterialTSL } from './RocksTSL.js'
 import { runWarmPasses } from './ProgramReadiness.js'
@@ -82,7 +83,8 @@ function skipUnchangedIndirectTextureUploads(bm, maxInstances) {
 export async function createRocks(opts = {}) {
   const { renderer, scene, frame } = opts
   const biomeOverride = createBiomeOverride()
-  const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
+  const modelExclusion = createModelExclusionField(opts.placedModels)
+  const anchorField = modelExclusion.wrapClimateField(biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame)))
   const cfg = opts.cfg || {}
   const worldSeed = (opts.worldSeed ?? cfg.seed ?? 0) | 0
   if (!renderer || !scene || !frame) throw new Error('createRocks: renderer/scene/frame required')
