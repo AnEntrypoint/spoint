@@ -40,6 +40,7 @@ export class TickSystemBase {
     this._spinArmed = false
     this.precise = typeof process !== 'undefined' && process.env?.SPOINT_PRECISE_TICKS === '1'
     this.schedulerStats = { ticks: 0, droppedMs: 0, maxLateMs: 0, spinWakeups: 0, timerWakeups: 0 }
+    this._tickDropCallbacks = []
   }
 
   get running() { return this._state === 'running' }
@@ -54,9 +55,29 @@ export class TickSystemBase {
 
   onDilation(cb) { this._dilationCallbacks.push(cb) }
 
+  onTickDrop(cb) {
+    if (typeof cb !== 'function') {
+      const err = new TypeError('[tick] onTickDrop needs a function')
+      err.reasonCode = 'tick-drop-listener-invalid'
+      throw err
+    }
+    this._tickDropCallbacks.push(cb)
+    return () => { this._tickDropCallbacks = this._tickDropCallbacks.filter(fn => fn !== cb) }
+  }
+
   onTick(callback) {
     if (this.callbacks.includes(callback)) return
     this.callbacks.push(callback)
+  }
+
+  getSchedulerStats() {
+    const droppedMs = this.schedulerStats.droppedMs
+    return Object.freeze({
+      ...this.schedulerStats,
+      droppedTicks: droppedMs / this.tickDuration,
+      maxCatchUpSteps: MAX_CATCH_UP_STEPS,
+      reasonCode: droppedMs > 0 ? 'tick-catch-up-exceeded' : null,
+    })
   }
 
   _usePreciseWait() {
@@ -105,6 +126,17 @@ export class TickSystemBase {
       const drop = now - this._nextDueMs - this.tickDuration * MAX_CATCH_UP_STEPS
       this.schedulerStats.droppedMs += drop
       this._nextDueMs += drop
+      const detail = Object.freeze({
+        droppedMs: drop,
+        droppedTicks: drop / this.tickDuration,
+        totalDroppedMs: this.schedulerStats.droppedMs,
+        maxCatchUpSteps: MAX_CATCH_UP_STEPS,
+        reasonCode: 'tick-catch-up-exceeded',
+        currentTick: this.currentTick,
+      })
+      for (const cb of this._tickDropCallbacks) {
+        try { cb(detail) } catch (err) { console.error('[tick] drop listener failed:', err?.message || err) }
+      }
     }
     let steps = 0
     const early = this._earlyToleranceMs()

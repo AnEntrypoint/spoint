@@ -25,6 +25,8 @@ export function createServerAPI(ctx) {
   const { config, port, tickRate, staticDirs, appLoader, appRuntime, physics, physicsIntegration, stageLoader } = ctx
   const { tickSystem, playerManager, networkState, lagCompensator, connections, sessions, inspector, emitter, reloadManager, eventBus, eventLog, storage } = ctx
 
+  tickSystem.onTickDrop?.(detail => emitter.emit('tick-drop', detail))
+
   return {
     physics,
     physicsIntegration,
@@ -44,6 +46,7 @@ export function createServerAPI(ctx) {
     storage,
     on: emitter.on.bind(emitter),
     off: emitter.off.bind(emitter),
+    tickStats() { return tickSystem.getSchedulerStats() },
 
     stageLoader,
 
