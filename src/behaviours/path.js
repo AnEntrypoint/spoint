@@ -1,3 +1,5 @@
+import { assertDefineSpecKeys } from './specBoundary.js'
+
 function refusal(code, message) {
   const err = new TypeError(`[path] ${message}`)
   err.reasonCode = code
@@ -21,6 +23,7 @@ function readPoint(p) {
 function readOptions(options) {
   if (options === undefined) return { closed: false, smooth: false, spacing: 0 }
   if (options === null || typeof options !== 'object' || Array.isArray(options)) throw refusal('path-options-invalid', `options must be a plain object, got ${JSON.stringify(options)}`)
+  assertDefineSpecKeys('definePathOptions', options)
   const closed = options.closed === undefined ? false : options.closed
   const smooth = options.smooth === undefined ? false : options.smooth
   const spacing = options.spacing === undefined ? 0 : options.spacing

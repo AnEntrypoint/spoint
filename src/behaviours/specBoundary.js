@@ -76,4 +76,62 @@ export const DEFINE_SPEC_SCHEMAS = Object.freeze({
     colorblindSafe: { type: 'boolean', default: false },
     onAssign: callback(), onScore: callback(), onWin: callback(),
   }),
+  buoyancy: Object.freeze({
+    halfHeight: { type: 'number', min: 0, exclusiveMin: true, default: 0.5 },
+    floatFactor: { type: 'number', min: 0, default: 1.2 },
+    linearDrag: { type: 'number', min: 0, default: 2.0 },
+    buoyantForce: { type: 'number', min: 0, nullable: true, default: null },
+  }),
+  checkpoint: Object.freeze({
+    spawn: { type: 'custom', required: true, check: v => Array.isArray(v) && v.length >= 3 },
+    minY: { type: 'number', default: -50 },
+    radius: { type: 'number', min: 0, exclusiveMin: true, default: 3 },
+    checkpoints: { type: 'array', default: () => [] },
+    onCheckpoint: callback(), onRespawn: callback(),
+  }),
 })
+
+export const DEFINE_SPEC_KEYS = Object.freeze({
+  "defineQuestSystem": Object.freeze(["channel","inventory","onObjectiveProgress","onQuestComplete","onQuestStart","quests","stats"]),
+  "defineStatsSystem": Object.freeze(["baseStats","channel","equipment","maxLevel","onLevelUp","onLoadoutSwap","startLevel","startXP","statScaling","xpPerLevel"]),
+  "defineProgression": Object.freeze(["abilities","hotkeys","onLevelUp","onLevelUpTick","progressionConfig","setup","tick"]),
+  "defineGameFSM": Object.freeze(["context","id","initial","states"]),
+  "defineGameMode": Object.freeze(["channel","countdownMs","id","intermissionMs","messages","minPlayers","onEnd","onLobbyEnter","onLobbyTick","onRoundEnd","onRoundStart","onRoundTick","onWarmupEnter","onWarmupTick","phaseNames","roundMs","roundsPerMatch","scoring","teams","winCondition"]),
+  "defineBuffStack": Object.freeze(["decayPerSec","decayTarget","maxStack"]),
+  "defineShrinkingZone": Object.freeze(["affectDynamicEntities","center","curve","damagePerSec","durationSec","endRadius","onComplete","onPhaseChange","outsidePenalty","phases","pushForce","ringColor","ringHeight","showRing","startDelaySec","startRadius"]),
+  "defineHealth": Object.freeze(["hp","invulnMs","max","onDamage","onDeath","onRespawn"]),
+  "defineCombat": Object.freeze(["$","config","onDeath","onHit","onKill","onPowerup","onRespawn","onWorldHit","powerupRespawnMs","powerups","scoreboardKey","shotBlocked","spawnPoints"]),
+  "defineFire": Object.freeze(["gameplay","onExtinguish","onIgnite","radius","role"]),
+  "defineSteering": Object.freeze(["arriveRadius","clampToTerrain","separation","speed","useNavCost","yOffset"]),
+  "defineCameraRig": Object.freeze(["default","distance","eyeHeight","frames","height","init","layers","loop","maxPitch","minPitch","onInput","sensitivity","targetHeight","update"]),
+  "defineCheckpoint": Object.freeze(["checkpoints","minY","onCheckpoint","onRespawn","radius","spawn"]),
+  "definePickup": Object.freeze(["cooldown","onCollect","oneShot","radius"]),
+  "defineDestructible": Object.freeze(["debrisCount","debrisFreezeAfter","debrisImpulsePattern","debrisLifetime","debrisSettleGrace","debrisShape","fracturedAsset","fracturedPieceCount","health","impactRadius","impactThreshold","onDestroyed","onRespawn","respawnDelay"]),
+  "defineSoftbody": Object.freeze(["bendSprings","cols","damping","gravity","mass","pins","rows","spacing","stiffness","substeps","wind"]),
+  "defineFluid": Object.freeze(["boundary","emitRate","gasConstant","gravity","initialCount","maxParticles","restDensity","smoothingRadius","viscosity","worldY"]),
+  "defineFluid3D": Object.freeze(["boundary","emitRate","gasConstant","gravity","initialCount","maxParticles","restDensity","smoothingRadius","viscosity"]),
+  "defineBuoyancy": Object.freeze(["buoyantForce","floatFactor","halfHeight","linearDrag"]),
+  "defineTeams": Object.freeze(["autoBalance","broadcast","channel","colorblindSafe","onAssign","onScore","onWin","scoreLimit","teams"]),
+  "defineWeapon": Object.freeze(["damage","excludeBodyId","fireRateMs","headshot","headshotMult","magazine","onFire","onHit","onKill","onReload","range","reloadMs"]),
+  "definePlayerInventory": Object.freeze(["catalog","channel","itemDefs","onBuy","onChange","onDrop","startCurrency","startItems"]),
+  "createTween": Object.freeze(["durationMs","easingName","from","onComplete","onUpdate","to"]),
+  "definePathOptions": Object.freeze(["closed", "smooth", "spacing"]),
+})
+
+export function assertDefineSpecKeys(name, spec) {
+  const keys = DEFINE_SPEC_KEYS[name]
+  if (!keys) throw refusal('define-spec-unknown-factory', `no spec key list is registered for ${name}`)
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) throw refusal('define-spec-invalid', `${name} spec must be a plain object`)
+  for (const key of Object.keys(spec)) {
+    if (!keys.includes(key)) throw refusal('define-spec-unknown-key', `${name} has no spec key "${key}"`, key)
+  }
+  return spec
+}
+
+export function assertDefineNumber(name, key, value, { min = -Infinity, exclusiveMin = false, max = Infinity } = {}) {
+  if (value === undefined || value === null) return
+  const ok = typeof value === 'number' && Number.isFinite(value)
+    && (exclusiveMin ? value > min : value >= min)
+    && value <= max
+  if (!ok) throw refusal('define-spec-invalid-field', `${name}.${key} must be a finite number in its allowed range`, key)
+}

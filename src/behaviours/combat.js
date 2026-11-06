@@ -1,4 +1,6 @@
 import { senderOf } from '../sdk/appEventSender.js'
+import { assertDefineNumber } from './specBoundary.js'
+
 export const DEFAULT_COMBAT = Object.freeze({
   respawnTime: 1.5,
   health: 100,
@@ -96,7 +98,7 @@ export function defineCombat(spec = {}, ctx = null) {
 
   const config = { ...DEFAULT_COMBAT, ...(spec.config || {}) }
   rejectInvalidFields(config, CONFIG_RULES, 'spec.config')
-  if (spec.powerupRespawnMs !== undefined && !(Number.isFinite(spec.powerupRespawnMs) && spec.powerupRespawnMs >= 0)) throw new TypeError(`[combat] spec.powerupRespawnMs must be a finite number of at least 0, got ${describeValue(spec.powerupRespawnMs)}`)
+  assertDefineNumber('defineCombat', 'powerupRespawnMs', spec.powerupRespawnMs, { min: 0 })
   if (spec.scoreboardKey !== undefined && (typeof spec.scoreboardKey !== 'string' || !spec.scoreboardKey)) throw new TypeError(`[combat] spec.scoreboardKey must be a non-empty string, got ${describeValue(spec.scoreboardKey)}`)
   if (spec.spawnPoints !== undefined && !Array.isArray(spec.spawnPoints)) throw new TypeError(`[combat] spec.spawnPoints must be an array, got ${describeValue(spec.spawnPoints)}`)
   for (const k of ['onKill', 'onHit', 'onRespawn', 'onPowerup', 'onWorldHit', 'onDeath', 'shotBlocked']) {

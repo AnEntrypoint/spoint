@@ -35,6 +35,7 @@ import { defineStatsSystem } from '../game/StatsSystem.js'
 import { defineProgression } from './Progression.js'
 import { easing, EASING_NAMES } from '../shared/easing.js'
 import { createTween } from '../shared/tween.js'
+import { assertDefineSpecKeys, DEFINE_SPEC_KEYS } from '../behaviours/specBoundary.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -579,5 +580,14 @@ export class AppContext {
         return setupTerrainStreaming({ physics, playerManager, terrain: tcfg, bakedSource: nodeBakedSource() })
       }
     }
+  }
+}
+
+for (const name of Object.keys(DEFINE_SPEC_KEYS)) {
+  const original = AppContext.prototype[name]
+  if (typeof original !== 'function') continue
+  AppContext.prototype[name] = function (spec, ...rest) {
+    assertDefineSpecKeys(name, spec === undefined ? {} : spec)
+    return original.call(this, spec, ...rest)
   }
 }

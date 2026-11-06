@@ -1,22 +1,7 @@
-function _validateSpec(spec) {
-  if (spec !== null && typeof spec !== 'object') throw new TypeError('[buoyancy] spec must be an object')
-  const s = spec || {}
-  if (s.halfHeight != null && (typeof s.halfHeight !== 'number' || !Number.isFinite(s.halfHeight) || s.halfHeight <= 0)) {
-    throw new TypeError('[buoyancy] halfHeight must be a positive finite number')
-  }
-  if (s.floatFactor != null && (typeof s.floatFactor !== 'number' || !Number.isFinite(s.floatFactor) || s.floatFactor < 0)) {
-    throw new TypeError('[buoyancy] floatFactor must be a non-negative finite number')
-  }
-  if (s.linearDrag != null && (typeof s.linearDrag !== 'number' || !Number.isFinite(s.linearDrag) || s.linearDrag < 0)) {
-    throw new TypeError('[buoyancy] linearDrag must be a non-negative finite number')
-  }
-  if (s.buoyantForce != null && (typeof s.buoyantForce !== 'number' || !Number.isFinite(s.buoyantForce) || s.buoyantForce < 0)) {
-    throw new TypeError('[buoyancy] buoyantForce must be a non-negative finite number')
-  }
-}
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
 
 export function defineBuoyancy(spec = {}, appCtx = null) {
-  _validateSpec(spec)
+  spec = parseDefineSpec('defineBuoyancy', spec, DEFINE_SPEC_SCHEMAS.buoyancy)
   if (!appCtx) throw new TypeError('[buoyancy] appCtx is required')
 
   const halfHeight = spec.halfHeight ?? 0.5

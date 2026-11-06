@@ -1,10 +1,12 @@
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
+
 export function defineCheckpoint(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[checkpoint] appCtx is required')
-  if (!Array.isArray(spec.spawn) || spec.spawn.length < 3) throw new TypeError('[checkpoint] spawn [x,y,z] is required')
+  spec = parseDefineSpec('defineCheckpoint', spec, DEFINE_SPEC_SCHEMAS.checkpoint)
   const spawn = [spec.spawn[0], spec.spawn[1], spec.spawn[2]]
-  const minY = (typeof spec.minY === 'number' && Number.isFinite(spec.minY)) ? spec.minY : -50
-  const defRadius = spec.radius ?? 3
-  const cps = (spec.checkpoints || []).map((c, i) => ({ position: c.position, r2: (c.radius ?? defRadius) ** 2, index: i }))
+  const minY = spec.minY
+  const defRadius = spec.radius
+  const cps = spec.checkpoints.map((c, i) => ({ position: c.position, r2: (c.radius ?? defRadius) ** 2, index: i }))
   const _cp = new Map()
   const _cpIndex = new Map()
 
