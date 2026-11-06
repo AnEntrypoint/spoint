@@ -92,3 +92,15 @@ Hot swap: every export in `PredictionChart.js` is a pure function over its argum
 Source: `src/game/playerId.js`.
 
 Every system keys its maps on the parsed value. No function accepts the raw one.
+
+## Input acknowledgement sequence
+
+Source: `src/netcode/PlayerManager.js`, `ackSequenceOf`.
+
+The sequence addInput compares against is published by `ackSequenceOf`, so a decode can walk past the records it would otherwise build an object for and then have addInput drop on this same comparison.
+
+## Dev HMR body validators
+
+Source: `src/sdk/DevHmr.js`, `moduleValidator`.
+
+A ?hmr= body is a pure function of the file's bytes, the floor, and the active version of the module itself and of each of its direct imports. `rewrite()` stamps an import only while that import carries a version above the floor. So those are exactly what a validator must cover, and a body is re-sent only when one of them moves. `Cache-Control: no-cache` still forces a revalidate before every use, so a reload answers 304 and never re-reads or re-rewrites the source. Only the modules an edit reaches pay for a body.
