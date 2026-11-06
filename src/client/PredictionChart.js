@@ -31,11 +31,6 @@ export function copyAckedEntry(dst, src, moveKeys) {
   for (const k of moveKeys) dst.move[k] = src.move[k]
 }
 
-// --- hot swap -----------------------------------------------------------------------------
-// Every export below is a pure function over its arguments. groundScratch is a per-call scratch
-// buffer that every call overwrites before reading, so the swapped-in copy starts from the same
-// observable state. An ESM import is a live binding to this instance's export bindings, so every
-// importer already holding them reads the new code on its next call.
 const _hotSwapPredictionChart = (next) => {
   reexpressMotionState = next.reexpressMotionState
   saveStepNormal = next.saveStepNormal

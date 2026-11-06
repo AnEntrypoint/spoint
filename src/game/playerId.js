@@ -1,4 +1,3 @@
-// Every system keys its maps on the parsed value and no function accepts the raw one.
 
 export function parsePlayerId(pid) {
   const key = tryParsePlayerId(pid)

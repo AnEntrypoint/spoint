@@ -69,3 +69,15 @@ Source: `src/netcode/SnapshotPacker.js`.
 
 - `snapshotHead` is memoised once per process. The memo is valid only while `WIRE_STRUCTURES` in `src/protocol/msgpack.js` is fixed.
 - Player records are packed once per memo, not once per viewer.
+
+## Client prediction chart
+
+Source: `src/client/PredictionChart.js`.
+
+Hot swap: every export in `PredictionChart.js` is a pure function over its arguments. `groundScratch` is a per-call scratch buffer that every call overwrites before reading, so a swapped-in copy starts from the same observable state. An ESM import is a live binding to the instance's export bindings, so every importer that already holds them reads the new code on its next call.
+
+## Player identity
+
+Source: `src/game/playerId.js`.
+
+Every system keys its maps on the parsed value. No function accepts the raw one.
