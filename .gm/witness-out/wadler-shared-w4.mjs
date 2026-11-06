@@ -98,7 +98,6 @@ if (expect) {
   }
 }
 
-// --- WADLER-red-w4-1: bake-minimap takes the parsed record straight through; no default survives ---
 if (expect) {
   const { spawnSync } = await import('node:child_process')
   const { rmSync, readFileSync } = await import('node:fs')

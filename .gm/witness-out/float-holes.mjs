@@ -50,11 +50,9 @@ for (let x = D - 200; x <= D + 200; x += 8) for (let z = -200; z <= 200; z += 8)
   if (Math.hypot(x - D, z) > 200) continue
   if (surface.heightAtLocal(x, z) === null) holes.push([x - D, z])
 }
-// Camera-relative hole coordinates, and the chart distance of each to the nearest hole neighbour.
 const xs = [...new Set(holes.map(h => h[0]))].sort((a, b) => a - b)
 const zs = [...new Set(holes.map(h => h[1]))].sort((a, b) => a - b)
 const cam = frame.localToWorld(D, frame.cpuGroundHeightLocal(D, 0) + 1.7, 0)
-// Which leaves (quadtree nodes) are the camera-facing level 0 leaves? record levels present.
 const levels = {}
 for (let i = 0; i < payload.count; i++) levels[payload.offsets[i*4+3]] = (levels[payload.offsets[i*4+3]] || 0) + 1
 console.log(JSON.stringify({ holes: holes.length, sample: holes.slice(0, 40), xRange: [xs[0], xs[xs.length-1]], zRange: [zs[0], zs[zs.length-1]], distinctX: xs.length, distinctZ: zs.length, levels, stats: surface.stats() }))

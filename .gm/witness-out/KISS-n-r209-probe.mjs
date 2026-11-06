@@ -1,5 +1,3 @@
-// Probe for KISS-n-r209-1..10 over client/xr. Live: imports the real XRWidgets.js and
-// XRControls.js under node (three resolves from node_modules); static rows read source text.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -17,7 +15,6 @@ function check(id, name, ok, detail) {
 const { createXRWidgets } = await import(join(ROOT, 'client/xr/XRWidgets.js'))
 const { XRControls } = await import(join(ROOT, 'client/xr/XRControls.js'))
 
-// KISS-1 and KISS-2: fade is one phase variable; an aborted teleport resets the fade.
 check('KISS-1', 'no xstate import or fadeMachine in XRWidgets', !/xstate|createMachine|fadeMachine/.test(widgetsSrc), 'static source scan')
 const scene = { added: [], add(o) { this.added.push(o) } }
 const camera = { added: [], add(o) { this.added.push(o) } }
@@ -35,7 +32,6 @@ const afterAbort = quad?.material?.opacity
 check('KISS-2', 'aborted teleport leaves no fade behind', midOpacity > 0 && afterAbort === 0 && w.isTeleporting === false,
   `opacityMidFade=${midOpacity} opacityAfterAbort=${afterAbort} isTeleporting=${w.isTeleporting}`)
 
-// KISS-7: marker height ignores the ground and the dead guard is gone.
 const marker = (name) => scene.added.find((o) => o.name === name)
 const hitYs = []
 for (const oy of [1.7, 5]) {
@@ -46,7 +42,6 @@ check('KISS-7', 'marker y independent of origin height (hardcoded ground)', hitY
   `markerY(originY=1.7)=${hitYs[0]} markerY(originY=5)=${hitYs[1]}`)
 check('KISS-7', 'dead idx<positions.length guard removed', !/idx < positions\.length/.test(widgetsSrc), 'static source scan')
 
-// KISS-3, KISS-4, KISS-5: XRControls dead surface, reticleVisible mirror, unparented planes.
 const xc = new XRControls({ placementMode: true })
 check('KISS-3', 'placeAtCamera / getPlacementInfo / options.scale absent',
   typeof xc.placeAtCamera === 'undefined' && typeof xc.getPlacementInfo === 'undefined' && xc.options.scale === undefined,
@@ -56,18 +51,14 @@ check('KISS-4', 'reticleVisible mirror and placeAnchor absent', !('reticleVisibl
 check('KISS-5', 'no plane mesh surface on XRControls', typeof xc.onPlanesDetected === 'undefined' && !/planeMeshes|planes\s*=/.test(controlsSrc),
   `onPlanesDetected=${typeof xc.onPlanesDetected}`)
 
-// KISS-6: wrist/visibility refresh driven by dt accumulator, not the absolute clock.
 check('KISS-6', 'no absolute-clock modulo gates in XRSystem', !/%\s*66|%\s*100/.test(systemSrc) && /Elapsed\s*\+=\s*step/.test(systemSrc),
   'static source scan: accumulator "+= step" present, "% 66" and "% 100" absent')
 
-// KISS-8: alias bindings and duplicated handsDetected.
 check('KISS-8', 'widgets holds no handsDetected copy', !/handsDetected/.test(widgetsSrc), 'static source scan of XRWidgets.js')
 check('KISS-8', 'wristUI read through one object (no three aliases)', !/wristUICanvas|wristUIContext/.test(widgetsSrc), 'static source scan')
 
-// KISS-9: scratch vectors are gone.
 check('KISS-9', 'no _tmp1/_tmp2 scratch vectors', !/_tmp1|_tmp2/.test(widgetsSrc), 'static source scan')
 
-// KISS-10: freshness marker export is gone.
 check('KISS-10', 'no __freshnessProbe export in XRWidgets', !/__freshnessProbe/.test(widgetsSrc), 'static source scan')
 
 console.log(results.join('\n'))

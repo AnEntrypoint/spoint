@@ -1,14 +1,9 @@
-// CONTRACTTEST witness: drive the real client/core/WorkerRenderer.js against a producer that
-// mirrors client/workers/OffscreenRenderWorker.js message-for-message, and assert the consumer's
-// public state matches the producer's real state.
 import { createWorkerRenderer } from '../../client/core/WorkerRenderer.js'
 
 function dimsAreValid(width, height) {
   return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
 }
 
-// Mirror of the producer: post() stamps seq+run on every outbound message (:16), and the only
-// outbound types are ready/frame/stopped/error (:94,:56,:118,:20).
 const producers = []
 class ProducerWorker {
   constructor() {
@@ -75,34 +70,28 @@ function check(name, cond, detail) {
 }
 
 async function main() {
-  // C1: the producer stamps seq+run on every message, so no unstamped message is ever delivered.
   const a = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200, onStats: () => {} })
   await a.start()
   check('C1 a stamped producer never yields an unstamped acceptance', a.getOrder().unstampedRejected === 0, JSON.stringify(a.getOrder()))
   producers[producers.length - 1].onmessage({ data: { type: 'frame' } })
   check('C1b an unstamped message is counted, never accepted', a.getOrder().unstampedRejected === 1, JSON.stringify(a.getOrder()))
 
-  // C2-C4: the producer refuses a bad resize (:101) and keeps rendering; the consumer must agree.
   a.resize(0, 0)
   const st = a.getState()
   check('C2 a refused resize leaves the run live', st.state !== 'error' && a.isRunning() === true, JSON.stringify(st))
   check('C3 a refused resize is not the run last error', a.getLastError() === null, JSON.stringify(a.getLastError()))
   check('C4 a refused resize does not mark the run stale', a.getStats().stale === false, JSON.stringify(a.getStats()))
 
-  // C5: an error before ready is terminal -- regression guard on the branch C2-C4 reclassify.
   const b = createWorkerRenderer(makeCanvas(1, null), { readyTimeoutMs: 200 })
   const settled = await b.start().then(() => 'resolved', (e) => 'rejected:' + e.message)
   check('C5 an init refusal still fails start()', String(settled).indexOf('worker init error') >= 0, settled)
   check('C5b an init refusal is the run last error', b.getLastError() !== null && b.getLastError().code === 'init-no-canvas', JSON.stringify(b.getLastError()))
 
-  // C6: the producer's stopped still transitions the consumer.
   const c = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200 })
   await c.start()
   const stopRes = await c.stop()
   check('C6 the producer stopped message still settles stop()', stopRes.ok === true && c.getState().state === 'stopped', JSON.stringify(stopRes) + ' ' + JSON.stringify(c.getState()))
 
-  // R: start, stop, start again against a one-transfer canvas. The second start() must be refused
-  // by the canvas and must not leave a 'starting' run that refuses every later start().
   const producerBase = producers.length
   const d = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200 })
   const h1 = await d.start()

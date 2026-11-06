@@ -102,7 +102,6 @@ await refusesAtStart('a centre that is not a pair from getCenters', fullSpec({ g
 await refusesAtStart('a non-array return from getCenters', fullSpec({ getCenters: () => 'gone' }), 'getCenters returned')
 await refusesAtStart('a malformed centre from getCenter', fullSpec({ getCenters: undefined, getCenter: () => [undefined, 0] }), 'collider centre from getCenter')
 
-// The periodic path, on a real world, a real PhysicsWorld and a real trunk streamer.
 const { loadWorldModule } = await import(href(resolve(ROOT, 'src/sdk/WorldLocator.js')))
 const { PhysicsWorld } = await import(href(resolve(ROOT, 'src/physics/World.js')))
 const { planetSamplerOptsOf, loadPlanetSampler } = await import(href(resolve(ROOT, 'src/terrain/TerrainPhysics.js')))

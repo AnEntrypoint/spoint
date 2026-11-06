@@ -6,23 +6,11 @@ const { FACE_FRAME, worldToFaceLocal } = await import(_msFile('planet-orchestrat
 export const MESH_SURFACE_NO_GROUND = null
 export function isMeshSurfaceNoGround(v) { return v === MESH_SURFACE_NO_GROUND }
 
-// The ONE authority for "the mesh the renderer drew, at a chart-local (x,z)": the frame's own port,
-// read at the moment it is asked for. Two readers used to resolve it differently --
-// client/core/ExactPatchFrame.js captured the property by value when its frame was built, while
-// src/terrain/GrassPlacement.js read the same property live, per cell -- so after a late attach or a
-// rebuild (the mirror is rebuilt with the planet, and a quality tier change re-attaches it) the two
-// answered from different meshes: the ground a blade was placed against came from one and the
-// surface the blade was drawn on from the other. Both sides call this now, so a capture cannot
-// survive an attach and there is nothing left to disagree about.
 export function renderMeshHeightAt(frame) {
   return typeof frame.renderMeshHeightAtLocal === 'function' ? frame.renderMeshHeightAtLocal : null
 }
 
 const QUARTER_PI = Math.PI / 4
-// The fixed point a direction's height is solved to, and the test that an answer is the surface's
-// rather than the seed's: the same two numbers client/core/ExactPatchFrame.js uses for the mesh
-// surface, so a vertex read from the lattice and a vertex read from the sampler cannot disagree
-// about what "reached the ground" means.
 const MESH_SOLVE_ITERS = 4
 const MESH_SOLVE_TOL_M = 1e-6
 const DEFAULT_FOCUS_RADIUS_M = 240
@@ -80,22 +68,9 @@ export function createTerrainMeshSurface(opts = {}) {
   const U = frame.up, E = frame.east, N = frame.north
   const heightAtDir = opts.heightAtDir
   const quadsFn = opts.quads
-  // The shared lattice: the sample buffer the collider builds its field from
-  // (src/terrain/LatticeSurface.js). Where it covers a vertex it IS the ground, so the vertex reads
-  // it instead of asking the sampler to solve the same point again -- one copy, not two answers.
   const lattice = (opts.lattice && typeof opts.lattice.covers === 'function' && typeof opts.lattice.heightAtLocal === 'function') ? opts.lattice : null
 
-  // A direction is not a chart-local (x,z): the point along it sits at radial distance rho, and its
-  // chart-local height is the height AT the (x,z) that same rho implies, so
-  //   rho * du - base = H(rho * de, rho * dn)
-  // is one fixed point in rho -- the same one client/core/ExactPatchFrame.js solves for the mesh
-  // surface, so the two agree about what "the ground along this direction" means. Near the chart's
-  // anchor it contracts in a step or two, because x and z move by the direction's own east/north
-  // components. An answer that has NOT converged is a function of the seed and not of the surface,
-  // so it is refused and the sampler answers instead: no vertex silently loses its ground.
   function latticeHeightAtDir(d) {
-    // The lattice is chart-local and the chart can be re-anchored under it, after which the same
-    // (x,z) names different ground. Refuse rather than answer from a chart it no longer describes.
     if (lattice.chartEpoch !== undefined && frame.chartEpoch !== lattice.chartEpoch) return NaN
     const len = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
     if (!(len > 0)) return NaN
@@ -123,12 +98,6 @@ export function createTerrainMeshSurface(opts = {}) {
   const near = []
   const built = new Map()
   const candidates = []
-  // Every read of this mirror used to test EVERY near quad's box and winding: 1218 of them at the
-  // shipped focus, ~10 us a read, paid 5 times a placement cell and twice a grass blade. The boxes
-  // are axis-aligned in the chart, so a sync-sized uniform grid answers a read with the handful of
-  // quads that can actually cover the point. A quad too big to fan out over the grid rides the
-  // overflow list instead; both are bbox- and winding-tested exactly as before, so this changes
-  // which quads are REJECTED and never which one answers.
   const NEAR_GRID_MAX_FAN = 64
   const NEAR_GRID_KEY_BIAS = 32768
   const nearGrid = new Map()
@@ -287,29 +256,6 @@ export function createTerrainMeshSurface(opts = {}) {
     focus[0] = x; focus[1] = z
   }
 
-  // A read used to be a function of WHEN the render loop last called sync(), not of the ground it
-  // asks about: before the first sync the index is empty and every read answers "no ground", so
-  // client/core/ExactPatchFrame.js falls through to the frame's own sampler and every blade, tree
-  // and rock the boot prewarm places sits on the fractal instead of on the mesh it is drawn on.
-  // Scenery is built before the world is revealed (client/app.js _awaitSceneryBuild runs before
-  // _revealWorld, and sync() only runs inside renderPlanet), so that window is the whole initial
-  // ring, not one frame. The mirror therefore builds that index the first time it is asked for
-  // ground it has none for, around the point it was asked about. It does NOT re-centre on a read
-  // that is merely far from the render focus: which quads answer a distant point is the render
-  // loop's decision, and moving that decision here changes what every measurement past the focus
-  // reads.
-  //
-  // One build per version is the bound that keeps this from becoming per-read work: the render
-  // loop's own sync() bumps version, so the window before the first frame pays one build.
-  //
-  // That bound is on the ATTEMPT, never on the coverage: the version latch below is set only by a
-  // sync that actually earned quads. A sync that earned nothing is bounded by the payload it ran on
-  // instead -- the same drawn quads cannot cover what they did not cover, so repeating it per read
-  // would buy nothing and would cost a sync per read, while a payload that has GROWN since the
-  // attempt is a different question and is re-asked. Latched unconditionally, the boot ring's first
-  // read -- the one made before the renderer had drawn anything -- claimed the whole version as
-  // covered, and every read after it in that version answered "no ground" and fell through to the
-  // CPU sampler even once the quads existed.
   let syncedQuads = 0
   let lazySyncVersion = -1
   let lazySyncDrawn = -1
@@ -377,9 +323,6 @@ export function createTerrainMeshSurface(opts = {}) {
     rebuildNearIndex()
   }
 
-  // A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad
-  // it wrongly claims costs a 144-vertex materialisation, so the box only pre-rejects: the
-  // actual test is winding-uniform containment in the quad's own corners.
   function insideQuad(q, x, z) {
     const cx = q.cx, cz = q.cz
     let sign = 0
@@ -416,8 +359,6 @@ export function createTerrainMeshSurface(opts = {}) {
       }
     }
     if (candidates.length === 0) { stats.unserved++; return MESH_SURFACE_NO_GROUND }
-    // The quad that answers is the finest one covering the point, and among equals the one the
-    // linear scan would have reached first: the index must not decide a tie by its own order.
     candidates.sort((a, b) => a.l - b.l || a.idx - b.idx)
     for (let k = 0; k < candidates.length; k++) {
       const q = materialize(candidates[k])

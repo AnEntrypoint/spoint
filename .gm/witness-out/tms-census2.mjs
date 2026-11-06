@@ -71,7 +71,6 @@ const info = samples.map(([x, z, dist]) => {
 })
 
 
-// Hole census with the correct face: how many holes have a covering leaf on their own face, and how many of those are inside the reach.
 const census = { holes: 0, holeWithLeaf: 0, holeLeafInReach: 0, sampledHoleFaces: {} }
 for (let x = -712; x <= 712; x += 9.7) for (let z = -712; z <= 712; z += 9.3) {
   const dist = Math.hypot(x, z)

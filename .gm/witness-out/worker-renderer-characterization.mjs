@@ -1,10 +1,3 @@
-// CHARTEST witness (client/core): characterize the SHIPPED producer by executing its real source.
-//
-// The CONTRACTTEST witness drives the consumer against a hand-written mirror of the worker. This one
-// runs client/workers/OffscreenRenderWorker.js itself under a self/THREE stub, so every message the
-// consumer receives was emitted by the shipped code. Facts that only the real source can show -- the
-// frame clock gate, the messages a successful resize does NOT emit, run resetting per worker while the
-// renderer's run id does not -- are pinned here. A change on either side moves a check.
 import { readFileSync } from 'node:fs'
 import { createWorkerRenderer } from '../../client/core/WorkerRenderer.js'
 
@@ -20,7 +13,6 @@ function check(name, cond, detail) {
 }
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 
-// ---------------------------------------------------------------- source facts
 const OUTBOUND_TYPES = [...workerSrc.matchAll(/type: '([a-z-]+)'/g)].map((m) => m[1]).sort()
 const REFUSAL_CODES = [...workerSrc.matchAll(/postError\('([a-z-]+)'/g)].map((m) => m[1]).sort()
 const CLOCK_MS = Number((workerSrc.match(/STATS_POST_INTERVAL_MS = (\d+)/) || [])[1])
@@ -38,7 +30,6 @@ check('A4 every outbound message carries the stamp: one post site, no bare postM
 check('A5 the consumer branches on exactly the types the producer emits',
   eq(CONSUMER_BRANCHES, OUTBOUND_TYPES), JSON.stringify(CONSUMER_BRANCHES) + ' vs ' + JSON.stringify(OUTBOUND_TYPES))
 
-// ------------------------------------------------------- run the shipped producer
 function makeSelf() {
   const s = {
     outbox: [],
@@ -107,7 +98,6 @@ function makeCanvas(transfers) {
   }
 }
 
-// ------------------------------------------------------------------ 1. bare producer
 const raw = new ShippedWorker()
 raw.postMessage({ type: 'stop' })
 check('B1 stop with no init still answers stopped (worker:114)',
@@ -128,7 +118,6 @@ check('B5 a zero-dim resize is refused bad-resize-payload', rawInit.last().code 
 rawInit.postMessage({ type: 'nope' })
 check('B6 an unhandled type is refused unknown-message-type', rawInit.last().code === 'unknown-message-type', JSON.stringify(rawInit.last()))
 
-// ------------------------------------------------- 2. the frame clock, as the worker runs it
 const clocked = new ShippedWorker()
 clocked.postMessage({ type: 'init', canvas: {}, width: 320, height: 180, dpr: 1 })
 clocked.pump(16)
@@ -145,7 +134,6 @@ check('B10 a frame inside the gate is silent', clocked.self.outbox.filter((m) =>
 clocked.pump(600)
 check('B11 reported frame numbers skip: #4 follows #2', clocked.last().frame === 4, JSON.stringify(clocked.last()))
 
-// --------------------------------------- 3. shipped producer driving the real consumer
 const a = createWorkerRenderer(makeCanvas(2), { readyTimeoutMs: 200, onStats: () => {} })
 await a.start()
 check('C1 the shipped producer never yields an unstamped acceptance',
@@ -181,9 +169,6 @@ live.postMessage({ type: 'resize', width: 10, height: 10 })
 check('C9 resize after stop is refused resize-no-render-target',
   live.last().code === 'resize-no-render-target', JSON.stringify(live.last()))
 
-// --------------------------------- 4. two counters one property apart, as shipped
-// A re-start makes a NEW worker, so the worker's init counter goes back to 1 while the renderer's
-// run id keeps climbing: getStats().run and getStats().order.run are then different numbers.
 await a.start()
 live.pump(1200)
 check('D1 the renderer run id keeps counting while the worker run counter resets to 1',

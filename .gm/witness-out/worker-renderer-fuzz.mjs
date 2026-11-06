@@ -52,7 +52,6 @@ async function boot(r) {
 }
 
 async function main() {
-  // A: drive the message surface with malformed and out-of-order inputs.
   const a = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200, onStats: () => {} })
   await boot(a)
   check('A1 ready accepted', a.getState().state === 'live', JSON.stringify(a.getState()))
@@ -94,7 +93,6 @@ async function main() {
   const st = a.getStats()
   check('A11 getStats after stopped keeps the last accepted frame', st.frame === 2 && st.order.run === 1, JSON.stringify(st))
 
-  // B: stopped before ready.
   const b = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200 })
   let settled = null
   const pb = b.start().then(() => { settled = 'resolved' }, (e) => { settled = 'rejected:' + e.message })
@@ -103,7 +101,6 @@ async function main() {
   check('B1 stopped before ready settles start promptly', settled !== null && String(settled).indexOf('stopped') >= 0, 'settled=' + settled)
   await pb
 
-  // C: a concurrent start cannot build a Worker it does not own.
   const cIdx = workers.length
   const c = createWorkerRenderer(makeCanvas(1), { readyTimeoutMs: 200 })
   const pc = c.start().catch(() => 'start1-settled')
@@ -115,7 +112,6 @@ async function main() {
   check('C2 the concurrent start is refused and names the owning run', String(second).indexOf('run 1 is starting') >= 0, String(second))
   await pc
 
-  // D: a stop waiter is owned by the run that stopped.
   const dIdx = workers.length
   const d = createWorkerRenderer(makeCanvas(2), { readyTimeoutMs: 200 })
   await boot(d)
@@ -134,7 +130,6 @@ async function main() {
   emit(w1, { type: 'stopped', seq: 2, run: 1 })
   check('D6 a message from the dead run cannot move run 2', d.getState().state === 'live' && d.getOrder().run === 2, JSON.stringify(d.getState()) + ' ' + JSON.stringify(d.getOrder()))
 
-  // E: order counters keep a previous run disorder.
   const e = createWorkerRenderer(makeCanvas(3), { readyTimeoutMs: 200 })
   await boot(e)
   emit(last(), { type: 'frame', seq: 5, run: 1 })

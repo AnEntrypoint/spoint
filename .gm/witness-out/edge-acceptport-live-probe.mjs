@@ -39,7 +39,6 @@ function wsRequest(url) {
   return new Request(url, { headers: { Upgrade: 'websocket' } })
 }
 
-// the room admits an upgrade and refuses anything else with the reason
 expect('BOUNDARY_WS_ACCEPTED', boundary.acceptRoomRequest(wsRequest('http://x/ws')).accepted, true)
 expect('BOUNDARY_WS_MIXED_CASE', boundary.acceptRoomRequest(new Request('http://x/ws', { headers: { Upgrade: 'WebSocket' } })).accepted, true)
 expect('BOUNDARY_NON_WS_STATUS', boundary.acceptRoomRequest(new Request('http://x/i.html')).status, 426)
@@ -49,11 +48,9 @@ const doNonWs = await room.fetch(new Request('http://x/index.html'))
 expect('DO_NON_WS_STATUS', doNonWs.status, 426)
 expect('DO_NON_WS_REASON', await doNonWs.text(), 'expected websocket upgrade')
 
-// the entry refuses a static request with no origin, and an upgrade with no binding
 expect('ROUTER_NO_ORIGIN_STATUS', (await mod.default.fetch(new Request('http://x/index.html'), {})).status, 502)
 expect('ROUTER_WS_NO_BINDING_STATUS', (await mod.default.fetch(wsRequest('http://x/ws'), {})).status, 503)
 
-// an admitted upgrade lands in the room the request names, not one global room
 let keys = []
 let stubbed = await mod.default.fetch(wsRequest('http://x/ws'), { SPOINT_GAME_ROOM: fakeBinding(keys) })
 expect('ROUTER_WS_DEFAULT_KEY', keys[0], 'probe-room')
@@ -79,7 +76,6 @@ stubbed = await mod.default.fetch(wsRequest('http://x/ws'), { ALT_ROOM: fakeBind
 expect('ROUTER_WS_BINDING_OVERRIDE_STATUS', stubbed.status, 200)
 expect('ROUTER_WS_BINDING_OVERRIDE_KEY', keys[0], 'probe-room')
 
-// an admitted static request reaches the configured origin, tagged
 let captured = null
 const realFetch = globalThis.fetch
 globalThis.fetch = (req) => { captured = req; return new Response('proxied', { status: 200 }) }
@@ -89,7 +85,6 @@ expect('ROUTER_STATIC_STATUS', proxied.status, 200)
 expect('ROUTER_STATIC_URL', captured && captured.url, 'http://localhost:8090/assets/a.png?b=1')
 expect('ROUTER_STATIC_HEADER', captured && captured.headers.get('x-spoint-edge-proxy'), '1')
 
-// the upgrade rule and the two names now live in exactly one file each
 const UPGRADE_RULE = /headers\s*\.\s*get\(\s*['"]Upgrade['"]\s*\)/gi
 const entrySrc = readFileSync(REPO + '/edge/cf-do/spoint-do.js', 'utf8')
 const boundarySrc = readFileSync(REPO + '/edge/cf-do/accept-request.js', 'utf8')

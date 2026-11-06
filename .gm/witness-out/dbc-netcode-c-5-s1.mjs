@@ -30,7 +30,6 @@ const L = cf.LOCKSTEP_CTRL_PREFIX
 const B_ = cf.ROLLBACK_CTRL_PREFIX
 const C = cf.CONSENSUS_CTRL_PREFIX
 
-// --- 1. the contract sits next to the kind, in the boundary ---
 ck('countUnknownKind is gone, countReject replaces it', !('countUnknownKind' in cf) && typeof cf.countReject === 'function', Object.keys(cf).sort())
 ck('controlFrameKinds still names lockstep input,drop', JSON.stringify(cf.controlFrameKinds(L)) === '["input","drop"]', cf.controlFrameKinds(L))
 ck('controlFrameKinds still names rollback input,checksum', JSON.stringify(cf.controlFrameKinds(B_)) === '["input","checksum"]', cf.controlFrameKinds(B_))
@@ -55,7 +54,6 @@ ck('foreign-prefix still outranks the contract', cf.parseControlFrame(L, enc(B_,
 ck('malformed-payload still outranks the contract', cf.parseControlFrame(L, 'wwlockstep:not-json').status, 'malformed-payload')
 ck('unregistered-prefix still outranks the contract', cf.parseControlFrame('wwnope:', 'wwnope:{}').status, 'unregistered-prefix')
 
-// --- 2. the three consumers no longer restate the contract ---
 for (const [file, needle] of [
   ['LockstepInputTransport.js', 'stats.malformed'],
   ['RollbackInputTransport.js', 'countUnknownKind'],
@@ -67,7 +65,6 @@ for (const [file, needle] of [
   ck(`${file} no longer contains ${needle}`, !readFileSync(R + file, 'utf8').includes(needle), needle)
 }
 
-// --- 3. every rejection is a named counted status the transports read ---
 const b1 = makeBridge('p1')
 const lock = new LockstepInputTransport({ bridge: b1 })
 ck('lockstep starts with an empty rejects ledger', JSON.stringify(lock.getStats().rejects), '{}')
@@ -97,7 +94,6 @@ deliver(b2, enc(B_, { type: 'input', tick: 7 }), 'p2')
 deliver(b2, enc(B_, { type: 'checksum', tick: 30, checksum: 'abc' }), 'p2')
 ck('rollback still applies whole frames', rb.getStats().received === 1 && rb.getStats().checksumsReceived === 1 && rbGot.tick === 7, rb.getStats())
 
-// --- 4. ConsensusVoter's declared arm is live ---
 const b3 = makeBridge('p1')
 const voter = new ConsensusVoter({ bridge: b3, checksumOf: (t) => 'cs' + t, localPeerId: 'p1', expectedPeerIds: ['p1', 'p2'] })
 deliver(b3, enc(C, { type: 'checksum', tick: 30, pubkey: 'p2' }), 'p2')
