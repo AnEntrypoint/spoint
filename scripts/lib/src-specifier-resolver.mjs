@@ -6,7 +6,7 @@
 // witness that imports such a module has to resolve it against the repo root itself.
 //
 // This is the module.register spelling (node >= 20.6), used where the running node has
-// no in-process registerHooks (>= 22.15). CI runs node 20, so a gated witness needs it.
+// no in-process registerHooks (>= 22.15); the GPU CI job runs node 20, so a gated witness needs it.
 const ROOT = new URL('../../', import.meta.url)
 
 export async function resolve(specifier, context, nextResolve) {
