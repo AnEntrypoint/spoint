@@ -38,9 +38,6 @@ export function terrainHashVersionOf(tcfg) {
   return assertTerrainHashVersion(tcfg?.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION)
 }
 
-// A carve already in parsed form ({dir, innerM, outerM}) arrives here after a world def crosses
-// the wire, where the parse marker is lost. Accept it only when its shape is valid, so a
-// re-parse is an identity rather than a refusal.
 function isParsedCarve(c) {
   return !!c && Array.isArray(c.dir) && c.dir.length === 3 && c.dir.every(Number.isFinite)
     && Number.isFinite(c.innerM) && c.innerM >= 0 && Number.isFinite(c.outerM) && c.outerM > c.innerM
@@ -79,8 +76,6 @@ export function parseTerrainConfig(tcfg) {
     enabled: tcfg.enabled !== false,
     hashVersion,
     carves,
-    // A config that crossed the wire already carries its raw carves in carveInputs; its carves
-    // field then holds the parsed {dir, innerM, outerM} form, which must not be hashed as input.
     carveInputs: hashVersion === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carveInputs || tcfg.carves || []),
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),
@@ -129,7 +124,6 @@ export function terrainBakeKey(tcfg) {
   return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
 }
 
-// The exact text terrainBakeKey hashes, so a key mismatch can be compared field by field.
 export function terrainBakeSliceText(tcfg) {
   return canonicalJSON(terrainBakeSlice(parsedTerrainOf(tcfg)))
 }

@@ -7,9 +7,6 @@ import { wrapHeightWithMarks } from './TerrainMarks.js'
 import { wrapHeightWithFieldPaint, naturalMaskAt } from './fieldPaint.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
-// The artifact -> sample-field construction lives in one place so the server's collider, the rendered
-// near band's CPU mirror and the placement sampler are readers of one buffer, not three solvers of one
-// function. Nothing here may compute a height the bake does not carry.
 import { createBakedHeightField, bakedTerrainMismatch, bakedHashVersionOf } from './LatticeSurface.js'
 export { createBakedHeightField } from './LatticeSurface.js'
 import { createChartReanchorService } from './ChartReanchorService.js'
@@ -31,10 +28,6 @@ export function loadPlanetSampler(opts = {}) {
   return _latestSampler.promise
 }
 
-// A baked artifact is read through a port, not through a platform: the caller supplies the source
-// that owns readBytes, heightfieldCodec and bakeCodeVersion, and this loader asks it for them. What
-// reads bytes is a fact about the runtime, so a caller that supplies no source is refused instead of
-// being guessed at -- a guessed platform turns an unreadable bake into a silent CPU fallback.
 export class BakedSourceMissingError extends Error {
   constructor(url, missing) {
     super(`[baked-heightfield] ${url}: no baked artifact source supplies ${missing}(), so this loader refuses to guess which platform reads the bytes -- pass nodeBakedSource() or browserBakedSource() from src/terrain/BakedSourceAdapter.js`)
@@ -76,8 +69,6 @@ export async function loadBakedHeightField(url, hashVersion, tcfg, frame, bakedS
     console.warn(`[terrain] ignoring baked heightfield ${url}: ${mismatch} -> exact CPU height`)
     return null
   }
-  // Bound to the live frame's chart epoch, so a re-anchor under this field makes its covers()
-  // answer false instead of pointing every reader at the ground of the chart it was baked under.
   const field = createBakedHeightField(artifact, {
     epochOf: () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0),
   })
@@ -287,10 +278,6 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
       : (gpuPatch ? null : 'the GPU patch bake produced no height function')
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame, bakedSource)
-  // Placement reads the collider's own buffer through the frame, so trees, rocks and grass sit on
-  // the surface the collider simulates instead of paying the CPU sampler to solve it again
-  // (src/terrain/PlacementChart.js surfaceAlongDir). Absent a bake there is no lattice and placement
-  // keeps solving exactly as it did.
   if (baked) frame.sharedLattice = baked
   const bakedAnchorDir = baked ? frame.anchorDir : null
   const bakedFrameIsCurrent = () => frame.up[0] === bakedAnchorDir[0] && frame.up[1] === bakedAnchorDir[1] && frame.up[2] === bakedAnchorDir[2]
@@ -328,10 +315,6 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     }
     return out.length ? out : [tcfg.center || [0, 0]]
   }
-  // The lattice follows the collider source, not the preset: over a field a frozen source answers
-  // in full, a lattice coarser than that source is a pure decimation and is the whole of the
-  // collider's disagreement with the ground, while over a field it has to re-solve terrain the
-  // sample is the cost and the configured spacing stands.
   const followSource = tphys.followSource !== false
   const frozenOriginM = followSource && baked ? baked.center : null
   const frozenSpacingM = followSource ? (gpuPatch ? gpuPatch.spacing : (baked ? bakedSpacingM : 0)) : 0

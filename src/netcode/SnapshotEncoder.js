@@ -85,12 +85,6 @@ export function buildCrowdDots(players, viewerPos, dotCellM) {
   return out
 }
 
-// Module scratch, not a fresh object per nearby player per recipient: this runs once per recipient
-// per snapshot tick, so the old `{ id, p, d2 }` per neighbour was one allocation per (recipient,
-// nearby player) pair -- 512 of them a tick in a 64-player lobby serving 8. Sorting an index
-// permutation instead keeps the ORDER identical, because Array#sort is stable and the permutation
-// starts in the same order the old array was built in, so ties resolve the same way and the wire
-// bytes do not move.
 const _tierIds = []
 const _tierD2 = []
 const _tierOrder = []
@@ -241,8 +235,6 @@ function computeFieldDelta(prevEnc, enc) {
   return out
 }
 
-
-
 export function encodeEntity(e) {
   return fillEntityEnc(e, new Array(6))
 }
@@ -389,10 +381,6 @@ export class SnapshotEncoder {
   static encodeCustomBySchema(schemaName, obj) { return encodeCustomBySchema(schemaName, obj) }
   static decodeCustomBySchema(schemaName, buf) { return decodeCustomBySchema(schemaName, buf) }
 
-  // `needed` is the set of player ids any recipient this tick serves can actually receive. Without
-  // it the pass encodes the whole lobby, including players no recipient is within relevance of, so
-  // the per-tick player walk was a function of how many people connected rather than of what the
-  // group being served can see. Filtering it makes the pass a fact about where the players are.
   static encodePlayersOnce(players, needed = null) {
     const m = _playerEncMap; m.clear()
     const gen = ++_playerEncGen
@@ -420,14 +408,10 @@ export class SnapshotEncoder {
 
   static encodePlayers(players) { return (players || []).map(encodePlayer) }
 
-  // The per-recipient player LOD walk. It is a static as well as a named export because a frozen
-  // ESM namespace cannot be wrapped, so a witness could not otherwise time this stage or count
-  // what it walked -- the row that owns this surface has to break the player stages out separately.
   static filterEncodedPlayersTiered(encodedMap, playersById, nearbyIds, selfId, viewerPos, tick, reducedTickMod) {
     return filterEncodedPlayersTiered(encodedMap, playersById, nearbyIds, selfId, viewerPos, tick, reducedTickMod)
   }
 
-  // Same reason: the tombstone-known-ids walk is one of the per-tick stages a witness has to time.
   static updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, prevKnownIds) {
     return updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, prevKnownIds)
   }

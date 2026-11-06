@@ -1,18 +1,3 @@
-// ONE copy of the ground near the player.
-//
-// The server's terrain collider already builds its field from a baked artifact
-// (apps/world/tps-game.hf: N=257 over 256 m, a 1.0000 m lattice of the chart-local ground). That
-// artifact is a sample buffer, so anything that needs the height of a chart-local (x,z) inside its
-// coverage can READ it instead of solving the terrain again -- and a read is a bilinear step at
-// 0.075 us where the chart-local solve costs 12.1 us and the raw sampler 3.4 us (measured by
-// scripts/shared-lattice-surface-witness.mjs).
-//
-// This module owns the artifact -> sample-field construction. src/terrain/TerrainPhysics.js is the
-// server's reader and keeps its fail-loud behaviour; this module is the reader everything else uses,
-// including the browser, so the collider, the rendered near band's CPU mirror and the placement
-// sampler are three readers of one buffer rather than three solvers of one function.
-//
-// Nothing here computes a height: the only height that exists is the one the bake carries.
 
 import { terrainBakeKey, terrainBakeSliceText, terrainHashVersionOf, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
@@ -21,9 +6,6 @@ const _codecSpec = _isNode ? 'mapspinner/heightfield-codec' : '/node_modules/map
 
 const LATTICE_READ_TIMEOUT_MS = 4000
 
-// A lattice is chart-local, so a re-anchored chart rebases it: the same (x,z) then names different
-// ground. The epoch the artifact was baked at rides on the field so a reader can refuse instead of
-// answering from a chart it no longer describes.
 export function bakedEpochOf(artifact) {
   return artifact.chartEpoch ?? 0
 }
@@ -48,17 +30,6 @@ function _dequantizeSectorized(artifact) {
   return out
 }
 
-// The sample field: a regular grid of chart-local ground heights with bilinear lookup. Every reader
-// that wants "how high is the ground at (x,z)" inside the coverage gets this, so no reader can
-// disagree with another about the same point.
-//
-// epochOf answers the live world frame's chartEpoch. A lattice is chart-local, so the anchor it was
-// baked under is part of what it IS: after a re-anchor the same (x,z) names different ground, and a
-// field that keeps answering there is a stale field that still reports true. The refusal belongs to
-// the field and not to each reader -- a copy of the epoch test in every reader is a staleness guess
-// that any new reader simply omits -- so covers() answers false and heightAtLocal() answers NaN from
-// the moment the anchor moves, and every reader falls back to whatever it did before with no change
-// on its side. Where epochOf is absent the field is unbounded and answers exactly as it always did.
 export function createBakedHeightField(artifact, opts = {}) {
   if (artifact.sectors) artifact = { ...artifact, heights: _dequantizeSectorized(artifact) }
   const { N, extent, center, heights } = artifact
@@ -85,9 +56,6 @@ export function createBakedHeightField(artifact, opts = {}) {
   }
 }
 
-// A bake is only the ground if it is the SAME ground. A different terrain key, chart epoch, radius,
-// anchor direction or relief scale is a different surface, and reading it would move every height
-// the readers report -- so it is refused rather than used.
 export function bakedTerrainMismatch(artifact, tcfg, frame) {
   const bakedEpoch = artifact.chartEpoch ?? 0
   const liveEpoch = (frame && Number.isFinite(frame.chartEpoch)) ? frame.chartEpoch : 0
@@ -109,7 +77,6 @@ async function readLatticeBytes(url) {
     catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null; throw e }
     return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
   }
-  // Bounded: this runs on the boot path and a hung asset fetch must never hold up the planet.
   const ctrl = typeof AbortController === 'function' ? new AbortController() : null
   const timer = ctrl ? setTimeout(() => ctrl.abort(), LATTICE_READ_TIMEOUT_MS) : null
   try {
@@ -119,9 +86,6 @@ async function readLatticeBytes(url) {
   } finally { if (timer) clearTimeout(timer) }
 }
 
-// The one copy, resolved from the same artifact the server's collider builds from. Returns null --
-// never a guess -- wherever the artifact is absent, unreadable, stale or for other ground, and the
-// caller keeps whatever it did before; a lattice that refuses is not a regression.
 export async function loadLatticeSurface({ url, tcfg, frame }) {
   if (!url) return null
   try {
@@ -140,8 +104,6 @@ export async function loadLatticeSurface({ url, tcfg, frame }) {
       console.warn(`[terrain] shared lattice: ${url}: ${mismatch} -> not this ground`)
       return null
     }
-    // The field is bound to the live frame's anchor here, so the refusal is the anchor's and not a
-    // reader's: covers() stops answering true the moment the chart is re-anchored under the field.
     const epochOf = (frame && typeof frame === 'object')
       ? () => (Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
       : null

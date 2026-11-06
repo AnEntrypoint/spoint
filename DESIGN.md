@@ -322,3 +322,121 @@ Node loads msgpackr synchronously (CJS build via the builtin module loader), so 
 Source: `src/apps/AppContext.js`. Text moved from the file comments, paragraph order kept.
 
 A computed specifier: the adapter carries node:fs, and both the client bundle and the src/apps/AppContext.js import closure must stay blind to it.
+
+## Heightfield streamer
+
+Source: `src/terrain/HeightfieldStreamer.js`. Text moved from the file comments, paragraph order kept.
+
+One fine field stays under a megabyte of height samples, so a source finer than the configured lattice cannot be followed all the way down into a field that costs more than it is worth.
+
+A guard against a frozen source that turns out not to be cheap, not a dial: 600 ms is above the slowest field the shipped streamer already builds (487 ms of sampling for 16384 live terrain solves), so a fine field over a genuinely cheap source -- measured at 17-31 ms -- is never refused here, while a source that would make it dear still is. It is deliberately not tight, because a tight bound makes the collider's accuracy depend on how fast the machine is.
+
+A field loses the fine lattice unless the frozen source answers essentially all of it. The two cases are far apart, not adjacent: a field snapped onto the source's own grid is either wholly inside the source (1.0) or overhangs it by a whole number of source cells, and one cell of a 256 m field is 1/256 = 0.0039 of it, so the nearest a straddling field reads is 0.9961.
+
+Solved fields kept after the body that solved them is retired, so ground the player has already walked over stays solved. One is a floor-lattice field's sample array: N*N*4 B, 264 KB at N=257, so the whole retain set is a few megabytes next to the 32 MB field wasm budget.
+
+A field whose footprint a frozen source answers can carry a lattice as fine as that source, because a lattice coarser than its source is a pure decimation and that decimation is the whole of the collider's disagreement with the ground (measured on the default world: a 2.02 m lattice over a 1 m source is 0.0383 m mean / 0.5010 m m apart). Where the collider has to re-solve terrain the sample is the cost, so there the configured lattice stands.
+
+extent/(N-1) is the spacing, so N-1 intervals of frozenSpacing span the field: that lands the lattice ON the source's own nodes instead of near them. Measured at extent 256 over the 1 m bake, the difference is the whole residual -- 1.0039 m nodes drift half a cell across the field and leave 0.0080 m mean / 0.1667 m max of pure lattice error, 1.0000 m nodes sitting on the bake's leave 0.0002 m / 0.0005 m. Jolt takes the odd sample count.
+
+NEAR-FIELD FLOOR. Every field this streamer builds covers a player, so every field is a near field, and a near field is never allowed to be coarser than the surface the rest of the engine already reads: grass places a cell every GRASS.CELL metres and reads the ground at every one of them, and this streamer's own fine lattice is the spacing of the source it follows. A collider coarser than either is a decimation of height the terrain system has already produced and is still holding -- the least dense surface in the engine, sitting directly under the player. So the floor is the FINER of the configured lattice and the source's own lattice, from one place, and nothing below may coarsen it. It is derived, not dialled. The old rule let the frozen fraction decide, which made the player's own movement the thing that coarsened the ground under them: a field only ever upgraded to the fine lattice once its footprint was already frozen, so walking out of the bake downgraded the collider from 1 m to 2 m at the exact moment the player arrived.
+
+The one bound on the floor is the fine field's wasm budget, and a floor it cannot honour is a config error, not a quieter collider: the clamp used to be invisible, so the streamer built a coarser near field and never said why.
+
+A fine field also has to SIT on the source's nodes, not merely be spaced like them: a corner snapped to the configured lattice leaves the fine nodes half a cell off the source's across the whole field, which is the same drift as a spacing that does not divide the extent.
+
+Ground this streamer has already solved, kept after the field that solved it is retired. This is what makes the near-field floor affordable while the player travels: a node one field has already solved is, for as long as the chart epoch and the lattice hold, the same height, so a field built over it must not pay to solve it again. It is reuse of a solved value, never a coarser lattice -- every node no seed donates is still solved at the floor.
+
+A patch's corner is in the lattice it was solved in, so a change of lattice orphans every one of them: donating across it would shift a whole field by the difference between the bases.
+
+One sample, one price, and there are two prices: a frozen source answers in ~0.58 us, a live terrain solve in ~35.7 us on this tree, a factor of 60. So the question a field has to answer is WHICH of the two it is made of, and that is a predicate, not a clock. A single mean over the footprint cannot settle it either: the expensive part is a fixed ~1 m strip at the edge of the frozen source, and a sample set coarse enough to be affordable either misses it or over-counts it -- a 16x16 grid calls a 0.8% strip 12% of the field (measured: it priced a 15 ms field at 59 ms). The probe points must also be distinct, because a repeated point hits PlanetFrame's direct-mapped height memo and would price a solve as a hit. Per-sample cost, as a guard against a frozen source that happens to be dear, not as a dial. It also carries the frozen fraction: the predicate is a box test, so that fraction is a property of the field and the source, not of the clock, and answers the same on an idle box and on a box with ten agents running. Minimum of several short batches: a 64-point group of 0.58 us reads is ~37 us of work, which a scheduler preemption anywhere inside it inflates by an order of magnitude, and the minimum over three batches is the batch nothing interrupted.
+
+A field takes the near-field floor, full stop. What that costs is a number the project should be able to read, so it is priced and printed -- but the price no longer decides the lattice. A gate here would make the collider's accuracy a function of how fast the machine is (the same field has been priced at 0.79 us and 1.47 us a sample on a loaded box) or of where the player happens to be standing, and both are the Silent-default class: a measurement quietly turning into a resolution. FINE_SAMPLE_BUDGET_MS therefore names a dear field, it does not refuse one.
+
+Nothing here is frozen, so every node at the floor is a live terrain solve. That is the whole cost of the floor and the reason it used to be traded away; it is printed instead.
+
+A node this streamer has already solved at THIS lattice is donated, not re-solved, wherever the new footprint overlaps an old one. The ruling made every field take the near-field floor, so gridN is now floorN and the old guard (`gridN !== N`, N being the CONFIGURED lattice) answered null for every field from that commit on: each 66049-node field was solved from scratch, including the ~half of it the previous field along the travel path had already solved. Matching a source on its own N and spacing is the same claim, stated where it holds. The lattice a patch was solved in is part of its identity: a patch's corner is in that lattice's coordinates, so donating it across a lattice change would silently shift a whole field.
+
+A source that is not ON this lattice cannot donate: rounding a fraction of a cell would shift the whole donated block and call the shift a reuse.
+
+Price the footprint the field will actually occupy: the fine corner, not the coarse one.
+
+A resculpt means the ground itself was edited, so nothing this streamer solved still holds.
+
+## Lattice surface
+
+Source: `src/terrain/LatticeSurface.js`. Text moved from the file comments, paragraph order kept.
+
+ONE copy of the ground near the player.
+
+The server's terrain collider already builds its field from a baked artifact (apps/world/tps-game.hf: N=257 over 256 m, a 1.0000 m lattice of the chart-local ground). That artifact is a sample buffer, so anything that needs the height of a chart-local (x,z) inside its coverage can READ it instead of solving the terrain again -- and a read is a bilinear step at 0.075 us where the chart-local solve costs 12.1 us and the raw sampler 3.4 us (measured by scripts/shared-lattice-surface-witness.mjs).
+
+This module owns the artifact -> sample-field construction. src/terrain/TerrainPhysics.js is the server's reader and keeps its fail-loud behaviour; this module is the reader everything else uses, including the browser, so the collider, the rendered near band's CPU mirror and the placement sampler are three readers of one buffer rather than three solvers of one function.
+
+Nothing here computes a height: the only height that exists is the one the bake carries.
+
+A lattice is chart-local, so a re-anchored chart rebases it: the same (x,z) then names different ground. The epoch the artifact was baked at rides on the field so a reader can refuse instead of answering from a chart it no longer describes.
+
+The sample field: a regular grid of chart-local ground heights with bilinear lookup. Every reader that wants "how high is the ground at (x,z)" inside the coverage gets this, so no reader can disagree with another about the same point.
+
+epochOf answers the live world frame's chartEpoch. A lattice is chart-local, so the anchor it was baked under is part of what it IS: after a re-anchor the same (x,z) names different ground, and a field that keeps answering there is a stale field that still reports true. The refusal belongs to the field and not to each reader -- a copy of the epoch test in every reader is a staleness guess that any new reader simply omits -- so covers() answers false and heightAtLocal() answers NaN from the moment the anchor moves, and every reader falls back to whatever it did before with no change on its side. Where epochOf is absent the field is unbounded and answers exactly as it always did.
+
+A bake is only the ground if it is the SAME ground. A different terrain key, chart epoch, radius, anchor direction or relief scale is a different surface, and reading it would move every height the readers report -- so it is refused rather than used.
+
+Bounded: this runs on the boot path and a hung asset fetch must never hold up the planet.
+
+The one copy, resolved from the same artifact the server's collider builds from. Returns null -- never a guess -- wherever the artifact is absent, unreadable, stale or for other ground, and the caller keeps whatever it did before; a lattice that refuses is not a regression.
+
+The field is bound to the live frame's anchor here, so the refusal is the anchor's and not a reader's: covers() stops answering true the moment the chart is re-anchored under the field.
+
+## Terrain physics
+
+Source: `src/terrain/TerrainPhysics.js`. Text moved from the file comments, paragraph order kept.
+
+The artifact -> sample-field construction lives in one place so the server's collider, the rendered near band's CPU mirror and the placement sampler are readers of one buffer, not three solvers of one function. Nothing here may compute a height the bake does not carry.
+
+A baked artifact is read through a port, not through a platform: the caller supplies the source that owns readBytes, heightfieldCodec and bakeCodeVersion, and this loader asks it for them. What reads bytes is a fact about the runtime, so a caller that supplies no source is refused instead of being guessed at -- a guessed platform turns an unreadable bake into a silent CPU fallback.
+
+Bound to the live frame's chart epoch, so a re-anchor under this field makes its covers() answer false instead of pointing every reader at the ground of the chart it was baked under.
+
+Placement reads the collider's own buffer through the frame, so trees, rocks and grass sit on the surface the collider simulates instead of paying the CPU sampler to solve it again (src/terrain/PlacementChart.js surfaceAlongDir). Absent a bake there is no lattice and placement keeps solving exactly as it did.
+
+The lattice follows the collider source, not the preset: over a field a frozen source answers in full, a lattice coarser than that source is a pure decimation and is the whole of the collider's disagreement with the ground, while over a field it has to re-solve terrain the sample is the cost and the configured spacing stands.
+
+## Snapshot encoder
+
+Source: `src/netcode/SnapshotEncoder.js`. Text moved from the file comments, paragraph order kept.
+
+Module scratch, not a fresh object per nearby player per recipient: this runs once per recipient per snapshot tick, so the old `{ id, p, d2 }` per neighbour was one allocation per (recipient, nearby player) pair -- 512 of them a tick in a 64-player lobby serving 8. Sorting an index permutation instead keeps the ORDER identical, because Array#sort is stable and the permutation starts in the same order the old array was built in, so ties resolve the same way and the wire bytes do not move.
+
+`needed` is the set of player ids any recipient this tick serves can actually receive. Without it the pass encodes the whole lobby, including players no recipient is within relevance of, so the per-tick player walk was a function of how many people connected rather than of what the group being served can see. Filtering it makes the pass a fact about where the players are.
+
+The per-recipient player LOD walk. It is a static as well as a named export because a frozen ESM namespace cannot be wrapped, so a witness could not otherwise time this stage or count what it walked -- the row that owns this surface has to break the player stages out separately.
+
+Same reason: the tombstone-known-ids walk is one of the per-tick stages a witness has to time.
+
+## Input depth wire
+
+Source: `src/shared/inputDepthWire.js`. Text moved from the file comments, paragraph order kept.
+
+The server-reported input-buffer depth is one byte on the wire in both directions, and hasInputDepth is the one predicate that decides whether a value is one: the encoder (src/netcode/SnapshotEncoder.js inputBufferByte) reports null for anything else and this parse reports NO_INPUT_DEPTH for that same set, so 300, -5, 3.9 and 2^32+7 all mean "not reported" rather than a clamped, truncated or wrapped number.
+
+One parse means one place that decides what a wire byte means, so no consumer re-guesses the sentinel with its own ?? -1 and then re-validates the result.
+
+True only for a reported depth: an integer in 0..255. NO_INPUT_DEPTH, undefined and null are all "not reported", so a caller that narrows on this passes a byte and nothing else.
+
+## Terrain config
+
+Source: `src/shared/terrainConfig.js`. Text moved from the file comments, paragraph order kept.
+
+A carve already in parsed form ({dir, innerM, outerM}) arrives here after a world def crosses the wire, where the parse marker is lost. Accept it only when its shape is valid, so a re-parse is an identity rather than a refusal.
+
+A config that crossed the wire already carries its raw carves in carveInputs; its carves field then holds the parsed {dir, innerM, outerM} form, which must not be hashed as input.
+
+The exact text terrainBakeKey hashes, so a key mismatch can be compared field by field.
+
+## App runtime
+
+Source: `src/apps/AppRuntime.js`. Text moved from the file comments, paragraph order kept.
+
+A non-finite probe is the one input that means "there is no ground here yet", which is the case this hold exists for, so it KEEPS holding: bailing out on it released the player into the air at exactly the target that matters. Only a ground the probe actually knows about can put the player out of the support ray's reach.

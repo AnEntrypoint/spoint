@@ -712,10 +712,6 @@ export class AppRuntime {
     const physics = this._physics
     if (typeof physics?.raycast !== 'function' || typeof physics.terrainHeightAt !== 'function') return
     const terrainY = physics.terrainHeightAt(p[0], p[2])
-    // A non-finite probe is the one input that means "there is no ground here yet", which is the case
-    // this hold exists for, so it KEEPS holding: bailing out on it released the player into the air at
-    // exactly the target that matters. Only a ground the probe actually knows about can put the
-    // player out of the support ray's reach.
     const terrainKnown = Number.isFinite(terrainY)
     if (terrainKnown && (p[1] > terrainY + SUPPORT_RAY_LENGTH_M || p[1] < terrainY - SUPPORT_RAY_LENGTH_M)) return
     const below = physics.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)

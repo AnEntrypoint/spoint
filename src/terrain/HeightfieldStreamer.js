@@ -5,28 +5,14 @@ const NON_FINITE_HEIGHT_FALLBACK_M = -1000
 const HEIGHT_SNAP_PER_METRE = 1000
 const FIELD_WASM_BUDGET_BYTES = 32 * 1024 * 1024
 const FIELD_WASM_BYTES_PER_SAMPLE = 4
-// One fine field stays under a megabyte of height samples, so a source finer than the configured
-// lattice cannot be followed all the way down into a field that costs more than it is worth.
 const FINE_FIELD_WASM_BUDGET_BYTES = 1024 * 1024
-// A guard against a frozen source that turns out not to be cheap, not a dial: 600 ms is above the
-// slowest field the shipped streamer already builds (487 ms of sampling for 16384 live terrain
-// solves), so a fine field over a genuinely cheap source -- measured at 17-31 ms -- is never
-// refused here, while a source that would make it dear still is. It is deliberately not tight,
-// because a tight bound makes the collider's accuracy depend on how fast the machine is.
 const FINE_SAMPLE_BUDGET_MS = 600
 const COST_PROBE_POINTS = 2048
 const COST_PROBE_PER_GROUP = 64
 const COST_PROBE_ROUNDS = 3
-// A field loses the fine lattice unless the frozen source answers essentially all of it. The two
-// cases are far apart, not adjacent: a field snapped onto the source's own grid is either wholly
-// inside the source (1.0) or overhangs it by a whole number of source cells, and one cell of a
-// 256 m field is 1/256 = 0.0039 of it, so the nearest a straddling field reads is 0.9961.
 const FROZEN_FRACTION_MIN = 0.999
 const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
 const WASM_RESERVE_MIN_PER_WORLD_BYTES = 8 * 1024 * 1024
-// Solved fields kept after the body that solved them is retired, so ground the player has already
-// walked over stays solved. One is a floor-lattice field's sample array: N*N*4 B, 264 KB at N=257,
-// so the whole retain set is a few megabytes next to the 32 MB field wasm budget.
 const PATCH_RETAIN_MAX = 16
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false, seed = null }) {
@@ -108,48 +94,20 @@ export function createTerrainStreamer(opts = {}) {
   const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 300
   const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : 2
   let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
-  // A field whose footprint a frozen source answers can carry a lattice as fine as that source,
-  // because a lattice coarser than its source is a pure decimation and that decimation is the whole
-  // of the collider's disagreement with the ground (measured on the default world: a 2.02 m lattice
-  // over a 1 m source is 0.0383 m mean / 0.5010 m m apart). Where the collider has to re-solve
-  // terrain the sample is the cost, so there the configured lattice stands.
   const frozenSpacing = Number.isFinite(opts.frozenSpacing) && opts.frozenSpacing > 0 ? opts.frozenSpacing : null
   const frozenOrigin = Array.isArray(opts.frozenOrigin) && Number.isFinite(opts.frozenOrigin[0]) && Number.isFinite(opts.frozenOrigin[1]) ? opts.frozenOrigin : null
   const isFrozenAt = typeof opts.isFrozenAt === 'function' ? opts.isFrozenAt : null
   let targetSpacingN = 0
   if (frozenSpacing) {
-    // extent/(N-1) is the spacing, so N-1 intervals of frozenSpacing span the field: that lands
-    // the lattice ON the source's own nodes instead of near them. Measured at extent 256 over the
-    // 1 m bake, the difference is the whole residual -- 1.0039 m nodes drift half a cell across the
-    // field and leave 0.0080 m mean / 0.1667 m max of pure lattice error, 1.0000 m nodes sitting on
-    // the bake's leave 0.0002 m / 0.0005 m. Jolt takes the odd sample count.
     targetSpacingN = Math.max(2, Math.round(extent / frozenSpacing) + 1)
     targetSpacingN = Math.min(targetSpacingN, Math.floor(Math.sqrt(FINE_FIELD_WASM_BUDGET_BYTES / FIELD_WASM_BYTES_PER_SAMPLE)))
   }
-  // NEAR-FIELD FLOOR. Every field this streamer builds covers a player, so every field is a near
-  // field, and a near field is never allowed to be coarser than the surface the rest of the engine
-  // already reads: grass places a cell every GRASS.CELL metres and reads the ground at every one of
-  // them, and this streamer's own fine lattice is the spacing of the source it follows. A collider
-  // coarser than either is a decimation of height the terrain system has already produced and is
-  // still holding -- the least dense surface in the engine, sitting directly under the player. So
-  // the floor is the FINER of the configured lattice and the source's own lattice, from one place,
-  // and nothing below may coarsen it.
-  // It is derived, not dialled. The old rule let the frozen fraction decide, which made the player's
-  // own movement the thing that coarsened the ground under them: a field only ever upgraded to the
-  // fine lattice once its footprint was already frozen, so walking out of the bake downgraded the
-  // collider from 1 m to 2 m at the exact moment the player arrived.
   const floorN = Math.max(N, targetSpacingN)
-  // The one bound on the floor is the fine field's wasm budget, and a floor it cannot honour is a
-  // config error, not a quieter collider: the clamp used to be invisible, so the streamer built a
-  // coarser near field and never said why.
   if (frozenSpacing) {
     const wantedN = Math.max(2, Math.round(extent / frozenSpacing) + 1)
     if (floorN < wantedN) throw new Error(`[terrain] heightfield near-field floor: the source's ${frozenSpacing}m spacing wants N=${wantedN} over ${extent}m, but the fine-field wasm budget caps the floor at N=${floorN}. The streamer refuses to build a near field coarser than the surface it follows: raise FINE_FIELD_WASM_BUDGET_BYTES or coarsen the source.`)
   }
   const fineSpacing = targetSpacingN ? extent / (targetSpacingN - 1) : 0
-  // A fine field also has to SIT on the source's nodes, not merely be spaced like them: a corner
-  // snapped to the configured lattice leaves the fine nodes half a cell off the source's across the
-  // whole field, which is the same drift as a spacing that does not divide the extent.
   function fineCornerX(c) {
     const o = frozenOrigin ? frozenOrigin[0] : 0
     return o + Math.round((c - half - o) / fineSpacing) * fineSpacing
@@ -168,11 +126,6 @@ export function createTerrainStreamer(opts = {}) {
   const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
   let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0, lastError = null
   let lattice = null, refusalCount = 0, lastRefusal = null
-  // Ground this streamer has already solved, kept after the field that solved it is retired. This is
-  // what makes the near-field floor affordable while the player travels: a node one field has already
-  // solved is, for as long as the chart epoch and the lattice hold, the same height, so a field built
-  // over it must not pay to solve it again. It is reuse of a solved value, never a coarser lattice --
-  // every node no seed donates is still solved at the floor.
   const patches = []
 
   function refuse(name, message) {
@@ -194,8 +147,6 @@ export function createTerrainStreamer(opts = {}) {
     for (const f of fields) placeBody(f.bodyId, f.center[0] - half, f.center[1] - half)
   }
   function setLattice(next) {
-    // A patch's corner is in the lattice it was solved in, so a change of lattice orphans every one
-    // of them: donating across it would shift a whole field by the difference between the bases.
     patches.length = 0
     lattice = next
     if (lattice) placeAllFields()
@@ -208,21 +159,6 @@ export function createTerrainStreamer(opts = {}) {
   }
   function snapCorner(c) { return Math.round((c - half) / spacing) * spacing }
 
-  // One sample, one price, and there are two prices: a frozen source answers in ~0.58 us, a live
-  // terrain solve in ~35.7 us on this tree, a factor of 60. So the question a field has to answer
-  // is WHICH of the two it is made of, and that is a predicate, not a clock. A single mean over the
-  // footprint cannot settle it either: the expensive part is a fixed ~1 m strip at the edge of the
-  // frozen source, and a sample set coarse enough to be affordable either misses it or over-counts
-  // it -- a 16x16 grid calls a 0.8% strip 12% of the field (measured: it priced a 15 ms field at
-  // 59 ms). The probe points must also be distinct, because a repeated point hits PlanetFrame's
-  // direct-mapped height memo and would price a solve as a hit.
-  // Per-sample cost, as a guard against a frozen source that happens to be dear, not as a dial.
-  // It also carries the frozen fraction: the predicate is a box test, so that fraction is a
-  // property of the field and the source, not of the clock, and answers the same on an idle box
-  // and on a box with ten agents running.
-  // Minimum of several short batches: a 64-point group of 0.58 us reads is ~37 us of work, which a
-  // scheduler preemption anywhere inside it inflates by an order of magnitude, and the minimum over
-  // three batches is the batch nothing interrupted.
   function priceField(cornerX, cornerZ, fn) {
     let frozen = 0
     const frozenPts = []
@@ -242,12 +178,6 @@ export function createTerrainStreamer(opts = {}) {
     return { ff: frozen / COST_PROBE_POINTS, perSampleMs: best === Infinity ? 0 : best }
   }
 
-  // A field takes the near-field floor, full stop. What that costs is a number the project should
-  // be able to read, so it is priced and printed -- but the price no longer decides the lattice.
-  // A gate here would make the collider's accuracy a function of how fast the machine is (the same
-  // field has been priced at 0.79 us and 1.47 us a sample on a loaded box) or of where the player
-  // happens to be standing, and both are the Silent-default class: a measurement quietly turning
-  // into a resolution. FINE_SAMPLE_BUDGET_MS therefore names a dear field, it does not refuse one.
   function gridNFor(cornerX, cornerZ, fn) {
     if (!targetSpacingN || !isFrozenAt) return floorN
     const { ff, perSampleMs } = priceField(cornerX, cornerZ, fn)
@@ -255,8 +185,6 @@ export function createTerrainStreamer(opts = {}) {
     const projectedMs = nodes * perSampleMs
     const where = `collider lattice at (${cornerX.toFixed(0)},${cornerZ.toFixed(0)})`
     if (ff < FROZEN_FRACTION_MIN) {
-      // Nothing here is frozen, so every node at the floor is a live terrain solve. That is the
-      // whole cost of the floor and the reason it used to be traded away; it is printed instead.
       console.log(`[terrain] ${where}: N=${N} -> N=${floorN} (near-field floor), ${(ff * 100).toFixed(1)}% of the footprint is frozen so all ${nodes} nodes are live terrain solves`)
       return floorN
     }
@@ -278,14 +206,6 @@ export function createTerrainStreamer(opts = {}) {
     return lattice ? uncovered.map(p => lattice.toChart(p[0], p[1])) : uncovered
   }
 
-  // A node this streamer has already solved at THIS lattice is donated, not re-solved, wherever the
-  // new footprint overlaps an old one. The ruling made every field take the near-field floor, so
-  // gridN is now floorN and the old guard (`gridN !== N`, N being the CONFIGURED lattice) answered
-  // null for every field from that commit on: each 66049-node field was solved from scratch,
-  // including the ~half of it the previous field along the travel path had already solved. Matching
-  // a source on its own N and spacing is the same claim, stated where it holds.
-  // The lattice a patch was solved in is part of its identity: a patch's corner is in that lattice's
-  // coordinates, so donating it across a lattice change would silently shift a whole field.
   function seedFromSolved(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
     if (!fields.length && !patches.length) return null
     const samples = new Float32Array(gridN * gridN).fill(NaN)
@@ -298,8 +218,6 @@ export function createTerrainStreamer(opts = {}) {
       if (!f.samples || f.N !== gridN || f.epoch !== epoch || f.lattice !== activeLattice) continue
       const dxF = (cornerX - f.cornerX) / gridSpacing, dzF = (cornerZ - f.cornerZ) / gridSpacing
       const dx = Math.round(dxF), dz = Math.round(dzF)
-      // A source that is not ON this lattice cannot donate: rounding a fraction of a cell would
-      // shift the whole donated block and call the shift a reuse.
       if (Math.abs(dxF - dx) > 1e-6 || Math.abs(dzF - dz) > 1e-6) continue
       if (dx >= gridN || dx <= -gridN || dz >= gridN || dz <= -gridN) continue
       const i0 = Math.max(0, -dx), i1 = Math.min(gridN, gridN - dx)
@@ -334,7 +252,6 @@ export function createTerrainStreamer(opts = {}) {
     let cornerX = snapCorner(cx), cornerZ = snapCorner(cz)
     let useN = gridN
     if (!useN) {
-      // Price the footprint the field will actually occupy: the fine corner, not the coarse one.
       const px = targetSpacingN ? fineCornerX(cx) : cornerX, pz = targetSpacingN ? fineCornerZ(cz) : cornerZ
       const cand = gridNFor(px, pz, srcFn)
       if (cand === targetSpacingN) { cornerX = px; cornerZ = pz }
@@ -415,7 +332,6 @@ export function createTerrainStreamer(opts = {}) {
     publishPrimary(now)
   }
 
-  // A resculpt means the ground itself was edited, so nothing this streamer solved still holds.
   async function rebuildAll() {
     patches.length = 0
     dropLattice()
