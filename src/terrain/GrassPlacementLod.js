@@ -1,38 +1,12 @@
-// Law-aware incremental grass placement: coarse first, refined only where the law keeps blades.
-//
-// src/terrain/GrassPlacement.js places a chunk whole, before anything can ask which of its blades
-// the distance law will actually draw, and the law is per blade: every blade owns a rank q and is
-// drawn only while the player is inside reach(q), so a chunk entering the ring at 88 m is generated
-// at full blade count to keep the fraction the law admits at that distance. That is the waste this
-// module removes.
-//
-// It is removed by giving each cell a rank-ordered slot list once and materialising a prefix of it.
-// The slots are sorted by the same coin that decides whether a blade exists at all, so the set a
-// distance admits is always a prefix of the set a shorter distance admits, and a chunk that the
-// player approaches is extended in place: every blade already materialised keeps its index and its
-// instance, and refinement costs the delta alone. A chunk the player leaves gives the suffix back,
-// because the law has finished with those blades and the slot is the cost that remains; RELEASE_M
-// is the dead band that keeps the two from fighting over one blade. The blade a slot produces is bit-for-bit the one
-// src/terrain/GrassPlacement.js produces, so the population at any distance is a subset of the old
-// one and never a different one.
 import { hash3, rand, createPlacementCell, placementCellAt } from './VegPlacement.js'
 import { latticeFor } from './PlacementChart.js'
 import { GRASS, GRASS_DENSITY, classify, blade, grassBladeEdgeM } from './GrassPlacement.js'
 
 const K_JITX = 20, K_JITZ = 21, K_COIN = 22
 
-// How far a blade can sit from the cell centre it was drawn against: the clump radius in the
-// tangent plane plus the horizontal part of the height offset, which tilts with the surface.
 const SPREAD_M = 3
-// How far the player may close before a chunk's population is re-checked. A blade is materialised
-// LEAD_M before it is drawn, so the margin against a blade appearing late is LEAD_M, not zero.
 const SLACK_M = 4
-// How far past the reach the gate materialised it for a blade has to fall before its slot is
-// given back. The gate works SPREAD_M + SLACK_M ahead of the law, so this is the dead band that
-// keeps walking back over the same ground from re-extending a prefix it has just released.
 const RELEASE_M = 8
-// A compaction is a pass over the whole population, so a release is held until it is one worth
-// taking: a sixteenth of the chunk, or 64 blades for a chunk too small to have a sixteenth.
 const RELEASE_FLUSH_FRAC = 16
 const RELEASE_FLUSH_MIN = 64
 
@@ -62,10 +36,7 @@ export function createGrassChunkLod(key, frame, anchorField, worldSeed, law, now
   const cellOrder = new Array(N).fill(null)
   const cellCoin = new Array(N).fill(null)
   const cellN = new Uint16Array(N)
-  // Where in `blades` each cell's materialised ranks live, in rank order: a release is a suffix of
-  // a cell's ranking, and the array is in the order the ranks were materialised, not in cell order.
   const cellPos = new Array(N).fill(null)
-  // Positions whose blades have been released and whose rows the holder has not compacted yet.
   let released = []
   let pending = null
   const slackSq = L ? L.slackM * L.slackM : 0
@@ -101,9 +72,6 @@ export function createGrassChunkLod(key, frame, anchorField, worldSeed, law, now
     if (n >= BPC) return
     const order = cellOrder[i], coin = cellCoin[i]
     const near = !Number.isFinite(fx) || !Number.isFinite(fz)
-    // The nearest a blade of this cell can be to the focus now, less the distance the focus can
-    // close before the next re-check: the law holds a blade LEAD_M past its own edge, so a blade
-    // drawn anywhere in that band has to have been materialised already.
     const d = near ? 0 : Math.max(0, Math.sqrt((p.x - fx) * (p.x - fx) + (p.z - fz) * (p.z - fz)) - L.spreadM - L.slackM)
     while (n < BPC) {
       const q = p.density > 0 ? coin[n] / p.density : 1
@@ -116,12 +84,6 @@ export function createGrassChunkLod(key, frame, anchorField, worldSeed, law, now
     cellN[i] = n
   }
 
-  // The other half of the prefix: a blade the law has stopped drawing still costs the slot it was
-  // materialised into, and the chunk the player has walked straight through keeps the population it
-  // needed going past. Reach is monotone down the ranking, so everything the law has finished with
-  // is a suffix of it and giving it back costs the suffix alone. The cut is RELEASE_M past the
-  // reach the gate materialised it for, so it cannot fight the gate: closing on the cell again
-  // re-extends the same ranking and produces the same blade.
   function release(i, fx, fz) {
     const p = cellP[i]
     if (!p || !L) return
@@ -144,8 +106,6 @@ export function createGrassChunkLod(key, frame, anchorField, worldSeed, law, now
     }
   }
 
-  // Compaction is one pass over the array and one over the position lists, so a release is held
-  // until it is worth a pass rather than paid a blade at a time.
   function flush() {
     if (released.length === 0) return null
     const n = blades.length

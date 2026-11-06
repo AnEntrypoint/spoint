@@ -164,3 +164,161 @@ The legacy entry keeps the newest MAX_INPUTS_PER_PACKET records and returns byte
 A caller that already knows it will drop everything at or below a sequence says so, and those records are walked past instead of decoded: addInput rejects them on the same comparison, so this changes how many objects the decode builds and nothing about which inputs the server keeps.
 
 quantizeInput runs once per input step for as long as the client is connected, so its wire scratch is pooled instead of rebuilt: a fresh buffer and two fresh views per step were three allocations whose entire purpose was to carry bytes across one synchronous call. Nothing outside this module can observe the scratch, and neither writeRecord nor readRecordInto re-enters quantizeInput, so a single module-level buffer is not shared with any second caller.
+
+## Terrain mesh surface
+
+Source: `src/terrain/TerrainMeshSurface.js`. Text moved from the file comments, paragraph order kept.
+
+The ONE authority for "the mesh the renderer drew, at a chart-local (x,z)": the frame's own port, read at the moment it is asked for. Two readers used to resolve it differently -- client/core/ExactPatchFrame.js captured the property by value when its frame was built, while src/terrain/GrassPlacement.js read the same property live, per cell -- so after a late attach or a rebuild (the mirror is rebuilt with the planet, and a quality tier change re-attaches it) the two answered from different meshes: the ground a blade was placed against came from one and the surface the blade was drawn on from the other. Both sides call this now, so a capture cannot survive an attach and there is nothing left to disagree about.
+
+The fixed point a direction's height is solved to, and the test that an answer is the surface's rather than the seed's: the same two numbers client/core/ExactPatchFrame.js uses for the mesh surface, so a vertex read from the lattice and a vertex read from the sampler cannot disagree about what "reached the ground" means.
+
+The shared lattice: the sample buffer the collider builds its field from (src/terrain/LatticeSurface.js). Where it covers a vertex it IS the ground, so the vertex reads it instead of asking the sampler to solve the same point again -- one copy, not two answers.
+
+A direction is not a chart-local (x,z): the point along it sits at radial distance rho, and its chart-local height is the height AT the (x,z) that same rho implies, so   rho * du - base = H(rho * de, rho * dn) is one fixed point in rho -- the same one client/core/ExactPatchFrame.js solves for the mesh surface, so the two agree about what "the ground along this direction" means. Near the chart's anchor it contracts in a step or two, because x and z move by the direction's own east/north components. An answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the sampler answers instead: no vertex silently loses its ground.
+
+The lattice is chart-local and the chart can be re-anchored under it, after which the same (x,z) names different ground. Refuse rather than answer from a chart it no longer describes.
+
+Every read of this mirror used to test EVERY near quad's box and winding: 1218 of them at the shipped focus, ~10 us a read, paid 5 times a placement cell and twice a grass blade. The boxes are axis-aligned in the chart, so a sync-sized uniform grid answers a read with the handful of quads that can actually cover the point. A quad too big to fan out over the grid rides the overflow list instead; both are bbox- and winding-tested exactly as before, so this changes which quads are REJECTED and never which one answers.
+
+A read used to be a function of WHEN the render loop last called sync(), not of the ground it asks about: before the first sync the index is empty and every read answers "no ground", so client/core/ExactPatchFrame.js falls through to the frame's own sampler and every blade, tree and rock the boot prewarm places sits on the fractal instead of on the mesh it is drawn on. Scenery is built before the world is revealed (client/app.js _awaitSceneryBuild runs before _revealWorld, and sync() only runs inside renderPlanet), so that window is the whole initial ring, not one frame. The mirror therefore builds that index the first time it is asked for ground it has none for, around the point it was asked about. It does NOT re-centre on a read that is merely far from the render focus: which quads answer a distant point is the render loop's decision, and moving that decision here changes what every measurement past the focus reads.
+
+One build per version is the bound that keeps this from becoming per-read work: the render loop's own sync() bumps version, so the window before the first frame pays one build.
+
+That bound is on the ATTEMPT, never on the coverage: the version latch below is set only by a sync that actually earned quads. A sync that earned nothing is bounded by the payload it ran on instead -- the same drawn quads cannot cover what they did not cover, so repeating it per read would buy nothing and would cost a sync per read, while a payload that has GROWN since the attempt is a different question and is re-asked. Latched unconditionally, the boot ring's first read -- the one made before the renderer had drawn anything -- claimed the whole version as covered, and every read after it in that version answered "no ground" and fell through to the CPU sampler even once the quads existed.
+
+A chart-local axis box of a rotated quad covers a lot of ground outside it, and every quad it wrongly claims costs a 144-vertex materialisation, so the box only pre-rejects: the actual test is winding-uniform containment in the quad's own corners.
+
+The quad that answers is the finest one covering the point, and among equals the one the linear scan would have reached first: the index must not decide a tie by its own order.
+
+## Grass placement LOD
+
+Source: `src/terrain/GrassPlacementLod.js`. Text moved from the file comments, paragraph order kept.
+
+Law-aware incremental grass placement: coarse first, refined only where the law keeps blades.
+
+src/terrain/GrassPlacement.js places a chunk whole, before anything can ask which of its blades the distance law will actually draw, and the law is per blade: every blade owns a rank q and is drawn only while the player is inside reach(q), so a chunk entering the ring at 88 m is generated at full blade count to keep the fraction the law admits at that distance. That is the waste this module removes.
+
+It is removed by giving each cell a rank-ordered slot list once and materialising a prefix of it. The slots are sorted by the same coin that decides whether a blade exists at all, so the set a distance admits is always a prefix of the set a shorter distance admits, and a chunk that the player approaches is extended in place: every blade already materialised keeps its index and its instance, and refinement costs the delta alone. A chunk the player leaves gives the suffix back, because the law has finished with those blades and the slot is the cost that remains; RELEASE_M is the dead band that keeps the two from fighting over one blade. The blade a slot produces is bit-for-bit the one src/terrain/GrassPlacement.js produces, so the population at any distance is a subset of the old one and never a different one.
+
+How far a blade can sit from the cell centre it was drawn against: the clump radius in the tangent plane plus the horizontal part of the height offset, which tilts with the surface.
+
+How far the player may close before a chunk's population is re-checked. A blade is materialised LEAD_M before it is drawn, so the margin against a blade appearing late is LEAD_M, not zero.
+
+How far past the reach the gate materialised it for a blade has to fall before its slot is given back. The gate works SPREAD_M + SLACK_M ahead of the law, so this is the dead band that keeps walking back over the same ground from re-extending a prefix it has just released.
+
+A compaction is a pass over the whole population, so a release is held until it is one worth taking: a sixteenth of the chunk, or 64 blades for a chunk too small to have a sixteenth.
+
+Where in `blades` each cell's materialised ranks live, in rank order: a release is a suffix of a cell's ranking, and the array is in the order the ranks were materialised, not in cell order.
+
+Positions whose blades have been released and whose rows the holder has not compacted yet.
+
+The nearest a blade of this cell can be to the focus now, less the distance the focus can close before the next re-check: the law holds a blade LEAD_M past its own edge, so a blade drawn anywhere in that band has to have been materialised already.
+
+The other half of the prefix: a blade the law has stopped drawing still costs the slot it was materialised into, and the chunk the player has walked straight through keeps the population it needed going past. Reach is monotone down the ranking, so everything the law has finished with is a suffix of it and giving it back costs the suffix alone. The cut is RELEASE_M past the reach the gate materialised it for, so it cannot fight the gate: closing on the cell again re-extends the same ranking and produces the same blade.
+
+Compaction is one pass over the array and one over the position lists, so a release is held until it is worth a pass rather than paid a blade at a time.
+
+## Tick handler
+
+Source: `src/sdk/TickHandler.js`. Text moved from the file comments, paragraph order kept.
+
+A snapshot tick walks the relevance ring once per recipient it serves, so the work a tick does is recipients * population, and before this neither factor was bounded against the tick budget: a 3000-entity world serving 32 recipients measured ~16 ms of a 16.7 ms tick, and the existing rate control cannot reach past one halving no matter how far over budget the tick runs. SNAP_ENTITY_VISITS_PER_TICK is how many (recipient, entity) pairs one tick is allowed to walk, so a crowded world serves fewer recipients per tick instead of serving one unaffordable tick. It is a function of the world state, never of a wall-clock sample: a cap priced from a timer would make the wire stream depend on how fast the box happens to be.
+
+packSnapshotBytes carves from a rolling arena and ConnectionManager hands the buffer to a transport that may outlive the tick, so the bytes are copied out before they are sent.
+
+What one snapshot tick's player walk cost, in units of players and not of milliseconds: a millisecond is this box's business, and a bound priced from a clock is a positive-feedback loop (smaller fan-out measured a bigger cost per recipient, which shrank the fan-out). These counters are the world-state quantities the walk is a function of, so a witness can pin them.
+
+The per-tick player fan-out. It resolves what the group being served can actually reach BEFORE anything is encoded: the encode pass and the id index are then built over that union, so a tick that serves eight of sixty-four players in one corner of the world does not pack and index the fifty-six nobody in this group can see. Both stages are therefore bounded by the served group's relevance neighbourhoods -- a fact about where the players are -- and no longer by the lobby. The recipient's own neighbourhood is still exactly what it was: nothing here decides who a recipient hears about, only which player records this tick has to build to say it.
+
+Witness switch, and the only one on this surface: with it on, a tick encodes and indexes the whole lobby again instead of the union the served group can reach, which is the shape this row was measured against. It exists so the before/after split is struck inside one process under one load -- this box runs sibling lanes, so two separate runs measure the neighbours as much as the code, and a cap read off such a number is the positive-feedback loop this row forbids.
+
+Grow and shrink in place: rebuilding the array throws away every group's static cache, so a fan-out that moves by one would otherwise re-encode the whole static world on the next tick.
+
+## Collider lattice
+
+Source: `src/shared/colliderLattice.js`. Text moved from the file comments, paragraph order kept.
+
+One derivation of the collider lattice, read by both sides of the terrain: the server's Jolt heightfield and the client's near-band rendered mesh. A near field coarser than the surface the engine already computes and holds is a decimation of work already paid for, so the spacing is not a dial either side may set: it is the finer of the configured lattice and the source the collider follows, from here, once.
+
+The rule mirrors src/terrain/HeightfieldStreamer.js's floorN exactly (same inputs, same expression). HeightfieldStreamer is the authority that BUILDS the field; this module is the one that ANSWERS what spacing that field has, so the renderer can built the same lattice without loading physics. scripts/nearfield-lattice-parity-witness.mjs asserts the two agree.
+
+The bound that keeps a fine field under a megabyte of samples; the streamer clamps its floor to the same number, so the two cannot disagree about what the lattice is.
+
+A lattice coarser than the source it follows is a pure decimation, and that decimation is the whole of the collider's disagreement with the ground. So the answer is the FINER of the two, and a world that follows its source gets the source's spacing instead of the configured one.
+
+N-1 intervals of the source's spacing span the field, which lands the lattice ON the source's own nodes instead of near them: measured on the default world, 1.0039 m nodes leave 0.0080 m mean / 0.1667 m max of pure lattice error where 1.0000 m nodes leave 0.0002 m / 0.0005 m.
+
+The spacing a baked artifact carries, read from the same artifact the server builds its field from. It is the source's own lattice, not the collider's: the collider is the finer of this and the configured resolution, which is what colliderLatticeOf answers.
+
+The spacing the collider actually builds at, resolved from the same baked artifact the server builds its field from. Only the artifact's sample count and extent are read -- no height is recomputed here -- so this cannot introduce a second height function. Where there is no bake, or it cannot be read, the configured lattice stands and the near band degrades to it; a lattice coarser than the collider is a no-op rather than a regression, because the near band never draws coarser than the leaf it replaces.
+
+Bounded: this runs on the boot path and a hung asset fetch must never hold up the planet.
+
+## Grass placement
+
+Source: `src/terrain/GrassPlacement.js`. Text moved from the file comments, paragraph order kept.
+
+The distance-density law: a blade's stable rank q is the coin that decided whether it exists at all, divided by the cell density it was drawn against, so it is uniform on [0,1) and never re-chosen. Dropping the blades with q >= f(d) removes exactly the fraction f(d) of them, and f(d) = (FULL_R / d) ** P is what makes the population grow as R ** (2 - P) and not R ** 2.
+
+Surface reads one blade's own foot costs where the frame carries a drawn mesh: two converge it to 0.0000056 m worst case, a third moves nothing, and one leaves 0.0003824 m. Counted, so the witness can price a blade without re-deriving it.
+
+A blade is not placed at its cell centre: GRASS.CLUMP_R offsets it, and the height it needs is the height AT THE OFFSET. It is read, not extrapolated from the cell's own gradient and curvature -- the extrapolation is a second-order Taylor step over a clump a metre wide, and its remainder is what put blades up to 0.24 m off the surface they were placed on.
+
+The read is taken off the frame's own drawn mesh, at the blade's own horizontal position, rather than by solving along the blade's direction: a solve is a fixed point in the radius and costs 2.35 reads of the SAME mesh (2.53 us a read, 5.94 us a solve -- the micro-benchmark in scripts/grass-seam-card-witness.mjs), while a read converges in two because rise enters the blade's (x,z) only through the up axis' own horizontal component. It is also the more accurate of the two -- 0.0000003 / 0.0000013 / 0.0000056 m against the solve's 0.0000056 / 0.0000107 / 0.0000423 m -- because it never carries a solve tolerance into the blade's foot.
+
+Where the frame carries no drawn mesh the solve is paid exactly as it was, and where neither answers, the Taylor step is. Neither branch removes a blade or coarsens a cell.
+
+The same authority client/core/ExactPatchFrame.js reads: the frame's drawn-mesh port, resolved per cell. A local `typeof` test here is what let the two sides drift apart -- this side read the port live while the placement frame held a capture of it -- so both call one resolver now.
+
+## Placement chart
+
+Source: `src/terrain/PlacementChart.js`. Text moved from the file comments, paragraph order kept.
+
+The project's own surface tolerance (SURFACE_SOLVE_TOLERANCE_M, src/terrain/PlanetFrame.js): the lattice's 1 m bilinear step is an order of magnitude finer than the ground it replaces, so what bounds a solve here is the same number that bounds one there.
+
+The collider's own sample buffer, read along a direction.
+
+src/terrain/LatticeSurface.js holds the one copy the server collides against and the near band draws, so where it covers this direction it IS the ground and placement reads it instead of paying the CPU sampler to solve the same point again: one bilinear step at 0.06-0.10 us where frame.elevationAtDir costs 5.2-6.8 us, and one placement read measured 13.96 us -> 2.17 us over 4000 directions (scripts/shared-lattice-surface-witness.mjs, this lane).
+
+  rho * du - base = sharedLattice(rho * de, rho * dn) + offsetY
+
+is one fixed point in rho -- the same one frame.elevationAtDir solves and the same one the iterate branch below solves, so all three agree about what "the ground along this direction" means. Two seeds are tried, the chart's own anchor height first because it is already known and costs nothing: an answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the caller keeps solving. No placement silently loses its ground.
+
+The field refuses itself once the chart is re-anchored under it, so a stale lattice cannot answer here: covers() goes false and the caller falls through to the sampler for the new chart.
+
+The one copy, before anything re-solves it: every consumer of this function -- vegetation, grass, rocks, and the slope and jet probes they all take -- reads the collider's own samples wherever the bake covers them, and falls through to exactly what it did before where it does not.
+
+## Relocation
+
+Source: `src/sdk/Relocation.js`. Text moved from the file comments, paragraph order kept.
+
+A world authors its spawn point, not the terrain under it: apps/world/tps-game.js declares [-25, 8.39, -45] where the collider probes ground at -0.02 m, so the declared y authors ~8.1 m of air and the player falls on every spawn and every respawn. The y is therefore resolved through the same probe that decides where a held spawn is released, because a corrected literal is a number that is right for today's terrain and wrong after the next terrain change. A probe that finds no ground YET is not a licence to guess: the declared y stands and holdSpawnUntilGrounded places the player when its field lands.
+
+The collider streamer belongs to the physics world (TerrainPhysics sets physics._terrainStreamer); the server boot also mirrors it onto its internal ctx. A relocation is handed the PUBLIC server API, which carries neither, so reading only ctx._terrainStreamer answered "covered" for every field and the hold trusted the surface ray, which released the player the moment the ray first hit a field.
+
+A relocation to a point waits for the same ground, on the same budget, as a spawn: the teleport hold's own 8 s ceiling and its bare 60 m raycast cannot tell "no collider field here yet" from "no ground here at all", so on a world whose collider has to be solved on the CPU -- which is what ?terrainhash=<n> forces, because the shipped bake is rejected for the other hash version -- it released the player into the air long before its field landed and the fall kill took it again on every respawn. One question, one probe, one budget.
+
+## Baked source adapter
+
+Source: `src/terrain/BakedSourceAdapter.js`. Text moved from the file comments, paragraph order kept.
+
+The two adapters for the port src/terrain/TerrainPhysics.js declares. A baked artifact is bytes, a decoder for those bytes and the height code version this tree bakes, and which platform supplies them is the caller's business, never the loader's: TerrainPhysics.js imports neither adapter, so the module that answers what the ground is still parses where neither node:fs nor fetch exists.
+
+Both adapters derive every refusal from bakedFieldError, the one factory the loader throws from, so "absent is a silent fallback, anything else is [baked-heightfield]" has exactly one source.
+
+A bake url is a served path ('/worlds/x.hf', relative to the repo root) or an absolute filesystem path. A rooted url that exists as itself is the filesystem path; anything else is served-relative. Stripping the slash unconditionally read a POSIX absolute path as cwd-relative, so an existing artifact came back ENOENT and was taken for an absent bake.
+
+A browser has no bake sources to rehash, so it cannot stamp or verify one: it reads the artifact's own stamp or warns and falls back, which is the loader's null branch.
+
+## msgpack wire
+
+Source: `src/protocol/msgpack.js`. Text moved from the file comments, paragraph order kept.
+
+Node loads msgpackr synchronously (CJS build via the builtin module loader), so pack/unpack work from the first call after import. The browser has no synchronous loader that avoids bundling msgpackr, so it keeps the async path and the throw until ensurePacked settles.
+
+## AppContext
+
+Source: `src/apps/AppContext.js`. Text moved from the file comments, paragraph order kept.
+
+A computed specifier: the adapter carries node:fs, and both the client bundle and the src/apps/AppContext.js import closure must stay blind to it.

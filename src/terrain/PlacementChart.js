@@ -66,29 +66,8 @@ function guardedGroundOf(frame) {
 }
 
 const LATTICE_SOLVE_ITERS = 8
-// The project's own surface tolerance (SURFACE_SOLVE_TOLERANCE_M, src/terrain/PlanetFrame.js): the
-// lattice's 1 m bilinear step is an order of magnitude finer than the ground it replaces, so what
-// bounds a solve here is the same number that bounds one there.
 const LATTICE_SOLVE_TOL_M = 1e-4
 
-// The collider's own sample buffer, read along a direction.
-//
-// src/terrain/LatticeSurface.js holds the one copy the server collides against and the near band
-// draws, so where it covers this direction it IS the ground and placement reads it instead of paying
-// the CPU sampler to solve the same point again: one bilinear step at 0.06-0.10 us where
-// frame.elevationAtDir costs 5.2-6.8 us, and one placement read measured 13.96 us -> 2.17 us over
-// 4000 directions (scripts/shared-lattice-surface-witness.mjs, this lane).
-//
-//   rho * du - base = sharedLattice(rho * de, rho * dn) + offsetY
-//
-// is one fixed point in rho -- the same one frame.elevationAtDir solves and the same one the iterate
-// branch below solves, so all three agree about what "the ground along this direction" means. Two
-// seeds are tried, the chart's own anchor height first because it is already known and costs nothing:
-// an answer that has NOT converged is a function of the seed and not of the surface, so it is
-// refused and the caller keeps solving. No placement silently loses its ground.
-//
-// The field refuses itself once the chart is re-anchored under it, so a stale lattice cannot answer
-// here: covers() goes false and the caller falls through to the sampler for the new chart.
 function latticeRhoAlongDir(frame, de, du, dn, base, rhoGuess, out) {
   const lattice = frame.sharedLattice
   if (!lattice || typeof lattice.covers !== 'function' || typeof lattice.heightAtLocal !== 'function') return NaN
@@ -120,9 +99,6 @@ function latticeRhoAlongDir(frame, de, du, dn, base, rhoGuess, out) {
 export function surfaceAlongDir(frame, dx, dy, dz, rhoGuess, out) {
   const de = dotE(frame, dx, dy, dz), du = dotU(frame, dx, dy, dz), dn = dotN(frame, dx, dy, dz)
   const base = frame.radius + frame.anchorHeight - frame.offsetY
-  // The one copy, before anything re-solves it: every consumer of this function -- vegetation,
-  // grass, rocks, and the slope and jet probes they all take -- reads the collider's own samples
-  // wherever the bake covers them, and falls through to exactly what it did before where it does not.
   const latticeRho = latticeRhoAlongDir(frame, de, du, dn, base, rhoGuess, out)
   if (Number.isFinite(latticeRho)) return latticeRho
   if (frame.groundSource === 'cpu-solve') {

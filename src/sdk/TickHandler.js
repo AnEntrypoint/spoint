@@ -25,14 +25,6 @@ const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
 const PLAYERS_PER_SNAP_GROUP = 50
-// A snapshot tick walks the relevance ring once per recipient it serves, so the work a tick does
-// is recipients * population, and before this neither factor was bounded against the tick budget:
-// a 3000-entity world serving 32 recipients measured ~16 ms of a 16.7 ms tick, and the existing
-// rate control cannot reach past one halving no matter how far over budget the tick runs.
-// SNAP_ENTITY_VISITS_PER_TICK is how many (recipient, entity) pairs one tick is allowed to walk,
-// so a crowded world serves fewer recipients per tick instead of serving one unaffordable tick.
-// It is a function of the world state, never of a wall-clock sample: a cap priced from a timer
-// would make the wire stream depend on how fast the box happens to be.
 const SNAP_ENTITY_VISITS_PER_TICK = 24000
 const SNAP_RATE_MIN_HZ = 8
 const SNAP_RATE_ADJUST_INTERVAL = 64
@@ -165,7 +157,6 @@ function recordPlayerTick(player, deps, tick) {
   if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
 }
 
-
 const _playersByIdScratch = new Map()
 const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
 const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined, me: undefined, chartEpoch: 0 }
@@ -174,8 +165,6 @@ function packSnapshot(seq, encoded, me, chartEpoch, recordMemo) {
   if (recordMemo !== null) {
     const spliced = packSnapshotBytes(MSG.SNAPSHOT, seq, encoded, me, chartEpoch, recordMemo)
     if (spliced !== null) {
-      // packSnapshotBytes carves from a rolling arena and ConnectionManager hands the buffer to a
-      // transport that may outlive the tick, so the bytes are copied out before they are sent.
       const buf = new Uint8Array(spliced)
       recordSnapshotBytes(buf.length)
       return buf
@@ -210,10 +199,6 @@ const _cellShareCache = new Map()
 
 const _servedScratch = []
 
-// What one snapshot tick's player walk cost, in units of players and not of milliseconds: a
-// millisecond is this box's business, and a bound priced from a clock is a positive-feedback loop
-// (smaller fan-out measured a bigger cost per recipient, which shrank the fan-out). These counters
-// are the world-state quantities the walk is a function of, so a witness can pin them.
 const playerFanoutWork = { lobbyPlayers: 0, encodedPlayers: 0, nearbyVisits: 0, recipients: 0, snapshots: 0 }
 export function resetPlayerFanoutWork() {
   playerFanoutWork.lobbyPlayers = 0; playerFanoutWork.encodedPlayers = 0
@@ -224,19 +209,7 @@ export function playerFanoutWorkSnapshot() { return { ...playerFanoutWork } }
 const _fanoutNearby = []
 const _fanoutNeeded = new Set()
 
-// The per-tick player fan-out. It resolves what the group being served can actually reach BEFORE
-// anything is encoded: the encode pass and the id index are then built over that union, so a tick
-// that serves eight of sixty-four players in one corner of the world does not pack and index the
-// fifty-six nobody in this group can see. Both stages are therefore bounded by the served group's
-// relevance neighbourhoods -- a fact about where the players are -- and no longer by the lobby.
-// The recipient's own neighbourhood is still exactly what it was: nothing here decides who a
-// recipient hears about, only which player records this tick has to build to say it.
 let _fanoutWholeLobby = false
-// Witness switch, and the only one on this surface: with it on, a tick encodes and indexes the
-// whole lobby again instead of the union the served group can reach, which is the shape this row
-// was measured against. It exists so the before/after split is struck inside one process under one
-// load -- this box runs sibling lanes, so two separate runs measure the neighbours as much as the
-// code, and a cap read off such a number is the positive-feedback loop this row forbids.
 export function setPlayerFanoutWholeLobby(on) { _fanoutWholeLobby = !!on }
 
 function buildPlayerFanout(served, snapPlayers, relevanceRadius, appRuntime) {
@@ -303,8 +276,6 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const curStaticVersion = appRuntime._staticVersion
     const curStaticCustomSum = appRuntime.getStaticCustomVersionSum ? appRuntime.getStaticCustomVersionSum() : 0
     let activeStaticEntries = null
-    // Grow and shrink in place: rebuilding the array throws away every group's static cache, so a
-    // fan-out that moves by one would otherwise re-encode the whole static world on the next tick.
     const newGroup = (i) => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 })
     if (state.staticByGroup.length < snapGroups) {
       for (let i = state.staticByGroup.length; i < snapGroups; i++) state.staticByGroup.push(newGroup(i))

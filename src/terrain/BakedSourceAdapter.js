@@ -1,10 +1,3 @@
-// The two adapters for the port src/terrain/TerrainPhysics.js declares. A baked artifact is bytes,
-// a decoder for those bytes and the height code version this tree bakes, and which platform supplies
-// them is the caller's business, never the loader's: TerrainPhysics.js imports neither adapter, so
-// the module that answers what the ground is still parses where neither node:fs nor fetch exists.
-//
-// Both adapters derive every refusal from bakedFieldError, the one factory the loader throws from,
-// so "absent is a silent fallback, anything else is [baked-heightfield]" has exactly one source.
 import { bakedFieldError } from './TerrainPhysics.js'
 
 const BAKE_CODE_VERSION_SPEC = ['..', 'static', 'BakeCodeVersion.js'].join('/')
@@ -16,10 +9,6 @@ export function nodeBakedSource() {
     async readBytes(url) {
       const fs = await import('node:fs')
       const path = await import('node:path')
-      // A bake url is a served path ('/worlds/x.hf', relative to the repo root) or an absolute
-      // filesystem path. A rooted url that exists as itself is the filesystem path; anything else is
-      // served-relative. Stripping the slash unconditionally read a POSIX absolute path as cwd-relative,
-      // so an existing artifact came back ENOENT and was taken for an absent bake.
       const file = String(url)
       const filePath = path.isAbsolute(file) && fs.existsSync(file) ? file : file.replace(/^\//, '')
       let raw
@@ -55,8 +44,6 @@ export function browserBakedSource() {
     async heightfieldCodec() {
       return await import(BROWSER_CODEC_SPEC)
     },
-    // A browser has no bake sources to rehash, so it cannot stamp or verify one: it reads the
-    // artifact's own stamp or warns and falls back, which is the loader's null branch.
     async bakeCodeVersion() {
       return null
     },

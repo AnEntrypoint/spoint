@@ -70,9 +70,6 @@ export function isPacked() {
   return _packr !== null
 }
 
-// Node loads msgpackr synchronously (CJS build via the builtin module loader), so pack/unpack
-// work from the first call after import. The browser has no synchronous loader that avoids
-// bundling msgpackr, so it keeps the async path and the throw until ensurePacked settles.
 function _loadPackrSync() {
   if (!_isNode || typeof process.getBuiltinModule !== 'function') return false
   const { createRequire } = process.getBuiltinModule('module')

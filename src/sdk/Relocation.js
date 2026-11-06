@@ -115,13 +115,6 @@ export function groundSnapSpawnPoint(ctx, sp) {
   return groundY !== null ? [sp[0], groundY + SPAWN_CLEARANCE, sp[2]] : sp
 }
 
-// A world authors its spawn point, not the terrain under it: apps/world/tps-game.js declares
-// [-25, 8.39, -45] where the collider probes ground at -0.02 m, so the declared y authors ~8.1 m of
-// air and the player falls on every spawn and every respawn. The y is therefore resolved through the
-// same probe that decides where a held spawn is released, because a corrected literal is a number
-// that is right for today's terrain and wrong after the next terrain change. A probe that finds no
-// ground YET is not a licence to guess: the declared y stands and holdSpawnUntilGrounded places the
-// player when its field lands.
 export function resolveSpawnPointOnGround(ctx, sp) {
   if (!Array.isArray(sp) || sp.length < 3) return sp
   const groundY = probeSpawnGroundY(ctx, sp)
@@ -142,10 +135,6 @@ function staticCollidersPendingNear(ctx, p) {
   return false
 }
 
-// The collider streamer belongs to the physics world (TerrainPhysics sets physics._terrainStreamer);
-// the server boot also mirrors it onto its internal ctx. A relocation is handed the PUBLIC server API,
-// which carries neither, so reading only ctx._terrainStreamer answered "covered" for every field and the
-// hold trusted the surface ray, which released the player the moment the ray first hit a field.
 function streamerOf(ctx) {
   return ctx._terrainStreamer || ctx.physics?._terrainStreamer || null
 }
@@ -238,12 +227,6 @@ export function teleportPlayer(ctx, playerId, spec, { onGrounded = null } = {}) 
     if (!position) throw new Error('teleport: no terrain height at target and no explicit y')
   }
   placePlayerAt(ctx, playerId, position)
-  // A relocation to a point waits for the same ground, on the same budget, as a spawn: the
-  // teleport hold's own 8 s ceiling and its bare 60 m raycast cannot tell "no collider field here
-  // yet" from "no ground here at all", so on a world whose collider has to be solved on the CPU --
-  // which is what ?terrainhash=<n> forces, because the shipped bake is rejected for the other hash
-  // version -- it released the player into the air long before its field landed and the fall kill
-  // took it again on every respawn. One question, one probe, one budget.
   let groundlessReason = null
   beginTeleportHold(player, {
     maxMs: SPAWN_HOLD_MAX_MS,

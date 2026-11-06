@@ -35,10 +35,6 @@ export const GRASS_DENSITY = Object.freeze({
   FACE_END: 44,
 })
 
-// The distance-density law: a blade's stable rank q is the coin that decided whether it exists at
-// all, divided by the cell density it was drawn against, so it is uniform on [0,1) and never
-// re-chosen. Dropping the blades with q >= f(d) removes exactly the fraction f(d) of them, and
-// f(d) = (FULL_R / d) ** P is what makes the population grow as R ** (2 - P) and not R ** 2.
 export function grassBladeEdgeM(q, fullR = GRASS_DENSITY.FULL_R, capM = Infinity) {
   const own = fullR / Math.pow(Math.max(q, 1e-4), 1 / GRASS_DENSITY.P) + GRASS_DENSITY.FADE_M
   return Math.min(own, capM)
@@ -49,9 +45,6 @@ export function grassKeepFractionAt(d, fullR = GRASS_DENSITY.FULL_R) {
   return Math.pow(fullR / d, GRASS_DENSITY.P)
 }
 
-// Surface reads one blade's own foot costs where the frame carries a drawn mesh: two converge it to
-// 0.0000056 m worst case, a third moves nothing, and one leaves 0.0003824 m. Counted, so the
-// witness can price a blade without re-deriving it.
 export const GRASS_FOOT_READS = 2
 
 const K_JITX = 20, K_JITZ = 21, K_COIN = 22, K_SCALE = 23, K_YAW = 24, K_TINT = 25, K_WIND = 26
@@ -104,7 +97,6 @@ function groundRgb(snoise3, dir, h, slope, temp, splat) {
   return tinted.map((c) => _clamp01(c * TD.texBright))
 }
 
-
 export function grassDensity(temp, humidity, slopeRatio) {
   const wet = _clamp01(humidity), warm = _clamp01(temp), flat = 1 - _clamp01(slopeRatio)
   const base = (0.5 + 0.5 * wet * (0.45 + 0.55 * warm)) * (0.35 + 0.65 * flat)
@@ -151,25 +143,7 @@ export function classify(frame, anchorField, cell) {
   const jet = grassJetAt(frame, tf, rho, GRASS.SLOPE_D)
   if (!jet) return null
   const dHdx = jet.dHdx, dHdz = jet.dHdz, kx = jet.kx, kz = jet.kz
-  // A blade is not placed at its cell centre: GRASS.CLUMP_R offsets it, and the height it needs is
-  // the height AT THE OFFSET. It is read, not extrapolated from the cell's own gradient and
-  // curvature -- the extrapolation is a second-order Taylor step over a clump a metre wide, and its
-  // remainder is what put blades up to 0.24 m off the surface they were placed on.
-  //
-  // The read is taken off the frame's own drawn mesh, at the blade's own horizontal position, rather
-  // than by solving along the blade's direction: a solve is a fixed point in the radius and costs
-  // 2.35 reads of the SAME mesh (2.53 us a read, 5.94 us a solve -- the micro-benchmark in
-  // scripts/grass-seam-card-witness.mjs), while a read converges in two because rise enters the
-  // blade's (x,z) only through the up axis' own horizontal component. It is also the more accurate
-  // of the two -- 0.0000003 / 0.0000013 / 0.0000056 m against the solve's 0.0000056 / 0.0000107 /
-  // 0.0000423 m -- because it never carries a solve tolerance into the blade's foot.
-  //
-  // Where the frame carries no drawn mesh the solve is paid exactly as it was, and where neither
-  // answers, the Taylor step is. Neither branch removes a blade or coarsens a cell.
   const sampleAt = jet.at
-  // The same authority client/core/ExactPatchFrame.js reads: the frame's drawn-mesh port, resolved
-  // per cell. A local `typeof` test here is what let the two sides drift apart -- this side read the
-  // port live while the placement frame held a capture of it -- so both call one resolver now.
   const meshAt = renderMeshHeightAt(frame)
   const mE = tf.eastL, mU = tf.upL, mN = tf.northL
   const mInv = 1 / (mU[1] || 1)
