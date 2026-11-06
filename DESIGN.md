@@ -283,7 +283,7 @@ src/terrain/LatticeSurface.js holds the one copy the server collides against and
 
   rho * du - base = sharedLattice(rho * de, rho * dn) + offsetY
 
-is one fixed point in rho -- the same one the iterate branch below solves, so both agree; frame.elevationAtDir is a one-shot sampler read consumed as a height, not a fixed-point solve about what "the ground along this direction" means. Two seeds are tried, the chart's own anchor height first because it is already known and costs nothing: an answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the caller keeps solving. No placement silently loses its ground.
+is one fixed point in rho, the same one the iterate branch below solves. frame.elevationAtDir is a one-shot sampler read consumed as a height, not a fixed-point solve. Two seeds are tried, the chart's own anchor height first because it is already known and costs nothing: an answer that has NOT converged is a function of the seed and not of the surface, so it is refused and the caller keeps solving. No placement silently loses its ground.
 
 The field refuses itself once the chart is re-anchored under it, so a stale lattice cannot answer here: covers() goes false and the caller falls through to the sampler for the new chart.
 
