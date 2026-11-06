@@ -1,7 +1,0 @@
-id: "prd-mw3zosb67858"
-kind: "prd"
-title: "Verify and implement the remaining savi/spawn feature claims"
-body: ".gm/witness-out/savi-spawn-feature-gap.md lists 29 reader claims from the savi Tome/skills and spawn tooling corpora (23 implemented and marked [x]; 6 unchecked). Re-check against the tree: all 6 unchecked claims are confirmed missing by grep and file reads. The earlier count of 13 was stale. Each of the 6 needs its own implementation lane, which is an owner decision."
-status: "parked"
-createdAt: "2026-11-05T20:19:46.386Z"
-parkReason: "The parallel read workflow was stopped after four of eight readers stalled, so its vote and synthesis phases never ran. Re-check: 6 unchecked claims confirmed missing (terrain-marks, field-paint, decoration-items, ragdoll-activation, vibe, postfx). The 13 figure was stale. Building them is an owner decision."
