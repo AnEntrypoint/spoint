@@ -1,12 +1,12 @@
 [physics-lod-budget] population=800 players=4 playerSpeed=6 radius=30 budget=128 lodInterval=32 warm=256 ticks=256 dt=0.015625
-MEASURED physics-lod-budget: 800 dynamic body(ies) + 4 player(s) over 256 measured tick(s) after 256 warm, step=0.22158 ms/frame median=0.22072, sync=0.01628 ms/frame, lodSweep=0.00711 ms/frame (0.22745 ms/call x 8), budget=0.00010 ms/frame (0.00333 ms/call, engaged 3/16), resident=800 dropped=0
-[physics-lod-budget] step   ms/frame    min=0.09683 median=0.22072 p95=0.31913 mean=0.22158 max=0.40163 n=256 over0.05ms=256
-[physics-lod-budget] sync   ms/frame    min=0.00440 median=0.01493 p95=0.02745 mean=0.01628 max=0.05102 n=256
-[physics-lod-budget] lod    ms/call     min=0.19699 median=0.22108 p95=0.28333 mean=0.22745 max=0.28333 n=8 amortizedMsPerFrame=0.00711
-[physics-lod-budget] lod    bodyOps ms  mean=0.05670 max=0.08067 adds=0 removes=0 rebinds=147
-[physics-lod-budget] budget ms/call     min=0.00102 median=0.00137 p95=0.01282 mean=0.00333 max=0.01282 n=8 amortizedMsPerFrame=0.00010
+MEASURED physics-lod-budget: 800 dynamic body(ies) + 4 player(s) over 256 measured tick(s) after 256 warm, step=0.22013 ms/frame median=0.21975, sync=0.01580 ms/frame, lodSweep=0.00670 ms/frame (0.21428 ms/call x 8), budget=0.00009 ms/frame (0.00282 ms/call, engaged 3/16), resident=800 dropped=0
+[physics-lod-budget] step   ms/frame    min=0.09642 median=0.21975 p95=0.30839 mean=0.22013 max=0.39676 n=256 over0.05ms=256
+[physics-lod-budget] sync   ms/frame    min=0.00461 median=0.01431 p95=0.02463 mean=0.01580 max=0.06780 n=256
+[physics-lod-budget] lod    ms/call     min=0.15499 median=0.21321 p95=0.26904 mean=0.21428 max=0.26904 n=8 amortizedMsPerFrame=0.00670
+[physics-lod-budget] lod    bodyOps ms  mean=0.05350 max=0.08330 adds=0 removes=0 rebinds=147
+[physics-lod-budget] budget ms/call     min=0.00071 median=0.00145 p95=0.01141 mean=0.00282 max=0.01141 n=8 amortizedMsPerFrame=0.00009
 [physics-lod-budget] budget engagedCalls=3/16 activeIdsPeak=500 deactivated=701 removed=0
-[physics-lod-budget] lodScanMeanMsPerCall=0.16742 frameTotalMeanMs=0.24496
+[physics-lod-budget] lodScanMeanMsPerCall=0.15796 frameTotalMeanMs=0.24263
 [physics-lod-budget] resident=800 activeIds=43 sleepingIds=757 worldBodies=801 joltActive=43 dropped=0
 [physics-lod-budget] stateHash=3878341734
 [physics-lod-budget] RESULT: PASS

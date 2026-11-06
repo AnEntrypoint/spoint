@@ -4,7 +4,7 @@ import { posix } from 'node:path'
 
 export const SOURCE_REL = 'src/apps/AppContext.js'
 export const GENERATED_REL = 'client/editor/sdk-typings.generated.d.ts'
-export const DIGEST_LINE = '// source digest: '
+export const DIGEST_LINE = "export declare const SOURCE_DIGEST: '"
 export const MAX_BUFFER = 256 * 1024 * 1024
 
 export function normalizeEol(text) {
@@ -135,6 +135,6 @@ export function indexSource(cwd = process.cwd()) {
 }
 
 export function recordedDigest(text) {
-  const m = text.match(/\/\/ source digest: ([0-9a-f]{64})/)
+  const m = text.match(/export declare const SOURCE_DIGEST: '([0-9a-f]{64})';/)
   return m === null ? null : m[1]
 }
