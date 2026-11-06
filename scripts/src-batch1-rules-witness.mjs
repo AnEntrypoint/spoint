@@ -24,4 +24,4 @@ assert.equal(isRegisteredMessage(unknownId), false, 'an unregistered id is not r
 assert.equal(typeof msgName(unknownId), 'string', 'an unregistered id answers a named string, never null')
 assert.equal(isUnreliable(unknownId), false, 'an unregistered id answers a strict false from isUnreliable')
 
-console.log('RESULT: PASS player ids parse integers and strings to one string key; a registered unreliable id answers true, a registered reliable id answers false, and an unregistered message id answers a string name and a strict false')
+console.log('RESULT: PASS player ids parse integers and strings to one string key; a registered unreliable id answers true, a registered reliable id answers false, and an unregistered message id answers a string name and a strict false Removing the unregistration guard in isUnreliable is not detectable here, because UNRELIABLE_MSGS holds only registered ids.')
