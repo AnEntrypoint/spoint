@@ -12,6 +12,11 @@ function refusal(code, message) {
 export function createFieldPaint({ cellSize, chunkCells }) {
   const fields = new Map(TERRAIN_FIELD_NAMES.map(name => [name, new Map(FIELD_LAYER_NAMES.map(layer => [layer, createFieldLayers({ cellSize, chunkCells })]))]))
   const history = []
+  const listeners = []
+
+  function notify() {
+    for (const fn of listeners) fn()
+  }
 
   function layerOf(name, layer) {
     const layers = fields.get(name)
@@ -41,6 +46,7 @@ export function createFieldPaint({ cellSize, chunkCells }) {
       }
     }
     history.push({ field, layer, cells })
+    notify()
     return cells.length
   }
 
@@ -49,6 +55,7 @@ export function createFieldPaint({ cellSize, chunkCells }) {
     if (!last) return false
     const grid = layerOf(last.field, last.layer)
     for (const c of last.cells) grid.paint(c.x, c.z, -c.delta)
+    notify()
     return true
   }
 
@@ -82,7 +89,7 @@ export function createFieldPaint({ cellSize, chunkCells }) {
     return { cellSize, chunkCells, key, painted: grid.paintedChunks().includes(key), version: grid.changes(0).at }
   }
 
-  return Object.freeze({ stroke, undo, read, chunkObject, toJSON, fromJSON, fieldNames: TERRAIN_FIELD_NAMES, layerNames: FIELD_LAYER_NAMES })
+  return Object.freeze({ stroke, undo, read, chunkObject, toJSON, fromJSON, onChange: fn => { listeners.push(fn) }, fieldNames: TERRAIN_FIELD_NAMES, layerNames: FIELD_LAYER_NAMES })
 }
 
 export const PAINTED_HEIGHT_FIELD = 'terrain:height'
