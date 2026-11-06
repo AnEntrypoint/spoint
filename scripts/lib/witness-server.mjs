@@ -36,22 +36,10 @@
 // at the boot site (one line) and the process-exit hook stops it. Witnesses that
 // route their exit through scripts/lib/quiesce.mjs get the stop before the
 // handle drain, so they exit because the loop emptied rather than by force.
-//
-// Registering also arms scripts/lib/verdict-exit-guard.mjs, so a witness that
-// forgets `armVerdictExitGuard()` still leaves through a bounded hard exit once
-// its verdict is out instead of idling forever. It does NOT fabricate a FAIL:
-// the loud red on post-verdict silence stays opt-in, for witnesses that ask for
-// it by calling the guard themselves.
 import { execFileSync, spawn } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-// Static on purpose. An earlier cut armed the guard through a fire-and-forget
-// `import()`, which races the witness: one live run booted a server, printed its
-// verdict and then sat for 650 s because the arm had not landed when the verdict
-// went out. Function declarations hoist across the cycle
-// (verdict-exit-guard.mjs imports this module back), so a static import resolves
-// at load and the arm is synchronous.
 import { armVerdictExitGuard } from './verdict-exit-guard.mjs'
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
