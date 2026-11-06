@@ -198,10 +198,6 @@ function recordTemplate(schema, analog) {
   return pair[slot]
 }
 
-// The span of one record, validated without building anything. The server decodes every record of
-// every packet and then drops the ones it has already acked, so a packet carrying four redundant
-// records cost four objects and kept one. Measuring the span first is what lets the caller decide
-// whether a record is worth an object at all.
 function recordSpan(view, off, schema, end) {
   if (off + RECORD_FIXED_BYTES > end) throw throwableRejection(INPUT_CASE.TRUNCATED_RECORD, { offset: off, end })
   const flags = view.getUint8(off + 13)
@@ -275,9 +271,6 @@ export function tryEncodeInputPacket(schema, entries, chartEpoch = 0) {
   return Object.freeze({ accepted: true, code: INPUT_CASE.ACCEPTED, bytes: out, count: n, dropped: first, cases })
 }
 
-// The legacy entry keeps the newest MAX_INPUTS_PER_PACKET records and returns bytes only, so a
-// dropped-records case is announced on the console rather than lost. Callers that branch on it use
-// tryEncodeInputPacket, which returns the case.
 export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   const r = tryEncodeInputPacket(schema, entries, chartEpoch)
   if (!r.accepted) throw new RangeError(r.reason)
@@ -285,9 +278,6 @@ export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   return r.bytes
 }
 
-// A caller that already knows it will drop everything at or below a sequence says so, and those
-// records are walked past instead of decoded: addInput rejects them on the same comparison, so this
-// changes how many objects the decode builds and nothing about which inputs the server keeps.
 export function decodeInputPacket(schema, bytes, dropAtOrBelow = null) {
   if (!(bytes instanceof Uint8Array)) return rejection(INPUT_CASE.PAYLOAD, {})
   if (bytes.length < 1) return rejection(INPUT_CASE.PAYLOAD_EMPTY, {})
@@ -317,11 +307,6 @@ export function decodeInputPacket(schema, bytes, dropAtOrBelow = null) {
 }
 
 const QUANTIZE_RECORD = { sequence: 0, data: null }
-// quantizeInput runs once per input step for as long as the client is connected, so its wire scratch
-// is pooled instead of rebuilt: a fresh buffer and two fresh views per step were three allocations
-// whose entire purpose was to carry bytes across one synchronous call. Nothing outside this module
-// can observe the scratch, and neither writeRecord nor readRecordInto re-enters quantizeInput, so a
-// single module-level buffer is not shared with any second caller.
 const QUANTIZE_SCRATCH_MIN_BYTES = RECORD_FIXED_BYTES + ANALOG_BYTES
 let quantizeScratch = new Uint8Array(QUANTIZE_SCRATCH_MIN_BYTES)
 let quantizeScratchView = new DataView(quantizeScratch.buffer)

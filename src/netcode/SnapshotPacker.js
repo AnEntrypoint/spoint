@@ -1,22 +1,11 @@
 import { pack } from '../protocol/msgpack.js'
 
-// Packs the player records once per memo and copies them into every viewer's snapshot bytes.
-//
-// snapshotHead probes the live packer once per type and memoises the head for the process, so it is
-// only valid while WIRE_STRUCTURES (src/protocol/msgpack.js) is fixed. Under msgpackr's bundleStrings
-// a bundled string is written past the tail, so a record holding one is not position-independent --
-// strings of one or two bytes are inlined and would splice unchanged, but recordBytes refuses every
-// string rather than track that threshold. A carved range is never rewritten, so a caller may hold a
-// returned buffer until the arena rolls.
-
 const ARENA_BYTES = 1 << 18
 const COPY_LOOP_MAX = 32
 const KIND_UNSHAREABLE = 0
 const KIND_SCALARS = 1
 const KIND_WITH_BINS = 2
 
-// Counted work units for the share path: a witness reads these, because a share that is never
-// taken is indistinguishable from a share that costs nothing.
 export const snapshotPackCounts = { splices: 0, refusals: 0, recordPacks: 0, recordShares: 0 }
 
 const _heads = new Map()

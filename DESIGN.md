@@ -142,3 +142,25 @@ leaves: the quadtree's leaves, each { ox, oy, l }. camera is the player in the s
 The band is snapped to the collider's own grid so its vertices do not swim with the camera: moving by less than a tile moves nothing, moving by a tile moves the band by a whole tile.
 
 A leaf is dropped only when the band covers it WHOLE; a leaf straddling the rim is kept, and every tile inside a kept leaf is suppressed. That is what keeps the band free of both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the band also draws).
+
+## Snapshot packer record memo and share counters
+
+Source: `src/netcode/SnapshotPacker.js`. Text moved from the file comments, paragraph order kept.
+
+Packs the player records once per memo and copies them into every viewer's snapshot bytes.
+
+snapshotHead probes the live packer once per type and memoises the head for the process, so it is only valid while WIRE_STRUCTURES (src/protocol/msgpack.js) is fixed. Under msgpackr's bundleStrings a bundled string is written past the tail, so a record holding one is not position-independent -- strings of one or two bytes are inlined and would splice unchanged, but recordBytes refuses every string rather than track that threshold. A carved range is never rewritten, so a caller may hold a returned buffer until the arena rolls.
+
+Counted work units for the share path: a witness reads these, because a share that is never taken is indistinguishable from a share that costs nothing.
+
+## Input codec
+
+Source: `src/protocol/InputCodec.js`. Text moved from the file comments, paragraph order kept.
+
+The span of one record, validated without building anything. The server decodes every record of every packet and then drops the ones it has already acked, so a packet carrying four redundant records cost four objects and kept one. Measuring the span first is what lets the caller decide whether a record is worth an object at all.
+
+The legacy entry keeps the newest MAX_INPUTS_PER_PACKET records and returns bytes only, so a dropped-records case is announced on the console rather than lost. Callers that branch on it use tryEncodeInputPacket, which returns the case.
+
+A caller that already knows it will drop everything at or below a sequence says so, and those records are walked past instead of decoded: addInput rejects them on the same comparison, so this changes how many objects the decode builds and nothing about which inputs the server keeps.
+
+quantizeInput runs once per input step for as long as the client is connected, so its wire scratch is pooled instead of rebuilt: a fresh buffer and two fresh views per step were three allocations whose entire purpose was to carry bytes across one synchronous call. Nothing outside this module can observe the scratch, and neither writeRecord nor readRecordInto re-enters quantizeInput, so a single module-level buffer is not shared with any second caller.
