@@ -1,0 +1,9 @@
+id: "prd-mw4klav5d0e5"
+kind: "prd"
+title: "Extend the define* spec boundary to every ctx factory"
+body: "All 23 spec-taking ctx.define*/createTween factories refuse unknown keys through AppContext; definePath options, buoyancy, checkpoint and combat refuse invalid present values with coded refusals. scripts/define-spec-coverage-witness.mjs prints RESULT: PASS and checks 23 shipped spec calls."
+status: "resolved"
+createdAt: "2026-11-06T06:04:55.745Z"
+witnessEvent: 210
+witnessCommit: "86a1bb0"
+resolvedAt: "2026-11-06T06:04:55.762Z"
