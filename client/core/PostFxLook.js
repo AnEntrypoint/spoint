@@ -50,3 +50,21 @@ export function applyLook(look, rgb, uv = [0.5, 0.5]) {
   }
   return out.map(c => Math.min(1, Math.max(0, c)))
 }
+
+export function lookPasses(look) {
+  if (look === null || typeof look !== 'object') throw new PostFxLookError('look-invalid', 'look must be a parsed look object')
+  return OPERATORS.filter(op => look[op] !== undefined).map(op => Object.freeze({ op, value: look[op] }))
+}
+
+export function postfxLookNode() {
+  return {
+    id: 'postfx-look',
+    reads: [],
+    writes: ['postfxPasses'],
+    terminal: true,
+    shouldRun: ctx => ctx.postfxLook != null,
+    run(ctx) {
+      ctx.res.postfxPasses = lookPasses(ctx.postfxLook)
+    },
+  }
+}
