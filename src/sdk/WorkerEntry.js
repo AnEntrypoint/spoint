@@ -1,3 +1,4 @@
+import { createHostFieldPaint } from '../terrain/fieldPaint.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { ensurePacked } from '../protocol/msgpack.js'
 import { ConnectionManager } from '../connection/ConnectionManager.js'
@@ -110,7 +111,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   const _minimap = minimapDescriptor(knownWorldName, _tcfg)
   if (_minimap) worldDef._minimap = _minimap
   if (_tcfg && _tcfg.enabled !== false) {
-    setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: globalThis.process?.versions?.node ? nodeBakedSource() : browserBakedSource() })
+    setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: globalThis.process?.versions?.node ? nodeBakedSource() : browserBakedSource(), fieldPaint: createHostFieldPaint(_tcfg) })
       .then(s => {
         _terrainStreamer = s; ctx._terrainStreamer = s
         if (s?.chartReanchor) attachServerChartMigrators(ctx, s.chartReanchor)
