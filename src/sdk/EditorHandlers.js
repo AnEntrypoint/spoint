@@ -1,3 +1,4 @@
+import { createHostFieldPaint } from '../terrain/fieldPaint.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { loadPrefabRecords } from '../shared/modelLoadErrors.js'
 import { vecOK } from '../shared/vecGuard.js'
@@ -536,7 +537,7 @@ export function createEditorHandlers(ctx) {
             splineCarveJSON: previous.splineCarve?.toJSON?.() ?? null,
             caveCarveJSON: previous.caveCarve?.toJSON?.() ?? null,
           } : {}
-          const build = cfg => setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: cfg, bakedSource, ...carriedEdits })
+          const build = cfg => setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: cfg, bakedSource, ...carriedEdits, fieldPaint: ctx._fieldPaint ||= createHostFieldPaint(cfg) })
           const replace = async cfg => {
             stopTerrainStreaming(ctx.physics, ctx._terrainStreamer || ctx.physics?._terrainStreamer)
             ctx._terrainStreamer = null
