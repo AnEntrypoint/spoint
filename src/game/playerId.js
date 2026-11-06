@@ -1,5 +1,3 @@
-// The one playerId parser for src/game. A player id is a non-empty string or an
-// integer; both spellings of the same player (1 and '1') parse to the same key.
 // Every system keys its maps on the parsed value and no function accepts the raw one.
 
 export function parsePlayerId(pid) {
