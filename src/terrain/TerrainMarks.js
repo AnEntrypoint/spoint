@@ -129,7 +129,57 @@ function compileClear(spec, index) {
   }
 }
 
-const COMPILERS = Object.freeze({ flatten: compileFlatten, pond: compilePond, lake: compilePond, sea: compilePond, river: compileRiver, path: compilePath, road: compilePath, clear: compileClear, hole: compileClear })
+function compileGrade(spec, index) {
+  const c = pointAt(spec, index, 'center')
+  const radius = finiteAt(spec, index, 'radius', { positive: true })
+  const falloff = finiteAt(spec, index, 'falloff', { min: 0 })
+  const level = finiteAt(spec, index, 'level')
+  const slope = finiteAt(spec, index, 'slope')
+  const maxGrade = finiteAt(spec, index, 'maxGrade', { min: 0 })
+  if (Math.abs(slope) > maxGrade) throw new TerrainMarkError('grade-too-steep', index, `slope ${slope} exceeds maxGrade ${maxGrade}`)
+  return {
+    apply(x, z, h) {
+      const d = Math.hypot(x - c[0], z - c[1])
+      const w = 1 - smooth((d - radius) / (falloff || 1e-9))
+      if (w <= 0) return h
+      const target = level + slope * (x - c[0])
+      return h + (target - h) * w
+    },
+    clears: () => false,
+  }
+}
+
+function compileSpline(spec, index) {
+  const pts = polylineAt(spec, index, 'points', true)
+  const width = finiteAt(spec, index, 'width', { min: 0 })
+  const falloff = finiteAt(spec, index, 'falloff', { positive: true })
+  const half = width / 2
+  return {
+    apply(x, z, h) {
+      const { d, i, t } = nearestOnPolyline(x, z, pts)
+      const w = 1 - smooth((d - half) / falloff)
+      if (w <= 0) return h
+      const level = pts[i].level + (pts[i + 1].level - pts[i].level) * t
+      return h + (level - h) * w
+    },
+    clears: () => false,
+  }
+}
+
+function compileLiquid(spec, index) {
+  const c = pointAt(spec, index, 'center')
+  const radius = finiteAt(spec, index, 'radius', { positive: true })
+  const level = finiteAt(spec, index, 'level')
+  return {
+    apply: (x, z, h) => h,
+    clears: () => false,
+    levelAt(x, z) {
+      return Math.hypot(x - c[0], z - c[1]) <= radius ? level : null
+    },
+  }
+}
+
+const COMPILERS = Object.freeze({ flatten: compileFlatten, pond: compilePond, lake: compilePond, sea: compilePond, river: compileRiver, path: compilePath, road: compilePath, clear: compileClear, hole: compileClear, grade: compileGrade, spline: compileSpline, liquid: compileLiquid })
 
 export const TERRAIN_MARK_KINDS = Object.freeze(Object.keys(COMPILERS))
 
@@ -152,6 +202,13 @@ export function compileTerrainMarks(specs) {
     clearsAt(x, z) {
       for (const m of compiled) if (m.clears(x, z)) return true
       return false
+    },
+    liquidLevelAt(x, z) {
+      for (const m of compiled) {
+        const level = m.levelAt?.(x, z)
+        if (level !== undefined && level !== null) return level
+      }
+      return null
     },
   })
 }
