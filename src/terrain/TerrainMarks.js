@@ -7,7 +7,6 @@ export class TerrainMarkError extends Error {
   }
 }
 
-export const TERRAIN_MARK_KINDS = Object.freeze(['flatten', 'pond', 'river', 'path', 'clear'])
 
 const smooth = (t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t)
 
@@ -28,7 +27,7 @@ function polylineAt(spec, index, key, withLevels) {
   const raw = spec[key]
   if (!Array.isArray(raw) || raw.length < 2) throw new TerrainMarkError('short-polyline', index, `${key} needs at least two points`)
   return raw.map((p, i) => {
-    const xz = pointAt({ p }, index, 'p')
+    const xz = pointAt({ p: p.slice(0, 2) }, index, 'p')
     if (!withLevels) return { x: xz[0], z: xz[1] }
     const level = finiteAt(p.length === 3 ? { level: p[2] } : {}, index, 'level')
     return { x: xz[0], z: xz[1], level }
@@ -130,7 +129,9 @@ function compileClear(spec, index) {
   }
 }
 
-const COMPILERS = Object.freeze({ flatten: compileFlatten, pond: compilePond, river: compileRiver, path: compilePath, clear: compileClear })
+const COMPILERS = Object.freeze({ flatten: compileFlatten, pond: compilePond, lake: compilePond, sea: compilePond, river: compileRiver, path: compilePath, road: compilePath, clear: compileClear, hole: compileClear })
+
+export const TERRAIN_MARK_KINDS = Object.freeze(Object.keys(COMPILERS))
 
 export function compileTerrainMarks(specs) {
   if (!Array.isArray(specs)) throw new TerrainMarkError('not-a-list', -1, 'marks must be an array')
@@ -140,7 +141,7 @@ export function compileTerrainMarks(specs) {
     if (!compile || !Object.prototype.hasOwnProperty.call(COMPILERS, spec.kind)) throw new TerrainMarkError('unknown-kind', index, `kind ${JSON.stringify(spec.kind)} is not one of ${TERRAIN_MARK_KINDS.join(', ')}`)
     return compile(spec, index)
   })
-  const heightMarks = compiled.filter((_, i) => specs[i].kind !== 'clear')
+  const heightMarks = compiled.filter((_, i) => specs[i].kind !== 'clear' && specs[i].kind !== 'hole')
   return Object.freeze({
     count: compiled.length,
     height(x, z, h) {
