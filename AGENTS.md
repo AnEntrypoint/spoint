@@ -145,6 +145,14 @@ Skills encode environment-specific constraints that override general knowledge.
 - `wind.uGrassRing` carries `EDGE_CAP_M = ringRadius - EDGE_M` (where the outermost fade reaches zero), not the ring radius.
 - Placement is chunk-granular and the law is not, so a bigger ring places about twice the blades it keeps; the retired frame-time witness measured `updateMsPerQuietFrame` 1.03 -> 1.71 ms. Judge a ring change on that number, not the instance count.
 
+## Grass wind field
+
+- `client/core/GrassWindField.js` evaluates the gust once per lattice cell (64 x 64 over 192 m, riding the camera) and both shader paths read it with one bilinear fetch. The gust is one function of world position and time, so two blades a metre apart move together; the turbulence is a ripple that travels downwind.
+- Every cell must be rewritten at the frame's time. With `GRASS_WIND_FIELD_BANDS = 8` each frame refreshed 1/8 of the rows, so one frame sampled rows from up to eight different times and the wind at a fixed point jerked. `scripts/grass-wind-field-seam-witness.mjs`: jerk ratio 231 at 8 bands, 6.4 at 1 band (cap 20). The 1-band cost is about 0.5 ms per update in Node (0.07 -> 0.55 ms), a CPU cost to judge against the frame budget.
+- The lattice origin snaps to `GRASS_WIND_FIELD_SNAP_M` (24 m), bounded by the slack the extent leaves over the reach, so the lattice is not rebuilt every frame. `GRASS_WIND_FIELD_REACH_M` (77.6) and `GRASS_WIND_FIELD_DROP_MARGIN_M` (16) bracket the ring that `Grass.js` keeps before it drops a chunk.
+- A recentre that moves by whole cells copies the rows it keeps (`scroll`) and writes only the exposed border. With one band, `bandWrite` rewrites every row in the same frame, so a scroll costs the exposed writes on top of a full rebuild.
+- The amplitudes are the constants the shader carried before the join (`GRASS_SWAY_BASE/FLOW`, `GRASS_FLUTTER_*`); the join changes where they are evaluated, not how large they are.
+
 ## Netcode and wire
 
 - Prediction suppresses only the blocked DIRECTION: `_reconcile` (`PredictionEngine.js`) derives `wedgeNormal` from commanded-vs-achieved motion, else `-velocity` when stopped while commanding; `characterStep.js` projects out that component alone.
