@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: 115eac3f309f8b43a592ad26b53d060cd9618c6cc7c4ed23ee65bbeaffe86402
+// source digest: 5e2ce8e14a9d1459764b47fce4e09f698e7cb3ace511e80954145cabbdf80f29
 
 export type NonNegFinite = number;
 
@@ -975,6 +975,15 @@ export declare class AppContext {
     set state(v: any);
     terrainHeightAt(x: any, z: any): any;
     terrainKindAt(x: any, z: any): any;
+    vibe(spec: any, sampleNames: any): Readonly<{
+        bpm: number;
+        length: number;
+        steps: readonly Readonly<{
+            beat: any;
+            sample: any;
+        }>[];
+        swing: number;
+    }>;
 }
 import { AnimationSystem } from '../animation/AnimationSystem.js';
 import { CliDebugger } from '../debug/CliDebugger.js';

@@ -1,3 +1,4 @@
+import { parseVibe } from '../behaviours/vibe.js'
 import { parseRagdollActivation } from '../animation/ragdollActivation.js'
 import { CliDebugger } from '../debug/CliDebugger.js'
 import { buildPhysicsAPI, parseInteractable, reifyInteractable } from './AppPhysics.js'
@@ -379,6 +380,13 @@ export class AppContext {
     const plan = parseRagdollActivation(spec)
     this._entity.custom._ragdoll = plan
     return plan
+  }
+
+  vibe(spec, sampleNames) {
+    const samples = new Set(Array.isArray(sampleNames) ? sampleNames : [])
+    const pattern = parseVibe(spec, samples)
+    this._entity.custom._vibe = pattern
+    return pattern
   }
 
   onPlayerProximity(radius, callback) {
