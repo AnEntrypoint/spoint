@@ -124,13 +124,13 @@ async function main() {
     await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--check'])
     console.log('check: apps-manifest.json is in sync with ./apps')
   } catch (e) {
-    console.error('check: apps-manifest.json regeneration failed:', e.stderr || e.message)
+    console.error('check: apps-manifest.json is stale; run: node scripts/bundle-apps-manifest.mjs', e.stderr || e.message)
     process.exit(1)
   }
   try {
     await execFileAsync(process.execPath, ['scripts/gen-sdk-typings.mjs', '--check'])
   } catch (e) {
-    console.error('check: generated SDK typings drift:', (e.stderr || e.message || '').toString().trim())
+    console.error('check: generated SDK typings are stale; run: node scripts/gen-sdk-typings.mjs', (e.stderr || e.message || '').toString().trim())
     process.exit(1)
   }
   console.log('check: generated SDK typings match src/apps/AppContext.js')
