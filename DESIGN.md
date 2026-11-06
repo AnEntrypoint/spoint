@@ -104,3 +104,41 @@ The sequence addInput compares against is published by `ackSequenceOf`, so a dec
 Source: `src/sdk/DevHmr.js`, `moduleValidator`.
 
 A ?hmr= body is a pure function of the file's bytes, the floor, and the active version of the module itself and of each of its direct imports. `rewrite()` stamps an import only while that import carries a version above the floor. So those are exactly what a validator must cover, and a body is re-sent only when one of them moves. `Cache-Control: no-cache` still forces a revalidate before every use, so a reload answers 304 and never re-reads or re-rewrites the source. Only the modules an edit reaches pay for a body.
+
+## Near-field lattice
+
+Source: §src/terrain/NearFieldLattice.js§. Text moved from the file header and its inline comments, paragraph order kept.
+
+The near-field lattice: ONE regular grid at the collider's spacing, from which the rendered near band is built. The collider already builds that spacing -- see src/shared/colliderLattice.js -- so the ground the player walks on and the ground the player sees are two draws of one density instead of two independent samplings of one height field.
+
+The band is PLAYER-CENTRED and its extent is the collider's own field, not a subdivision of whichever quadtree leaf the player happens to be standing in. That is what makes the band the same ground at every quality tier: a band derived by subdividing the host leaf can only cover floor(budget / divisions^2) leaves, so at the tier where the host leaf is one whole budget of tiles it covers exactly ONE leaf -- a ~62 m island of collider-resolution ground in a field of leaves whose spacing is whatever maxLevel happens to allow. Deciding the band's extent from the collider instead of from the leaf is the whole difference, and it is why extentM is required here rather than defaulted.
+
+It is a PLAN over the renderer's own shared patch geometry, not a new coordinate system and not a second mesh: a tile is drawn exactly as a quadtree leaf is drawn -- same instances, same vertex stage, same skirt -- so this introduces no second material and no second shader path.
+
+Nothing here knows about WebGPU, quads or shaders, so scripts can measure it with no GPU at all.
+
+How many tiles one dropped leaf may cost. The quadtree's near-field floor is one leaf of tileM * floor(sqrt(tileBudget)): the largest leaf the band can still cover, so a leaf bigger than it is never dropped and the band steps around it instead. This is a bound on the cost of REPLACING one leaf, never a bound on how much ground the band covers -- coverage is the collider's extent, and a band that cannot afford the collider's whole extent reports the shortfall instead of silently covering less.
+
+One tile wide: the widest leaf the band's rim may abut is a leaf the SAME size as a tile, so the ground past the rim is drawn at the band's own spacing instead of one quadtree level coarser. The rim step is bounded by the COARSER of the two surfaces, so a rim meeting 2.00 m ground against 1.00 m tiles is bounded by the 2.00 m side and no property of the band can shrink it -- that is what measured 0.11113 m at every tier (scripts/nearfield-lod-lattice-witness.mjs, perimeterJump, max over ~1004 samples of the footprint perimeter, identical at all 8 tiers because the band and the floor-refined ground past it are identical at all 8 tiers). At one tile wide the coarse side IS the band, so the step collapses onto the band's own faceting.
+
+The cube-sphere map is not conformal: one face-local metre is 0.780 m of ground along u and 0.617 along v at the tps-game anchor, and it drifts with position on the face. The floor is a length in FACE-LOCAL metres while the band's extent is metres of GROUND, so a reach derived from the band's extent is divided by the ground-per-face-metre the map shows where the player stands. The SMALLEST the map can show is the fallback a caller with no measured metric uses: dividing by it gives the largest face-local reach, so the floor still reaches the rim wherever the player stands.
+
+A tile is gridSteps intervals of the collider's spacing, so a tile's step IS the collider's step -- the whole claim: the near band can never be coarser than the surface it replaces.
+
+The quadtree must offer a leaf the band can cover, or there is no band. That is a floor on the quadtree's near-field subdivision, derived here in metres and read by Quadtree, so the two cannot disagree about how fine the near band's leaves are.
+
+How wide the band can get: a whole number of tiles, capped so a step of distance tessellation cannot drag the rim outward with the LOD and migrate the ridge when quality is shed.
+
+The floor's reach, in FACE-LOCAL metres, from the band's OWN footprint rather than from a level count or a fixed radius: the floor's whole job is one leaf of ground past the band's rim, so the reach is the rim plus that leaf and nothing else.
+
+OUTER: the band is snapped to its own tile grid rather than centred on the player, so its rim can sit a whole tile further from the camera than the band's half-extent; and a face-local reach buys least GROUND where the map stretches least, so the reach is divided by the SMALLEST metric the map shows. Measured at the tps-game anchor: 0.780 m of ground per face-local metre along u and 0.617 along v, so a reach converted with the larger of the two stops about 20 m of ground short of the rim along v -- which is a rim that meets the far field after all, and it measured 0.483 m against the 0.0626 m the floor exists to hold. The reach is PER AXIS, so it is the half-extent and not the half-extent times sqrt(2): the square's corner is already inside it.
+
+INNER: the band drops every leaf it covers WHOLE, so everything more than one leaf inside the rim is ground the band throws away -- 66% of the leaves the whole-footprint floor added, all of it where the tiles are drawn anyway. The floor therefore refines the RIM ANNULUS. The inner reach is derived from the metric the band is laid out in, because that is the only way it can be one leaf inside the rim and not somewhere else: past one leaf the leaves stop being smaller than the band, so they stop being droppable, and the tiles they suppress are the near field's own resolution.
+
+The reach for a caller with no metric to measure: the map's smallest ground-per-face-metre gives the largest face-local reach, so the floor still reaches the rim wherever the player stands. It carries no inner reach, because an inner reach is only safe when it is derived from the same metric the band is laid out in -- the conservative outer is wider than the band, so subtracting a leaf from it would leave the hole wider than the band and the tiles would start being suppressed.
+
+leaves: the quadtree's leaves, each { ox, oy, l }. camera is the player in the same face-local metres. instanceBudget caps the band's tile count at the number of instances the terrain payload it joins already spends, so the band can never cost more than the ground it replaces is worth at this tier; when that is less than the collider's extent the shortfall is reported. groundPerFaceMetre: how many metres of GROUND one face-local metre is at the band, from the cube-sphere map's own metric. spacingM and extentM are metres of ground -- they are the collider's -- but the tile grid is laid out in face-local metres, so without this the band draws at 0.698 m where the collider is 1.00 m and covers 89 m of ground where the collider's field is 256 m: the same number of tiles, a third of the ground, and a spacing that drifts with where on the face the player stands. Measured in the shipped client, TOD pinned.
+
+The band is snapped to the collider's own grid so its vertices do not swim with the camera: moving by less than a tile moves nothing, moving by a tile moves the band by a whole tile.
+
+A leaf is dropped only when the band covers it WHOLE; a leaf straddling the rim is kept, and every tile inside a kept leaf is suppressed. That is what keeps the band free of both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the band also draws).
