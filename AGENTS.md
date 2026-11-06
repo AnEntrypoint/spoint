@@ -153,6 +153,12 @@ Skills encode environment-specific constraints that override general knowledge.
 - Wire v3 player record: 8 fields in a 22-byte bin; `[inputSequence, inputBuffer, groundNormal]` ride a per-recipient `me` block, so snapshots pack per recipient. `getSnapshot()` keys on `_version === _snapshotVersion` alone.
 - `PhysicsNetworkClient.connect()` REJECTS with a named `TransportConnectError`, never `connected:false`; retry belongs in the caller (`_doReconnect`). `err.reason` is stable: `websocket-unavailable`, `-closed-before-open`, `connect-superseded`.
 
+- With prediction off, `BaseClient` keeps the raw input in the redundancy buffer and skips the quantized encode and decode per input step, which was the largest per-frame allocation the profiler named. The packets are byte-identical either way: a field the raw input omits encodes as the zero the template supplies. Non-finite and clamped fields are still refused and reported by the same encode the prediction path uses.
+
 ## Hot swap
 
 A module that calls `globalThis.__spointHmr?.acceptSelf?.(import.meta.url, swap)` accepts its own edits. A save reloads only that module, and `swap(next)` re-assigns each export to the freshly imported copy. Re-assigning is what makes the edit visible: an ESM import is a live binding, so importers already holding the old copy read the new code on their next call. Self-acceptance therefore costs one module fetch per save, not a page load. It re-points code only and does not rebuild state the page already built. Walking up to an ancestor acceptor cannot help, because a re-import is a new module instance that existing importers never read.
+
+## Dev HMR bodies
+
+- A `?hmr=` body is a pure function of the file's bytes, the version floor, and the active version of the module and each of its direct imports. `rewrite()` stamps an import only while that import's version is above the floor, so a validator must cover exactly those. A body is re-sent only when one of them moves. `Cache-Control: no-cache` forces a revalidate before every use, so a reload answers 304 and does not re-read or re-rewrite the source.

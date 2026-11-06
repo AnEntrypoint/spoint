@@ -173,14 +173,6 @@ export class BaseClient {
     if (this.protocolRejected) return
     const schema = this._msgHandler.getInputSchema()
     const predEngine = this._msgHandler.getPredEngine()
-    // The quantized copy exists so that prediction replays the values the server will actually
-    // decode. With prediction off nothing reads it, so the redundancy buffer keeps the input it was
-    // handed and the wire round-trip per input step is not paid at all: encode+decode was the
-    // largest per-frame allocation the profiler named, and it ran once per step to produce a value
-    // no consumer on this path ever looks at. The packets are byte-identical either way -- a field
-    // the raw input omits encodes as the same zero the template would have supplied -- and clamping
-    // and non-finite fields are still refused and reported by the encode below, which is the same
-    // code that reports them on the prediction path.
     const predicting = !!(this.config.predictionEnabled && predEngine)
     const quantized = predicting ? this._quantize(input, schema) : { data: input, cases: NO_INPUT_CASES }
     if (!quantized) return
