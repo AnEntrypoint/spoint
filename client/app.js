@@ -6,6 +6,7 @@ import { resolveNetcodeProfile } from '/src/netcode/NetcodeProfile.js'
 import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
+import { runModelLoadGate } from './core/modelLoadGate.js'
 import './core/Relocation.js'
 if (new URLSearchParams(location.search).has('livereload')) import('./core/PreviewReload.js').then(m => m.startPreviewReload())
 import { createElement, applyDiff } from 'webjsx'
@@ -474,7 +475,7 @@ async function _revealWorld() {
     const urls = _pendingSpPrefetch; _pendingSpPrefetch = null
     try {
       const sched = getSharedStreamingScheduler()
-      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(() => {}) } })
+      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(err => console.error('[model-load] lazy prefetch failed:', err?.reasonCode, err?.url, err?.message)) } })
     } catch (e) { _dbgBoot('singleplayer prefetch enqueue failed:', e?.message || e) }
   }
   try { window.__app?.clientMachine?.send('ASSETS_READY') } catch (e) { _dbgBoot('ASSETS_READY send failed:', e?.message || e) }
@@ -1320,9 +1321,13 @@ let client; const _clientConfig = {
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id,e.app) }
     if (wd._entityApps) for (const [id,app] of Object.entries(wd._entityApps)) entityAppMap.set(id,app)
     const modelUrls = wd._modelUrls || (wd.entities || []).map(e => e.model).filter(Boolean)
-    loadingMachine.send('MODELS_DONE')
-    if (modelUrls.length > 0 && !_isSingleplayer) el.prefetchModels(modelUrls).catch(() => {})
-    else if (modelUrls.length > 0 && _isSingleplayer) _pendingSpPrefetch = modelUrls
+    runModelLoadGate({
+      urls: _isSingleplayer ? [] : modelUrls,
+      prefetch: urls => el.prefetchModels(urls),
+      sendMark: () => loadingMachine.send('MODELS_DONE'),
+      onFailure: err => { console.error('[model-load]', err.reasonCode, err.url, err.message); try { loadingMgr.setLabel(STRINGS.connectionFailed(err.message)) } catch (_) {} },
+    }).catch(err => console.error('[model-load] gate failed:', err?.message || err))
+    if (modelUrls.length > 0 && _isSingleplayer) _pendingSpPrefetch = modelUrls
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
     if (_loadingFinished && _terrainCfg && !terrainBackdrop) _buildWorldScenery().catch(e => console.error('[terrain] late scenery build failed:', e?.message || e))
     try { minimapHUD.dispose() } catch (_) {}

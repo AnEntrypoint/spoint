@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
+import { prefetchModel, modelLoadRefusal } from './core/modelLoadGate.js'
 import { MeshoptSimplifier } from '/node_modules/meshoptimizer/meshopt_simplifier.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { fetchCached } from './ModelCache.js'
@@ -463,7 +464,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       if (loadingScreenHidden) _scheduleLodUpgrades()
       _releaseGltfRef(url)
     } catch (err) {
-      console.error('[gltf]', url, err); pendingLoads.delete(entityId); onFirstEntityLoaded(entityId, true); loadingMgr.completeDownload(url)
+      const refusal = modelLoadRefusal(url, err); console.error('[gltf]', url, refusal); pendingLoads.delete(entityId); onFirstEntityLoaded(entityId, true); loadingMgr.completeDownload(url)
     }
   }
   function _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {
@@ -509,8 +510,10 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     let done = 0; const total = unique.length; const BATCH = 4
     for (let i = 0; i < unique.length; i += BATCH) {
       await Promise.all(unique.slice(i, i + BATCH).map(async url => {
-        try { if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); gltf.userData.__sharedGeo = new Map(); _parsedGltfCache.set(url, gltf) } else await _parsedGltfInflight.get(url) }
-        catch (e) { console.warn('[prefetch]', url, e.message) }
+        await prefetchModel(url, async () => {
+          if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); gltf.userData.__sharedGeo = new Map(); _parsedGltfCache.set(url, gltf) }
+          else await _parsedGltfInflight.get(url)
+        })
         if (onProgress) onProgress(++done, total)
       }))
     }
