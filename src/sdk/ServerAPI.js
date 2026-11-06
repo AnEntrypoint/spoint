@@ -1,3 +1,4 @@
+import { createFieldPaint } from '../terrain/fieldPaint.js'
 import { createServer as createHttpServer } from 'node:http'
 import { WebSocketServer as WSServer } from 'ws'
 import { loadPlacedModelRecords, recordModelLoadError } from '../shared/modelLoadErrors.js'
@@ -88,7 +89,8 @@ export function createServerAPI(ctx) {
       const _tcfg = resolveTerrainConfig(worldDef)
       try {
         if (_tcfg && _tcfg.enabled !== false) {
-          ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: nodeBakedSource() })
+          const fieldPaint = createFieldPaint({ cellSize: _tcfg.fieldPaint?.cellSize ?? 1, chunkCells: _tcfg.fieldPaint?.chunkCells ?? 64 })
+          ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg, bakedSource: nodeBakedSource(), fieldPaint })
           if (ctx._terrainStreamer?.chartReanchor) attachServerChartMigrators(ctx, ctx._terrainStreamer.chartReanchor)
         }
       } catch (e) { throw new Error(`[terrain] world "${String(_worldId || worldDef.name || (Number.isFinite(worldDef.terrain?.seed) ? `terrain seed ${worldDef.terrain.seed}` : '(unnamed)')).replace(/\s+/g, ' ')}" has no terrain: ${e?.message || e}`, { cause: e }) }
