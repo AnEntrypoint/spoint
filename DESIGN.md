@@ -107,7 +107,7 @@ A ?hmr= body is a pure function of the file's bytes, the floor, and the active v
 
 ## Near-field lattice
 
-Source: §src/terrain/NearFieldLattice.js§. Text moved from the file header and its inline comments, paragraph order kept.
+Source: `src/terrain/NearFieldLattice.js`. Text moved from the file header and its inline comments, paragraph order kept.
 
 The near-field lattice: ONE regular grid at the collider's spacing, from which the rendered near band is built. The collider already builds that spacing -- see src/shared/colliderLattice.js -- so the ground the player walks on and the ground the player sees are two draws of one density instead of two independent samplings of one height field.
 
