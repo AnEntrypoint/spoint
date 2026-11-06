@@ -1,14 +1,10 @@
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
+
 export function definePickup(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[pickup] appCtx is required')
-  if (spec.radius != null && (typeof spec.radius !== 'number' || !Number.isFinite(spec.radius) || spec.radius < 0)) {
-    throw new TypeError('[pickup] radius must be a non-negative finite number')
-  }
-  if (typeof spec.onCollect !== 'function') throw new TypeError('[pickup] onCollect(ctx, player, pickup) is required')
-  if (typeof spec.cooldown === 'number' && (!Number.isFinite(spec.cooldown) || spec.cooldown < 0)) throw new TypeError('[pickup] cooldown must be a non-negative finite number of milliseconds')
-  const radius = spec.radius ?? 1.5
+  spec = parseDefineSpec('definePickup', spec, DEFINE_SPEC_SCHEMAS.pickup)
+  const { radius, cooldown: cooldownMs, oneShot } = spec
   const radius2 = radius * radius
-  const cooldownMs = spec.cooldown ?? 0
-  const oneShot = !!spec.oneShot
   const _lastCollectMsByPlayer = new Map()
   let _collected = false
 

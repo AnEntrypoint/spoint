@@ -1,5 +1,6 @@
 import { defineComponentSchema, registerComponentSchema } from '../protocol/ComponentSchema.js'
 import { createComponentPool } from '../apps/ComponentPool.js'
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
 
 export const HEALTH_SCHEMA = defineComponentSchema({
   hp: { type: 'u16', tier: 'full' },
@@ -80,12 +81,7 @@ function _setMaxImpl(slot, m) {
 
 export function defineHealth(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[health] appCtx is required')
-  if (typeof spec.max !== 'number' || !Number.isFinite(spec.max) || spec.max <= 0) {
-    throw new TypeError('[health] max must be a positive finite number')
-  }
-  if (spec.invulnMs != null && (typeof spec.invulnMs !== 'number' || !Number.isFinite(spec.invulnMs) || spec.invulnMs < 0)) {
-    throw new TypeError('[health] invulnMs must be a non-negative finite number')
-  }
+  spec = parseDefineSpec('defineHealth', spec, DEFINE_SPEC_SCHEMAS.health)
 
   const slot = _pool.alloc()
   _refreshColumnsIfPoolGrew()

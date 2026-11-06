@@ -1,16 +1,12 @@
 import { recordHit } from '../netcode/OutlierDetector.js'
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
 
 const PLAYER_HIT_ATTRIBUTION_RADIUS_SQ = 2 * 2
 
 export function defineWeapon(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[weapon] appCtx is required')
-  const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? v : d
-  const damage = num(spec.damage, 25)
-  const range = num(spec.range, 100) || 100
-  const magazine = num(spec.magazine, 0)
-  const reloadMs = num(spec.reloadMs, 1500)
-  const fireRateMs = num(spec.fireRateMs, 120)
-  const headshotMult = num(spec.headshotMult, 2) || 1
+  spec = parseDefineSpec('defineWeapon', spec, DEFINE_SPEC_SCHEMAS.weapon)
+  const { damage, range, magazine, reloadMs, fireRateMs, headshotMult } = spec
 
   let _ammo = magazine > 0 ? magazine : Infinity
   let _lastFireAt = -Infinity

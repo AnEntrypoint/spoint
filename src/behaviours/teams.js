@@ -1,4 +1,5 @@
 import { defineComponentSchema, registerComponentSchema } from '../protocol/ComponentSchema.js'
+import { parseDefineSpec, DEFINE_SPEC_SCHEMAS } from './specBoundary.js'
 
 export const COLORBLIND_SAFE_PALETTE = [
   0x0072B2,
@@ -20,11 +21,8 @@ export function buildTeamsSchema(teamIds, registerAs) {
 
 export function defineTeams(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[teams] appCtx is required')
-  const rawTeams = Array.isArray(spec.teams) ? spec.teams : null
-  if (!rawTeams || rawTeams.length === 0) throw new TypeError('[teams] spec.teams must be a non-empty array')
-  if (spec.scoreLimit != null && (typeof spec.scoreLimit !== 'number' || !Number.isFinite(spec.scoreLimit) || spec.scoreLimit <= 0)) {
-    throw new TypeError('[teams] scoreLimit must be a positive finite number')
-  }
+  spec = parseDefineSpec('defineTeams', spec, DEFINE_SPEC_SCHEMAS.teams)
+  const rawTeams = spec.teams
 
   const _teams = []
   const _ids = new Set()
