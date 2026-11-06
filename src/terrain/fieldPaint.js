@@ -52,6 +52,24 @@ export function createFieldPaint({ cellSize, chunkCells }) {
     return true
   }
 
+  function toJSON() {
+    const out = {}
+    for (const [name, layers] of fields) {
+      out[name] = {}
+      for (const [layer, grid] of layers) out[name][layer] = grid.exportRuntime()
+    }
+    return out
+  }
+
+  function fromJSON(doc) {
+    if (doc === null || typeof doc !== 'object') throw refusal('paint-doc-invalid', 'paint document must be an object keyed by field name')
+    for (const name of Object.keys(doc)) {
+      if (!fields.has(name)) throw refusal('field-unknown', `saved field "${name}" is not one of ${TERRAIN_FIELD_NAMES.join(', ')}`)
+      for (const layer of Object.keys(doc[name])) layerOf(name, layer).importRuntime(doc[name][layer])
+    }
+    return doc
+  }
+
   function read(field, x, z) {
     let sum = 0
     for (const layer of FIELD_LAYER_NAMES) sum += layerOf(field, layer).readField(x, z)
@@ -64,7 +82,7 @@ export function createFieldPaint({ cellSize, chunkCells }) {
     return { cellSize, chunkCells, key, painted: grid.paintedChunks().includes(key), version: grid.changes(0).at }
   }
 
-  return Object.freeze({ stroke, undo, read, chunkObject, fieldNames: TERRAIN_FIELD_NAMES, layerNames: FIELD_LAYER_NAMES })
+  return Object.freeze({ stroke, undo, read, chunkObject, toJSON, fromJSON, fieldNames: TERRAIN_FIELD_NAMES, layerNames: FIELD_LAYER_NAMES })
 }
 
 export const PAINTED_HEIGHT_FIELD = 'terrain:height'

@@ -76,5 +76,21 @@ export function createFieldLayers({ cellSize, chunkCells }) {
     return [...runtime.keys()]
   }
 
-  return { span, readField, paint, setAuthored, clearRuntime, clearAllRuntime, changes, paintedChunks, locate }
+  function exportRuntime() {
+    return [...runtime].map(([key, cells]) => ({ key, cells: Array.from(cells) }))
+  }
+
+  function importRuntime(list) {
+    if (!Array.isArray(list)) throw new RangeError('FieldLayers: importRuntime needs an array of { key, cells }')
+    for (const entry of list) {
+      if (typeof entry?.key !== 'string' || !Array.isArray(entry.cells) || entry.cells.length !== chunkCells * chunkCells) throw new RangeError('FieldLayers: runtime chunk must carry chunkCells^2 cells')
+      if (!entry.cells.every(Number.isFinite)) throw new RangeError('FieldLayers: runtime chunk cells must be finite numbers')
+      runtime.set(entry.key, Float32Array.from(entry.cells))
+      version += 1
+      versions.set(entry.key, version)
+    }
+    return list.length
+  }
+
+  return { span, readField, paint, setAuthored, clearRuntime, clearAllRuntime, changes, paintedChunks, locate, exportRuntime, importRuntime }
 }
