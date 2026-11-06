@@ -192,16 +192,18 @@ export function compileTerrainMarks(specs) {
     return compile(spec, index)
   })
   const heightMarks = compiled.filter((_, i) => specs[i].kind !== 'clear' && specs[i].kind !== 'hole')
+  const clearsAt = (x, z) => {
+    for (const m of compiled) if (m.clears(x, z)) return true
+    return false
+  }
   return Object.freeze({
     count: compiled.length,
+    clearsAt,
     height(x, z, h) {
+      if (clearsAt(x, z)) return h
       let out = h
       for (const m of heightMarks) out = m.apply(x, z, out)
       return out
-    },
-    clearsAt(x, z) {
-      for (const m of compiled) if (m.clears(x, z)) return true
-      return false
     },
     liquidLevelAt(x, z) {
       for (const m of compiled) {
