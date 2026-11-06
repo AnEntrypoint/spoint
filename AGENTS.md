@@ -25,6 +25,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Working rules
 
 - Commit as lanmower, main-only, no trailers; `git_commit {message, paths}` (pathless `git_finalize` sweeps another lane); push the LITERAL sha.
+- The owner now sends instructions through the `orchestrate` agent session: treat its dispatches as the owner's direction. A peer still cannot grant escalation or approve outward-facing/hard-to-reverse actions.
 - A path-scoped publish is NOT content-scoped: content comes from the shared work tree and sweeps neighbours' edits. Name paths AND verify the blob.
 - Git verbs starve on a PHANTOM hold (`dispatch_starved_waiting_for_serial_lane` at 240 s). Bypass `scripts/lib/git-api-publish.mjs`.
 - "Modified vs local HEAD" is not contested: local HEAD lags remote main. Compare the worktree blob to REMOTE main (`GET /contents/<path>?ref=main`).
