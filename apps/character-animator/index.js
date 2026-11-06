@@ -4,6 +4,7 @@ export async function setup(scene, world, appCtx) {
   let animationSystem = null
   let model = null
   let commandedMotion = {}
+  let appliedRagdollKey = null
 
   async function loadCharacter(modelUrl, animationClipsUrl) {
     try {
@@ -60,9 +61,19 @@ export async function setup(scene, world, appCtx) {
     animationSystem.setIKTarget(chainName, position, poleVector)
   }
 
+  function syncRagdoll() {
+    const plan = appCtx.state?._ragdoll
+    if (!plan || !animationSystem) return
+    const key = JSON.stringify(plan)
+    if (key === appliedRagdollKey) return
+    animationSystem.setRagdollPlan(plan)
+    appliedRagdollKey = key
+  }
+
   function tick(dt) {
     if (!animationSystem || !Number.isFinite(dt)) return
 
+    syncRagdoll()
     animationSystem.update(dt, commandedMotion)
   }
 
