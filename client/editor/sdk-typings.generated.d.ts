@@ -3,7 +3,7 @@
 // parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated
 // client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.
 // DO NOT EDIT BY HAND.
-// source digest: 1fe77b22704da3579239baee66fc624ba5d9a51f288ebeefda0584f748803c6a
+// source digest: a3dec7380eecc2a6027a411c75c1b60a55653a23cd8c6d4bb394c28ee518e2a8
 
 export type NonNegFinite = number;
 
@@ -965,6 +965,7 @@ export declare class AppContext {
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
     ragdoll(spec: any): Readonly<{
         active: boolean;
+        explicit: readonly string[];
         strengths: Readonly<{
             [k: string]: number;
         }>;

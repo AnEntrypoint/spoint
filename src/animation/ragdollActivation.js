@@ -21,12 +21,15 @@ export function parseRagdollActivation(spec) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) throw new RagdollActivationError('strength-invalid', `${name} strength must be a number in [0, 1]`)
     strengths.set(name, value)
   }
-  return Object.freeze({ strengths: Object.freeze(Object.fromEntries(strengths)), active: spec.active !== false })
+  return Object.freeze({ strengths: Object.freeze(Object.fromEntries(strengths)), explicit: Object.freeze(Object.keys(bones)), active: spec.active !== false })
 }
 
 export function applyRagdollActivation(pose, plan) {
   if (!plan || typeof plan !== 'object' || plan.strengths === undefined) throw new RagdollActivationError('plan-invalid', 'plan must come from parseRagdollActivation')
   if (!plan.active) return pose.setAll(0)
-  for (const [name, value] of Object.entries(plan.strengths)) pose.setStrength(name, value)
+  for (const [name, value] of Object.entries(plan.strengths)) {
+    if (!plan.explicit.includes(name) && pose.byName && !pose.byName.has(name)) continue
+    pose.setStrength(name, value)
+  }
   return pose
 }
