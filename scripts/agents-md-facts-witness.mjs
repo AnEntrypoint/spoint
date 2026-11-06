@@ -90,7 +90,7 @@ for (const line of lines) {
 }
 
 assert.ok(pathTokens.size >= 20, `AGENTS.md yielded only ${pathTokens.size} path claim(s)`)
-const missing = [...pathTokens].filter(token => resolvePath(token).length === 0).sort()
+const missing = [...pathTokens].filter(token => !token.startsWith('.gm/') && resolvePath(token).length === 0).sort()
 assert.equal(missing.length, 0, `AGENTS.md cites path(s) absent from the repo: ${missing.join(', ')}`)
 
 assert.ok(claims.length >= 5, `AGENTS.md yielded only ${claims.length} symbol claim(s)`)

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
 
+console.log = console.error
 await installSpecifierHooks()
 const { setup } = (await import('../apps/character-animator/index.js')).default
 
@@ -36,4 +37,4 @@ assert.deepEqual(calls[0], plan, 'the plan read from state is passed to setRagdo
 appCtx.state._ragdoll = { strengths: { head: 0 }, active: false }
 animator.tick(1 / 60)
 assert.equal(calls.length, 2, 'a changed plan is applied again')
-console.log('RESULT: PASS character-animator reads state._ragdoll each tick and applies a new plan to its animation system once per change')
+process.stdout.write('RESULT: PASS character-animator reads state._ragdoll each tick and applies a new plan to its animation system once per change\n')
