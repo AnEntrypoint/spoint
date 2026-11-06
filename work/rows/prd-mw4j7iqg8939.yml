@@ -1,0 +1,9 @@
+id: "prd-mw4j7iqg8939"
+kind: "prd"
+title: "Shared spec parse boundary for ctx.define* factories"
+body: "specBoundary.js parseDefineSpec refuses unknown keys, invalid present values and missing fields with reasonCode; defineWeapon, definePickup, defineHealth and defineTeams adopt it. scripts/define-spec-boundary-witness.mjs prints RESULT: PASS and shipped specs still parse."
+status: "resolved"
+createdAt: "2026-11-06T05:26:13.144Z"
+witnessEvent: 128
+witnessCommit: "c3659ce"
+resolvedAt: "2026-11-06T05:26:13.154Z"
