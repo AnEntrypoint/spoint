@@ -1,3 +1,4 @@
+import { parseRagdollActivation } from '../animation/ragdollActivation.js'
 import { CliDebugger } from '../debug/CliDebugger.js'
 import { buildPhysicsAPI, parseInteractable, reifyInteractable } from './AppPhysics.js'
 import { vec3 as _vec3, vec4 as _vec4, vecOK, nonNeg } from '../shared/vecGuard.js'
@@ -372,6 +373,12 @@ export class AppContext {
     const cfg = parseInteractable(config)
     if (!this._admitsRegistration('interactable')) return
     reifyInteractable(this._entity, this._runtime, cfg)
+  }
+
+  ragdoll(spec) {
+    const plan = parseRagdollActivation(spec)
+    this._entity.custom._ragdoll = plan
+    return plan
   }
 
   onPlayerProximity(radius, callback) {

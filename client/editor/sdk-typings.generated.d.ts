@@ -963,6 +963,12 @@ export declare class AppContext {
     onShutdown(cb: any): () => void;
     persisted(key: any, initial: any, opts: any): any;
     pickSpawnPoint(spawnPoints: any, opts: any): any[];
+    ragdoll(spec: any): Readonly<{
+        active: boolean;
+        strengths: Readonly<{
+            [k: string]: number;
+        }>;
+    }>;
     raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null, cellSize?: number): any;
     seaLevelAt(x: any, z: any): number | null;
     senderOf(message: any): any;
