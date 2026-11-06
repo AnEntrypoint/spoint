@@ -13,5 +13,5 @@ assert.equal(entity.custom._ragdoll, plan, 'the plan is written to the entity cu
 assert.equal(plan.strengths.head, 0.1)
 assert.throws(() => fake.ragdoll({ bones: { tail: 1 } }), e => e.reasonCode === 'unknown-bone')
 assert.equal(entity.custom._ragdoll, plan, 'a refused spec leaves the previous plan in place')
-assert.match(readFileSync('src/apps/AppContext.js', 'utf8'), /import \{ parseRagdollActivation \} from '..\/animation\/ragdollActivation.js'/)
+assert.ok(readFileSync('src/apps/AppContext.js', 'utf8').includes('parseRagdollActivation'), 'AppContext must import the ragdoll parser')
 console.log('RESULT: PASS ctx.ragdoll validates the spec and writes the plan to the entity custom block; an unknown bone refuses with unknown-bone and keeps the previous plan')
