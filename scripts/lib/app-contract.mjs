@@ -84,3 +84,13 @@ export function appContractFiles(root = 'apps') {
   walk(root)
   return out.sort()
 }
+
+export const FIXTURE_DIR = 'scripts/lib/app-contract-fixtures'
+export const FIXTURE_EXPECTATIONS = Object.freeze([
+  ['good.js', []],
+  ['bad-on-editor-update.js', ['app-contract-on-editor-update']],
+  ['bad-low-level-collider.js', ['app-contract-low-level-collider']],
+  ['bad-render.js', ['app-contract-render-no-object']],
+  ['bad-nested-helper.js', ['app-contract-nested-helper']],
+  ['bad-manual-teardown.js', ['app-contract-manual-child-teardown']],
+])
