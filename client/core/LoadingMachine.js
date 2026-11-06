@@ -39,7 +39,7 @@ export const loadingMachine = createMachine({
         SET_PENDING: { actions: assign({ entityPending: ({ event }) => event.count ?? 0 }), target: 'checking' },
         ENTITY_LOADED: { actions: assign({ entityPending: ({ context }) => Math.max(0, context.entityPending - 1) }), target: 'checking' },
         WORLD_EXISTS: { actions: assign({ world: true }) },
-        FORCE_READY: 'ready'
+        FORCE_READY: [{ guard: notModelFailure, target: 'ready' }, { target: 'loading' }]
       }
     },
     checking: {
