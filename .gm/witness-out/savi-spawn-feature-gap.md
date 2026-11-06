@@ -2,7 +2,7 @@
 
 Source: the parallel read workflow `savi-spawn-feature-gap` over /workspace/savi/.spawn/reference (208 indexed files) and /workspace/spawn (runs, sources, tooling). Four of eight readers returned structured feature claims; four stalled and the workflow was stopped. The adversarial vote and synthesis phases did not run, so these claims are reader evidence, not verified findings.
 
-Implemented in this coder run: 46 claims (marked [x] below). The rest are parked as one PRD row for verification and implementation.
+Implemented in this coder run: 47 claims (marked [x] below). The rest are parked as one PRD row for verification and implementation.
 
 ## skills-world: world and interaction features
 
@@ -131,9 +131,9 @@ Implemented in this coder run: 46 claims (marked [x] below). The rest are parked
   - files: `src/netcode/TickSystemBase.js`, `src/sdk/ServerAPI.js`, `src/sdk/server.js`, `scripts/tick-drop-counter-witness.mjs`, `SKILL.md`
 - [ ] **SES availability preflight with distinct reason codes** (small) — package.json puts ses in optionalDependencies. src/sdk/SESCompartmentEvaluator.js lockDownAndGetCompartment awaits import('ses') then lockdown() and checks Compartment/Object.isFrozen, but settleSes collapses every cause into one SandboxUnavailableError with code='SANDBOX_UNAVAILABLE'. scripts/check.mjs has no SES step. A JIT import('ses') resolved in this checkout, but an install that skips optional deps produces the same opaque code as a failed lockdown; AGENTS.md notes the evaluator must fail closed.
   - files: `src/sdk/SESCompartmentEvaluator.js`, `scripts/check-ses-preflight.mjs`, `scripts/check.mjs`, `package.json`, `AGENTS.md`
-- [ ] **Node-witnessable app authoring contract linter** (medium) — SKILL.md's 'App design principle: apps are config, engine is code' lists no client block without ui:, no onEditorUpdate, addColliderFromConfig, spawnChild, and helpers outside export default. gm.grep for 'onEditorUpdate|addColliderFromConfig|spawnChild' under scripts returned 0 matches. scripts/check-app-imports.mjs checks imports and local asset literals only; scripts/verify-app.mjs needs a headful CDP browser and a real server and checks runtime console.error, not source shape. package.json devDependencies.typescript provides a JS AST parser, so this can be a fast node gate.
+- [x] **Node-witnessable app authoring contract linter** (medium) — SKILL.md's 'App design principle: apps are config, engine is code' lists no client block without ui:, no onEditorUpdate, addColliderFromConfig, spawnChild, and helpers outside export default. gm.grep for 'onEditorUpdate|addColliderFromConfig|spawnChild' under scripts returned 0 matches. scripts/check-app-imports.mjs checks imports and local asset literals only; scripts/verify-app.mjs needs a headful CDP browser and a real server and checks runtime console.error, not source shape. package.json devDependencies.typescript provides a JS AST parser, so this can be a fast node gate.
   - files: `scripts/check-app-contract.mjs`, `scripts/lib/app-contract-fixtures/`, `scripts/check.mjs`, `SKILL.md`, `package.json`
 - [ ] **Fail-loud asset loading gate for model errors** (large) — SKILL.md documents a five-condition Asset Loading Gate and says remote 404s are silent. client/app.js sends loadingMachine 'MODELS_DONE' before calling el.prefetchModels(modelUrls).catch(() => {}); client/EntityLoader.js prefetchModels catches failures with only console.warn('[prefetch]', url, e.message), and _doLoadEntityModel's catch calls onFirstEntityLoaded(entityId, true) plus loadingMgr.completeDownload(url) with no reason code. client/BrowserServer.js already assigns err.reasonCode='worker-load-error'/'worker-module-error', so a coded refusal pattern exists for this layer.
   - files: `client/EntityLoader.js`, `client/app.js`, `client/LoadingManager.js`, `scripts/model-load-gate-witness.mjs`, `SKILL.md`
 
-Total claims: 60. Implemented here: 46. Remaining: 14.
+Total claims: 60. Implemented here: 47. Remaining: 13.

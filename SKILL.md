@@ -16,7 +16,7 @@ npx spoint-create-app --template physics my-crate
 Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js` (apps). Engine is from npm — never in user project.
 
 **App design principle: apps are config, engine is code.**
-- No `client` block unless your app renders custom UI (`ui:` field in render return). The snapshot carries position/rotation/custom automatically.
+- A `client` block is for render-side state: `render()` returns mesh `position`/`rotation`/`custom` (and `ui:` only when the app draws custom HUD). Omit `client` entirely when the engine's default rendering is enough.
 - No `onEditorUpdate` — the engine applies position/rotation/scale/custom changes from the editor automatically.
 - Use `ctx.physics.addColliderFromConfig(cfg)` instead of separate setStatic/setDynamic + addBoxCollider calls.
 - Use `ctx.world.spawnChild(id, cfg)` instead of `spawn` + manual `teardown` loop — children are auto-destroyed.
