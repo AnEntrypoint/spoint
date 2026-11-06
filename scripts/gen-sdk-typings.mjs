@@ -41,12 +41,6 @@ function discardStagedSnapshot() {
 
 async function materializeStagedSnapshot(index) {
   discardStagedSnapshot()
-  // The digest recorded in the generated file is the work tree's closure, so the
-  // tree tsc runs over has to be the work tree too. HEAD is not it: lanes
-  // publish path-scoped through the GitHub Git API, so local HEAD lags remote
-  // main and a closure member can be edited in the work tree without ever being
-  // staged, which left the snapshot on a revision the digest does not describe.
-  // A clean checkout (CI) resolves to HEAD and this is unchanged.
   const rev = worktreeStateRev(ROOT) ?? 'HEAD'
   try {
     git('worktree', 'add', '--detach', SNAPSHOT_DIR, rev)

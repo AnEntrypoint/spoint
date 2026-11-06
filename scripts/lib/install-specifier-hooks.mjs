@@ -5,7 +5,7 @@
 // has no notion of: it reads '/src/...' as a path from the drive root.
 //
 // package.json declares engines.node ">=18", so a gated witness may not depend on
-// registerHooks (>=22.15). CI runs node 20.20.2, where `import { registerHooks } from
+// registerHooks (>=22.15). The GPU CI job runs node 20.20.2 (current as of this writing), where `import { registerHooks } from
 // 'node:module'` throws at link time -- the witness exits 1 having printed nothing, which
 // the gate cannot tell apart from a witness that never asserted.
 //
