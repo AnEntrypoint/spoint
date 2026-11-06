@@ -8,30 +8,41 @@ Exports of the modules in `src/netcode/`, read from each module's export stateme
 
 | Module | Exports |
 |---|---|
-| CollisionTileStreamer.js | createCollisionTileStreamer, COLLISION_TILE_RING, COLLISION_TILE_FORGET_RING, collisionMirrorEnabled |
-| EventLog.js | EventLog, EVENT_LOG_KINDS, parseEventKind |
+| CheatEjection.js | wireCheatEjection |
+| CollisionSystem.js | separationPush, applyPlayerCollisions |
+| CollisionTileStreamer.js | COLLISION_TILE_RING, COLLISION_TILE_FORGET_RING, collisionMirrorEnabled, createCollisionTileStreamer |
+| ConsensusVoter.js | DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED, ConsensusVoter |
+| controlFrame.js | LOCKSTEP_CTRL_PREFIX, ROLLBACK_CTRL_PREFIX, CONSENSUS_CTRL_PREFIX, controlFrameKinds, encodeControlFrame, parseControlFrame, controlFrameHandlers, countReject, countOrder, createFrameClock, advanceFrameClock, dispatchControlFrame |
+| DesyncDetector.js | DEFAULT_CHECKSUM_INTERVAL_TICKS, DesyncDetector |
+| EventLog.js | EVENT_LOG_KINDS, parseEventKind, EventLog |
 | Hitscan.js | DEFAULT_HITBOX, normalizeShotDirection, resolveFireRequest, resolveTargetPoint, rayVsCapsule, hitHeightRatio, findHitLinear, findHitSpatial, buildLiveIndex |
 | InputGuard.js | isInputRateLimited, clearInputBucket, sanitizeInputPayload, envelopeSpeedCap, enforceMovementEnvelope |
+| LagCompensator.js | LagCompensator |
 | LockstepChecksum.js | createChecksumFold, checksumBodies |
 | LockstepGameLoop.js | LOCKSTEP_DEFAULTS, INPUT_RETAIN_TICKS, createLockstepGameLoop |
 | LockstepInputTransport.js | LockstepInputTransport, createLockstepInputTransport |
+| LockstepTickSystem.js | LockstepTickSystem |
 | NetcodeProfile.js | NETCODE_PROFILES, DEFAULT_MIN_PEERS, resolveNetcodeProfile, PEER_SIMULATED_PROFILES |
+| NetworkState.js | NetworkState |
 | OutlierDetector.js | recordHit, clearOutlierWindow |
-| PeerSimSession.js | createPeerSimSession |
 | peerLoops.js | PEER_LOOP_FACTORIES, PEER_SIMULATED_PROFILES |
+| PeerSimSession.js | createPeerSimSession |
+| PhysicsIntegration.js | PhysicsIntegration |
+| PlayerManager.js | PlayerManager |
 | ReplayFile.js | SPOINTREPLAY_MAGIC, SPOINTREPLAY_VERSION, encodeReplay, decodeReplay |
-| ReplayRecorder.js | ReplayRecorder |
 | ReplayPlayer.js | ReplayPlayer |
+| ReplayRecorder.js | ReplayRecorder |
 | RewindSpatialIndex.js | REWIND_SLOP, RewindSpatialIndex, DEFAULT_REWIND_CELL_SIZE, DUPLICATE_PLAYER_ID, RewindDuplicatePlayerIdError, buildLiveIndex |
 | RollbackGameLoop.js | ROLLBACK_DEFAULTS, createRollbackGameLoop |
 | RollbackInputTransport.js | RollbackInputTransport, createRollbackInputTransport |
 | RollbackLoop.js | createRollbackLoop |
-| SnapshotBinFormat.js | BIN_RECORD_BYTES, PLAYER_BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI16, clampI32Pos, clampU16Scale, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, REDUCED_POSE_FIELDS, REDUCED_HEIGHT_ABSENT, packReducedPlayerPose, unpackReducedPlayerPose, makeReducedPlayerPose, isReducedPlayerPose, packBinRecord, packPlayerBinRecord, unpackPlayerBinRecord, unpackBinRecord, packQuat, unpackQuat |
+| SnapshotBinFormat.js | BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI16, clampI32Pos, clampU16Scale, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED, REDUCED_POSE_FIELDS, REDUCED_HEIGHT_ABSENT, packReducedPlayerPose, unpackReducedPlayerPose, makeReducedPlayerPose, isReducedPlayerPose, packBinRecord, PLAYER_BIN_RECORD_BYTES, packPlayerBinRecord, unpackPlayerBinRecord, unpackBinRecord, packQuat, unpackQuat |
+| SnapshotEncoder.js | encodeSelfBlock, decodeSelfBlock, PLAYER_LOD_FULL_COUNT, PLAYER_LOD_REDUCED2, PLAYER_LOD_REDUCED_HZ, buildCrowdDots, classifyPlayerTiers, filterEncodedPlayersTiered, TombstoneLog, encodeEntity, encodeCustomBySchema, decodeCustomBySchema, PROP_MAX_HZ, PROP_SLEEP_TICKMOD, propTickMod, primeEntryDecode, updateTombstones, SnapshotEncoder, unpackBinRecord, packQuat, unpackQuat, PLAYER_TIER_FULL, PLAYER_TIER_REDUCED |
 | SnapshotPacker.js | snapshotPackCounts, newRecordMemo, packSnapshotBytes |
 | TeleportHold.js | TELEPORT_HOLD_MAX_MS, beginTeleportHold, stepTeleportHold |
+| TickSystem.js | TickSystem |
 | TickSystemBase.js | TickSystemBase, probeTimerGranularity |
 | WorkerBridgeProxy.js | createWorkerBridgeProxy |
-| controlFrame.js | LOCKSTEP_CTRL_PREFIX, ROLLBACK_CTRL_PREFIX, CONSENSUS_CTRL_PREFIX, controlFrameKinds, encodeControlFrame, parseControlFrame, controlFrameHandlers, countReject, countOrder, createFrameClock, advanceFrameClock, dispatchControlFrame |
 
 Open (owner, from the savi gaps file section 6): whether docs/netcode.md gets a section for these modules.
 
