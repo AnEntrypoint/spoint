@@ -45,6 +45,9 @@ Skills encode environment-specific constraints that override general knowledge.
 - gm MCP is HTTP on `127.0.0.1:8787/mcp`, never retries, so a startup gap detaches it (`/mcp` recovers).
 - `@spoint/ecs` resolves only via `@spoint/*`; the link can vanish mid-session (`npm run links`).
 - Never `git worktree remove` a `scripts/worktree-setup.mjs` worktree (its node_modules junction deletes `node_modules/.bin`); use `scripts/worktree-teardown.mjs`.
+- `src/static/BakeCodeVersion.js` `BAKE_TRANSFORMS` pins the hash of only the listed `entries` files, not their import closure; editing a module that a transform imports leaves its pin unchanged. `src/shared/cacheCodeVersions.js` holds the `*_CODE_VERSION` constants that those pins hash into.
+- `.github/workflows/ci.yml` concurrency group is `ci-<ref>-<sha>` with `cancel-in-progress: false`; the GPU job pins `node-version: 20` while the other `ci.yml` jobs pin 24.
+- AGENTS.md is over the 30 KB target that 2fa8159 set; no gate enforces that target, so its size is recorded here as a note, not a failure.
 
 ## PRD rows and witness binding
 
@@ -79,6 +82,8 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/lib/tree-under-test.mjs` `committedSource`: a clean checkout (`headIsWorktree`: no diff against HEAD in the work tree or the index) reads HEAD. Otherwise it reads remote main's tree (`publishedTree`, `GET git/ref/heads/main` then `git/trees?recursive=1`, cached under `.gm/tmp/published-tree`), because lanes publish through the GitHub Git API, which advances remote main without advancing local HEAD. A tracked path missing from that tree falls back to stage 0 of the index (`indexText`), so an unpublished file is read rather than dropped.
 - `scripts/lib/tree-under-test.mjs` `worktreeStateRev`: `git stash create` writes objects only and touches neither the work tree, the index nor any ref, so it cannot disturb another lane's edit. The rev it prints is unreferenced, so a caller must use it in the same run. It returns null on a clean checkout, where HEAD already is the tracked state.
 - `scripts/lib/tree-under-test.mjs` `catFileBatch`: all objects a scan needs come from one `git cat-file --batch` process. One process per tracked script was most of the audit wall time on Windows.
+- `scripts/gpulock.mjs run <owner> -- <cmd>` holds the GPU lock as the directory `.gpu-lock` (`SPOINT_GPU_LOCK_DIR` overrides it), recording the holder in `.gpu-lock/owner.json`. `run` exits with the child's code, so the witness's own `RESULT:` line decides pass or fail.
+- `scripts/lib/witness-audit.mjs --gate` compares per-file, per-check counts with the tracked `.witness-audit-baseline.json` and fails on an absent check id or a count above it. It is not wired into `scripts/check.mjs` or `package.json`, so run it by hand.
 ## Client render placement
 
 - `client/core/Vegetation.js` `createVegetation` declares its tier-warm state above the species loop, because a `const` read from inside the loop body is in its temporal dead zone. On WebGPU, node graphs compile while species are built, so `warmTierMesh` warms each mesh once (`warmedTierMeshes`), and `createVegetation` does not resolve until `awaitTierNodeWarm` settles.
@@ -99,6 +104,20 @@ Skills encode environment-specific constraints that override general knowledge.
 - `client/core/ShadowCostProbe.js` `installShadowCostProbe`: the probe wraps a renderer-level `shadowMap.render` when present, else wraps `renderer.render` matched by shadow-camera identity, because WebGPU's `shadowMap` has no `render` and `ShadowNode.renderShadow` calls `renderer.render(scene, shadow.camera)`.
 - `client/core/ShadowCostProbe.js` `_attachPerLightPass`: the per-light arm sets `splitSupported: false`, so `arm()` refuses the static/dynamic split there.
 - `client/core/VegetationAmbientTSL.js` `updateVegetationTerrainAmbient`: the uniforms refresh per frame only on the WebGPU path, from `window.__timeOfDay`.
+- `_render` of `ClusterLodMesh` (`packages/streaming-gltf/src/cluster-lod-mesh.js`) runs once per group per frame through `onBeforeRender`, so keep its `_lastRenderFrame === frame` early return.
+- A TSL `select` outside `uniformFlow` compiles to a real if/else branch (`node_modules/three/src/nodes/math/ConditionalNode.js` `setup`), not a ternary, so only the taken side runs.
+- `CullFreeze.js setInstancedCullAuto` (`client/core/CullFreeze.js`) sets `autoUpdate` on the parent mesh and on every `LODinfo` level, so freezing and unfreezing act on every LOD level of the vegetation `InstancedMesh2` meshes (`client/core/Vegetation.js`), not only the parent.
+- `FloatingOrigin.js update()` (`client/core/FloatingOrigin.js`, `createFloatingOrigin`) rebases by `camera.position.set(0,0,0)` and translates the other scene children by `-delta`, skipping the camera. Never shift the camera by `-delta`; that is a second shift.
+- Veg LOD: `WebGPULodInstancer` `updateLOD` re-evaluates only after the eye moves `LOD_REEVAL_MOVE_M` (0.5 m, squared as `LOD_REEVAL_MOVE_SQ`). A leaf instancer built with `opts.host` is a satellite of its branch, and its `updateLOD` returns at once (`client/core/WebGPULodInstancer.js`).
+- Terrain `renderOrder` is `TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS` (10) and water is `WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS` (-1), both in `packages/mapspinner/src/tsl/planet-tsl.js`. Drawing terrain after opaque occluders is near-neutral for early-Z, since the TSL package has no `discard`; do not expect a win by drawing terrain first.
+- `packages/streaming-gltf/src/cluster-lod-mesh.js` `_render` of `ClusterLodMesh` keeps its `_lastRenderFrame===frame` early return, because the render hook runs once per group per frame. The HiZ compute cull in `packages/streaming-gltf/src/webgpu-hiz-shaders.js` must equal the CPU cull, since divergence silently culls the wrong cells.
+- `app.js animate()` (`client/app.js`) returns at once while `window.__warmupInFlight` is set, so never park a wait that needs a frame inside warmup.
+- `applyDiff(uiRoot, hudVdom)` in `client/AppModuleSystem.js` `renderAppUI` runs over the HUD container every frame, so DOM children that are not in `hudVdom` are removed; mount imperative overlays outside that container.
+- `client/core/CullFreeze.js` `setInstancedCullAuto` sets `autoUpdate` on the parent mesh and on every LOD level, so a frozen cull must reach all levels.
+- `client/core/SceneSetup.js` `probeAndCreateWebGPURenderer` with `forceWebGL=true` runs THREE.WebGPURenderer on its WebGL2 backend, where terrain, sky and water do not render yet (mapspinner's WebGPU twin needs renderer.backend.device, which that backend lacks). `client/app.js` uses that backend only when WebGPU init fails and then throws rather than falling back to legacy; `?legacygl=1` is the only route to the GLSL renderer.
+- `client/core/ShadowPipeline.js forceUpdate` sets `light.shadow.needsUpdate` on every cascade, and `cascadeCount` clamps to 1 when `sun.castShadow === false`, since cascade 0 is then the sun itself, which never renders.
+- Vegetation LOD in `client/core/WebGPULodInstancer.js` `updateLOD` re-evaluates only after the `lodEye` moves `LOD_REEVAL_MOVE_M` (0.5 m), so a LOD decision can lag the camera by up to that distance.
+- A leaf `WebGPULodInstancer` built with `opts.host` is a satellite of its branch: its `updateLOD` returns immediately and it mirrors the host's LOD pair, tier, shadow and visibility. Construction throws if its LOD tier or threshold counts differ from the host's.
 ## Repo boundaries
 - Module workers have no import map: `src/animation/*.js` import three via `/node_modules/three/build/three.module.js`, never the bare `three` specifier. `scripts/worker-entry-bare-specifier-witness.mjs` pins the whole `WorkerEntry.js` closure; `src/sdk/WorkerBoot.js` turns a module-load failure into a coded `BOOT_ERROR`.
 
@@ -106,10 +125,14 @@ Skills encode environment-specific constraints that override general knowledge.
 - `apps/*` never imports `client/*` (singleplayer Worker resolves relative specifiers vs a virtual root); expose utilities on `engineCtx`. `apps/world/index.js` is the default-world authority.
 - Node-only dynamic import specifiers stay opaque to esbuild/wrangler: IIFE, e.g. `src/sdk/EditorHandlers.js`. `edge/cf-do/spoint-do.js` imports `jolt-edge-init.js` BEFORE `WorkerEntry.js`.
 - `src/protocol/msgpack.js` `_ensurePackr` builds its browser `msgpackr` specifier through an IIFE; never flatten it to a literal (esbuild: 86 KB flat vs 187 B with the IIFE).
+- Untrusted apps evaluate through `SESCompartmentEvaluator` (`src/sdk/SESCompartmentEvaluator.js`), which fails closed: when `import('ses')` or lockdown is unavailable, it throws `SandboxUnavailableError`, since untrusted code has no non-SES isolation tier.
 
 ## Browsers
 
 - Browsing is CDP-driven and headful only. `scripts/lib/cdp-browser.mjs` (`launch`) refuses a `headless` option; every witness and tool launches through it. lightpanda, obrowser and Playwright headless are removed.
+- CDP `Input.dispatchKeyEvent` reaches the app input bucket. Confirm it via `window.__app.sentInput` and `sentInputCount` (`client/app.js`). Keyboard sets `input.backward`, never `input.back`. A `[physics] peak active 0` line does not mean a stalled player, because `CharacterVirtual` is not counted by `GetNumActiveBodies()` (`src/physics/World.js`).
+- Headless scripts exit through `scripts/lib/quiesce.mjs exitAfterQuiesce`, which waits for `process._getActiveHandles()` to reach 0 (bounded by its timeout) before `process.exit`; exiting with handles mid-close can abort in libuv.
+- `src/sdk/StaticHandler.js` sends `Cross-Origin-Embedder-Policy: require-corp` (`COEP_VALUE`) on every static response, so a cross-origin subresource without a CORP header or a CORS grant fails to load.
 
 ## Debugging discipline
 
@@ -124,6 +147,10 @@ Skills encode environment-specific constraints that override general knowledge.
 - A witness needing the server to act on a client message passes `--params=multiplayer` (`?singleplayer` sees `players:0`). One `expect()` per measurement: a harness returning uncompared `{expected, got}` passes either way.
 - One `gl.getError()` code covers distinct bugs (1282 = feedback-loop, sampler-type-mismatch AND insufficient-buffer-size): read the driver's console string. Live GL: `window`/`document` only via `page.evaluate()`; pin file:line via `addInitScript`.
 - A witness child that dies must surface its stderr (`scripts/lib/witness-server.mjs`).
+- `scripts/perf-run.mjs --knob=<key>=<value>[,...]` (or `?knob=` in `--extra`) sets number and boolean render-controls keys by their registry `key` verbatim (for example `maxLevel`, not `__maxLevel`). The values are injected at document start, so they land before boot-time reads. Unknown keys, wrong-typed values and a missing `=` are rejected before the run, and one bad key fails the whole run.
+- Foliage toggles: `?lightplanet` (`client/core/TerrainBackdrop.js`) stubs the planet. `?veg=none`, `?nograss` and `?norocks` (`client/app.js`, flags declared in `client/core/RenderControls.js`) really skip their layer. `?noveg` is not read anywhere and silently does nothing; `window.__vegAllOff` hides foliage per frame (`client/core/Vegetation.js`).
+- `scripts/perf-run.mjs` `--knob=<key>=<value>` (or `?knob=` in `--extra`) applies render knobs by registry `key` verbatim (`maxLevel`, not `__maxLevel`) through a setter trap on `window.__renderControls`, so a knob lands when the page assigns it, before boot-time reads.
+- `window.__vegAllOff` hides the foliage branch, leaf and shared-impostor meshes in `client/core/Vegetation.js` while set; `window.__vegHideFar` hides a named list the same way, and there is no per-part app toggle.
 
 ## Entry points
 
@@ -132,6 +159,21 @@ Skills encode environment-specific constraints that override general knowledge.
 - Client `ctx.state` = entity `custom` block (`AppModuleSystem.js`), not server app state: `ctx.state.<key> ?? literal` takes the literal forever. `engine.cam` has no `position`; read `engine.client.getLocalState().position`.
 - Wireweave attach helpers run after awaits (host migration reassigns `client` in `app.js`): re-check at call time. `createServer()` is a per-call factory; `boot()`'s signals are process-global: stop with `RoomDirectory.stopAll`.
 - A remote server's `netcode.profile` is named only when the client is a real `PhysicsNetworkClient`: boot that witness on `?connect=...&multiplayer=1`, else in-page `BrowserServer`.
+- Spawn hold: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) gates release on `terrainFieldMissingAt` and `coversPosition`, and gives up after `SPAWN_HOLD_MAX_MS=20000` (20000 ms), releasing the player without ground.
+- `client/BrowserServer.js` keeps `_lastTodSync` and `_deliveredWorldFingerprints` at module level, so a stall recovery or HostMigration that builds a fresh BrowserServer in the same page inherits them.
+- The singleplayer worker takes its world identity from `init({ worldName })` (`src/sdk/WorkerEntry.js` `init`, falling back to a world-def fingerprint). The saved snapshot is one `world-snapshot` IDB key per origin, and `src/sdk/WorldPersistence.js` discards it on a world-name mismatch.
+- Respawn clearance: `footprintBlockers` (`src/apps/AppGameplay.js`) reports a footprint column as `intruding` when its support surface sits more than `MAX_FOOTPRINT_INTRUSION_M` (0.15 m) above that column's bottom, and `pickSpawnPoint` builds its spawn placements from those blockers.
+- `client/app.js` `_buildWorldScenery` returns the in-flight `_sceneryBuildPromise`, so boot adopts a running build. Boot waits on it with `Promise.race` against a stall watchdog, and `Promise.race` does not cancel the losing promise.
+- `src/sdk/SESCompartmentEvaluator.js` fails closed for untrusted apps: when no `Compartment` is available because SES is unavailable, it throws `SandboxUnavailableError` instead of evaluating the code. `src/sdk/StaticHandler.js` sets COEP `require-corp`.
+- `src/sdk/StaticHandler.js` enforces path containment (resolved paths must stay under the served directory) and sends `Cross-Origin-Embedder-Policy: require-corp`; keep both when changing static serving.
+- The client `WORLD_DEF` built in `sendWorldDefAndModules` (`src/sdk/ServerHandlers.js`) has `entities` stripped and carries `_modelUrls` and `_entityApps`; derive world-entity facts from those, not from `entities`.
+- `AppRuntime._releaseAppContext` does not drop an app from `_updateList` or `_collisionEntities`; a hot reload must rebuild both through `_rebuildUpdateList` and `_rebuildCollisionList`, as `src/apps/HotReloadQueue.js` does, or `update()` keeps ticking a torn-down context.
+- `authCompare.js timingSafeTokenEqual` (`src/sdk/authCompare.js`) compares a buffer with itself on a length mismatch so the token length does not leak; do not simplify that away.
+- Respawn clearance is one sampler: `src/apps/AppGameplay.js footprintBlockers` (exposed to apps as `ctx.spawnGeometry.footprintBlockers`) is used by `pickSpawnPoint` and by `apps/tps-game/respawn-clearance.js`. A column whose support sits more than `MAX_FOOTPRINT_INTRUSION_M` (0.15 m) above the capsule bottom is an `intruding` blocker, and a missing support inside the contact disc is a `void` blocker.
+- Spawn release is gated by `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`): it holds while `terrainFieldMissingAt` reports the terrain field does not cover the spawn, capped at `SPAWN_HOLD_MAX_MS` (20 s).
+- A world def with `relocation:false` refuses every teleport (`src/sdk/Relocation.js` `createRelocationHandlers`, reply 'relocation disabled by this world'), so a relocation witness on that world fails because of the world def, not the code.
+- Spawn hold: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) releases only when `terrainFieldMissingAt` is false, which asks the streamer's `coversPosition`; the hold is capped at `SPAWN_HOLD_MAX_MS` (20 s).
+- Singleplayer world snapshots live under one storage key, `world-snapshot` (`src/sdk/WorldPersistence.js`); `restoreWorldSnapshot` discards a snapshot whose `world` differs from `resolveWorldName(ctx)` (booting clean), and the singleplayer world name comes from `init({ worldName })` (`src/sdk/WorkerEntry.js` `init`).
 
 ## Fire
 
@@ -151,6 +193,9 @@ Skills encode environment-specific constraints that override general knowledge.
 - Clusters are OFF in every shipped world (`apps/world/tps-game.js`, `apps/world/tutorial.js` declare `clusters: { enabled: false }`). The world-def parser refuses the mismatch both ways (`world-clusters-enabled-without-planet-radius`, `world-planet-radius-unreachable`).
 - Flat AOI is HORIZONTAL (`getRelevantEntitiesHorizontal`, chosen when `planetRadius <= 0`): zero vertical slack.
 - `StageLoader.js` throws when a radius is declared without enabled clusters and resolves config on EVERY load: six `ClusterConfigError` codes can throw at boot and on hot reload.
+- The method `update` on `SpatialIndex` (`src/spatial/Octree.js`; the SpatialIndex.update call) returns early for a move under `MOVE_TOLERANCE_SQ` (1 m squared) from the stored anchor when the entity stays in its cell, so a quiescent world keeps the `mutations` counter still; the counter moves only on insert, remove and a cell change.
+- Shipped worlds declare `planetRadius: 0` (`apps/world/tps-game.js`, `apps/world/construct.js`), so the cube-sphere paths (`resolvePlayerCell`, `solveCellViewer`, and the planetRadius branches of `computeRingRelevantIds` in `src/sdk/TickHandlerAOI.js`) are not reached in shipped worlds; only the flat ring path is live or covered.
+- `src/shared/clusterConfig.js` `resolveClusterConfig` refuses a link shorter than the relevance ring reach (`CLUSTER_RELEVANCE_RING_CELLS` x relevanceRadius) or shorter than the longest weapon range (`maxWeaponRangeM`), so an enabled cluster config with a short link throws at load.
 
 ## Chart re-anchor
 
@@ -168,6 +213,8 @@ Skills encode environment-specific constraints that override general knowledge.
 - `AppRuntimePhysics.js` skips `e._vehicleId != null` in BOTH `_tickPhysicsLOD` and `_enforceBodyBudget`. `Math.round` of a negative height sample yields -0, which differs from +0 as `Float32Array` bits.
 - `VehiclePhysics.js`: never `J.destroy` `v.constraint`/`v.tester` after `RemoveConstraint`, nor `get_mTracks()` copies after `set_mTracks`; empty `mDifferentials` = zero wheel torque.
 - EDITOR_UPDATE calls `syncEntityCollider` AFTER `changeBodyType` (which removes the body and clobbers `custom._collider`). A force no body received must not become entity velocity: `runtime.applyImpulseToEntity` answers `false` for exactly that.
+- `src/physics/World.js` `removeBody` on a pooled dynamic body parks it through `_repositionBody` with `activate` false, which calls `DeactivateBody`, and zeroes both linear and angular velocity. `deactivateBody` is the explicit API.
+- `src/physics/World.js` `removeBody` on a pooled DYNAMIC body parks it (repositioned and deactivated, both velocities zeroed) and returns it to `_bodyPool` instead of calling `RemoveBody`; `_revivePooledBody` resets a parked body when its slot is reused.
 
 ## Terrain and colliders
 
@@ -183,6 +230,9 @@ Skills encode environment-specific constraints that override general knowledge.
 - `gl-render.js sampleGroundM` is fire-and-forget async, so each call returns the PREVIOUS call's height; non-rAF callers use `sampleGroundMSync`, which poisons the next async read.
 - `VegPlacement.js`/`RockPlacement.js` read climate before `surfaceOfCell` only when `climateUsesLocalXZ !== true`. Veg density must gate on painted snow, else surviving grass weight roots trees. Slope caps differ between `VegPlacement` and `GrassPlacement` (`SLOPE_MAX` 0.6 vs 0.9).
 - REFUTED: `PlacementChart.js radialSlopeAt`'s 2-tap forward difference (it flips gates only where the gradient crosses `SLOPE_MAX`). Skipping a three.js attribute upload is safe only because a buffer is seeded from the whole CPU array on creation.
+- Every `discard` in the fragment stage of `packages/mapspinner/src/shaders/terrain.glsl` sits inside the `#ifdef _WATERPASS_` block: a discard anywhere disables early-Z depth write for all its draws, so a new discard outside that block costs early-Z for every draw that uses it.
+- The default-path terrain fragment shader is TSL, not `terrain.glsl`: `client/core/TerrainBackdrop.js` imports `packages/mapspinner/src/tsl/planet-tsl.js` when the renderer is WebGPU. `terrain.glsl` is the legacy `?legacygl=1` path and the height-parity source, so its `_WATERPASS_` rule governs the GLSL body only.
+- `src/shared/terrainConfig.js` `terrainCarvesOf` returns no carves when `terrainHashVersionOf` is `LEGACY_TERRAIN_HASH_VERSION`, so carves take effect only on the non-legacy height backend.
 
 ## Grass distance-density
 
@@ -212,9 +262,15 @@ Skills encode environment-specific constraints that override general knowledge.
 - `src/protocol/msgpack.js` `_ensurePackr` builds `Packr` with `NEVER` and `Unpackr` with `DECIMAL_ROUND` for `useFloat32`; `pack()` throws until `ensurePacked()` resolves. `edge/cf-do/accept-request.js` `acceptRoomRequest` accepts only WebSocket upgrades and otherwise refuses 426 `expected websocket upgrade`; `roomKeyFor` takes the `room` query param, then `SPOINT_ROOM_KEY`, then `probe-room`. `scripts/bake-minimap.mjs` refuses a non-ok `parseTerrainConfig` instead of applying a silent default. `client/core/WorkerRenderer.js` `classifyWorkerRuntimeState` resolves stopped/error/stopping/idle/hidden/live/stalled from the stopped, error, start, visibility and frame-age inputs.
 - `src/protocol/InputCodec.js` `tryEncodeInputPacket` keeps the newest 8 of 10 records and reports `input_records_dropped` for the 2 oldest; `quantizeInput` clamps pitch to +-HALF_PI with `input_field_clamped` and wraps yaw with `input_field_wrapped`. `MessageTypes.js msgName(0x7fff)` returns "unknown(0x7fff)" and `isUnreliable(0x7fff)` returns false, not null.
 - Wire v3 player record: 8 fields in a 22-byte bin; `[inputSequence, inputBuffer, groundNormal]` ride a per-recipient `me` block, so snapshots pack per recipient. `getSnapshot()` keys on `_version === _snapshotVersion` alone.
-- `PhysicsNetworkClient.connect()` REJECTS with a named `TransportConnectError`, never `connected:false`; retry belongs in the caller (`_doReconnect`). `err.reason` is stable: `websocket-unavailable`, `-closed-before-open`, `connect-superseded`.
+- `PhysicsNetworkClient.connect()` REJECTS with a named `TransportConnectError`, never `connected:false`; retry belongs in the caller (`_doReconnect`). `err.reason` is stable: `websocket-unavailable`, `websocket-error`, `websocket-closed-before-open`, `connect-superseded`.
 
 - With prediction off, `BaseClient` keeps the raw input in the redundancy buffer and skips the quantized encode and decode per input step, which was the largest per-frame allocation the profiler named. The packets are byte-identical either way: a field the raw input omits encodes as the zero the template supplies. Non-finite and clamped fields are still refused and reported by the same encode the prediction path uses.
+- A socket becomes a player only through MIGRATE, RECONNECT, or silence past the MIGRATE-peek grace (`ServerHandlers.js onClientConnect`: a 50 ms floor divided by tick dilation, capped at 1500 ms), so a silent probe joins as a phantom player. Probes connect with `?probe=1`, which `ServerAPI.js` turns into `transport.probeOnly`. Never answer an unresolvable RECONNECT with INVALID_SESSION and leave it open: `rejectSession` flushes and closes.
+- `src/netcode/LockstepGameLoop.js` throws at construction when `inputDelayTicks` exceeds `INPUT_RETAIN_TICKS` (240), and ignores inputs more than that many ticks ahead of the sim tick (`futureInputsIgnored`).
+- Headless Node witnesses that construct `PhysicsNetworkClient` must assign `globalThis.WebSocket` from `ws` first (see `scripts/chart-reanchor-wire-harness.mjs`, `scripts/planet-multiplayer-harness.mjs`); `scripts/lib/witness-audit.mjs` flags a WebSocket reach that lacks it.
+- `src/netcode/LockstepGameLoop.js` refuses an `inputDelayTicks` above `INPUT_RETAIN_TICKS` (240) at construction, because a peer can only simulate a tick once every peer's input for it is retained.
+- `src/sdk/TickHandler.js processPlayerMovement` consumes one input per tick, then catches up extra inputs only while `inputs.length > INPUT_BUFFER_CATCHUP_DEPTH` (8), capped by `MAX_CATCHUP_STEPS_PER_TICK` and the player's `inputStepBudget`.
+- `src/netcode/RollbackGameLoop.js` stalls (runs no simulation step) when the tick it would run is more than `maxRollbackTicks` (12 by default) ahead of the newest confirmed remote input, so rollback depth, not rate, is the bounded quantity to measure. Construction also refuses `maxRollbackTicks + inputDelayTicks` at or above the state ring window.
 
 ## Patched dependencies
 
