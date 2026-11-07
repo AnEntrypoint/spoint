@@ -544,6 +544,7 @@ const FOLD_CORRECTED = {
   'process.exit()': 'covered by the restored bullet for `process._getActiveHandles()`',
   'ssao': 'covered by the restored bullet for `light.shadow.needsUpdate`',
   'amend': 'not a repo fact: the gm MCP git verbs (amend, git_reset_head) are gm tooling outside this repo, not scripts or src code',
+  'perf-run.mjs:277': 'line moved: perf-run.mjs:277 was the abPhaseMs pin at bd5573267fc; at HEAD the pin is at perf-run.mjs:281, which the figures cite',
 };
 const FOLD_NUMBER_RETIRED = {
   '211': 're-measured: AGENTS.md now states 203 files are index-LF + worktree-CRLF, so the old file count cannot be restored',
