@@ -1,6 +1,3 @@
-// Shared capture server state (PERF-grass-frame-harness-friction-1013). One long-lived server
-// (scripts/capture-server.mjs) serves the built client and records itself here; captures attach to it
-// (scripts/capture-attach.mjs) and never start one. Node-only: no browser is launched by this module.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
@@ -28,19 +25,15 @@ export function removeState(path = STATE_PATH, pid = null) {
   try { unlinkSync(path); return true } catch { return false }
 }
 
-// The bundle the served page must run: dist/client/app.js, hashed the same way the server hashes it.
 export function expectedBundle(sdkRoot = SDK_ROOT) {
   const fp = clientRootCandidates(sdkRoot)[CLIENT_ROOT_BUNDLE]
   if (!fp) return { fp: null, sha256: null }
   return { fp, sha256: sha256OfFile(fp) }
 }
 
-// Request guard for the pinned root. Every request re-reads the bundle entry and compares it with the
-// hash pinned at boot; a mismatch answers 503 with a named reason instead of serving the new bytes.
-// The hash is memoised on (mtime, size), so an unchanged entry costs one stat per request.
 export function makeRootGuard({ file, pinnedSha256 }) {
   let memo = { mtimeMs: -1, size: -1, sha: null }
-  const currentSha = () => {
+  const bundleShaNow = () => {
     const st = statSync(file)
     if (st.mtimeMs !== memo.mtimeMs || st.size !== memo.size) {
       memo = { mtimeMs: st.mtimeMs, size: st.size, sha: createHash('sha256').update(readFileSync(file)).digest('hex') }
@@ -49,7 +42,7 @@ export function makeRootGuard({ file, pinnedSha256 }) {
   }
   return function rootGuard(req, res) {
     let now = null
-    try { now = currentSha() } catch { now = null }
+    try { now = bundleShaNow() } catch { now = null }
     if (now === pinnedSha256) return false
     const reason = now === null ? 'root-missing' : 'root-hash-changed'
     res.writeHead(503, {
@@ -91,12 +84,10 @@ export function portAccepts(port, { host = CAPTURE_HOST, timeoutMs = 1000 } = {}
   })
 }
 
-// Non-loopback IPv4 addresses of this machine; a connection to one of them is a non-loopback peer.
 export function nonLoopbackAddresses() {
   return Object.values(networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address)
 }
 
-// Connect attempt to host:port. Resolves to 'connected', 'timeout', or the error code (e.g. ECONNREFUSED).
 export function connectTo(host, port, { timeoutMs = 2000 } = {}) {
   return new Promise((done) => {
     const sock = connect({ host, port })
@@ -107,8 +98,6 @@ export function connectTo(host, port, { timeoutMs = 2000 } = {}) {
   })
 }
 
-// Listening sockets on the port as {pid, addr}. Windows reads Get-NetTCPConnection, darwin lsof, linux ss.
-// Throws when the instrument itself is absent: an unmeasured listener is never reported as zero.
 export function listeners(port) {
   if (process.platform === 'win32') {
     const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
@@ -128,8 +117,6 @@ export function listeners(port) {
   })
 }
 
-// Attach check. Never starts a server. Refuses with a named reason; attaches only when the server is up,
-// serves client-root=bundle, and its served entry hashes to the bundle this checkout built.
 export async function attachCapture({ statePath = STATE_PATH, port = null, expectSha256 = null, sdkRoot = SDK_ROOT } = {}) {
   const state = readState(statePath)
   if (!state) return { ok: false, reason: 'no-server', detail: `no ${statePath}; start one with node scripts/capture-server.mjs` }

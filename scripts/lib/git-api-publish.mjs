@@ -38,25 +38,22 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/**
- * Runs the shipped scripts/gen-sdk-typings.mjs in a throwaway worktree at `tip`
- * with every published closure member staged, so the digest it records is the
- * digest of the tree this publish writes. Returns the generated text (LF).
- */
+function addDetachedWorktreeFetchingMissingTip(rel, tip) {
+  try {
+    execFileSync('git', ['worktree', 'add', '--detach', rel, tip], { cwd: ROOT, stdio: 'pipe' })
+  } catch {
+    execFileSync('git', ['fetch', 'origin'], { cwd: ROOT, stdio: 'pipe' })
+    execFileSync('git', ['worktree', 'add', '--detach', rel, tip], { cwd: ROOT, stdio: 'pipe' })
+  }
+}
+
 function regenerateGeneratedTypings(tip, overrides) {
   const rel = '.gm/tmp/api-publish-typings-' + process.pid + '-' + Date.now()
   const abs = ROOT + '/' + rel
   if (!existsSync(ROOT + '/node_modules')) {
     throw new Error('regeneration needs ' + ROOT + '/node_modules (typescript) and it is absent')
   }
-  try {
-    execFileSync('git', ['worktree', 'add', '--detach', rel, tip], { cwd: ROOT, stdio: 'pipe' })
-  } catch {
-    // the tip can be a commit another lane published after our last fetch, so
-    // it may not be in the local object store yet.
-    execFileSync('git', ['fetch', 'origin'], { cwd: ROOT, stdio: 'pipe' })
-    execFileSync('git', ['worktree', 'add', '--detach', rel, tip], { cwd: ROOT, stdio: 'pipe' })
-  }
+  addDetachedWorktreeFetchingMissingTip(rel, tip)
   try {
     if (!existsSync(abs + '/node_modules')) {
       symlinkSync(ROOT + '/node_modules', abs + '/node_modules', process.platform === 'win32' ? 'junction' : 'dir')
@@ -118,13 +115,8 @@ async function main() {
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'spoint-git-api-publish',
   }
-  // The closure gate runs tsc for a minute or two between the two GETs and the first POST, and
-  // GitHub closes the pooled keep-alive socket in that gap: undici answers UND_ERR_SOCKET "other
-  // side closed" on the very first POST /git/blobs and the publish dies after all the expensive
-  // work has already been done. Every request therefore takes its own connection, and a socket
-  // error is retried a bounded number of times before it is reported.
-  const SOCKET_ERROR = /UND_ERR_SOCKET|fetch failed|socket hang up|ECONNRESET/i
-  const GH_RETRY_MS = [400, 800, 1600]
+  const SOCKET_CLOSED_ERROR = /UND_ERR_SOCKET|fetch failed|socket hang up|ECONNRESET/i
+  const SOCKET_RETRY_BACKOFF_MS = [400, 800, 1600]
   async function gh(path, init = {}) {
     const url = 'https://api.github.com' + path
     const headers = { ...H, connection: 'close', ...(init.headers || {}) }
@@ -133,9 +125,9 @@ async function main() {
       try { r = await fetch(url, { ...init, headers }); break }
       catch (e) {
         const why = `${(e && e.message) || e} ${(e && e.cause && e.cause.code) || ''}`
-        if (attempt >= GH_RETRY_MS.length || !SOCKET_ERROR.test(why)) throw e
+        if (attempt >= SOCKET_RETRY_BACKOFF_MS.length || !SOCKET_CLOSED_ERROR.test(why)) throw e
         console.error(`[git-api-publish] ${init.method || 'GET'} ${path} lost its socket (${(e && e.message) || e}); retrying`)
-        await sleep(GH_RETRY_MS[attempt])
+        await sleep(SOCKET_RETRY_BACKOFF_MS[attempt])
       }
     }
     const text = await r.text()
@@ -152,8 +144,6 @@ async function main() {
     return await r.text()
   }
 
-  // Read and hash on every attempt, never once before the loop: an attempt that lost refs/heads/main
-  // must build the blobs it writes against the tip it is about to POST against.
   const readPrepared = () => {
     const out = []
     for (const rel of args.paths) {
@@ -361,7 +351,7 @@ async function main() {
     if (plan.stale.length) refuse(staleRefusal({ stale: plan.stale, tip }))
     console.log('[git-api-publish] stale base gate: ' + plan.current.length + ' changed path(s) checked against the last ' + STALE_HISTORY_DEPTH + ' revision(s) main took on each; none is a revision main has moved past')
   }
-  let prevAtTip = null
+  let tipSeenByPriorAttempt = null
   const publishOnce = async () => {
     const tip = (await gh('/repos/' + repo + '/git/ref/heads/main')).object.sha
     const listing = await gh('/repos/' + repo + '/git/trees/' + tip + '?recursive=1')
@@ -369,11 +359,10 @@ async function main() {
     for (const entry of listing.tree) if (entry.type === 'blob') atTip.set(entry.path, entry.sha)
     prepared = readPrepared()
     local = hashPrepared(prepared)
-    // the tip moved under a previous attempt: rebuild what this commit writes against THIS tip.
-    if (prevAtTip !== null) {
+    if (tipSeenByPriorAttempt !== null) {
       const plan = planRebaseOnTip({
         entries: prepared.map((p) => ({ rel: p.rel, blob: local[p.rel], binary: p.buffer !== null })),
-        prevAtTip,
+        prevAtTip: tipSeenByPriorAttempt,
         atTip,
       })
       if (plan.contested.length) refuse(contestedRefusal({ contested: plan.contested, tip }))
@@ -384,8 +373,7 @@ async function main() {
         console.log('[git-api-publish] tip rebase: ' + rel + ' adopted the blob on the new tip (' + sha.slice(0, 12) + ') instead of the one this publish first read')
       }
     }
-    prevAtTip = atTip
-    // before anything is written: a pin for a witness this commit does not carry reddens CI.
+    tipSeenByPriorAttempt = atTip
     enforceCheckPinGate(atTip)
     await enforceStaleBaseGate(tip, atTip)
     const regenerated = await enforceClosureGate(tip, listing, atTip)

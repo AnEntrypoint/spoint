@@ -46,8 +46,6 @@ const BASENAME_PIN = {
 };
 
 const LINE_TOKEN = {
-  // `distSq < 1.0` and `nearbyHorizontal` no longer occur in src/spatial/Octree.js,
-  // so those two pins are retired in FOLD_CORRECTED rather than repointed.
   'src/shared/clusterConfig.js#9': 'JOLT_WASM_HEAP_BYTES',
   'src/shared/clusterConfig.js#35': 'resolveClusterConfig',
   'src/shared/clusterConfig.js#27,30,37': 'ClusterConfigError',
@@ -399,7 +397,6 @@ for (const [key, file] of Object.entries(WRITE_ONLY_KEYS)) {
 
 const FOLD_CORRECTED = {
   'TickHandler.js:30': 'citation corrected to TickHandler.js:29 (the SNAP_COST_HIGH_FRAC declaration; line 30 is SNAP_STALL_ENTER), validated by the path:line check',
-  // Citations whose line moved: repointed in LINE_TOKEN to the measured line.
   'src/shared/clusterConfig.js:8': 'line moved: JOLT_WASM_HEAP_BYTES is declared at src/shared/clusterConfig.js:9 (line 8 is CLUSTER_DEFAULT_HZ)',
   'clusterConfig.js:35': 'line dropped, symbol kept: resolveClusterConfig is still at src/shared/clusterConfig.js:35, and AGENTS.md cites path + symbol because line numbers drift',
   'clusterConfig.js:38,43,44,46,48,50': 'lines moved: ClusterConfigError is thrown at src/shared/clusterConfig.js:27,30,37',
@@ -417,21 +414,17 @@ const FOLD_CORRECTED = {
   'gl-render.js:619': 'line moved: __vsCheap is read at packages/mapspinner/src/gl-render.js:616',
   'gl-render.js:1444,1555': 'line moved: __halfResWater is read at packages/mapspinner/src/gl-render.js:1441',
   'QualityPresets.js:95': 'line moved: halfResWater is applied at client/core/QualityPresets.js:16',
-  // Citations whose line was dropped from the doc while the symbol stayed: the path:line
-  // check still pins the symbol, so the knowledge is not lost.
   'worldResolve.js:33': 'line dropped, symbol kept: checkSlices is at src/shared/worldResolve.js:11 and still rejects a non-positive-finite planetRadius',
   'src/presets/tps.js:5': 'line dropped, symbol kept: relevanceRadius: 200 is still at src/presets/tps.js:5',
   'apps/world/construct.js:20': 'line dropped, symbol kept: relevanceRadius: 100 is still at apps/world/construct.js:20',
   'TerrainBackdrop.js:43': 'line dropped, symbol kept: the planet-tsl import is still at client/core/TerrainBackdrop.js:43',
   'app.js:191': 'line dropped, symbol kept: the legacygl param read is still at client/app.js:191',
   'terrain-material-tsl.js:198': 'line dropped, symbol kept: side = DoubleSide is still at terrain-material-tsl.js:198',
-  // Citations pointing at code that no longer exists: the pin cannot be satisfied at any line.
   'Octree.js:65': 'symbol gone: "distSq < 1.0" occurs 0 times in src/spatial/Octree.js, so no line in that file can satisfy the pin',
   'Octree.js:111': 'symbol gone: nearbyHorizontal occurs 0 times in tracked code; the horizontal-AOI claim is pinned on getRelevantEntitiesHorizontal instead',
   'Stage.js:8': 'symbol gone: src/stage/Stage.js:8 is now "export class Stage {"; the planetRadius default it pinned no longer exists',
   'config.planetRadius || 0': 'expression replaced: "config.planetRadius || 0" occurs 0 times in tracked code; the radius is now validated by checkSlices',
   'planet-tsl.js:232-270': 'span gone: the uniform-write block is no longer a single line span; the refutation it carried lives in docs/measurement-figures.md',
-  // Forms renamed or reworded with the knowledge retained in the current docs.
   'git_push {rev:"HEAD"}': 'form reworded: AGENTS.md now states the literal-sha push form "{rev:"HEAD"}"',
   'git_push {branch:...}': 'form reworded: AGENTS.md now states that the bare branch form is refused',
   'git_rm {"cached":true}': 'form reworded: AGENTS.md now writes git_rm {cached:true}',
@@ -458,9 +451,6 @@ const FOLD_CORRECTED = {
   'classify()': 'symbol renamed: ring classification is now classifyRings (src/terrain/ColliderStreamer.js)',
   '{ok, reason, detail}': 'shape gone: the reject path now carries err.reason (src/client)',
 };
-// A number inside a backticked span whose citation is retired above retires with it:
-// AGENTS.md line 1 says to cite path + symbol because line numbers drift, so a line
-// number has no standing of its own. These are the numbers that stood alone.
 const FOLD_NUMBER_RETIRED = {
   '211': 're-measured: AGENTS.md now states 203 files are index-LF + worktree-CRLF, so the old file count cannot be restored',
   '122': 'CRLF example compacted: the +122/-122 diff illustration was dropped with the example sha',

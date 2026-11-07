@@ -1,22 +1,9 @@
-// A path-scoped publish in a shared work tree is not content-scoped. The blob scripts/lib/
-// git-api-publish.mjs writes for scripts/check.mjs is whatever the shared tree holds at that
-// moment, so it carries pin rows a sibling lane added for a witness it has not published yet;
-// remote main then runs a `must` regex against a file that is not there and the check arm answers
-// "never ran: unreadable (ENOENT ...), so its assertions never ran". This gate reads the pin rows
-// out of the check.mjs blob being written and refuses when a pinned witness is neither carried by
-// the same commit nor already on the remote tree the commit is parented on.
-
 export const CHECK_REL = 'scripts/check.mjs'
 export const WITNESS_ROOT = 'scripts'
 export const REFUSAL_ABSENT = 'check-pin-witness-absent'
 export const REFUSAL_EMPTY_PARSE = 'check-pin-parse-empty'
 
-// check.mjs names a witness relative to scripts/ (join('scripts', spec.file)), in two pin tables
-// today -- NO_GPU_WITNESSES and SLOW_NO_GPU_WITNESSES -- and the row asks for every table carrying
-// a `file:` entry, so the parse takes every quoted `file:` literal in the blob rather than one
-// named table. Over-collecting refuses a publish that would have been fine; under-collecting lets
-// the defect through, and only one of those is the direction this class of bug has ever gone.
-const PIN_RE = /file:\s*'([^']+)'/g
+const QUOTED_FILE_PIN_RE = /file:\s*'([^']+)'/g
 
 export function witnessRel(name) {
   const clean = String(name).replace(/\\/g, '/').replace(/^\.\//, '')
@@ -26,9 +13,9 @@ export function witnessRel(name) {
 export function parseCheckPins(checkText) {
   const pins = []
   const text = String(checkText ?? '')
-  PIN_RE.lastIndex = 0
+  QUOTED_FILE_PIN_RE.lastIndex = 0
   let m
-  while ((m = PIN_RE.exec(text)) !== null) {
+  while ((m = QUOTED_FILE_PIN_RE.exec(text)) !== null) {
     const rel = witnessRel(m[1])
     if (!pins.includes(rel)) pins.push(rel)
   }

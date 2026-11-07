@@ -1,16 +1,3 @@
-// Portable install of the root-absolute specifier remap for node witnesses.
-//
-// Client-side modules in this tree import their server-side siblings by root-absolute
-// specifier ('/src/terrain/VegPlacement.js', '/node_modules/...'), which the ESM resolver
-// has no notion of: it reads '/src/...' as a path from the drive root.
-//
-// package.json declares engines.node ">=18", so a gated witness may not depend on
-// registerHooks (>=22.15). The GPU CI job runs node 20.20.2 (current as of this writing), where `import { registerHooks } from
-// 'node:module'` throws at link time -- the witness exits 1 having printed nothing, which
-// the gate cannot tell apart from a witness that never asserted.
-//
-// So: registerHooks where the running node has it, module.register (>=20.6) otherwise, and
-// a named refusal below that rather than silence.
 const ROOT = new URL('../../', import.meta.url)
 const REMAP = ['/src/', '/node_modules/']
 

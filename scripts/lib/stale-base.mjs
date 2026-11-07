@@ -1,9 +1,3 @@
-// A path-scoped publish writes the WHOLE blob for a path, so publishing a copy of that path that
-// remote main has already moved past silently reverts every edit main took on it since. That is how
-// a fix gets clobbered: the commit applies cleanly, the content is an old revision, and CI goes red
-// on a change nobody removed. This gate walks the revisions main has taken on each path this publish
-// actually changes and refuses when the blob being written is one main has already moved past.
-
 export const REFUSAL_STALE = 'stale-base-publish'
 export const STALE_HISTORY_DEPTH = 20
 

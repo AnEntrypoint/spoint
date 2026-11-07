@@ -5,23 +5,14 @@ import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import { acquire as acquireLease } from './browser-lease.mjs'
 
-// One source of truth for the surface a witness measures on. A caller that names no
-// size gets DEFAULT_VIEWPORT; a caller that needs another size derives it from
-// DEFAULT_VIEWPORT instead of inventing a literal, and newPage() grows the OS window
-// to fit whatever it ends up with. Every distinct size is a visible resize during
-// testing, so the set of sizes is the defect, not a knob.
 export const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
-// Chrome's own frame -- window border plus tab strip plus omnibox -- between the OS
-// window edge and the page viewport, in DIP. Measured, not guessed: launching with no
-// --window-size at all reads an OS window of 1050x797 around a page viewport of
-// 1036x703 (scripts/window-size-constancy-witness.mjs).
-const WINDOW_FRAME_W = 14
-const WINDOW_FRAME_H = 94
+const CHROME_FRAME_WIDTH_DIP = 14
+const CHROME_FRAME_HEIGHT_DIP = 94
 
 export function windowSizeFor(viewport) {
   const v = viewport || DEFAULT_VIEWPORT
-  return { width: v.width + WINDOW_FRAME_W, height: v.height + WINDOW_FRAME_H }
+  return { width: v.width + CHROME_FRAME_WIDTH_DIP, height: v.height + CHROME_FRAME_HEIGHT_DIP }
 }
 
 export function windowSizeArgs(viewport) {
@@ -29,11 +20,6 @@ export function windowSizeArgs(viewport) {
   return [`--window-size=${s.width},${s.height}`]
 }
 
-// A page whose viewport is bigger than the window's content area is scaled down to
-// fit, so the same witness drew a different-sized picture on two boxes -- and two
-// witnesses drew different-sized pictures on one box. The window is therefore grown
-// to fit the viewport before the metrics override is applied, which makes the ratio
-// between a page pixel and a screen pixel exactly 1 for every page, always.
 async function fitWindowToViewport(conn, targetId, viewport) {
   const want = windowSizeFor(viewport)
   try {
@@ -500,9 +486,6 @@ export async function launch(opts = {}) {
   let proc = null
   let ws = null
   try {
-    // One derived window size. A caller that names its own --window-size keeps it;
-    // everyone else gets the window that fits DEFAULT_VIEWPORT, or the viewport the
-    // caller declared at launch, so the OS window never depends on Chrome's default.
     const namedWindowSize = (opts.args || []).some((a) => String(a).startsWith('--window-size='))
     const args = [
       '--remote-debugging-port=0',

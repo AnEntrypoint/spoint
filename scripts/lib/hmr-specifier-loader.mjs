@@ -1,8 +1,3 @@
-// module.register spelling of the root-absolute specifier remap scripts/hmr-reload-block-witness.mjs
-// needs: a client module is served at '/core/Foo.js' and lives at client/core/Foo.js, while
-// '/src/...' and '/node_modules/...' live at the repo root. Runs in the loader thread, so it
-// derives both roots from its own location and reads no witness state. Used where the running
-// node has no in-process registerHooks (>=22.15); the GPU CI job runs node 20.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'

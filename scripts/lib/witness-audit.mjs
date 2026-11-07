@@ -327,21 +327,11 @@ function main() {
   const report = []
   if (committed) {
     const tracked = gitTrackedScripts()
-    // `git ls-files` answers status 0 with NO output when the pathspec does not resolve under the
-    // cwd it was given, which is what a `git archive` extraction into a subdirectory is: the walk
-    // up finds the parent repo, `scripts` under the extraction does not exist, and an empty file
-    // list is reported as a clean audit of zero file(s). An empty list is therefore a broken
-    // instrument, exactly like a non-zero status, and has to fail here rather than pass on silence.
-    if (tracked === null || tracked.length === 0) {
+    const trackedListingBroken = tracked === null || tracked.length === 0
+    if (trackedListingBroken) {
       console.log(`RESULT: FAIL witness-audit listed ${tracked === null ? 'no' : '0'} tracked file(s) under scripts from ${REPO_ROOT}, so committed content was not audited`)
       process.exit(1)
     }
-    // HEAD is not the committed tree of a shared checkout: lanes publish
-    // path-scoped through the GitHub Git API, so remote main runs ahead of local
-    // HEAD and a published path can be tracked while HEAD has never heard of it
-    // -- which made a shipped witness read as missing. A clean checkout keeps
-    // HEAD; anything else asks the published tree, named on the next line so no
-    // run is silent about which one answered.
     const source = committedSource(REPO_ROOT)
     console.log(`witness-audit: committed content read from ${source.label}`)
     const scanned = tracked.filter(rel => {

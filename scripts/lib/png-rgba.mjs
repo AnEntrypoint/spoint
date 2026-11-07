@@ -1,6 +1,6 @@
-// Dependency-free PNG (8-bit RGB/RGBA, non-interlaced) decode/encode plus the per-band mean
-// absolute difference used by the grass frame capture witness. Node built-ins only.
 import { inflateSync, deflateSync } from 'node:zlib'
+
+const DIFF_IMAGE_GAIN = 4
 
 const CRC_TABLE = (() => {
   const t = new Int32Array(256)
@@ -65,7 +65,6 @@ export function decodePNG(buf) {
   return { w, h, ch, pixels: out }
 }
 
-// rgba: Buffer of w*h*4 bytes.
 export function encodePNG(w, h, rgba) {
   const stride = w * 4
   const raw = Buffer.alloc((stride + 1) * h)
@@ -89,7 +88,6 @@ export function encodePNG(w, h, rgba) {
   ])
 }
 
-// Rows y0..y0+ch-1 of a decoded image, full width, as RGBA.
 export function cropRows(img, y0, rows) {
   const w = img.w
   const out = Buffer.alloc(w * rows * 4, 0)
@@ -106,8 +104,6 @@ export function cropRows(img, y0, rows) {
   return { w, h: rows, pixels: out }
 }
 
-// Mean absolute difference per RGB channel between two same-size RGBA crops, and the
-// per-pixel absolute difference image (RGBA, alpha 255, channels clamped to 255).
 export function meanAbsDiff(a, b) {
   if (a.w !== b.w || a.h !== b.h) throw new Error('diff of two different-sized crops')
   const n = a.w * a.h
@@ -118,7 +114,7 @@ export function meanAbsDiff(a, b) {
     for (let c = 0; c < 3; c++) {
       const d = Math.abs(a.pixels[o + c] - b.pixels[o + c])
       sum[c] += d
-      diffImg[o + c] = Math.min(255, d * 4)
+      diffImg[o + c] = Math.min(255, d * DIFF_IMAGE_GAIN)
     }
     diffImg[o + 3] = 255
   }

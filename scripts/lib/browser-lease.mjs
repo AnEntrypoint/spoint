@@ -40,9 +40,6 @@ function killTree(pid) {
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
-// Reaping walks every chrome command line on the box, so it is only worth its cost
-// when a profile directory exists -- a lease that never launched a browser has no
-// chrome to reap, and a paired gpulock probes this lease on every poll.
 function reapProfileOwners(profile) {
   if (!fs.existsSync(profile)) return
   if (process.platform === 'win32') {
@@ -98,11 +95,7 @@ function writeOwner(dir, record) {
   fs.renameSync(tmp, file)
 }
 
-// The arm gpulock spawned inherits the lease gpulock already holds. Without adoption
-// the arm would queue for a lease its own parent owns, which is the deadlock of two
-// independent serializers: the parent holds the GPU lock and waits for the browser,
-// the arm holds the browser and waits for the GPU lock.
-function adoptPid() {
+function inheritedLeaseOwnerPid() {
   const v = Number(process.env.SPOINT_BROWSER_LEASE_OWNER_PID ?? 0)
   return Number.isInteger(v) && v > 0 ? v : 0
 }
@@ -110,13 +103,10 @@ function adoptPid() {
 function isOurHold(record, dir) {
   if (!record) return false
   if (Number(record.pid) === process.pid) return held.has(dir)
-  const adopt = adoptPid()
+  const adopt = inheritedLeaseOwnerPid()
   return adopt > 0 && Number(record.pid) === adopt && pidAlive(adopt)
 }
 
-// A heartbeat proves a WRITER is running, not that the browser it leases exists. A lease whose
-// browser died still heartbeats forever, so the TTL never expires and every other lane queues
-// behind a browser that is not there -- four hours of GPU work was lost to exactly that.
 function portHasListenerSync(port) {
   const p = Number(port)
   if (!Number.isInteger(p) || p <= 0) return null
@@ -158,6 +148,12 @@ function holderIsLive(record, dir, ttlMs) {
   return browserIsLive(record)
 }
 
+function reclaimAbandonedHold(record) {
+  const holderPid = Number(record?.pid ?? 0)
+  if (!pidAlive(holderPid)) killTree(holderPid)
+  killTree(Number(record?.browserPid ?? 0))
+}
+
 function claim(dir, owner, fingerprint, ttlMs) {
   fs.mkdirSync(dir, { recursive: true })
   const lock = ownerFile(dir)
@@ -172,10 +168,7 @@ function claim(dir, owner, fingerprint, ttlMs) {
       return true
     }
     if (holderIsLive(record, dir, ttlMs)) return false
-    // Only a holder that is itself dead may be killed. A live holder whose BROWSER died is a
-    // leak, not a rival: taking its lease is right, killing its lane is not.
-    if (!pidAlive(Number(record?.pid ?? 0))) killTree(Number(record?.pid ?? 0))
-    killTree(Number(record?.browserPid ?? 0))
+    reclaimAbandonedHold(record)
     reapProfileOwners(profileDir(dir))
     try { fs.unlinkSync(lock) } catch {}
     try {
@@ -194,12 +187,6 @@ function claim(dir, owner, fingerprint, ttlMs) {
   return true
 }
 
-// --- fair waiting ---------------------------------------------------------
-// This lease is the gate a browser arm actually queues on, so it needs the same
-// seniority the GPU lock has: without a ticket, the next holder is whichever poller
-// reaches openSync first and a lane can be overtaken indefinitely. The wait START is
-// the seniority, not the start of the current retry, so a lane that fails its bounded
-// wait and retries keeps its place.
 function waitersDir(dir) {
   return `${dir}-waiters`
 }
