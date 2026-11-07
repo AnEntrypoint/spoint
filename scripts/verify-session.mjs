@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import WebSocket from 'ws'
-import { createServer } from '../src/sdk/server.js'
-import { MSG, msgName } from '../src/protocol/MessageTypes.js'
-import { pack, unpack, ensurePacked } from '../src/protocol/msgpack.js'
-import { SnapshotEncoder } from '../src/netcode/SnapshotEncoder.js'
-import { encodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../src/protocol/InputCodec.js'
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+const { createServer } = await import('../src/sdk/server.js')
+const { MSG, msgName } = await import('../src/protocol/MessageTypes.js')
+const { pack, unpack, ensurePacked } = await import('../src/protocol/msgpack.js')
+const { SnapshotEncoder } = await import('../src/netcode/SnapshotEncoder.js')
+const { encodeInputPacket, DEFAULT_INPUT_SCHEMA } = await import('../src/protocol/InputCodec.js')
 
 const PASS = []
 const FAIL = []
