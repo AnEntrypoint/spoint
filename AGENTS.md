@@ -84,7 +84,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/lib/tree-under-test.mjs` `catFileBatch`: all objects a scan needs come from one `git cat-file --batch` process. One process per tracked script was most of the audit wall time on Windows.
 - `scripts/gpulock.mjs run <owner> -- <cmd>` holds the GPU lock as the directory `.gpu-lock` (`SPOINT_GPU_LOCK_DIR` overrides it), recording the holder in `.gpu-lock/owner.json`. `run` exits with the child's code, so the witness's own `RESULT:` line decides pass or fail.
 - `scripts/lib/witness-audit.mjs --gate` compares per-file, per-check counts with the tracked `.witness-audit-baseline.json` and fails on an absent check id or a count above it. It is not wired into `scripts/check.mjs` or `package.json`, so run it by hand.
-- `scripts/perf-run.mjs` `avgMs` is a per-pass average that drain-biases low (25-36% in an earlier run, not re-derived at HEAD); quote `p50Ms` with `p95Ms` beside it, never the average.
+- `scripts/perf-run.mjs` `avgMs` is a per-pass average and is INVALIDATED: it drain-biases low (25-36% in an earlier run, not re-derived at HEAD); quote `p50Ms` with `p95Ms` beside it, never the average.
 ## Client render placement
 
 - `client/core/Vegetation.js` `createVegetation` declares its tier-warm state above the species loop, because a `const` read from inside the loop body is in its temporal dead zone. On WebGPU, node graphs compile while species are built, so `warmTierMesh` warms each mesh once (`warmedTierMeshes`), and `createVegetation` does not resolve until `awaitTierNodeWarm` settles.
