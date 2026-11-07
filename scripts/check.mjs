@@ -142,6 +142,16 @@ async function main() {
     ['dead-code removal', 'scripts/dead-lib-removal-witness.mjs', (out) => `check: ${out}`],
     ['comment sweep token witness', 'scripts/comment-sweep-token-witness.mjs', (out) => `check: ${out}`],
     ['patch-deps marker witness', 'scripts/patch-deps-marker-witness.mjs', (out) => `check: ${out}`],
+    ['model-load gate failure', 'scripts/model-gate-failure-witness.mjs', (out) => `check: ${out}`],
+    ['model-load gate', 'scripts/model-load-gate-witness.mjs', (out) => `check: ${out}`],
+    ['model failure loading machine', 'scripts/loading-machine-model-failure-witness.mjs', (out) => `check: ${out}`],
+    ['singleplayer model gate', 'scripts/singleplayer-model-gate-witness.mjs', (out) => `check: ${out}`],
+    ['entity loader refusal', 'scripts/entity-loader-refusal-witness.mjs', (out) => `check: ${out}`],
+    ['failed entity environment done', 'scripts/failed-entity-no-env-done-witness.mjs', (out) => `check: ${out}`],
+    ['placed model load', 'scripts/placed-model-load-witness.mjs', (out) => `check: ${out}`],
+    ['prefab load', 'scripts/prefab-load-witness.mjs', (out) => `check: ${out}`],
+    ['three loader error', 'scripts/three-loader-error-witness.mjs', (out) => `check: ${out}`],
+    ['force-ready model failure', 'scripts/force-ready-model-failure-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {

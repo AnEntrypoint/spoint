@@ -32,7 +32,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `ci-status` ignores `rev`: an unpushed sha answers `unknown` + 422; query `gh api .../commits/<sha>/check-runs`.
 - A red `npm run check` is usually FOREIGN (stale bake pins): read the failing line first. Re-bake `scripts/bake-heightfield.mjs --extent 256 --res 1 --sector 16 --bits 16`.
 - `check-cache-keys.mjs` is shared: editing another transform's `BAKE_INPUTS_*` reddens `check` for every lane until the pin bumps in the SAME commit. Compute a pin from REMOTE committed blobs, reproducing the existing pin first.
-- `scripts/check.mjs` parses TRACKED `src,client,apps,scripts,bin` only and runs EVERY gpu-free witness (`all <n> ran`). A witness must exit 0 AND print `RESULT: PASS`.
+- `scripts/check.mjs` parses TRACKED `src,client,apps,scripts,bin` only and runs the witnesses named in its `steps` array; it does not discover the others, which are run by hand. A witness must exit 0 AND print `RESULT: PASS`.
 - An absolute Windows path (`C:/dev/spoint/...`) in `scripts/*` is a CI-only ENOENT on ubuntu: resolve paths relative to the repo root.
 - CI: completing jobs = `check` + `frame-time-coverage`; `frame-time` needs `vars.CI_GPU_RUNNER_ONLINE == 'true'` (else SKIPPED). Judge the newest CI-evaluated commit: `check-runs` on a `[skip ci]` bump is zero and reads as pass.
 - CRLF: `core.autocrlf=true` only in SYSTEM config; `w/crlf` in `git ls-files --eol` = no diff.

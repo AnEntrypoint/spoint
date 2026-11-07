@@ -1,4 +1,4 @@
-import { modelLoadRefusal, refuseModelLoad, recordModelLoadError, takeModelLoadErrors } from '../../src/shared/modelLoadErrors.js'
+import { modelLoadRefusal, refuseModelLoad, recordModelLoadError } from '../../src/shared/modelLoadErrors.js'
 export { modelLoadRefusal, refuseModelLoad, recordModelLoadError, takeModelLoadErrors, modelLoadErrorCount, shouldSendEnvironmentDone } from '../../src/shared/modelLoadErrors.js'
 
 function refusal(reasonCode, message) {
@@ -29,7 +29,7 @@ export async function runModelLoadGate({ urls = [], prefetch, sendMark, onFailur
     await prefetch(urls)
   } catch (cause) {
     const err = cause?.reasonCode === 'model-load-failed' ? recordModelLoadError(cause) : refuseModelLoad(cause?.url ?? urls[0], cause)
-    for (const recorded of takeModelLoadErrors()) console.error('[model-load]', recorded.reasonCode, recorded.url, recorded.message)
+    console.error('[model-load]', err.reasonCode, err.url, err.message)
     if (onFailure) onFailure(err)
     return { ok: false, refusal: err, mark: null }
   }
