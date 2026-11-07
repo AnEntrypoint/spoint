@@ -133,6 +133,8 @@ async function main() {
   console.log(`check: transform-validation guardrail intact (${GUARDED.length} write-boundary files)`)
 
   const steps = [
+    ['netcode-quat-metamorphic', 'scripts/netcode-quat-metamorphic.mjs', (out) => `check: ${out}`],
+    ['netcode-wire-pbt', 'scripts/netcode-wire-pbt.mjs', (out) => `check: ${out}`],
     ['relative import resolution', 'scripts/check-relative-imports.mjs', (out) => `check: ${out}`],
     ['bake code-version closure', 'scripts/check-cache-keys.mjs', (out) => out],
     ['three export-name resolution', 'scripts/check-tsl-imports.mjs', (out) => `check: ${out}`],
