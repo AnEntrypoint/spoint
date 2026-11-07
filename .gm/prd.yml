@@ -99,13 +99,13 @@
 - id: KISS-n-r209-7
   subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'
   description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'
-  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop. Reopened 2026-11-07 by the verdict-truth lint: the verdict file (.gm/witness-out/KISS-n-r209-7-verdict.txt) reads needs-design. Half 1 (dead idx<positions.length guard) is fixed; half 2 (hardcoded ARC_GROUND_Y hit height) is still open and is a behaviour change, so the row is not refuted.'
-  status: open
+  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop. Reopened 2026-11-07 by the verdict-truth lint: the verdict file (.gm/witness-out/KISS-n-r209-7-verdict.txt) reads needs-design. Half 1 (dead idx<positions.length guard) is fixed; half 2 (hardcoded ARC_GROUND_Y hit height) is still open and is a behaviour change, so the row is not refuted. Half 2 fixed 2026-11-07: the arc hit height is read from the scene surface under the arc (scripts/xr-teleport-ground-witness.mjs, verdict .gm/witness-out/KISS-n-r209-7-fix-verdict.txt), not the constant ARC_GROUND_Y; a column with no surface gives no target. Half 1 was already gone.'
+  status: fixed
   session_id: orch-main-r209
-  witness_path: .gm/witness-out/KISS-n-r209-7-verdict.txt
+  witness_path: .gm/witness-out/KISS-n-r209-7-fix-verdict.txt
   witness_binding:
-    output_sha256: 7901b28dc15fe5a347dd2d279e0cc9f7e148096a91892a798366510920e761e1
-    output_path: .gm/witness-out/KISS-n-r209-7-verdict.txt
+    output_sha256: fda11245180d96ce247f142b9933c15e0d404dbccf919e0d88690761ab2e0d2e
+    output_path: .gm/witness-out/KISS-n-r209-7-fix-verdict.txt
 - id: KISS-n-r209-8
   subject: 'client/xr: alias bindings and a duplicated handsDetected flag carry state the objects already own'
   description: 'KISS / client/xr. XRWidgets.js:25 keeps wristUI, wristUICanvas and wristUIContext as three bindings to one object fields (:43, read at :48/:49/:59); :68/:96 keep vrSettingsPanel.visible in step with vrSettingsPanel.mesh.visible by hand; and handsDetected exists twice -- XRSystem.js:21/:75/:156 and XRWidgets.js:31/:147/:151 -- where the second copy is only a restatement of the argument passed in. EVIDENCE codesearch literal client/xr, exhaustive:true: wristUI dispatch 1791674770189 (7 lines, 16 occurrences, every canvas/ctx read going through the aliases), handsDetected dispatch 1791674774853 (8 occurrences across both files, two independent declarations). FIX: read wristUI.canvas/.ctx directly, drop the visible field and test mesh.visible, delete the widgets copy of handsDetected. MERGES OWNERSHIP-n-r192-4, whose no-single-writer finding on vrSettings is the same one-fact-two-holders shape on an adjacent object.'
