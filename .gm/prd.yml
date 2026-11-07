@@ -228,6 +228,10 @@
   text: 'No duplicate: the existing row witness-gap-ClientHudMinimapPlacements (prd.yml line 32031, status completed) covers only witness coverage and is silent on this encoding; regex scan of .gm/prd.yml dispatch 1791679901677-500-97ac8a0c32129dc1.'
   witness: 'Live, dispatch 1791688870426-500-12c5c85121440144: registerHooks maps the root-relative /src/terrain/* specifiers onto the real files, so the module imports under node and the earlier cannot-import blocker is withdrawn. begin({}, {}, {vegetation:{_meshes:[]}}, 1, 0, 0, 0) logs [minimap-contract] halfM is 0 and returns false; the following step() returns true with glyphSnapshot() [] and cachedChunks [0,0], identical to a finished scan of an empty region - that is the residual gap. step() on a never-begun scanner also returns true with 0 glyphs and never dereferences the unbound lattice, so the original claim in this row is closed. Caller and blocker confirmed live: codesearch literal over client/hud/MinimapHUD.js dispatch 1791691347228-500-dc56a0e5e05584f0 (exhaustive, 1 file, 4 scanner sites: :99 construct, :131 begin with the return discarded, :181 step, :264 glyphSnapshot/cachedChunks) and codesearch literal MinimapPlacements dispatch 1791691371656-500-2d3e9a7be22366c3 (16 files: the only production caller is MinimapHUD.js:2, MinimapGlyphs.js:1 takes only the glyph constants), so the blast radius of returning the scan instead of a boolean is those two files plus the tracked witness named above; git_status dispatch 1791691634221-500-2c359414f9faccfc. codesearch literal over the witness itself dispatch 1791692061431-500-499e2c183c4036bd (exhaustive, 1 file, 4 begin sites: :82 drive, :249 refused, :274 and :278 the two === true assertions), so every pin is named.'
   session_id: orch-main-r250
+  witness_path: .gm/witness-out/ILLEGAL-r250-3-verdict.txt
+  witness_binding:
+    output_sha256: d85e0cc54110b87db04a99b2a65dcd4a8eb74f27959e0b86bd4991bb9b9859e0
+    output_path: .gm/witness-out/ILLEGAL-r250-3-verdict.txt
 - id: ILLEGAL-n-r256-1
   SESSION_ID: orch-main-r256-sub1
   action: return null (or throw) for an unresolvable name so 0 means only 'explicitly unarmed', and update AppRuntime.js:661-667 plus the witness in the same change
@@ -240,6 +244,10 @@
   status: refuted
   surface: src/shared
   title: equipCodeOf represents an unresolvable weapon name as unarmed and breaks the name round trip
+  witness_path: .gm/witness-out/ILLEGAL-n-r256-1-verdict.txt
+  witness_binding:
+    output_sha256: a8b6729a7b0fbae09d589e4488b56cb60c34902c0c6902f4d275cc8666684406
+    output_path: .gm/witness-out/ILLEGAL-n-r256-1-verdict.txt
 - id: ILLEGAL-n-r256-2
   title: worldMobileButtons makes a declared-empty button set unrepresentable and drops declared buttons silently
   principle: ILLEGAL
@@ -401,6 +409,10 @@
   witness: codesearch regex 'String\(pid\)|playerProgression\.(has|get|set)\(' over src/game (exhaustive, 11 hits, dispatch 1791681251171-500-2676217125e5caf0)
   session_id: orch-main-r260
   status: refuted
+  witness_path: .gm/witness-out/MILNER-n-r260-3-verdict.txt
+  witness_binding:
+    output_sha256: 6a133486888ee774e19f369eb5d5ccc8424b97a724696eeabd8dc326e12834b0
+    output_path: .gm/witness-out/MILNER-n-r260-3-verdict.txt
 - id: HUGHES-n-r256-sub1-1
   SESSION_ID: orch-main-r256-sub1
   action: validate both guards before either returns and throw one named error for any invalid lattice request (delete the null encoding and the caller-side `if (!lattice) throw` re-derivation at src/shared/clusterConfig.js:38-39 and src/terrain/ChartReanchorService.js:5-6); give chartAnchorDecision an explicit lattice precondition that throws a named error rather than a TypeError from a property read; route playerCentroidDir's degenerate dir into the refusal shape
@@ -412,6 +424,10 @@
   title: an invalid chart-anchor request has three live encodings and the radius guard masks the anchorsPerFace guard
   witness: 1791681155262-500-d3f7c116742a69ca
   session_id: orch-main-r256-sub1
+  witness_path: .gm/witness-out/HUGHES-n-r256-sub1-1-verdict.txt
+  witness_binding:
+    output_sha256: e2b48e858b81a777dad3202632725bdf372126c4ca3f9c77f70631c635ed5727
+    output_path: .gm/witness-out/HUGHES-n-r256-sub1-1-verdict.txt
 - id: HUGHES-n-r256-sub1-2
   SESSION_ID: orch-main-r256-sub1
   action: reject (never rewrite) a declared grid cell outside 1..3 and a declaration that does not fit the 3x3 grid, so a world author's layout is either honoured or refused
@@ -423,6 +439,10 @@
   title: worldMobileButtons silently relocates a declared out-of-range grid and drops declared buttons past the 3x3 cap
   witness: 1791681155262-500-d3f7c116742a69ca
   session_id: orch-main-r256-sub1
+  witness_path: .gm/witness-out/HUGHES-n-r256-sub1-2-verdict.txt
+  witness_binding:
+    output_sha256: 9afef3f78476f7a9d191c19a22caf15493d1c59f05143e6052b9f18f639227c2
+    output_path: .gm/witness-out/HUGHES-n-r256-sub1-2-verdict.txt
 - id: DBC-sub1-2-1
   SESSION_ID: orch-main-r250-sub1-2
   status: fixed
@@ -432,6 +452,10 @@
   witness: 'codesearch literal over client/hud dispatch 1791682883476-500-452ea480955a334d (MinimapPlacements, 2 files, exhaustive), scanner. sites dispatch 1791682955427-500-c9ece527bd09e2c3 (:129 begin, :179 step, :252 glyphSnapshot), strokeCount dispatch 1791683212783-500-63c044aff47e007f (BiomeOverride.js:97 = appliedStrokes.length, always a whole count). Live execution: scripts/ClientHudMinimapPlacements-witness.mjs dispatch 1791683401709-500-b214a00ab19aeaba, checks 29 failures 0, RESULT: PASS - it proves begin refuses all nine breach shapes and still arms a valid window, and therefore that the caller''s disregard is now the only unclosed half.'
   text: Open row on client/hud, owned by the lane holding MinimapHUD.js. Depends on the DBC precondition landed this hop.
   session_id: orch-main-r250-sub1-2
+  witness_path: .gm/witness-out/DBC-sub1-2-1-verdict.txt
+  witness_binding:
+    output_sha256: 2ac6c3007a2a8cca70ea64e7ba43438b5d911b6345e2eea1f8f1a90a3dceb511
+    output_path: .gm/witness-out/DBC-sub1-2-1-verdict.txt
 - id: PARSEDV-ub1-s2-2
   SESSION_ID: orch-main-r260-sub1-s2
   body: |-
@@ -623,6 +647,10 @@
   witness: 1791692024029-500-67f8ac7db849da8b
   detail: 'git_status 1791692024029-500-67f8ac7db849da8b scoped to src/game: modified = [src/game/AbilityTree.js, src/game/QuestSystem.js] at HEAD e475048ec9d1ab40bcce56dffc5a596f5f8161f4, staged 0. That dirt is another lane''s (see PARSEDV-ub1-s2-2, pending, for the bindHotkey half), so this hop left the file byte-identical and files this row instead. Finding: codesearch literal `throw` over src/game (1791691840225-500-58d3785e9706fcb4, exhaustive:true) returns 3 files and 0 hits in AbilityTree.js -- of the four src/game systems it alone has no precondition anywhere, while its public surface takes caller-supplied state at 15 entry points (outline 1791691794549-500-cb5fb4814346e6b6: castAbility :121, canCastAbility :104, applySnapshot :178, bindHotkey :154, tick :138, getCooldownsForNetwork :224, getPlayerAbilityInfo :238). Unblock: once PARSEDV-ub1-s2-2 lands and the file is clean, give AbilityTree the same precondition boundary QuestSystem.js:2 and StatsSystem.js:2 already have -- a stated contract error for a null playerId, an unknown abilityId and a malformed snapshot, instead of the sentinel returns that survive there today.'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/DBC-ub1-s2-4-verdict.txt
+  witness_binding:
+    output_sha256: 71d2473b17228619f0440c6ba90e4459859861600d0ccffe9798f5a1f9a51515
+    output_path: .gm/witness-out/DBC-ub1-s2-4-verdict.txt
 - id: GUARD-2-sub1-1
   principle: GUARD
   surface: src/behaviours
@@ -669,6 +697,10 @@
   surface: src/apps/AppRuntime.js:23-29 (_nonNegOrDefault), :571 (nearbyPlayerIds), :625 (getNearestPlayer)
   title: DELIVERED (uncommitted, unpushed) TOTALITY closed the nearbyPlayerIds and getNearestPlayer halves of DBC-n-r270-1 and made _nonNegOrDefault total; DBC-n-r270-1's remaining scope is :194 (ccd policy) and :418 (Infinity)
   witness: 'exec_js 1791693683816-500-ba0148e45555d0e9 (before: [] for -5 and NaN, silent 3/500) vs exec_js 1791693826411-500-94af385881c1d797 (after: named TypeErrors, 7 named warns); exec_js 1791693984330-500-c072d0d05172d710'
+  witness_path: .gm/witness-out/TOTALITY-w1-p-1-2-verdict.txt
+  witness_binding:
+    output_sha256: f8b533171bbea33522ce447173e66e133e41f810004be7df955581f651de9c67
+    output_path: .gm/witness-out/TOTALITY-w1-p-1-2-verdict.txt
 - id: PARNAS-cylinder-ub2-p1
   title: 'src/spatial: the flat relevance ring is a cylinder of infinite height and only a method name says so'
   status: fixed
@@ -717,6 +749,10 @@
   why: 'scripts/gen-sdk-typings.mjs generates from a detached worktree at HEAD (materializeHeadSnapshot: `git worktree add --detach .gm/tmp/sdk-typings-head HEAD`, then symlinkSync(ROOT/node_modules, SNAPSHOT/node_modules, ''junction'')) and check.mjs re-runs it with --check to compare against the committed client/editor/sdk-typings.generated.d.ts. Two CI runs on the same source show the failure is ORDERING, not content: run 38113141392 at sha 22768ac831 reported committed 620 lines vs generated 620 lines with the only differences at lines 550-553 (committed `reason?: undefined; ok: boolean; currency: any; granted: {}` against generated `ok: boolean; currency: any; granted: {}; reason?: undefined;`), and run 38113697341 at sha e9176362b4 - after regenerating the file on this Windows box and pushing it - reported committed 625 vs generated 625 with exactly the INVERSE rotation at lines 555-558. Same member set, same line count, members rotated: the emitted declaration comes from tsc''s structural inference over a symlinked node_modules whose link type (''junction'') is honoured on Windows and ignored on POSIX, so resolution - and hence member emit order - differs per platform. Consequence: no committed file generated on Windows can satisfy the Linux CI check and vice versa, so `npm test` is red on main for every lane regardless of content. Fix belongs to a resolver lane that owns scripts/: either make the comparison order-insensitive (compare a normalised/sorted member set) or make the emit order deterministic (sort members before writing), and drop the Windows-only ''junction'' link type or replace it with a platform-neutral node_modules link. NOT resolved here: this lane''s surface is client/hud, scripts/ is contested by several hop lanes, and the fix has to be verified by a CI run. Note the committed file is now the Windows-ordered regeneration from the CURRENT AppContext.js (commit e9176362b4), which is content-current; only its order disagrees with CI.'
   witness: 'Live dispatches, all this session: ci-status on 22768ac831afa3eeb5b8b07fd74009591abd6ab7 dispatch 1791694612255-500-4cb3bb75f279e93d (status failure, job `check`); bash `gh run view 38113141392 --log-failed` dispatch 1791694647007-500-989ef8d3ce843343 with the tail read at gm_result offset 4000 (committed 620 vs generated 620, lines 550-553); git_status paths-scoped to client/editor/sdk-typings.generated.d.ts + src/apps/AppContext.js dispatch 1791694775663-500-a6c163b5d9a15e41 (dirty false, changed_paths 0 - the pair was unowned, so nothing else was mid-edit); bash `npm run gen-typings` dispatch 1791694832101-500-f5fab7b98416f88c (exit 0, wrote 619 generated lines, drift report printed) with the tail read at gm_result offset 3000; git_status paths-scoped dispatch 1791695034082-500-88cae7b689174fdd (changed_paths 1, client/editor/sdk-typings.generated.d.ts modified - the committed file genuinely differed from the generated one); bash `npm test` dispatch 1791694976556-500-caacd4b5502f216e (exit 1; every bake pin matching - SNAPSHOT_ENCODE 07b97a0e8caf, HEIGHTFIELD_BAKE 48d61941798f, tps-game.hf 48d61941798f - no gen-sdk-typings line, and the only failure [bundle-apps-manifest], which CI does not hit because step 5 of the job runs `npm run bundle-apps-manifest` first: gh api job 114394273143 dispatch 1791695283172-500-a4461970d386f41d lists steps 5 and 6 success, 7 `npm test` failure); git_commit e9176362b4 dispatch 1791695097200-500-8ec9c09236520f8f; git_push dispatch 1791695172878-500-db822f35e355ebb6 (9feaf62d..e9176362); ci-status on e9176362b4967dc59cb174e73c73756c512ab577 dispatch 1791695232401-500-bcbbed4e6f544d37 (failure); bash `gh run view 38113697341 --log-failed` dispatch 1791695323194-19169 with the tail read at gm_result offset 4000 (committed 625 vs generated 625, lines 555-558, inverse rotation); fs_read scripts/gen-sdk-typings.mjs dispatch 1791695459714-500-c4ef88a2153b5a3b reading materializeHeadSnapshot, the symlinkSync ''junction'' call, the tsc argv and the --check comparison.'
   session_id: orch-main-r250
+  witness_path: .gm/witness-out/REPRO-r250-1-verdict.txt
+  witness_binding:
+    output_sha256: b990456bf5cd4a326ac76e4a5c7d67e0f7e3bb0cf053f3b6dae07aa83afa7d9f
+    output_path: .gm/witness-out/REPRO-r250-1-verdict.txt
 - id: csproto-1
   SESSION_ID: orch-main-cs-protocol
   description: 'msgpack.js:5 and TickHandler.js:160. Live witnesses 1791695660637-500-e76ed0e6cb395d0a (struct1_len=10), 1791695715028-500-d5a1cb6b165de194 (_packPayload literal at TickHandler.js:160) and 1791695717748-500-9433eef22b912a2f (round-trip key order) show the list is 10 keys: seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch. AGENTS.md''s netcode bullet names only 8 and is stale. Correct at the next AGENTS.md compaction, which folds .gm/pool/comment-sweep-src-protocol.md.'
