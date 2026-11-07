@@ -5,6 +5,10 @@ import { mulberry32 } from './lib/net-conditioner.mjs'
 import { summarize } from './lib/netcode-metrics.mjs'
 import { numericFlag, numericListFlag } from './lib/witness-args.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 process.env.SPOINT_NO_WATCH = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))

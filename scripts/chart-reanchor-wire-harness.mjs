@@ -5,6 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
 import { numericFlag } from './lib/witness-args.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
   globalThis.WebSocket = WebSocket

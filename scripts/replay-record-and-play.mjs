@@ -4,10 +4,14 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { createServer } from '../src/sdk/server.js'
-import { ReplayRecorder } from '../src/netcode/ReplayRecorder.js'
-import { ReplayPlayer } from '../src/netcode/ReplayPlayer.js'
-import { decodeReplay } from '../src/netcode/ReplayFile.js'
+
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+const { createServer } = await import('../src/sdk/server.js')
+const { ReplayRecorder } = await import('../src/netcode/ReplayRecorder.js')
+const { ReplayPlayer } = await import('../src/netcode/ReplayPlayer.js')
+const { decodeReplay } = await import('../src/netcode/ReplayFile.js')
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = resolve(SDK_ROOT, 'data', 'replay-record-and-play')

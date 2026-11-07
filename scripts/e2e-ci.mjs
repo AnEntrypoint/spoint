@@ -7,6 +7,10 @@ import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const OUT_DIR = resolve(SDK_ROOT, 'data', 'e2e-ci')

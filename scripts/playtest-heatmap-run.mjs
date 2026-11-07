@@ -4,8 +4,12 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { createServer } from '../src/sdk/server.js'
 import { buildHeatmapPNG } from './lib/heatmap-image.mjs'
+
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+const { createServer } = await import('../src/sdk/server.js')
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const RUN_SECONDS = parseFloat(process.argv[2] || '15')

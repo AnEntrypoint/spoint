@@ -8,6 +8,10 @@ import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE } from './lib/served-client-root.mjs'
 import { contentionWatch, contentionMark, contentionVerdict, formatContention } from './lib/host-contention.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const args = process.argv.slice(2)

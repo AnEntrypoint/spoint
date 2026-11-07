@@ -7,6 +7,10 @@ import { createPreciseScheduler, ConditionedTransport, mulberry32 } from './lib/
 import { summarize, stdev, dist3, createTruthTrack, effectiveDelay, detectPops, fmt } from './lib/netcode-metrics.mjs'
 import { numericFlag, numericListFlag, parseArgs, strArg } from './lib/witness-args.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 if (typeof globalThis.WebSocket !== 'function') {
   const { WebSocket } = await import('ws')
   globalThis.WebSocket = WebSocket

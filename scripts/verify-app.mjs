@@ -8,6 +8,10 @@ import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 import { registerWitnessServer } from './lib/witness-server.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const WORLD_NAME = 'agent-verify-tmp'

@@ -9,6 +9,10 @@ import { Session } from 'node:inspector/promises'
 import { summarize, dist3 } from './lib/netcode-metrics.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 

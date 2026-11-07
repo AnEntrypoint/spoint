@@ -3,10 +3,14 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import WebSocket from 'ws'
-import { MSG } from '../src/protocol/MessageTypes.js'
-import { pack, unpack, ensurePacked } from '../src/protocol/msgpack.js'
 import { contentionMark, contentionVerdict, contentionWatch, formatContention } from './lib/host-contention.mjs'
 import { measureUncontested, fingerprintFields, formatRowContention, describeContested } from './lib/timing-gate.mjs'
+
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
+
+await installSpecifierHooks()
+const { MSG } = await import('../src/protocol/MessageTypes.js')
+const { pack, unpack, ensurePacked } = await import('../src/protocol/msgpack.js')
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BASELINE_PATH = join(__dirname, '..', '.perf-baseline.json')
