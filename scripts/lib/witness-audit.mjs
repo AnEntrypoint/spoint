@@ -110,6 +110,7 @@ const HIGH_CHECKS = [
     find(text) {
       if (!has(text, /process\.exit\(\s*0\s*\)/)) return []
       if (has(text, /\bFAIL\b/) || has(text, /process\.exit\(\s*[1-9]/)) return []
+      if ((has(text, /from ['"]node:assert(\/strict)?['"]/) && has(text, /\bassert(?:\.\w+)?\(/))) return []
       return evidence(text, /.*process\.exit\(\s*0\s*\).*/g)
     },
   },
