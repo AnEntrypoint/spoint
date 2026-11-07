@@ -397,6 +397,13 @@ for (const [key, file] of Object.entries(WRITE_ONLY_KEYS)) {
 }
 
 const FOLD_CORRECTED = {
+  'outputNode': 'retired: not re-verifiable at HEAD. The FS probe in packages/mapspinner/planet.html:658 sets only window.__fsCheap, and that file has no outputNode swap',
+  'side = DoubleSide': 'retired: false at HEAD. packages/mapspinner/src/tsl/terrain-material-tsl.js has no DoubleSide; its only side assignment is THREE.BackSide at line 236',
+  'INIT.worldName': 'retired: not a symbol at HEAD. src/sdk/WorkerEntry.js init({ worldName }) takes the world name at line 44, and the Entry points section states that fact',
+  'frame-time-gate.mjs:36': 'line moved: UNLOCK_RAF is scripts/frame-time-gate.mjs:40 and UNLOCKED_RAF_ARGS is :41, the lines docs/measurement-figures.md now cites',
+  'app.js:190-193': 'line moved: the legacygl gate is client/app.js:195-197, the lines docs/measurement-figures.md now cites',
+  'TerrainBackdrop.js:46-47': 'line moved: the planet-orchestrator import branches are client/core/TerrainBackdrop.js:62-66',
+  'terrain-reseed-failure-witness.mjs': 'retired: script absent at HEAD (no tracked file; its only tracked references are research_notes/Agentic troubleshooting CLI iteration speed/spoint_local_loop.md and this checker). The fact has no remaining witness, so it is not restored',
   'TickHandler.js:30': 'citation corrected to TickHandler.js:29 (the SNAP_COST_HIGH_FRAC declaration; line 30 is SNAP_STALL_ENTER), validated by the path:line check',
   'src/shared/clusterConfig.js:8': 'line moved: JOLT_WASM_HEAP_BYTES is declared at src/shared/clusterConfig.js:9 (line 8 is CLUSTER_DEFAULT_HZ)',
   'clusterConfig.js:35': 'line dropped, symbol kept: resolveClusterConfig is still at src/shared/clusterConfig.js:35, and AGENTS.md cites path + symbol because line numbers drift',
@@ -548,6 +555,8 @@ const FOLD_CORRECTED = {
   'perf-run.mjs:277': 'line moved: perf-run.mjs:277 was the abPhaseMs pin at bd5573267fc; at HEAD the pin is at perf-run.mjs:281, which the figures cite',
 };
 const FOLD_NUMBER_RETIRED = {
+  '190': 'line moved with app.js:190-193 (now client/app.js:195-197); the fact is in the Debugging discipline section under the legacygl silent-no-op case',
+  '193': 'line moved with TerrainBackdrop.js:46-47 (now client/core/TerrainBackdrop.js:62-66)',
   '211': 're-measured: AGENTS.md now states 203 files are index-LF + worktree-CRLF, so the old file count cannot be restored',
   '122': 'CRLF example compacted: the +122/-122 diff illustration was dropped with the example sha',
   '2000': 'settle-probe cadence example (40 frames per 2000 ms) compacted out of AGENTS.md',

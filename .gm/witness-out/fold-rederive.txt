@@ -1,0 +1,50 @@
+## restored: window.__spoint._drive
+172:window.__spoint = { teleport, relocate: teleport, go, whenSettled, route, bookmarks, where, _drive: drive }
+## restored: fireKernel.js burnCell
+732:  function burnCell(g) {
+## restored: BaseClient.js sendInput / predEngine.addInput / predictionLeadSteps / MAX_PREDICTION_LEAD_STEPS
+17:const MAX_PREDICTION_LEAD_STEPS = 16
+182:      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(quantized.data, stepAt, periodMs)
+## restored: three.webgpu.js popErrorScope x3 patched
+3
+3
+## restored: ClusterLodMesh._render early return
+213:    const alreadyRenderedThisFrame = this._lastRenderFrame === frame;
+## restored: window.__vdrs === true
+1449:    const _vdrsOn = (typeof window!=='undefined' && window.__vdrs === true) || _hrwActive || _hostNearFarMismatch;
+1452:      _vrs = (typeof window!=='undefined' && window.__vdrs === true) ? Math.min(1.0, Math.max(0.3, +window.__vdrsSc
+tsl: 0 vdrs matches
+## restored: registry.set (perf-run knob script)
+249:      const ok = registry.set(k.key, k.value)
+## restored: installRenderControls()
+270:  installRenderControls()
+## retired: splitCoalesced
+21:function splitCoalesced(bytes) {
+2
+## retired: outputNode in planet.html
+0
+658:      window.__fsCheap = cheap ? 1 : 0; await d.frames(3);
+## retired: side = DoubleSide
+0
+236:  material.side = THREE.BackSide
+## retired: INIT.worldName
+44:export async function init({ worldDef, worldName: selectedWorldName = null, apps = [], migrationSnapshot = null, loca
+1
+## retired: frame-time-gate lines
+40:const UNLOCK_RAF = process.env.SPOINT_UNLOCK_RAF !== '0'
+41:const UNLOCKED_RAF_ARGS = UNLOCK_RAF ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : []
+## retired: legacygl gate line
+195:const _legacyGlRequested = _params.get('legacygl') === '1'
+## retired: TerrainBackdrop import branches
+45:    const { colliderLatticeSpacingOf } = await import('/src/shared/colliderLattice.js')
+46:    const { createNearFieldLattice } = await import('/src/terrain/NearFieldLattice.js')
+62:      ;({ initMapspinnerPlanetTSL } = await import('/node_modules/mapspinner/src/tsl/planet-tsl.js'))
+64:      ;({ initMapspinnerPlanetWebGPU } = await import('mapspinner/webgpu/planet-orchestrator-webgpu'))
+66:      ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
+69:    ;({ createHeightSampler } = await import('mapspinner/height-cpu'))
+106:      const { loadLatticeSurface } = await import('/src/terrain/LatticeSurface.js')
+125:        const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js'
+126:        const { createRemotePatchBaker } = await import('/node_modules/mapspinner/src/patch-baker-remote.js')
+## retired: terrain-reseed-failure-witness.mjs
+ls: cannot access 'scripts/terrain-reseed-failure-witness.mjs': No such file or directory
+2

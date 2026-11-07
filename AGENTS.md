@@ -105,7 +105,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `client/core/ShadowCostProbe.js` `installShadowCostProbe`: the probe wraps a renderer-level `shadowMap.render` when present, else wraps `renderer.render` matched by shadow-camera identity, because WebGPU's `shadowMap` has no `render` and `ShadowNode.renderShadow` calls `renderer.render(scene, shadow.camera)`.
 - `client/core/ShadowCostProbe.js` `_attachPerLightPass`: the per-light arm sets `splitSupported: false`, so `arm()` refuses the static/dynamic split there.
 - `client/core/VegetationAmbientTSL.js` `updateVegetationTerrainAmbient`: the uniforms refresh per frame only on the WebGPU path, from `window.__timeOfDay`.
-- `_render` of `ClusterLodMesh` (`packages/streaming-gltf/src/cluster-lod-mesh.js`) runs once per group per frame through `onBeforeRender`, so keep its `_lastRenderFrame === frame` early return.
+- `packages/streaming-gltf/src/cluster-lod-mesh.js` `_render` (the ClusterLodMesh._render method) runs once per group per frame through `onBeforeRender`, so keep its `_lastRenderFrame === frame` early return.
 - A TSL `select` outside `uniformFlow` compiles to a real if/else branch (`node_modules/three/src/nodes/math/ConditionalNode.js` `setup`), not a ternary, so only the taken side runs.
 - `CullFreeze.js setInstancedCullAuto` (`client/core/CullFreeze.js`) sets `autoUpdate` on the parent mesh and on every `LODinfo` level, so freezing and unfreezing act on every LOD level of the vegetation `InstancedMesh2` meshes (`client/core/Vegetation.js`), not only the parent.
 - `FloatingOrigin.js update()` (`client/core/FloatingOrigin.js`, `createFloatingOrigin`) rebases by `camera.position.set(0,0,0)` and translates the other scene children by `-delta`, skipping the camera. Never shift the camera by `-delta`; that is a second shift.
@@ -139,7 +139,8 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Debugging discipline
 
 - A bug surviving a threshold change isn't fixed; a reported cause is a claim until instrumented. Fix at its own layer end-to-end: a second copy of the same check isn't a fix (`ShapeBuilder.js`).
-- **Silent-no-op class**: codesearch the reader and the enable bit first. Cases: `?noveg`, `__vdrsScale` (needs `window.__vdrs===true`), `?legacygl=1`, `u.fsCheap`, `perf-run.mjs inputReachedGame`, MICRO_JITTER. REFUTED: `--no-walk` is not a silent no-op (`const WALK = !has('no-walk')` in `perf-run.mjs` empties the movement legs, so that arm is an idle walk).
+- **Silent-no-op class**: codesearch the reader and the enable bit first. Cases: `?noveg`, `__vdrsScale` (needs `window.__vdrs===true`), `?legacygl=1`, `window.__fsCheap` (enable bit set by `packages/mapspinner/planet.html`, read into the `u.fsCheap` uniform at `packages/mapspinner/src/tsl/planet-tsl.js`), `perf-run.mjs inputReachedGame`, MICRO_JITTER. REFUTED: `--no-walk` is not a silent no-op (`const WALK = !has('no-walk')` in `perf-run.mjs` empties the movement legs, so that arm is an idle walk).
+- `__vdrsScale` is read only when `window.__vdrs === true` (`packages/mapspinner/src/gl-render.js`); VDRS has no consumer in `packages/mapspinner/src/tsl`.
 - **Silent-default class**: `Number.isFinite(x) && x > 0 ? x : literal` and `v ?? DEFAULT` turn invalid input into the default. Parse the whole record at ONE boundary and refuse there (`ColliderStreamer.js`, `src/stage/stageShapes.js`). `typeof v === 'number'` admits `1e999`.
 - **No sentinel for absence**: "no ground" is a thrown `NoGroundHeightError`, never 0 or NaN; `null` compares as 0. `guardedGroundHeight(where, heightFn)` takes TWO args.
 - **Refusals carry a code, not prose**: `createClusterAssigner`, `assertWorld`, `StageLoader` (`StageConfigError.reasonCode`), `TickHandlerAOI` (`position|noPosition|unknownEntity`).
@@ -150,14 +151,14 @@ Skills encode environment-specific constraints that override general knowledge.
 - One `gl.getError()` code covers distinct bugs (1282 = feedback-loop, sampler-type-mismatch AND insufficient-buffer-size): read the driver's console string. Live GL: `window`/`document` only via `page.evaluate()`; pin file:line via `addInitScript`.
 - A witness child that dies must surface its stderr (`scripts/lib/witness-server.mjs`).
 - `scripts/perf-run.mjs --knob=<key>=<value>[,...]` (or `?knob=` in `--extra`) sets number and boolean render-controls keys by their registry `key` verbatim (for example `maxLevel`, not `__maxLevel`). The values are injected at document start, so they land before boot-time reads. Unknown keys, wrong-typed values and a missing `=` are rejected before the run, and one bad key fails the whole run.
-- Foliage toggles: `?lightplanet` (`client/core/TerrainBackdrop.js`) stubs the planet. `?veg=none`, `?nograss` and `?norocks` (`client/app.js`, flags declared in `client/core/RenderControls.js`) really skip their layer. `?noveg` is not read anywhere and silently does nothing; `window.__vegAllOff` hides foliage per frame (`client/core/Vegetation.js`).
-- `scripts/perf-run.mjs` `--knob=<key>=<value>` (or `?knob=` in `--extra`) applies render knobs by registry `key` verbatim (`maxLevel`, not `__maxLevel`) through a setter trap on `window.__renderControls`, so a knob lands when the page assigns it, before boot-time reads.
+- Foliage toggles: `?lightplanet` (`client/core/TerrainBackdrop.js`) stubs the planet. `?veg=none`, `?nograss` and `?norocks` (`client/app.js`, flags declared in `client/core/RenderControls.js` and installed by `installRenderControls()` in `client/app.js`) really skip their layer. `?noveg` is not read anywhere and silently does nothing; `window.__vegAllOff` hides foliage per frame (`client/core/Vegetation.js`).
+- `scripts/perf-run.mjs` `--knob=<key>=<value>` (or `?knob=` in `--extra`) applies render knobs by registry `key` verbatim (`maxLevel`, not `__maxLevel`) through a setter trap on `window.__renderControls`, so a knob lands when the page assigns it, before boot-time reads. The script injected at document start applies each knob with `registry.set`.
 - `window.__vegAllOff` hides the foliage branch, leaf and shared-impostor meshes in `client/core/Vegetation.js` while set; `window.__vegHideFar` hides a named list the same way, and there is no per-part app toggle.
 
 ## Entry points
 
 - `ctx.defineGameFSM(spec)` `src/behaviours/game-fsm.js`; `ClientMachine.js` xstate5 parallel, fallback `after:` 10 s gated / 45 s hard stop. `ctx.defineFire(spec)` `src/behaviours/fire.js` (wired in `src/apps/AppContext.js`, default off).
-- Test relocation: `window.__spoint` + `MSG.TELEPORT` (0xc2 / ACK 0xc3, `src/sdk/Relocation.js`; no `EDITOR_TOKEN` = any client; >87 deg refuses).
+- Test relocation: `window.__spoint` + `MSG.TELEPORT` (0xc2 / ACK 0xc3, `src/sdk/Relocation.js`; no `EDITOR_TOKEN` = any client; >87 deg refuses). `window.__spoint._drive` is the `drive()` of `client/core/Relocation.js`, which `client/app.js` calls with the input and camera.
 - Client `ctx.state` = entity `custom` block (`AppModuleSystem.js`), not server app state: `ctx.state.<key> ?? literal` takes the literal forever. `engine.cam` has no `position`; read `engine.client.getLocalState().position`.
 - Wireweave attach helpers run after awaits (host migration reassigns `client` in `app.js`): re-check at call time. `createServer()` is a per-call factory; `boot()`'s signals are process-global: stop with `RoomDirectory.stopAll`.
 - A remote server's `netcode.profile` is named only when the client is a real `PhysicsNetworkClient`: boot that witness on `?connect=...&multiplayer=1`, else in-page `BrowserServer`.
@@ -180,6 +181,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Fire
 
 - Integer-only kernel `fireKernel.js`: decisions from `hash(seed,step,face,I,J)`; no float, `Math.random`, `Date.now`. Per-cell step = `burnCell`.
+- The per-cell step is `fireKernel.js burnCell`, in `src/shared/fire/fireKernel.js`.
 - Rain smothers, doesn't eat fuel: a suppressed cell still burns `burnRate`, pushes no heat, spots nothing. Intensity 0..1 -> roll byte 255 via `rainPerIntensity` (`fireSpec.js`).
 - `ctx.navCostAt(x,z)` = 8 burning / 2 charred (`_fireNavByRuntime`); `canSee` smoke-gated at depth >= `smokeBlockDepth`. Wind = weather BASE + `hash(seed,step)` gust, clamped +-16/axis; `snapshot().wind` carries BASE only.
 - Per-cell initial fuel isn't recomputable in the kernel: a per-tile array in `snapshot()`/`restore()` joins `TILE_ARRAYS` + VERSION bump.
@@ -258,6 +260,8 @@ Skills encode environment-specific constraints that override general knowledge.
 
 ## Netcode and wire
 
+- `src/client/BaseClient.js`: `BaseClient.js sendInput` stops feeding `predEngine.addInput` once `predictionLeadSteps()` reaches `MAX_PREDICTION_LEAD_STEPS` (16); a fast client degrades to a bounded lead.
+- `splitCoalesced` (`src/client/BaseClient.js`) reads a coalesced frame after its leading `COALESCE_SENTINEL` (0xff) as repeated `[uint32 LE length][msgpack]` records and drops a truncated tail.
 - Prediction suppresses only the blocked DIRECTION: `_reconcile` (`PredictionEngine.js`) derives `wedgeNormal` from commanded-vs-achieved motion, else `-velocity` when stopped while commanding; `characterStep.js` projects out that component alone.
 - `msgpack.js` `WIRE_STRUCTURES[1]` lists exactly the 10 keys, in order (`seq,tick,serverTime,players,entities,removed,delta,dots,me,chartEpoch`), of `TickHandler.js _packPayload`. msgpackr 2.0.4 writes -0 as `0x00`; `patch-deps.mjs` excludes -0 from both integer tests. Raw ws clients mirror `COALESCE_SENTINEL` 0xff: `0xFF` then `[uint32 LE length][msgpack]`.
 - MSG ids in `src/protocol/MessageTypes.js` need only be unique: `nameMap` throws at module load on a duplicate. Declaration order carries no meaning.
@@ -281,6 +285,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - three.ez `bindTextures`: the patch no longer reads `gl.CURRENT_PROGRAM` and restores it. `WebGLState.useProgram` in `node_modules/three/build/three.module.js` returns early when the program is unchanged, `setProgram` calls `state.useProgram(program.program)`, and three.module.js reads `CURRENT_PROGRAM` nowhere.
 - three.ez `BVH LOD hysteresis`: the level distances passed to `frustumCullingLOD` shrink by each level's own hysteresis, `distance - distance * hysteresis`, the same levelDistance that `getObjectLODIndexForDistance` uses in `node_modules/@three.ez/instanced-mesh/build/index.js`.
 - msgpackr `-0` escapes: `-0 >>> 0 === 0` and `-0 >> 0 === 0` both hold in JavaScript, so `-0` enters the positive and negative fixint branches. The payload adds `!Object.is(value, -0)` to both tests in `node_modules/msgpackr/pack.js` and `node_modules/msgpackr/dist/node.cjs`.
+- The three.webgpu.js build (`node_modules/three/build/three.webgpu.js`) drops pending `popErrorScope()` rejections at 3 sites; `scripts/patch-deps.mjs` patches all three, and `scripts/patch-deps-marker-witness.mjs` pins their markers.
 
 ## Hot swap
 
