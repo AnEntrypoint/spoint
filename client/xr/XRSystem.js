@@ -46,7 +46,12 @@ export function createXRSystem(renderer, scene, camera) {
   const xrControls = new XRControls({ placementMode: true })
   xrControls.onSessionChange = active => { arActive = active }
   const arReticle = xrControls.createReticle()
-  scene.add(arReticle)
+  addPointerObject(arReticle)
+
+  function addPointerObject(object) {
+    object.userData.xrPointer = true
+    scene.add(object)
+  }
 
   async function initVRButton() {
     if (await isXRSessionSupported('immersive-vr')) {
@@ -63,7 +68,7 @@ export function createXRSystem(renderer, scene, camera) {
       ctrl.addEventListener('disconnected', () => { controllerInputSources[h] = null })
       const controllerModel = controllerModelFactory.createControllerModel(grip)
       grip.add(controllerModel); controllerModels.set(h, controllerModel)
-      controllerGrips.set(h, grip); scene.add(ctrl); scene.add(grip); ctrl.visible = false; grip.visible = false
+      controllerGrips.set(h, grip); addPointerObject(ctrl); addPointerObject(grip); ctrl.visible = false; grip.visible = false
     }
     widgets.initTeleport()
     for (const h of [0, 1]) {
@@ -73,7 +78,7 @@ export function createXRSystem(renderer, scene, camera) {
       const ray = createRayLine({ length: 2, color: 0x00ffff, opacity: 0.5, name: 'handRay' })
       hand.add(ray)
       if (h === 0) widgets.initWristUI(hand)
-      scene.add(hand); hand.visible = false
+      addPointerObject(hand); hand.visible = false
     }
   }
 

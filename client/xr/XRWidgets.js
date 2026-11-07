@@ -8,6 +8,7 @@ const ARC_STEP_S = 0.05
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
 const DOWN = new THREE.Vector3(0, -1, 0)
+const ARC_BOUNDS_TREE_MIN_TRIANGLES = 2000
 const TELEPORT_MOVE_MS = 200
 const TELEPORT_SETTLE_MS = 200
 
@@ -130,12 +131,24 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   const groundRay = new THREE.Raycaster()
 
   function isGroundCandidate(object) {
-    return object.visible && object !== teleportArc && object !== teleportMarker
+    return object.visible && !object.userData.xrPointer && object !== teleportArc && object !== teleportMarker
+  }
+
+  function ensureBoundsTree(geometry) {
+    if (geometry.boundsTree || !geometry.computeBoundsTree) return
+    const triangles = (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3
+    if (triangles >= ARC_BOUNDS_TREE_MIN_TRIANGLES) geometry.computeBoundsTree()
+  }
+
+  function groundCandidates() {
+    const candidates = scene.children.filter(isGroundCandidate)
+    for (const root of candidates) root.traverse(o => { if (o.isMesh) ensureBoundsTree(o.geometry) })
+    return candidates
   }
 
   function surfaceBelow(x, z, ceilingY) {
     groundRay.set(new THREE.Vector3(x, ceilingY, z), DOWN)
-    const hit = groundRay.intersectObjects(scene.children.filter(isGroundCandidate), true).find(h => h.object.isMesh && h.object.visible)
+    const hit = groundRay.intersectObjects(groundCandidates(), true).find(h => h.object.isMesh && h.object.visible)
     return hit ? hit.point.y : null
   }
 
