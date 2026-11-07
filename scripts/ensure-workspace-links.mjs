@@ -6,9 +6,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir'
 const PACKAGES_DIR = 'packages'
 const NODE_MODULES = 'node_modules'
-// A real install found where a workspace link belongs is KEPT, never deleted: it is the only record
-// of the bytes the dev server was actually serving. It is renamed aside under this suffix.
-const STALE_SUFFIX = '.stale-copy'
+const KEEPSAKE_SUFFIX = '.stale-copy'
 
 export class WorkspaceTargetMissingError extends Error {
   constructor(message, detail) {
@@ -19,9 +17,6 @@ export class WorkspaceTargetMissingError extends Error {
   }
 }
 
-// Raised BEFORE any write when a repair would touch a path that does not resolve inside the tree being
-// repaired. An archive whose node_modules is a junction onto another tree would otherwise rename and
-// relink that tree's packages (the shared C:/dev/spoint/node_modules @spoint links).
 export class WorkspaceLinkOutsideTreeError extends Error {
   constructor(message, detail) {
     super(message)
@@ -78,10 +73,6 @@ function isInstallOf(path, pkg) {
   return installed === null || installed === pkg.name
 }
 
-// Every specifier under node_modules this package can be served from. The manifest name alone is not
-// enough: packages/mapspinner declares the UNSCOPED name "mapspinner", so a name-only check inspected
-// node_modules/mapspinner and never touched node_modules/@spoint/mapspinner -- the real directory
-// holding an installed copy that the dev server was serving.
 export function installPaths({ root = ROOT, pkg }) {
   const found = new Set([pkg.name])
   const nm = join(root, NODE_MODULES)
@@ -93,7 +84,7 @@ export function installPaths({ root = ROOT, pkg }) {
   }
   for (const entry of top) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-    if (entry.name.startsWith('.') || entry.name.endsWith(STALE_SUFFIX)) continue
+    if (entry.name.startsWith('.') || entry.name.endsWith(KEEPSAKE_SUFFIX)) continue
     if (entry.name.startsWith('@')) {
       let inner
       try {
@@ -103,7 +94,7 @@ export function installPaths({ root = ROOT, pkg }) {
       }
       for (const sub of inner) {
         if (!sub.isDirectory() && !sub.isSymbolicLink()) continue
-        if (sub.name.endsWith(STALE_SUFFIX)) continue
+        if (sub.name.endsWith(KEEPSAKE_SUFFIX)) continue
         if (isInstallOf(join(nm, entry.name, sub.name), pkg)) found.add(`${entry.name}/${sub.name}`)
       }
       continue
@@ -113,8 +104,6 @@ export function installPaths({ root = ROOT, pkg }) {
   return [...found].sort()
 }
 
-// The question is not "does this specifier resolve" -- a stale installed copy resolves perfectly. It
-// is "does this path resolve INTO packages/<dir>", and only that answer may count as present.
 export function classifyInstall(path, targetReal) {
   let st
   try {
@@ -145,9 +134,9 @@ function keepsakePath(path) {
       return false
     }
   }
-  let candidate = path + STALE_SUFFIX
+  let candidate = path + KEEPSAKE_SUFFIX
   let n = 2
-  while (taken(candidate)) candidate = `${path}${STALE_SUFFIX}-${n++}`
+  while (taken(candidate)) candidate = `${path}${KEEPSAKE_SUFFIX}-${n++}`
   return candidate
 }
 
@@ -159,8 +148,7 @@ function isInside(real, tree) {
   return r === t || r.startsWith(t.endsWith(sep) ? t : t + sep)
 }
 
-// Realpath of the nearest existing ancestor, so a path not yet created still reports where it would land.
-function realAnchor(path) {
+function realpathOfNearestAncestor(path) {
   let cur = path
   for (;;) {
     try {
@@ -178,12 +166,12 @@ function assertWritesStayInTree({ root, name, link, state }) {
   const refuse = (reason, message) => {
     throw new WorkspaceLinkOutsideTreeError(`${message} -- the tree being repaired is ${treeReal}`, { name, link, reason, treeReal })
   }
-  const parentReal = realAnchor(dirname(link))
+  const parentReal = realpathOfNearestAncestor(dirname(link))
   if (parentReal === null || !isInside(parentReal, treeReal)) {
     refuse('node-modules-outside-tree', `node_modules/${name} would be written under ${dirname(link)}, which resolves to ${parentReal ?? 'nothing'}, outside the tree`)
   }
   if (state.kind === 'link-elsewhere') {
-    const real = realAnchor(link)
+    const real = realpathOfNearestAncestor(link)
     if (real === null || !isInside(real, treeReal)) {
       refuse('link-target-outside-tree', `node_modules/${name} is a link to ${real ?? 'nothing'}, outside the tree, so it is refused and left unchanged`)
     }
@@ -217,7 +205,6 @@ export function ensureWorkspaceLink({ root = ROOT, name, target, dir }) {
     movedTo = keepsakePath(link)
     renameSync(link, movedTo)
   } else if (state.kind !== 'missing') {
-    // A link is removed, never followed: what it pointed at stays on disk.
     rmSync(link, { recursive: true, force: true })
   }
   mkdirSync(dirname(link), { recursive: true })
@@ -240,7 +227,6 @@ export function ensureWorkspaceLinks({ root = ROOT } = {}) {
   const failed = []
   const refused = []
   const { packages, skipped } = workspacePackages({ root })
-  // Plan every link before writing any: one refused link stops the whole repair with nothing written.
   const plan = []
   for (const pkg of packages) {
     for (const name of installPaths({ root, pkg })) {

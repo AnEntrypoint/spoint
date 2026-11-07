@@ -54,6 +54,13 @@ Skills encode environment-specific constraints that override general knowledge.
 - `prd.rs` reports `not_rerunnable` when a row's witness cites no existing `scripts/*.mjs|.js|.cjs`: a REPORT, not a regression.
 - A truncated witness is a fabricated witness: never `.slice()` a log line you quote a number, flag or path from.
 
+## Workspace links
+
+- `scripts/ensure-workspace-links.mjs` never deletes a real install where a workspace link belongs. `ensureWorkspaceLink` renames a `real-directory` or `file` aside through `keepsakePath` (`.stale-copy` suffix), because that install is the only record of the bytes the dev server was serving. `rmSync` runs only on link kinds (`broken-link`, `link-elsewhere`).
+- `assertWritesStayInTree` raises `WorkspaceLinkOutsideTreeError` before any write when a repair path does not resolve inside the tree being repaired. An archive whose node_modules is a junction onto another tree would otherwise rename and relink that tree's `@spoint` links, which live in the shared `C:/dev/spoint/node_modules`.
+- `installPaths` must consider scoped specifiers: `packages/mapspinner` declares the unscoped name `mapspinner`, so a name-only check never inspects `node_modules/@spoint/mapspinner`, the real installed copy.
+- `classifyInstall` asks whether a path resolves INTO `packages/<dir>`. A stale installed copy resolves perfectly, so resolution alone must not count as present.
+- `ensureWorkspaceLinks` plans every link before writing any. One refused link stops the whole repair with nothing written.
 ## Repo boundaries
 - Module workers have no import map: `src/animation/*.js` import three via `/node_modules/three/build/three.module.js`, never the bare `three` specifier. `scripts/worker-entry-bare-specifier-witness.mjs` pins the whole `WorkerEntry.js` closure; `src/sdk/WorkerBoot.js` turns a module-load failure into a coded `BOOT_ERROR`.
 
