@@ -104,6 +104,8 @@ const HASH_FILE = /\.(py|sh)$/
 const HEREDOC = /^<<(-?)\s*(['"]?)([A-Za-z_]\w*)\2/
 const REGEX_KEYWORDS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await'])
 
+const COND_KEYWORDS = new Set(['if', 'while', 'for', 'with'])
+
 function regexAllowed(last) {
   if (last === '' || REGEX_KEYWORDS.has(last)) return true
   return !['id', 'num', 'str', 'regex', ')', ']'].includes(last)
@@ -157,6 +159,8 @@ function scanJs(text) {
   const found = []
   const n = text.length
   const frames = [{ tpl: false, expr: false, depth: 0 }]
+  const parens = []
+  let lastWord = ''
   let line = 1
   let last = ''
   let i = 0
@@ -222,11 +226,19 @@ function scanJs(text) {
         last = '}'
       }
       i++
+    } else if (c === '(') {
+      parens.push(last === 'id' && COND_KEYWORDS.has(lastWord) ? 'cond' : 'expr')
+      last = '('
+      i++
+    } else if (c === ')') {
+      last = parens.pop() === 'cond' ? 'cond)' : ')'
+      i++
     } else if (/[A-Za-z_$#]/.test(c)) {
       let j = i + 1
       while (j < n && /[\w$]/.test(text[j])) j++
       const word = text.slice(i, j)
       last = REGEX_KEYWORDS.has(word) ? word : 'id'
+      lastWord = word
       i = j
     } else if (/[0-9]/.test(c)) {
       let j = i + 1
@@ -329,6 +341,13 @@ const CONTROLS = [
   ['a.sh', "echo $'a#b' # real", ['hash-comment@1']],
   ['a.sh', "echo $'x\\\\' # real", ['hash-comment@1']],
   ['a.sh', "echo 'a\\' # real", ['hash-comment@1']],
+  ['a.mjs', "if (x) /[/*]/.test(s)\nconst a = 1 // real", ['line-comment@2']],
+  ['a.mjs', "while (go) /x\\/\\/y/.test(s) // c", ['line-comment@1']],
+  ['a.mjs', "f(a) / b // c", ['line-comment@1']],
+  ['a.mjs', "const q = (a) / 2 /* c */", ['block-comment@1']],
+  ['a.mjs', "if (f(a)) /[/*]/.test(s)\nconst a = 1 // real", ['line-comment@2']],
+  ['a.mjs', "if (a) { b() }\n/[/*]/.test(s)\nx = 1 // real", ['line-comment@3']],
+  ['a.mjs', "for (const x of y) /a/.test(x) // c", ['line-comment@1']],
   ['a.py', 'x = 1  # c', ['hash-comment@1']],
   ['a.py', 'x = """a\n# not\n"""\ny = 2 # c', ['hash-comment@4']],
   ['a.py', "x = '#not' ", []],
