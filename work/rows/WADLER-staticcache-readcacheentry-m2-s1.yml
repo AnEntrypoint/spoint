@@ -1,6 +1,6 @@
 id: "WADLER-staticcache-readcacheentry-m2-s1"
 kind: "prd"
-title: "[WADLER-staticcache-readcacheentry-m2-s1] [refuted] src/sdk/StaticCache.js readCacheEntry collapses four distinct refusals (entry files absent, codeVersion/src/stamp mismatch, byte-length mismatch, fnv1a hash mismatch, plus a thrown parse) into one bare null"
+title: "[WADLER-staticcache-readcacheentry-m2-s1] [open] src/sdk/StaticCache.js readCacheEntry collapses four distinct refusals (entry files absent, codeVersion/src/stamp mismatch, byte-length mismatch, fnv1a hash mismatch, plus a thrown parse) into one bare null"
 body: "- id: WADLER-staticcache-readcacheentry-m2-s1\n  depth: 3\n  principle: WADLER\n  session: orch-main-spatial-m2-s1\n  surface: src/sdk\n  title: src/sdk/StaticCache.js readCacheEntry collapses four distinct refusals (entry files absent, codeVersion/src/stamp mismatch, byte-length mismatch, fnv1a hash mismatch, plus a thrown parse) into one bare null\n  witness_dispatch_id: 1791705050847-500-11e0349d20177369\n  session_id: orch-main-spatial-m2-s1\n  status: refuted\n  witness_path: .gm/witness-out/WADLER-staticcache-readcacheentry-m2-s1-verdict.txt\n  note: readCacheEntry returns a coded refusal per case: entry-absent, meta-unparsed, stamp-mismatch with field"
-status: "resolved"
+status: "open"
 createdAt: "2026-11-05T13:14:33.803Z"
