@@ -588,7 +588,7 @@
   session_id: orch-main-r270-sub1-w1
 - id: DBC-ub1-s2-1
   title: src/game/ProgressionSystem.js:40 calculateXpThreshold's explicit `curve` arg bypasses the config contract -- an unknown curve silently falls to the switch default (linear), so one predicate has two bodies
-  status: refuted
+  status: open
   witness_path: .gm/witness-out/DBC-ub1-s2-1-verdict.txt
   note: an explicit curve is validated by isLegalCurve and throws, so an unknown curve no longer reaches the linear default
   principle: DBC
@@ -598,7 +598,7 @@
   session_id: orch-main-r260-sub1-s2
 - id: DBC-ub1-s2-2
   title: src/game/EventChainManager.js:18 addChain states no precondition and writes its postcondition into the caller's object (:20)
-  status: fixed
+  status: open
   witness_path: .gm/witness-out/DBC-ub1-s2-2-verdict.txt
   note: spec-not-mutated and throws-on-non-object refuted; the no-id name defect ("Event Chain undefined") fixed in src/game/EventChainManager.js
   principle: DBC
@@ -608,7 +608,7 @@
   session_id: orch-main-r260-sub1-s2
 - id: DBC-ub1-s2-3
   title: src/game/StatsSystem.js:272 restore admits level/xp pairs that violate the invariant addXP maintains, so a restored player reports a level its own xp contradicts
-  status: refuted
+  status: open
   witness_path: .gm/witness-out/DBC-ub1-s2-3-verdict.txt
   principle: DBC
   surface: src/game/StatsSystem.js
@@ -648,7 +648,7 @@
   witness: node scripts/fsm-arena-index-witness.mjs
   session_id: orch-main-h22-sub1
 - id: TOTALITY-w1-p-1-1
-  status: refuted
+  status: open
   witness_path: .gm/witness-out/TOTALITY-w1-p-1-1-verdict.txt
   note: setPlayerPosition calls vec3 first; a bad position throws instead of returning silently
   node: TOTALITY
@@ -856,7 +856,7 @@
   body: 'CLAIM: AGENTS.md:88 documents the flat AOI query as src/spatial/Octree.js nearbyHorizontal. A later lane renamed it nearbyCylinder(position, radius, halfHeight, out) -- Octree.js:117-118 -- and the flat ring''s vertical extent is now FLAT_RING_HALF_HEIGHT_M at src/stage/Stage.js:4. The doc verifier pins the same stale name at scripts/lib/verify-doc-claims.mjs:50, so one rename has to move both or the verifier checks text no code has. Witness: hop PARNAS src/spatial receipt (session orch-main-r310-sub2-p1, ring witness PASS 4/4 on the current tree, dispatch 1791697944703-500-a1cdaa080d95ecc8). CLOSE: rename both sites together and re-run the doc-claims verifier; the numbers pinned in that sentence must survive the edit.'
   witness: hop PARNAS src/spatial receipt, dispatch 1791697944703-500-a1cdaa080d95ecc8 (ring witness PASS 4/4); codesearch 1791698162089-500-a6330a93010f568c (nearbyHorizontal absent from src/, nearbyCylinder present)
   session_id: orch-main
-  status: refuted
+  status: open
   witness_path: .gm/witness-out/prd-tail-docs-probe.txt
 - id: PARSEDV-1-sub1-1
   title: docs/measurement-figures.md:53 and :109 quote measured numbers with no figure slot and no provenance tag, so the row parse classes them prose and their provenance is never checked
@@ -880,7 +880,7 @@
   notes: 'CLOSE (not closable by this hop, characterization first): the fix is one probe at install -- call fn with a finite (x,z,yGuess) at install time and throw a TypeError naming the source when the result is not a finite number or when a thrown error is not a SurfaceSolveError. The probe has to be admitted only for sources the port is told how to seed, so pin the probe point with the witness before changing behaviour; this row is the pinning step. Files: src/terrain/PlanetFrame.js.'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: fixed
+  status: open
   witness_path: .gm/witness-out/CHARTEST-est-s1-1-verdict.txt
   note: registerGroundSource refuses a source that declares fewer than 3 parameters; probe shows two-arg refused, three-arg accepted
 - id: CHARTEST-est-s1-2
@@ -890,7 +890,7 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P08 groundSourceOf(''substituted'')===second=true names=["cpu-solve","substituted"]; check P06/P07 confirm the setter is the naming path'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: refuted
+  status: open
   witness_path: .gm/witness-out/CHARTEST-est-s1-2-verdict.txt
   note: anonymousSourceName numbers each install: substituted, substituted#2, ... so no two anonymous adapters share a key
 - id: CHARTEST-est-s1-3
@@ -900,7 +900,7 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P09 own_property=false shared_frame_swapped=true frame.groundSource=substituted; check P14 names=["cpu-solve","a","b","substituted"] current=substituted'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: fixed
+  status: open
   witness_path: .gm/witness-out/CHARTEST-est-s1-3-verdict.txt
   note: the placement view is Object.create(frame) with groundHeightLocal and elevationAtDir defined as own data properties via Object.defineProperty, so the shared frame setter never runs
 - id: WADLER-aoi-positionofentity-m2-s1
@@ -921,7 +921,7 @@
   witness: 'scripts/ground-source-port-witness.mjs dispatch 1791704838265-500-19e97f5d075d8453, exit 0, RESULT: PASS checks=18 failed=0; check P10 y=NaN threw=false missing=true; check P11 throwing(1,2)=null nanning(1,2)=NaN; contrast check P03 threw=ChartRangeError instanceof SurfaceSolveError=true'
   session_id: orch-main-terrain-contracttest-s1
   _agentplug_lane_wait_ms: 120000
-  status: fixed
+  status: open
   witness_path: .gm/witness-out/CHARTEST-est-s1-4-verdict.txt
   note: the patch adapter throws NoGroundHeightError, a SurfaceSolveError, where there is no ground, instead of returning NaN
 - id: WADLER-staticcache-readcacheentry-m2-s1
