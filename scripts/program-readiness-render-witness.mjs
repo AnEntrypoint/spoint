@@ -30,17 +30,27 @@ const PAGE_LINES = [
   '  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100)',
   '  camera.position.set(0, 1, 6)',
   '  camera.lookAt(0, 0, 0)',
-  '  for (let i = 0; i < 12; i++) {',
-  '    const material = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(i / 12, 0.7, 0.5), roughness: 0.4 })',
-  '    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), material)',
-  '    mesh.position.set((i % 4) - 1.5, Math.floor(i / 4) - 1, -i * 0.05)',
+  '  for (let i = 0; i < 24; i++) {',
+  '    const material = new THREE.MeshStandardMaterial({',
+  '      color: new THREE.Color().setHSL(i / 24, 0.7, 0.5),',
+  '      roughness: 0.2 + (i % 4) * 0.2,',
+  '      transparent: i % 2 === 0,',
+  '      opacity: 0.9,',
+  '      side: i % 3 === 0 ? THREE.DoubleSide : THREE.FrontSide,',
+  '    })',
+  '    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), material)',
+  '    mesh.position.set((i % 6) - 2.5, Math.floor(i / 6) - 2, -i * 0.03)',
   '    scene.add(mesh)',
   '  }',
   '  const light = new THREE.DirectionalLight(0xffffff, 2)',
   '  light.position.set(2, 3, 4)',
   '  scene.add(light)',
   '  const installed = ready.installAsyncRenderPipelines(renderer)',
-  '  let maxPending = 0',
+  '  renderer.render(scene, camera)',
+  '  const pendingAfterFirstRender = ready.pendingProgramCount(renderer)',
+  '  let framesToRequest = 0; while (framesToRequest < 200 && (window.__asyncRenderPipelines ? window.__asyncRenderPipelines.requested : 0) === 0) { renderer.render(scene, camera); framesToRequest++; await new Promise((r) => setTimeout(r, 50)) }',
+  '  const requestedBeforeSampling = window.__asyncRenderPipelines ? window.__asyncRenderPipelines.requested : -1',
+  '  let maxPending = pendingAfterFirstRender',
   '  for (let i = 0; i < 60; i++) {',
   '    renderer.render(scene, camera)',
   '    maxPending = Math.max(maxPending, ready.pendingProgramCount(renderer))',
@@ -54,7 +64,7 @@ const PAGE_LINES = [
   '  const pixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, SIZE, SIZE)',
   '  const digest = await crypto.subtle.digest("SHA-256", pixels)',
   '  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")',
-  '  window.__result = { installed: installed === true, maxPending, settled: String(settled ?? null), hash, bytes: pixels.byteLength }',
+  '  window.__result = { installed: installed === true, requestedBeforeSampling, framesToRequest, pendingAfterFirstRender, maxPending, settled: String(settled ?? null), hash, bytes: pixels.byteLength }',
   '} catch (e) {',
   '  window.__error = String(e && e.stack ? e.stack : e)',
   '}',
@@ -116,13 +126,13 @@ try {
   const refB = await runVariant(port, 'ref')
   const working = await runVariant(port, 'working')
   const deterministic = refA.hash === refB.hash
-  const exercised = [refA, refB, working].some((run) => run.maxPending > 0)
+  const exercised = [refA, refB, working].every((run) => run.requestedBeforeSampling > 0)
   const matches = working.installed === refA.installed && working.hash === refA.hash
   pass = deterministic && exercised && matches
   console.log(JSON.stringify({ ref: refA, refRepeat: refB, working, deterministic, exercised, matches }))
   console.log(pass
-    ? 'RESULT: PASS working ProgramReadiness.js renders the same pixels and readiness as ' + REF + ' on the same scene'
-    : 'RESULT: FAIL working ProgramReadiness.js differs from ' + REF + ' (deterministic=' + deterministic + ' exercised=' + exercised + ' matches=' + matches + ')')
+    ? 'RESULT: PASS working ProgramReadiness.js renders the same pixels and readiness as ' + REF + ' on the same scene, with async pipeline requests recorded before sampling'
+    : 'RESULT: FAIL working ProgramReadiness.js vs ' + REF + ' (deterministic=' + deterministic + ' exercised=' + exercised + ' matches=' + matches + ')')
 } finally {
   server.close()
 }
