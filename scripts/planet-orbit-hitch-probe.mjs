@@ -1,12 +1,7 @@
-// Flies the camera in a circle around the planet in a headful browser and reports frame timing.
-// The camera is taken over by the 'custom' controller mode, so only this probe moves it.
-//
-//   node scripts/planet-orbit-hitch-probe.mjs [--url=<game url>] [--seconds=60] [--alt=<m>] [--period=<s>]
-//
-// Prints one JSON object: frame-time percentiles, hitch counts (frames over 33.4 ms and 50 ms), and
-// the worst frames with their offset into the run, so a hitch can be matched to what the camera was over.
-
 import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
+
+const HITCH_MS = 33.4
+const SEVERE_HITCH_MS = 50
 
 const arg = name => {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -42,7 +37,7 @@ const startOrbit = (o) => {
     if (last !== null) {
       const dt = now - last
       dts.push(dt)
-      if (dt > 33.4) worst.push({ atS: +(elapsed / 1000).toFixed(2), dtMs: +dt.toFixed(1), overMeters: 0 })
+      if (dt > HITCH_MS) worst.push({ atS: +(elapsed / 1000).toFixed(2), dtMs: +dt.toFixed(1), overMeters: 0 })
     }
     last = now
     if (elapsed < o.seconds * 1000) requestAnimationFrame(step)
@@ -60,8 +55,8 @@ const summarise = (dts, worst) => {
     frames: s.length,
     p50Ms: pct(0.5), p95Ms: pct(0.95), p99Ms: pct(0.99),
     maxMs: s.length ? +s[s.length - 1].toFixed(1) : null,
-    over33ms: s.filter(d => d > 33.4).length,
-    over50ms: s.filter(d => d > 50).length,
+    over33ms: s.filter(d => d > HITCH_MS).length,
+    over50ms: s.filter(d => d > SEVERE_HITCH_MS).length,
     worst: worst.sort((a, b) => b.dtMs - a.dtMs).slice(0, 12),
   }
 }

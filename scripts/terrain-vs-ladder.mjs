@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Measures the terrain maxLevel ladder with rAF UNLOCKED, so a median is work-determined and not a
-// multiple of the 60 Hz refresh divisor. scripts/perf-run.mjs carries no --disable-frame-rate-limit
-// or --disable-gpu-vsync, so every median it reports sits on the vsync grid and a 60 -> 30 fps step
-// is the only thing it can resolve. This harness is that instrument.
-//
-// Arms are swept LIVE inside one browser session: packages/mapspinner/src/lod-config.js
-// resolveLodConfig reads window.__maxLevel on every frame, so a rung is a write, not a reboot, and
-// the before/after pair shares one page, one bundle and one vegetation population.
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -24,11 +16,6 @@ const arg = (name, dflt) => {
   return hit ? hit.slice(name.length + 3) : dflt
 }
 const RUNGS = arg('rungs', '2,6,11,16,22').split(',').map((s) => Number(s.trim())).filter(Number.isFinite)
-// The tap arms are INTERLEAVED (5,3,5,3) rather than blocked, because the terrain vertex stencil's
-// tap count is a live uniform (window.__fdTaps): 5 is the central difference this terrain shipped
-// with and 3 the forward difference it ships with now, so the pair is measured inside ONE page, one
-// bundle and one vegetation population, adjacent in time. Two separate runs on a box shared with
-// nine other lanes cannot be told apart from the drift between them; an adjacent pair can.
 const TAPS = arg('taps', '5,3,5,3').split(',').map((s) => Number(s.trim())).filter(Number.isFinite)
 const VEG_WAIT_MS = Number(arg('veg-wait-ms', '120000'))
 const CAPTURE_MS = Number(arg('capture-ms', '6000'))
@@ -150,9 +137,6 @@ async function main() {
       console.log(`[vs-ladder] WARNING drawing buffer ${info.canvas[0]}x${info.canvas[1]} != requested ${WIDTH}x${HEIGHT}`)
     }
 
-    // The quality governor drives maxLevel (it clamps it per tier and it defaults ON), so a rung
-    // this harness writes would be re-clamped between the write and the capture. Pinned off here
-    // and read back per arm, because a shed rung reads as a fast frame the change did not buy.
     await page.evaluate(() => { window.__qualityGovernor = false })
     await evaluateOrThrow(page, () => { window.__warmupInFlight ? null : null }, 5000).catch(() => {})
     const watch = contentionWatch()

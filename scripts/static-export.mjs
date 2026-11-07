@@ -88,8 +88,8 @@ async function main() {
   cpSync(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   cpSync(appsSrc, join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   log(`apps/ copied from ${rel(appsSrc)}${existsSync(sdkLib) ? ' (+ engine apps/_lib re-export shims)' : ''}`)
-  const bundledApps = await bundleAppSources(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'))
-    + await bundleAppSources(appsSrc, join(OUT, 'apps'))
+  const bundledApps = await bundleAppsIntoSingleModules(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'))
+    + await bundleAppsIntoSingleModules(appsSrc, join(OUT, 'apps'))
   log(`bundled ${bundledApps} game app file(s) into single modules`)
   await writeAppsManifestFromBundles(OUT)
 
@@ -142,10 +142,7 @@ async function main() {
   log(`Open ${OUT}/index.html via any static file server (it auto-redirects to ?singleplayer&world=<default>), or zip ${rel(OUT)}/ for itch.io.`)
 }
 
-// Each game app file is bundled from its source tree into one self-contained module. Relative imports
-// such as ../../../apps/_lib/buoyancy.js are inlined, so the client never fetches them: a blob-evaluated
-// app resolves a relative import against the origin root and misses the Pages base path.
-async function bundleAppSources(sourceRoot, outRoot) {
+async function bundleAppsIntoSingleModules(sourceRoot, outRoot) {
   const { build } = await import('esbuild')
   const entries = []
   ;(function walk(dir) {
@@ -177,9 +174,6 @@ async function bundleAppSources(sourceRoot, outRoot) {
   return entries.length
 }
 
-// The client evaluates each app from apps-manifest.json, and the bundler-built manifest carries source
-// with relative imports. Rebuilding it from the bundled apps makes the manifest carry the single-file
-// modules the export ships, so no app reaches back for ../../../apps/_lib at runtime.
 async function writeAppsManifestFromBundles(OUT) {
   const { buildAppsManifest, manifestJson, resolveAllAppNames, appsManifestFingerprint } = await import('../src/apps/appsManifest.js')
   const dirs = [join(OUT, 'apps')]

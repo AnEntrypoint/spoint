@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// Near-field rendered surface density, run through the REAL mapspinner Quadtree and the REAL world
-// constants in node: no GPU, no browser, no synthetic stand-in. It answers one question -- how many
-// metres apart are the vertices of the terrain mesh the player stands on, next to the spacing the
-// grass places at and the spacing the collider lattice is built on, at every quality tier.
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -52,11 +48,6 @@ const anchorDir = tcfg.anchorDir || [0, 1, 0]
 const spawn = worldDef.spawnPoint || [0, 0, 0]
 const tphys = tcfg.physics || {}
 
-// ---- PREDICTION, printed before any value is computed from the live modules. ----
-// cube-sphere: root face spans 2R, so a level-L leaf is 2R/2^L face-local metres, split into
-// GRID-1 steps. The face map is w = R*tan((u/R)*(pi/4)) per axis then a radial projection, whose
-// metric at the world anchor works out to 0.780 m of sphere per face-local metre along u and 0.617
-// along v: the near band is anisotropic, and both factors are below 1.
 const PREDICT = {
   radius: R, gridMeshSize: GRID, bootMaxLevel, anchorDir, spawn,
   predictedMetric: { dSdu: 0.780, dSdv: 0.617 },
@@ -65,7 +56,6 @@ const PREDICT = {
 }
 console.log('[nearfield-lattice] PREDICTION ' + JSON.stringify(PREDICT))
 
-// ---- the collider lattice, read from the bake the server actually builds the field from ----
 let collider = { configured: null, baked: null, source: null }
 {
   const extent = tphys.extent || 510
@@ -93,7 +83,6 @@ try {
 }
 console.log('[nearfield-lattice] collider ' + JSON.stringify(collider))
 
-// ---- the camera, in world space, from the world's own anchor basis and spawn point ----
 const basis = anchorBasis(anchorDir)
 const camW = [0, 0, 0]
 {
@@ -115,10 +104,7 @@ const dSdv = (u, v) => dSdu(v, u)
 const spanU = (ox, oy, l) => { let s = 0; const n = 16, h = l / n, v = oy + l * 0.5; for (let i = 0; i < n; i++) s += dSdu(ox + (i + 0.5) * h, v) * h; return s }
 const spanV = (ox, oy, l) => { let s = 0; const n = 16, h = l / n, u = ox + l * 0.5; for (let i = 0; i < n; i++) s += dSdv(u, oy + (i + 0.5) * h) * h; return s }
 
-// The same span, measured by a route that never reads dSdu/dSdv: project the face-local (u,v) to a
-// real 3D direction through FACE_FRAME and sum chords on the sphere of radius R. The two agreeing
-// is what makes the spacing an absolute number in metres rather than a scale the metric chose.
-function faceDirAt(face, u, v) {
+function sphereDirectionOfFaceLocal(face, u, v) {
   const F = FACE_FRAME[face]
   const wu = R * Math.tan((u / R) * QUARTER_PI)
   const wv = R * Math.tan((v / R) * QUARTER_PI)
@@ -128,12 +114,12 @@ function faceDirAt(face, u, v) {
   const n = Math.hypot(x, y, z) || 1
   return [x / n, y / n, z / n]
 }
-function spanChord(face, ox, oy, l, alongU) {
+function chordSpanOnSphere(face, ox, oy, l, alongU) {
   const n = 64, h = l / n
   const uMid = ox + l * 0.5, vMid = oy + l * 0.5
   let s = 0, prev = null
   for (let i = 0; i <= n; i++) {
-    const p = alongU ? faceDirAt(face, ox + i * h, vMid) : faceDirAt(face, uMid, oy + i * h)
+    const p = alongU ? sphereDirectionOfFaceLocal(face, ox + i * h, vMid) : sphereDirectionOfFaceLocal(face, uMid, oy + i * h)
     if (prev) s += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2])
     prev = p
   }
@@ -150,8 +136,6 @@ function leavesFor(maxLevel, splitFactor, floorM, spanLeaves, innerSpanLeaves, o
   for (let face = 0; face < 6; face++) {
     const lc = worldToFaceLocal(face, camW, R)
     if (!lc || !Number.isFinite(lc[0])) continue
-    // The floor is set per face exactly as the renderer sets it: on the near face, because that is the
-    // face the band is drawn on, and off everywhere else.
     if (Number.isFinite(floorM) && floorM > 0) {
       if (onlyFace === undefined || onlyFace === face) qt.setNearFieldLeafFloor(floorM, Number.isFinite(spanLeaves) ? spanLeaves : 1.0, null, Number.isFinite(innerSpanLeaves) ? innerSpanLeaves : 0.0)
       else qt.setNearFieldLeafFloor(0, 1.0)
@@ -170,8 +154,8 @@ function leavesFor(maxLevel, splitFactor, floorM, spanLeaves, innerSpanLeaves, o
 function spacingOf(leaf) {
   const su = spanU(leaf.ox, leaf.oy, leaf.l) / GRID
   const sv = spanV(leaf.ox, leaf.oy, leaf.l) / GRID
-  const cu = spanChord(leaf.face, leaf.ox, leaf.oy, leaf.l, true) / GRID
-  const cv = spanChord(leaf.face, leaf.ox, leaf.oy, leaf.l, false) / GRID
+  const cu = chordSpanOnSphere(leaf.face, leaf.ox, leaf.oy, leaf.l, true) / GRID
+  const cv = chordSpanOnSphere(leaf.face, leaf.ox, leaf.oy, leaf.l, false) / GRID
   return {
     uM: +su.toFixed(4), vM: +sv.toFixed(4), meanM: +((su + sv) * 0.5).toFixed(4), maxM: +Math.max(su, sv).toFixed(4),
     spanCrossCheckRelErr: +Math.max(Math.abs(su - cu) / su, Math.abs(sv - cv) / sv).toFixed(6),
@@ -222,9 +206,6 @@ for (const sf of SPLIT_SWEEP) {
   console.log('[nearfield-lattice] split ' + sf + ' ' + JSON.stringify(row))
 }
 
-// ---- faceting: the rendered mesh is a piecewise-linear grid over the exact height sampler, so
-// |rendered - exact| along a transect is how far the visible ground departs from the real surface,
-// in metres, per tier. Runs the real sampler, the real frame and the real TerrainMeshSurface.
 const faceting = []
 let sampler = null, frame = null, surface = null
 const offsets = new Float32Array(4096 * 4)
@@ -278,19 +259,12 @@ if (!ARGS.has('no-faceting')) {
   }
 }
 
-// ---- ONE lattice at the collider's spacing, measured against the quadtree it replaces. Both are
-// measured through the SAME instrument -- the real TerrainMeshSurface fed the payload the renderer
-// really emits -- so before and after are the same quantity over the same ground.
 const latticeReport = { available: false }
 if (frame && !ARGS.has('no-lattice')) {
   const bakeSpacingM = sourceSpacingOfBake({ N: collider.baked && collider.baked.N, extent: collider.baked && collider.baked.extent })
   const cl = colliderLatticeOf(tcfg, { sourceSpacingM: bakeSpacingM })
   const nfl = createNearFieldLattice({ spacingM: cl.spacingM, extentM: cl.extentM, gridSteps: GRID })
   const WINDOW_M = 30
-  // WHAT THE WINDOW MUST BE. A band that is ~62 m across is fully contained in a +/-30 m transect, so
-  // a window that small can only ever report the band and will PASS no matter how coarse the ground
-  // one metre outside it is. The window is therefore the collider's own field, and the transect is
-  // reported in distance bands so "collider res out to X m and leaf res beyond it" is visible.
   const WINDOW_OUT_M = Math.max(WINDOW_M, cl.extentM / 2)
   const exact = (x, z) => frame.groundHeightLocal(x, z)
   const GRIDV = (GRID + 3) * (GRID + 3)
@@ -322,9 +296,6 @@ if (frame && !ARGS.has('no-lattice')) {
     }
     return { n, holes, mean: n ? +(sum / n).toFixed(4) : null, max: n ? +mx.toFixed(4) : null }
   }
-  // The same deviation measured only over the ground at [fromM, toM] metres from the player. The near
-  // band's own spacing is measured inside it; what the owner sees is measured OUTSIDE it, and a single
-  // pooled number over both is the pooled number that hid this.
   function transectRange(fromM, toM) {
     const STEP = 0.25
     const N = Math.max(1, Math.round((toM - fromM) / STEP))
@@ -352,9 +323,7 @@ if (frame && !ARGS.has('no-lattice')) {
     const e = frame.east, nn = frame.north
     return [(dx * e[0] + dy * e[1] + dz * e[2]) * R, (dx * nn[0] + dy * nn[1] + dz * nn[2]) * R]
   }
-  // A crack shows up as a step in the surface across the lattice footprint's perimeter. It is
-  // measured identically before and after, so the difference is the seam and not the terrain.
-  function perimeterJump(box) {
+  function perimeterCrackStep(box) {
     const E = 0.02
     const pts = []
     for (let s = box.x0; s <= box.x1; s += 0.5) pts.push([s, box.z0], [s, box.z1])
@@ -384,11 +353,6 @@ if (frame && !ARGS.has('no-lattice')) {
   const lcNear = worldToFaceLocal(nearFace, camW, R)
   const GPF = groundPerFaceMetre(lcNear[0], lcNear[1], R, nfl.requestedHalfExtentM)
   console.log('[nearfield-lattice] ground metres per face-local metre at the camera: ' + GPF.toFixed(6))
-  // --mutate-floor=disc puts the floor back the way it was before the annulus: the conservative
-  // reach, no inner reach, and set on ALL SIX faces. --mutate-floor=short keeps the annulus and the
-  // near-face gate but converts the reach with the metric the band is laid out in instead of the
-  // smallest one the map shows: it measures 0.483 m at the rim instead of 0.0626 m, so it is the
-  // mutation the rim-step pin below exists to catch. Both must print FAIL and exit 1.
   const MUTATE_FLOOR = String(flag('mutate-floor', 'none'))
   const reach = nfl.floorReachLeaves(GPF)
   const shortOuterM = reach.innerM + nfl.maxLeafM + nfl.tileM / reach.groundPerFaceMetre
@@ -414,8 +378,6 @@ if (frame && !ARGS.has('no-lattice')) {
     const fb = transect(WINDOW_M)
     loadSurface(payloadAfter)
     const fa = transect(WINDOW_M)
-    // The ground the player can see, not the ground the band happens to cover: the band's own
-    // half-extent first, then the rest of the collider's field, then beyond it.
     const bandHalfM = plan.coveredHalfExtentGroundM > 0 ? plan.coveredHalfExtentGroundM : WINDOW_M
     loadSurface(before.all)
     const bandsBefore = [
@@ -430,21 +392,19 @@ if (frame && !ARGS.has('no-lattice')) {
       { fromM: WINDOW_OUT_M, toM: WINDOW_OUT_M * 2, lattice: transectRange(WINDOW_OUT_M, WINDOW_OUT_M * 2) },
     ]
     const box = plan.tiles.length ? boxOf(plan.tiles, nearFace) : null
-    const jumpAfter = box ? perimeterJump(box) : null
+    const jumpAfter = box ? perimeterCrackStep(box) : null
     loadSurface(before.all)
-    const jumpBefore = box ? perimeterJump(box) : null
+    const jumpBefore = box ? perimeterCrackStep(box) : null
 
-    // The lattice's real spacing on the ground: two adjacent nodes of one tile, in chart-local
-    // metres. Face-local metres are not sphere metres, so this is measured, not assumed.
-    let stepU = null, stepV = null
+    let measuredStepUm = null, measuredStepVm = null
     if (plan.tiles.length) {
       const t = plan.tiles[0]
       const s = plan.tileM / GRID
       const a = nodeChart(nearFace, t.ox + t.l * 0.5, t.oy + t.l * 0.5)
       const b = nodeChart(nearFace, t.ox + t.l * 0.5 + s, t.oy + t.l * 0.5)
       const c = nodeChart(nearFace, t.ox + t.l * 0.5, t.oy + t.l * 0.5 + s)
-      stepU = +Math.hypot(b[0] - a[0], b[1] - a[1]).toFixed(4)
-      stepV = +Math.hypot(c[0] - a[0], c[1] - a[1]).toFixed(4)
+      measuredStepUm = +Math.hypot(b[0] - a[0], b[1] - a[1]).toFixed(4)
+      measuredStepVm = +Math.hypot(c[0] - a[0], c[1] - a[1]).toFixed(4)
     }
     perTier.push({
       maxLevel: L,
@@ -460,8 +420,8 @@ if (frame && !ARGS.has('no-lattice')) {
         refused: plan.refused || null,
         tileM: +plan.tileM.toFixed(3),
         stepM: +plan.stepM.toFixed(4),
-        measuredStepUm: stepU,
-        measuredStepVm: stepV,
+        measuredStepUm,
+        measuredStepVm,
         leavesCovered: plan.coveredLeafCount,
         tilesPerAxis: plan.tilesPerAxis,
         groundPerFaceMetre: +plan.groundPerFaceMetre.toFixed(6),
@@ -515,10 +475,6 @@ if (frame && !ARGS.has('no-lattice')) {
   latticeReport.quadtreeNearSpacingRangeM = rows.map((r) => r.nearSpacingMaxM)
 }
 
-// ---- the near band's OWN vegetation, counted rather than assumed. The density table above is
-// compared with the grass placement lattice, so a band that measures right while carrying no
-// vegetation would still print a pass; the trees the same ground places are counted over the same
-// band, so a trees-missing regression cannot hide behind a density figure that did not move.
 const vegCensus = { available: false, chunks: 0, trees: null, chunkM: null, error: null }
 if (frame && !ARGS.has('no-veg')) {
   try {
@@ -538,13 +494,6 @@ if (frame && !ARGS.has('no-veg')) {
 }
 console.log('[nearfield-lattice] veg census ' + JSON.stringify(vegCensus))
 
-// ---- the re-solve mutation. A node another field has already solved at THIS lattice is donated,
-// not solved again: that is the whole difference between a 66049-node field and a 0-node one on
-// ground the player has already walked. sampleTerrainGridChunked is the real function the height
-// field streamer calls and `seed` is exactly what its seedFromSolved hands it, so the mutation is
-// the path before that donation existed (seed: null), which re-solves every node. The pin is that
-// the shipped path solves 0 of the nodes the other field already solved, so the mutation is caught
-// by the same counter it moves -- and a run that never seeds reads as a failure, not as a pass.
 const reseed = { available: false }
 if (frame && latticeReport.available && !ARGS.has('no-reseed')) {
   const { sampleTerrainGridChunked } = await import(pathToFileURL(resolve(ROOT, 'src', 'terrain', 'HeightfieldStreamer.js')).href)
@@ -556,13 +505,9 @@ if (frame && latticeReport.available && !ARGS.has('no-reseed')) {
   const cx0 = spawn[0] - HALF_M
   const opts = (cornerX, seed) => ({ heightFn: at, N, spacing: clSpacing, cornerX, cornerZ: cz, budgetMs: 1000, seed })
   const first = await sampleTerrainGridChunked(opts(cx0, null))
-  // --mutate-reseed runs the shipped arms without the seed: the path before the donation existed. It
-  // is the mutation this pin exists to catch, so it must print FAIL and exit 1.
-  const MUTATE = ARGS.has('mutate-reseed')
-  const back = await sampleTerrainGridChunked(opts(cx0, MUTATE ? null : { samples: first.samples, filled: new Uint8Array(N * N).fill(1) }))
+  const MUTATE_RESEED = ARGS.has('mutate-reseed')
+  const back = await sampleTerrainGridChunked(opts(cx0, MUTATE_RESEED ? null : { samples: first.samples, filled: new Uint8Array(N * N).fill(1) }))
   const backMutated = await sampleTerrainGridChunked(opts(cx0, null))
-  // A second field a quarter of a field along, at the SAME lattice: the offset is a whole number of
-  // cells of this lattice, which is the only offset at which a donation is a reuse and not a shift.
   const shift = Math.max(1, Math.round((N - 1) / 4))
   const seedPartial = { samples: new Float32Array(N * N), filled: new Uint8Array(N * N) }
   let donatedCells = 0
@@ -574,7 +519,7 @@ if (frame && latticeReport.available && !ARGS.has('no-reseed')) {
     }
   }
   const cx1 = cx0 + shift * clSpacing
-  const partial = await sampleTerrainGridChunked(opts(cx1, MUTATE ? null : seedPartial))
+  const partial = await sampleTerrainGridChunked(opts(cx1, MUTATE_RESEED ? null : seedPartial))
   const partialMutated = await sampleTerrainGridChunked(opts(cx1, null))
   let worstDonatedDelta = 0
   for (let k = 0; k < N * N; k++) {
@@ -634,20 +579,9 @@ console.log('[nearfield-lattice] near-band spacing range across all tiers: ' +
     ', collider lattice ' + collM + ' m' +
     ', near-field lattice step ' + (bootT ? bootT.lattice.stepM : 'n/a') + ' m == collider ' + collM + ' m at all ' + tiers + ' tier(s)' +
     ', measured step ' + (bootT ? bootT.lattice.measuredStepUm : 'n/a') + ' m u / ' + (bootT ? bootT.lattice.measuredStepVm : 'n/a') + ' m v' +
-    // The rim step is the owner-visible ridge, so it is pinned, not just checked: it is the height
-    // step across the band's whole perimeter, worst over every tier, and it is what grass placement
-    // refuses as too steep. It is bounded by the COARSER of the two surfaces meeting at the rim, so
-    // the floor that caps the leaf the rim abuts is what sets this number.
     ', rim step ' + (tiers ? Math.max(...latticeReport.perTier.map((t) => (t.perimeterJumpAfter ? t.perimeterJumpAfter.max : 0))).toFixed(5) : 'n/a') + ' m at all ' + tiers + ' tier(s)' +
     '; trees placed over the near band: ' + vegCensus.trees + ' over ' + vegCensus.chunks + ' chunk(s)')
 }
-// ---- the decision ------------------------------------------------------------------------------
-// The table above is a measurement, not a verdict. What makes "the near band is 1.2775 m against a
-// 1.00 m collider" a fact rather than a printout is that two INDEPENDENT computations agree on it:
-// the closed-form cube-sphere metric the spacing is derived from, and a chord sum over real 3D face
-// positions that never reads that metric. Level structure is pinned the same way -- a quadtree leaf
-// halves per level, so the spacing ladder must halve with it. A gate on the table alone cannot
-// fail, so the run decides on those cross-checks and nothing else.
 const checks = []
 const check = (name, ok, detail) => { checks.push({ name, ok: !!ok, detail }); if (!ok) console.log(`FAIL: ${name} ${detail}`) }
 check('levelsMeasured', rows.length === LEVELS.length && rows.every((r) => !r.error && Number.isFinite(r.nearSpacingMeanM) && r.nearSpacingMeanM > 0 && Number.isFinite(r.nearSpacingMaxM) && r.nearSpacingMaxM > 0 && r.leafCount > 0), `rows=${rows.length} of ${LEVELS.length}, errors=${rows.filter((r) => r.error).length}`)
@@ -665,63 +599,25 @@ for (const r of rows) if (!r.error) chordWorst = Math.max(chordWorst, Number.isF
 check('spanCrossCheckedAgainstSphereChord', rows.every((r) => r.error || Number.isFinite(r.spanCrossCheckRelErr)) && chordWorst <= 2e-3, `worst relative gap between the metric integral and the sphere chord sum = ${chordWorst}`)
 check('colliderSpacingFromDecodedBake', collider.source === 'mapspinner/heightfield-codec.js:decodeHeightfield' && Number.isFinite(collM) && collM > 0, `source=${collider.source} collM=${collM}`)
 check('verdictTableComplete', verdict.length === rows.length && verdict.every((v) => !v.error && Number.isFinite(v.renderedVsCollider) && Number.isFinite(v.renderedVsGrass)) && Number.isFinite(grassM) && grassM > 0, `verdict=${verdict.length} rows=${rows.length} grassM=${grassM}`)
-// The lattice arm decides on the fix, not on the table: every tier must be drawn from the lattice,
-// at a step no coarser than the collider's, with no hole the quadtree did not already have.
 const lt = latticeReport.available ? latticeReport.perTier : null
 check('latticeMeasured', !!lt && lt.length === LEVELS.length, `perTier=${lt ? lt.length : 0} of ${LEVELS.length}`)
 check('latticeEngagedAtEveryTier', !!lt && lt.every((t) => t.lattice.engaged), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.engaged, t.lattice.refused]) : null))
 check('latticeStepAtOrFinerThanColliderAtEveryTier', !!lt && lt.every((t) => t.lattice.measuredStepUm !== null && Math.max(t.lattice.measuredStepUm, t.lattice.measuredStepVm) <= collM + 1e-9), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.measuredStepUm, t.lattice.measuredStepVm]) : null))
 check('latticeAddsNoHole', !!lt && lt.every((t) => t.latticeAfter.faceting.holes <= t.quadtreeBefore.faceting.holes), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.quadtreeBefore.faceting.holes, t.latticeAfter.faceting.holes]) : null))
-// A fixed-resolution band inset into a variable-resolution quadtree meets coarser ground at its rim,
-// and that meeting is a step: the band interpolates the same height field over 1 m where the leaf
-// next to it interpolates it over a whole leaf side. No skirt removes it -- a skirt hides the GAP,
-// not the height difference -- so the invariant cannot be "no step at all", which is what comparing
-// against the quadtree's own jump demanded and which no clipmap satisfies. What the band must
-// guarantee is that its rim step is no larger than the faceting of the ground the rim abuts: a
-// 0.21 m step against ground whose own error is 0.38 m is not a seam, it is inside the noise of the
-// surface it joins. Both numbers are measured here, so the bound is a measurement, not a tolerance.
 check('latticeRimStepWithinAbuttingFaceting', !!lt && lt.every((t) => {
   const abutting = t.facetingBands && t.facetingBands.after && t.facetingBands.after[1] && t.facetingBands.after[1].lattice
   const bound = Math.max(t.perimeterJumpBefore ? t.perimeterJumpBefore.max : 0, abutting ? abutting.max : 0)
   return !t.perimeterJumpAfter || t.perimeterJumpAfter.max <= bound + 1e-9
 }), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpBefore && t.perimeterJumpBefore.max, t.perimeterJumpAfter && t.perimeterJumpAfter.max, t.facetingBands && t.facetingBands.after[1].lattice.max]) : null))
-// ALWAYS EQUAL, not merely "not coarser": the ruling is that the land around the player is at FULL
-// DETAIL -- collider res -- and governance must not move the near band. `stepM` is the lattice's own
-// step in metres and the collider's spacing is metres of the same ground, so the two being the same
-// number at every tier is the claim; a step that merely stays under the collider would let the band
-// sit one tier coarser and still pass.
 check('nearFieldStepEqualsColliderSpacingAtEveryTier', !!lt && lt.length > 0 && lt.every((t) => t.lattice.engaged && t.lattice.stepM === collM), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.stepM, collM]) : null))
-// ...and non-vacuous: without the lattice the quadtree's own near band IS coarser than the collider
-// at the tier that ships, so the equality above is holding something down that would otherwise drift.
 const bootQuadtreeRow = rows.find((r) => r.maxLevel === bootMaxLevel && !r.error)
 check('quadtreeNearBandIsCoarserSoThePinIsNotVacuous', !!bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM > collM, JSON.stringify([bootMaxLevel, bootQuadtreeRow && bootQuadtreeRow.nearSpacingMaxM, collM]))
-// The floor's cost is the leaves it adds to the quadtree, and the floor's job is ONE leaf of ground
-// past the band's rim. A floor that refines the whole footprint, or that refines the five faces no
-// band is drawn on, costs several times that for ground no rim abuts -- 2298 added leaves was the
-// shipped disc, of which 91% was ground inside the band the band throws away or outside the ring the
-// rim needs. Counted, not timed: the same instrument measures both arms and one leaf is a leaf on any
-// box. --mutate-floor=disc restores the conservative reach with no inner reach on all six faces and
-// must print FAIL here, so the bound is one a real regression moves.
 const FLOOR_COST_MAX_LEAVES = 1024
 check('nearFieldFloorRefinesTheRimAnnulusOnly', !!lt && lt.length > 0 && lt.every((t) => t.floorCostLeaves <= FLOOR_COST_MAX_LEAVES), JSON.stringify({ bound: FLOOR_COST_MAX_LEAVES, perTier: lt ? lt.map((t) => [t.maxLevel, t.floorCostLeaves]) : null }))
-// What the rim step is bounded by is the COARSER of the two surfaces meeting at the rim, and the
-// floor is what caps the coarser one, so the step is a property of the reach and not of the terrain:
-// 0.0626 m is the band's own faceting and it is the same number at every tier. A reach that stops
-// short of the rim along the axis the cube-sphere map stretches least gives 0.483 m at the tiers the
-// distance LOD no longer covers the ring by itself, so this is pinned against the measurement and not
-// against the faceting it happens to abut, which would let a wider far field hide it.
 const RIM_STEP_MAX_M = 0.063
 check('nearFieldRimStepHoldsAtEveryTier', !!lt && lt.length > 0 && lt.every((t) => !t.perimeterJumpAfter || t.perimeterJumpAfter.max <= RIM_STEP_MAX_M), JSON.stringify({ bound: RIM_STEP_MAX_M, perTier: lt ? lt.map((t) => [t.maxLevel, t.perimeterJumpAfter && t.perimeterJumpAfter.max]) : null }))
-// ...and the annulus must not buy that by uncovering the band: a leaf the floor stopped refining
-// grows until it straddles the rim, and every tile inside a straddling leaf is suppressed -- the band
-// loses the tile and keeps the leaf, which is the near field's own resolution going away.
 check('nearFieldFloorSuppressesNoTile', !!lt && lt.length > 0 && lt.every((t) => t.lattice.suppressedTiles === 0), JSON.stringify(lt ? lt.map((t) => [t.maxLevel, t.lattice.suppressedTiles, t.lattice.straddlingLeafCount, t.lattice.leavesCovered]) : null))
-// The density pin is compared with the grass placement lattice, so the vegetation the same ground
-// carries has to be counted here: a band with no trees on it is not the near field the ruling names.
 check('treesPlacedOverTheNearBand', vegCensus.available && vegCensus.chunks > 0 && vegCensus.trees > 0, JSON.stringify(vegCensus))
-// A node another field already solved at this lattice is donated, not solved again. The mutation is
-// the same call with no seed -- the path before the donation existed -- and it re-solves every node,
-// so the counter below is one the mutation moves and the pin is not vacuous.
 check('reseedBacktrackSolvesNothing', reseed.available && reseed.backSolved === 0 && reseed.backReused === reseed.N * reseed.N, JSON.stringify(reseed))
 check('reseedMutationReSolvesEveryNode', reseed.available && reseed.mutatedBackSolved === reseed.N * reseed.N && reseed.mutatedBackSolved > reseed.backSolved, JSON.stringify(reseed))
 check('reseedPartialOverlapDonatesTheSharedNodes', reseed.available && reseed.partialReused === reseed.donatedCells && reseed.partialSolved === reseed.N * reseed.shift, JSON.stringify(reseed))

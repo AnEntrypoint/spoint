@@ -61,6 +61,19 @@ Skills encode environment-specific constraints that override general knowledge.
 - `installPaths` must consider scoped specifiers: `packages/mapspinner` declares the unscoped name `mapspinner`, so a name-only check never inspects `node_modules/@spoint/mapspinner`, the real installed copy.
 - `classifyInstall` asks whether a path resolves INTO `packages/<dir>`. A stale installed copy resolves perfectly, so resolution alone must not count as present.
 - `ensureWorkspaceLinks` plans every link before writing any. One refused link stops the whole repair with nothing written.
+## Witness and publish tooling
+
+- `scripts/gpulock.mjs` `WAITERS_DIR` sits beside the lock dir (`${LOCK_DIR}-waiters`), because the lock dir's existence is the lock. `acquire()` takes the browser lease before the GPU lock and exits 145 (`EXIT_LEASE_UNAVAILABLE`) without claiming it, so a queued lane holds neither.
+- `scripts/gpulock.mjs` `oldestLiveTicket`: lanes defer to the oldest live ticket. Tickets with a dead pid or older than `TICKET_MAX_AGE_MS` are removed, and a holder with no ticket is never waited on.
+- Known gap: `scripts/lib/cdp-browser.mjs` `launch` does not pass `sinceMs` to the browser lease, so a retried launch loses its queue place. The gpulock path does pass `sinceMs: waitSinceMs()`.
+- `scripts/lib/git-api-publish.mjs` `enforceCheckPinGate`: a publish touching `scripts/check.mjs` is refused when a pinned witness is in neither the commit nor the tip tree, and refused outright at zero parsed pins. It runs before any blob POST. The test itself is `missingCheckPins`, defined in `scripts/lib/check-pin-gate.mjs`.
+- `scripts/lib/git-api-publish.mjs` `publishOnce`: each retry re-reads and re-hashes blobs and re-runs `planRebaseOnTip` against the new tip.
+- `scripts/lib/tip-rebase.mjs` `planRebaseOnTip`: on a tip move, a path this publish left unchanged adopts the new tip's blob. A path both sides moved is refused as `REFUSAL_CONTESTED`.
+- `scripts/lib/capture-server.mjs` `makeRootGuard`: a bundle whose hash differs from the boot pin answers 503 `root-hash-changed`. The hash memoises on mtime and size, so an unchanged bundle costs one stat per request.
+- `scripts/static-export.mjs` `bundleAppsIntoSingleModules`: apps are bundled into single modules because `src/apps/AppLoader.js` evaluates app source through a Blob URL. That resolves relative imports against the origin root and misses the Pages base path.
+- `scripts/planet-orbit-hitch-probe.mjs`: `ctrl.setMode('custom')` hands the camera to the probe. It is the only such call in scripts, src and client.
+- `scripts/nearfield-lod-lattice-witness.mjs`: the transect window widens to `cl.extentM / 2`, so a ±30 m window cannot pass on the band alone.
+- `src/terrain/GrassPlacement.js` `GRASS_FOOT_READS`: a blade's height at its clump offset reads the drawn mesh that many times, and falls back to the jet solve when a read is non-finite.
 ## Repo boundaries
 - Module workers have no import map: `src/animation/*.js` import three via `/node_modules/three/build/three.module.js`, never the bare `three` specifier. `scripts/worker-entry-bare-specifier-witness.mjs` pins the whole `WorkerEntry.js` closure; `src/sdk/WorkerBoot.js` turns a module-load failure into a coded `BOOT_ERROR`.
 

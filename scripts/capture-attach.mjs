@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// Attach mode for capture harnesses (PERF-grass-frame-harness-friction-1013). Checks that the shared
-// capture server (scripts/capture-server.mjs) is up and serves the bundle this checkout built, then
-// prints the URL a page load should use. It never starts a server and never launches a browser: a
-// browser capture that attaches closes its own page in its finally block and exits with a named reason.
-// Usage: node scripts/capture-attach.mjs [--expect-sha256=<hex>] [--state=<path>]
-// Exit: 0 ATTACHED, 3 REFUSED (reason named on the RESULT line).
 import { attachCapture, STATE_PATH } from './lib/capture-server.mjs'
 
 const argv = process.argv.slice(2)

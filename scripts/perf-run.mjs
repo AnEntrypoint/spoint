@@ -35,11 +35,6 @@ const WARMUP_SECONDS = flagNumber(flag, 'warmup', 3, argv)
 const BACKEND = flag('backend', 'webgl')
 const GPU = flag('gpu', 'nvidia')
 const WALK = !has('no-walk')
-// A keyboard walk on a ?singleplayer page does not translate the player (the authoritative player
-// never advances and the client is corrected to spawn each tick), so a walk arm that measured 0.38 m
-// over 84 m of route has to fail instead of publishing. 10 m is the bar one-fps-pathology-witness
-// already uses; the four legs net ~0 on purpose, so the floor is on the EXCURSION from the walk's
-// first sample, never on the net.
 const MIN_WALK_MOVED_M = flagNumber(flag, 'min-walk-moved', 10, argv)
 const LEG_MS = flagNumber(flag, 'leg', 10000, argv)
 const INPUT_WAIT_MS = flagNumber(flag, 'input-wait', 60000, argv)
@@ -293,11 +288,6 @@ const GPU_PASS_ARM_SRC = `(() => {
   if (abName) {
     window[abName] = abOn
     abFlipAt = Date.now()
-    // Blocked, not alternating: every frame of block N runs at one state and every frame of block
-    // N+1 at the other, so a run pays abBlocks-1 transitions instead of runMs/abPhaseMs of them.
-    // A resolution-class A/B reallocates the drawing buffer and every render target sized from it
-    // on every flip, so per-phase flipping is both the cost and a measurement error the 700 ms
-    // settle cannot absorb. ?gpuabblocks=<n> buys interleaving back where it is actually wanted.
     const abTimer = setInterval(() => {
       abBlock++
       if (abBlock >= abBlocks) { clearInterval(abTimer); return }
@@ -955,8 +945,6 @@ async function main() {
     console.log(`[perf-run] walk done in ${walkMs}ms, track samples=${track.length}, maxDelta=${maxDelta.toFixed(2)}m`)
     if (WALKER) console.log('[perf-run] walker result: ' + JSON.stringify(await page.evaluate(() => window.__walkDone || null).catch(() => null)))
     if (HEIGHT_PROBE) console.log('[perf-run] height probe result: ' + JSON.stringify(await page.evaluate(() => window.__heightProbe || null).catch(() => null)).slice(0, 3000))
-    // The default arm is the keyboard walk on --room=singleplayer, and that page does not translate
-    // the player, so this used to be a console.log and a 0.38 m walk published as a walk.
     if (WALK && !WALKER) {
       walkFloorFail = walkFloorFailure(track, MIN_WALK_MOVED_M, `the walk (--room=${ROOM_MODE})`)
       if (walkFloorFail) {

@@ -16,10 +16,6 @@ const MAX_TTL_MS = DEFAULT_TTL_MS
 const DEFAULT_WAIT_MS = 600000
 const MIN_WAIT_MS = 0
 const MAX_WAIT_MS = MAX_TTL_MS * 5
-// The browser lease is the other serializer on this box, and it is the one a browser
-// arm queues on. A lane must never be granted the GPU lock while it is still queued
-// for the browser, so the lease is taken with a bounded wait and the lock is claimed
-// only once the lease is in hand: a queued lane then holds neither.
 const DEFAULT_LEASE_WAIT_MS = 150000
 const MIN_LEASE_WAIT_MS = 0
 const MAX_LEASE_WAIT_MS = 600000
@@ -49,9 +45,6 @@ function readOwner() {
   try { return JSON.parse(text) } catch { return null }
 }
 
-// Waiters live BESIDE the lock directory, never inside it: the existence of
-// LOCK_DIR *is* the lock, so anything written into it by a non-holder would
-// either be lost on release or make the directory un-claimable.
 const WAITERS_DIR = `${LOCK_DIR}-waiters`
 const TICKET_MAX_AGE_MS = 3600000
 
@@ -66,11 +59,6 @@ function writeOwner(record, ensureDir = false) {
     writeFileSync(tmp, `${JSON.stringify(record)}\n`, 'utf8')
   }
   write()
-  // Windows denies a rename while another process has the destination open (EPERM)
-  // or the file is briefly busy; that is transient, and losing the race outright
-  // kills the whole arm, so retry a few times before giving up. ENOENT is the
-  // takeover race: the holder released and removed the lock directory between the
-  // write and the rename, so recreate it rather than dying.
   let lastErr
   for (let i = 0; i < 4; i++) {
     try {
@@ -93,30 +81,16 @@ function claim(owner, nonce) {
   try {
     writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs() })
   } catch {
-    // The directory is ours but the owner record never landed, so hand the
-    // directory back rather than leaving a lock nobody can read the holder of.
     try { rmSync(LOCK_DIR, { recursive: true, force: true }) } catch {}
     return false
   }
   return true
 }
 
-// --- fair waiting ---------------------------------------------------------
-// Without a queue, the next holder is whichever poller reaches mkdirSync first,
-// so a lane can be overtaken indefinitely by newer arrivals and time out with no
-// measurement. A ticket records that a lane is waiting, and a ticket defers to
-// any older live one. This is additive: a holder or waiter that knows nothing
-// about tickets (an older gpulock, or a directory where waiters/ is unreadable)
-// is never waited on, because oldestLiveTicket() then answers null.
 function ticketPath(nonce) {
   return join(WAITERS_DIR, `${nowMs()}.${nonce}.json`)
 }
 
-// Seniority is the wait START, not the start of the current retry: --wait-ms is
-// capped at 600000 ms and a holder can hold for hours, so a lane has to retry,
-// and a retry that minted a fresh timestamp would go to the back of the queue
-// every ten minutes and never be served. Set SPOINT_GPU_LOCK_SINCE to the epoch
-// ms the lane first started waiting to keep its place across retries.
 function waitSinceMs() {
   const since = Number(process.env.SPOINT_GPU_LOCK_SINCE)
   return Number.isFinite(since) && since > 0 ? since : nowMs()
@@ -140,6 +114,10 @@ function dropTicket(nonce) {
   } catch {}
 }
 
+function ticketIsGarbage(t) {
+  return !pidAlive(t.pid) || nowMs() - Number(t.ts) > TICKET_MAX_AGE_MS
+}
+
 function oldestLiveTicket() {
   let list
   try { list = readdirSync(WAITERS_DIR) } catch { return null }
@@ -149,9 +127,7 @@ function oldestLiveTicket() {
     let t = null
     try { t = JSON.parse(readFileSync(join(WAITERS_DIR, name), 'utf8')) } catch { continue }
     if (!t || !Number.isFinite(Number(t.ts))) continue
-    if (!pidAlive(t.pid) || nowMs() - Number(t.ts) > TICKET_MAX_AGE_MS) {
-      // A ticket whose process is gone or that outlived any possible wait is
-      // garbage: remove it rather than letting it block the queue forever.
+    if (ticketIsGarbage(t)) {
       try { unlinkSync(join(WAITERS_DIR, name)) } catch {}
       continue
     }
@@ -169,9 +145,6 @@ function waitingOn(owner, nonce, holder) {
 }
 
 function takeOver(owner, nonce, reason) {
-  // The directory may vanish under us: the holder we are taking over from can
-  // release between takeoverAllowed() and here. Recreate it, or the rename of the
-  // owner record dies with ENOENT and the arm never runs.
   try { rmSync(OWNER_FILE, { force: true }) } catch {}
   writeOwner({ owner, pid: process.pid, nonce, childPid: 0, startedAt: nowMs(), heartbeatAt: nowMs(), tookOverFrom: reason }, true)
   return true
@@ -229,11 +202,6 @@ function leaseUnavailableError(owner, waitedMs, root, cause) {
   return e
 }
 
-// One serializer, not two. The GPU lock and the browser lease are independent today, so
-// a lane can be granted the adapter and then queue for minutes behind another lane's
-// browser while it owns it. Pairing inverts that: the lease is taken only while the lock
-// looks free, and the lock is claimed only once the lease is in hand. A queued lane then
-// holds NEITHER, and holding the adapter without holding the browser is impossible.
 async function acquire(owner, nonce, waitMs, leaseWaitMs = null, leaseRoot = null) {
   const deadline = nowMs() + waitMs
   addTicket(owner, nonce)
@@ -366,8 +334,6 @@ async function runMode(argv) {
   if (attempt.tookOverFrom) console.log(`gpulock: ${owner} took the GPU lock from ${attempt.tookOverFrom}`)
   else console.log(`gpulock: ${owner} holds the GPU lock`)
   if (attempt.lease) {
-    // The arm inherits the lease this process already holds instead of claiming a second
-    // one, so the browser and the adapter stay one serializer for the whole arm.
     process.env.SPOINT_BROWSER_LEASE_OWNER_PID = String(process.pid)
     process.env.SPOINT_BROWSER_LEASE_DIR = attempt.lease.dir
     console.log(`gpulock: ${owner} holds the browser lease of ${attempt.lease.dir}, so it claimed the GPU lock only once the browser was in hand`)
@@ -450,10 +416,6 @@ function releaseMode(argv) {
     console.error(`gpulock: refusing to release a lock held by ${record.owner}, not ${owner}`)
     return 1
   }
-  // A bare `release` used to remove ANY holder's lock with no check at all, so one
-  // lane could silently void another lane's running arm. Releasing your own hold
-  // (this process is the holder) still works; releasing someone else's now has to
-  // name them, which is what the call was always supposed to mean.
   if (!owner && Number(record.pid) !== process.pid) {
     console.error(`gpulock: refusing to release a lock this process does not hold (held by ${record.owner} pid ${record.pid}); name the owner to release it on purpose: gpulock.mjs release ${record.owner}`)
     return 1

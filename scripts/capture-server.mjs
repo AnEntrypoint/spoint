@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Shared capture server (PERF-grass-frame-harness-friction-1013): starts ONE long-lived server that
-// serves the built client (client-root=bundle) with the DevHmr channel on. It binds 127.0.0.1 only, pins
-// the served bundle hash at boot, and refuses every request once the bundle on disk no longer matches
-// that pin (503, X-Spoint-Capture-Refusal). It records itself in .gm/capture-server.json. Captures
-// attach with scripts/capture-attach.mjs. Refuses, never double-binds: an answering server recorded in
-// the state file, or any foreign listener on the port, exits 3 with a named reason.
-// Usage: node scripts/capture-server.mjs [--port=8790] [--world=tps-game]
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'

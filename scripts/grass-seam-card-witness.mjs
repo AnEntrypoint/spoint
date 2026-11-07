@@ -1,43 +1,4 @@
 #!/usr/bin/env node
-// Witness: how a grass blade CARD sits on the height step the rendered terrain carries at a tile
-// seam.
-//
-// Owner report: "we see a ridge with no grass where terrain tiles meet". Placement is clean
-// (grass-tile-seam-witness: population continuous across the tile rim) and submission is clean
-// (grass-rim-draw-ring-witness: law-on == drawn in every ring). What is left is the STEP ITSELF and
-// how a card sits on it, so this measures exactly that, on the real surface, with the real placer.
-//
-// The surface a blade is placed on is NOT the exact ground: production builds
-// src/terrain/TerrainMeshSurface.js over the drawn quad payload (client/core/TerrainBackdrop.js:129)
-// and hands it to placement through client/core/ExactPatchFrame.js, so every blade's y comes from
-// the piecewise-linear mesh that is actually drawn. That mesh is continuous INSIDE a quad and
-// discontinuous ACROSS a seam, because two abutting quads of different sizes interpolate the same
-// height function at different sample offsets along their shared edge (a T-junction).
-//
-// A grass blade is not a point: GRASS.CLUMP_R (src/terrain/GrassPlacement.js) is the radius the
-// clump is offset from its cell and the radius of the footprint its cards cover. Where a seam
-// crosses that footprint the surface under one card takes BOTH sides of the step, so the card must
-// float over the low side, sink into the high side, or intersect -- even though the blade's own y is
-// the mesh height at its own foot.
-//
-// Measured per blade, for real blades out of placementsForGrassChunk:
-//   ownM    |blade.y - meshY(blade.x, blade.z)|     -- the residual at the blade's own foot
-//   hiM/loM the rendered surface Y on each side of the step, over the card footprint
-//   floatM  blade.y - loM   (how far the card's base hangs over the low side)
-//   sinkM   hiM - blade.y   (how far the high side buries the card's base)
-//   spanM   hiM - loM       (the step the card has to cover)
-//
-// The step is measured SLOPE-FREE. A one-sided pair h(P+n*e) - h(P-n*e) is the jump plus the slope
-// times 2e, so on a piecewise-linear surface 2*d(e) - d(2e) is the jump alone. The raw pair is also
-// printed, because that is the quantity scripts/nearfield-lod-lattice-witness.mjs perimeterJump
-// reports and it is not slope-free.
-//
-// Non-vacuous in both directions: the seam's own discontinuity is scaled by --arms k (0 welds the
-// two sides to their mean, 1 is the shipped mesh, 3 triples the step) by adding (k-1) times the
-// SEAM'S OWN measured half-jump to the two sides and re-placing the grass from the resulting
-// surface. A metric that does not move with k is an instrument gap, not a measurement.
-//
-// No GPU: every number is CPU main-thread.
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 
@@ -53,14 +14,10 @@ const flag = (n, d) => { const h = argv.find(a => a.startsWith(`--${n}=`)); retu
 const num = (n, d) => { const v = Number(flag(n, NaN)); return Number.isFinite(v) ? v : d }
 
 const WORLD = flag('world', 'tps-game')
-// The frame's chart is where the baked collider lattice is chart-local TO, so a site the world is
-// not anchored at cannot read it: the mirror would answer with another place's ground. The world's
-// own anchor is the production case (client/core/TerrainBackdrop.js builds the frame from
-// cfg.anchorDir).
 const SITE = flag('site', 'world')
-const FOOTPRINT_M = num('footprint', 1.15)          // GRASS.CLUMP_R
+const FOOTPRINT_M = num('footprint', 1.15)
 const SEAM_SAMPLE_M = num('seamStep', 0.5)
-const RING_OVERRIDE = num('ring', 0)                // 0 = derived from where the seams are
+const RING_OVERRIDE = num('ring', 0)
 const VIEW_H = num('viewport-h', 1080)
 const FOVY = num('fovy', 70) * Math.PI / 180
 const ARMS = flag('arms', '0,1,3').split(',').map(Number).filter(Number.isFinite)
@@ -114,7 +71,6 @@ function check(name, got, predicate) {
   return got
 }
 
-// ---------------------------------------------------------------- world, frame
 const world = await loadWorldModule(resolve(ROOT, 'apps', 'world', `${WORLD}.js`))
 const tcfg = world.terrain
 const R = tcfg.radius
@@ -131,10 +87,6 @@ const GRID = TD.gridMeshSize
 const camWorld = frame.localToWorld(0, frame.groundHeightLocal(0, 0) + 1.7, 0)
 const camAlt = Math.hypot(camWorld[0], camWorld[1], camWorld[2]) - R
 
-// ---------------------------------------------------------------- the drawn quad payload, as shipped
-// client/core/TerrainBackdrop.js hands planet.drawnQuads to the mesh mirror. In node the payload is
-// rebuilt the way scripts/nearfield-lod-lattice-witness.mjs rebuilds it: the real Quadtree at the
-// world's own LOD config, then the near-field lattice tiles that replace its inner leaves.
 function leavesFor(maxLevel, splitFactor, floorM, spanLeaves, innerSpanLeaves, onlyFace) {
   const qt = new Quadtree(R)
   qt.computeSplitDist(splitFactor * LOD_STEP, VIEW_H, FOVY)
@@ -191,10 +143,6 @@ surface.sync()
 console.log(`[grass-seam-card] world=${WORLD} site=${SITE} maxLevel=${tcfg.maxLevel} quads=${payload.length} (quadtree ${quadLeaves.length}) gridSize=${GRID} nearQuads=${surface.stats().nearQuads} bake=${sharedLattice ? `N=${sharedLattice.N}/${sharedLattice.extent}m` : 'ABSENT'} lattice=${USE_LATTICE ? 'on' : 'off'}`)
 const meshH = surface.heightAtLocal.bind(surface)
 
-// ---------------------------------------------------------------- where the seams are
-// Two abutting quads of DIFFERENT size share an edge but not its interior sample offsets, so the
-// mesh they interpolate disagrees along that edge. Found geometrically: probe just outside every
-// quad edge and see which quad answers.
 const QUARTER_PI = Math.PI / 4
 function nodeChart(face, u, v) {
   const F = FACE_FRAME[face]
@@ -208,9 +156,7 @@ function nodeChart(face, u, v) {
   const e = frame.east, n = frame.north
   return [(dx * e[0] + dy * e[1] + dz * e[2]) * R, (dx * n[0] + dy * n[1] + dz * n[2]) * R]
 }
-// Ground metres per face-local metre, measured at the camera: face-local units are ~R-scaled, so a
-// fixed face-local sample spacing would be nonsense.
-const GPF0 = (() => {
+const groundPerFaceMetreAtCamera = (() => {
   const f = pickFace(camWorld)
   const lc = worldToFaceLocal(f, camWorld, R)
   return groundPerFaceMetre(lc[0], lc[1], R, 64)
@@ -224,7 +170,6 @@ for (const q of payload) {
 }
 const byFaceKey = new Map()
 for (const [f, arr] of byFace) {
-  // bucket by size so a probe only tests the quads that could contain it
   byFaceKey.set(f, arr)
 }
 function leafAtFace(f, u, v) {
@@ -234,9 +179,7 @@ function leafAtFace(f, u, v) {
   return null
 }
 
-// The jump alone, not the jump plus the slope: on a piecewise-linear surface the one-sided pair is
-// jump + (slope+ + slope-)*e, so 2*d(e) - d(2e) leaves the jump.
-function jumpScale(x, z, nx, nz, e1, e2) {
+function slopeFreeJump(x, z, nx, nz, e1, e2) {
   const a1 = meshH(x - nx * e1, z - nz * e1), b1 = meshH(x + nx * e1, z + nz * e1)
   const a2 = meshH(x - nx * e2, z - nz * e2), b2 = meshH(x + nx * e2, z + nz * e2)
   if (![a1, b1, a2, b2].every(Number.isFinite)) return null
@@ -258,7 +201,7 @@ const EDGES = [
 const seamPts = []
 const diag = { probes: 0, noNeighbour: 0, sameSize: 0, noJump: 0, kept: 0 }
 for (const q of payload) {
-  const n = Math.max(2, Math.min(4000, Math.round((q.l * GPF0) / SEAM_SAMPLE_M)))
+  const n = Math.max(2, Math.min(4000, Math.round((q.l * groundPerFaceMetreAtCamera) / SEAM_SAMPLE_M)))
   for (const e of EDGES) {
     const u0 = e.nu < 0 ? q.ox : (e.nu > 0 ? q.ox + q.l : q.ox)
     const v0 = e.nv < 0 ? q.oy : (e.nv > 0 ? q.oy + q.l : q.oy)
@@ -298,16 +241,11 @@ for (const [lo, hi] of BANDS) {
   if (!j.length) { console.log(`  [${String(lo).padStart(3)},${hi === Infinity ? 'inf' : hi})m  no seam`); continue }
   console.log(`  [${String(lo).padStart(3)},${hi === Infinity ? 'inf' : hi})m  n=${String(j.length).padStart(5)}  jump mean=${f5(mean(j))} p95=${f5(p95(j))} max=${f5(Math.max(...j))} m   raw(slope included) mean=${f5(mean(r))} max=${f5(Math.max(...r))} m`)
 }
-// The jump estimate rests on the two sides being linear in eps over the probe, and on the probe not
-// reaching past a triangle edge into the next one, where the mesh's own kink (cellFlip alternates
-// the diagonal of every grid cell) would read as a jump. So the probe is the SHORTEST one that is
-// still far above the surface's own numerical noise, and the worst seam is re-estimated at four
-// probe sizes: a real discontinuity gives the same number at every size, a kink grows with it.
 {
   const worst = seamPts.reduce((a, b) => (b.half > a.half ? b : a), seamPts[0])
   const est = []
   for (const [e1, e2] of [[0.005, 0.01], [0.02, 0.04], [0.05, 0.1], [0.2, 0.4]]) {
-    const p = jumpScale(worst.x, worst.z, worst.nx, worst.nz, e1, e2)
+    const p = slopeFreeJump(worst.x, worst.z, worst.nx, worst.nz, e1, e2)
     est.push([e1, p === null ? null : Math.round(p * 1e9) / 1e9])
   }
   console.log(`[grass-seam-card] worst seam at (${f2(worst.x)},${f2(worst.z)}) r=${f2(Math.hypot(worst.x, worst.z))}m: jump estimated at probe pairs ${JSON.stringify(est)} m (a kink grows with the probe, a step does not)`)
@@ -317,7 +255,6 @@ console.log(`[grass-seam-card] mesh mirror: ${JSON.stringify(surface.stats())}`)
 check('the reconstructed drawn mesh really carries a step at its seams', jumps.length, (v) => Number.isInteger(v) && v > 20)
 check('the seam jump is measured, not zero', Math.max(...jumps), (v) => Number.isFinite(v) && v > 0)
 
-// ---------------------------------------------------------------- the blades
 const RING = RING_OVERRIDE > 0 ? RING_OVERRIDE : Math.min(112, Math.max(...radii) + 16)
 const ring = createPlacementRing(frame, GRASS, RING)
 const chunkKeys = new Map()
@@ -332,7 +269,6 @@ for (let cz = -spanN; cz <= spanN; cz++) {
 const keys = [...chunkKeys.keys()]
 console.log(`[grass-seam-card] grass ring=${RING}m, ${keys.length} chunk(s) of ${GRASS.CHUNK}m, card footprint r=${FOOTPRINT_M}m (GRASS.CLUMP_R=${GRASS.CLUMP_R})`)
 
-// Spatial index so "is this blade near a seam" is O(1) and not O(seam samples).
 const CELL = 4
 const grid = new Map()
 for (const s of seamPts) {
@@ -357,9 +293,6 @@ function nearestSeam(x, z, bandM) {
   }
   return bd <= bandM ? { d: bd, s: best } : null
 }
-// The seam field: the shipped mesh's own half-jump, signed by which side of the seam a point is on.
-// arm(k) = meshH + (k-1) * seamField, so k=1 IS the shipped surface, k=0 welds the two sides to
-// their mean and k=3 triples the step -- and nothing away from a seam is touched at any k.
 function seamField(x, z) {
   const hit = nearestSeam(x, z, FOOTPRINT_M + 1)
   if (!hit) return 0
@@ -367,11 +300,11 @@ function seamField(x, z) {
   const side = (x - s.x) * s.nx + (z - s.z) * s.nz
   return (side >= 0 ? s.plus : -s.plus) * s.half
 }
-function makeArm(k) {
+function makeArm(seamScale) {
   return (x, z) => {
     const y = meshH(x, z)
     if (y === null || y === undefined || !Number.isFinite(y)) return y
-    return k === 1 ? y : y + (k - 1) * seamField(x, z)
+    return seamScale === 1 ? y : y + (seamScale - 1) * seamField(x, z)
   }
 }
 function placeArm(k) {
@@ -390,22 +323,7 @@ function placeArm(k) {
   frame.renderMeshHeightAtLocal = prev
   return { arm, blades, ms }
 }
-// ------------------------------------------------- the blade's own foot: sampled, or extrapolated
-// The one number on the owner's report that placement uniformity and draw cleanliness did not clear:
-// how far a blade's foot is from the surface it was placed on. A blade is not placed at its cell
-// centre -- GRASS.CLUMP_R offsets it -- and the height it needs is the height AT THE OFFSET.
-// src/terrain/GrassPlacement.js used to extrapolate the cell ground there by a second-order Taylor
-// step and now samples; classify() hands the sampler out as p.riseAt, so putting the extrapolation
-// back is one override and not a second copy of the placer.
-//
-// Both passes run over the SAME classify() output of the SAME cells, so they share the hashes, the
-// coins and therefore the population: only the source of a blade's height differs. That is what makes
-// a fall in the residual attributable to the sample and not to a different set of blades.
-// K_JITX / K_JITZ are GrassPlacement.js's own clump-jitter keys.
 const K_JITX = 20, K_JITZ = 21
-// 'solve' forces the frame's own fallback instead of copying it: a mesh read that answers nothing
-// makes riseAt pay the radial solve along the blade's direction that it paid before this change, so
-// the arm IS the previous code path and not a second copy of the placer.
 function footPass(arm, mode) {
   const prev = frame.renderMeshHeightAtLocal
   frame.renderMeshHeightAtLocal = arm
@@ -441,9 +359,6 @@ function footPass(arm, mode) {
   return { cells, blades, residual, lastP, ms: Number(process.hrtime.bigint() - t0) / 1e6 }
 }
 
-// The card footprint: the centre, the two extremes along the seam normal (the two sides of the
-// step), and a ring at the footprint radius, so the highest and lowest rendered Y under one card
-// are both found.
 const RING8 = []
 for (let i = 0; i < 8; i++) RING8.push([Math.cos((i / 8) * Math.PI * 2), Math.sin((i / 8) * Math.PI * 2)])
 function footprintSpan(arm, x, z, nx, nz) {
@@ -459,9 +374,6 @@ function footprintSpan(arm, x, z, nx, nz) {
   return Number.isFinite(hi) && Number.isFinite(lo) ? { hi, lo } : null
 }
 
-// Does placement actually read the drawn mesh, or does the mirror refuse and the exact solve answer
-// instead? That is one of the candidate mechanisms ("the card was placed against the coarse side"),
-// so it is measured, not assumed.
 const cov = [], dev = []
 for (let i = 0; i < 4000; i++) {
   const a = i * 2.399963, r = Math.sqrt((i + 0.5) / 4000) * RING
@@ -471,8 +383,6 @@ for (let i = 0; i < 4000; i++) {
   if (Number.isFinite(m)) { cov.push(1); dev.push(Math.abs(m - e)) } else cov.push(0)
 }
 console.log(`[grass-seam-card] mirror coverage over the grass ring: ${cov.reduce((a, b) => a + b, 0)}/${cov.length} served; |mesh - exact| mean=${f5(mean(dev))} p95=${f5(p95(dev))} max=${f5(Math.max(...dev))} m`)
-// If the mirror disagrees with the exact solve by metres the reconstruction is reading another
-// place's ground, and every number below would be about that and not about a seam.
 check('the mirror really reconstructs this site: |mesh - exact| stays under 0.25 m over the grass ring', Math.round(mean(dev) * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.25)
 
 const arms = []
@@ -484,8 +394,6 @@ for (const k of ARMS) {
     const hit = nearestSeam(b.x, b.z, FOOTPRINT_M + 1)
     if (!hit) continue
     nSeam++
-    // Straddling: the seam line passes through the card's own footprint, so the surface under one
-    // card takes both sides of the step.
     if (hit.d > FOOTPRINT_M) continue
     nStraddle++
     const s = hit.s
@@ -494,9 +402,6 @@ for (const k of ARMS) {
     if (!j) continue
     const J = Math.abs(j.jump)
     jumpM.push(J)
-    // The blade is placed at the height of ITS OWN side, so the far side is where the card cannot
-    // follow: it hangs over the far side when the far side is the lower one, and is buried by it
-    // when the far side is the higher one.
     if (side * j.jump > 0) floatM.push(J); else sinkM.push(J)
     const ownY = r.arm(b.x, b.z)
     if (Number.isFinite(ownY)) own.push(Math.abs(b.y - ownY))
@@ -526,25 +431,18 @@ for (const a of arms) {
   console.log(`        buried by the high side   n=${a.sink.n} mean=${f5(a.sink.mean)} p95=${f5(a.sink.p95)} max=${f5(a.sink.max)} m`)
 }
 
-// ------------------------------------------------ the blade's own foot, over every blade in the ring
 const maxOf = (a) => { let m = -Infinity; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return a.length ? m : NaN }
 const stat = (a) => ({ n: a.length, mean: mean(a), p95: p95(a), max: maxOf(a) })
 const footEx = footPass(makeArm(1), 'extrapolate')
 const footSv = footPass(makeArm(1), 'solve')
 const footRd = footPass(makeArm(1), 'read')
 const fB = stat(footEx.residual), fS = stat(footSv.residual), fA = stat(footRd.residual)
-// Counted work units. A cell pays 5 solves however many blades it places -- one surfaceOfCell plus
-// the jet's four probes. A blade's own foot is what changed: nothing while it is extrapolated from
-// the cell, one radial solve while it is solved along the blade's own direction, and
-// GRASS_FOOT_READS reads of the frame's drawn mesh now that it is read at the blade's own (x,z).
 const CELL_SAMPLES = 5
 const sB = CELL_SAMPLES * footEx.cells
 const sS = CELL_SAMPLES * footSv.cells + footSv.blades
 const sA = CELL_SAMPLES * footRd.cells + GRASS_FOOT_READS * footRd.blades
 const perBefore = sB / Math.max(1, footEx.blades), perSolve = sS / Math.max(1, footSv.blades), perAfter = sA / Math.max(1, footRd.blades)
 const f7 = (v) => (Number.isFinite(v) ? v.toFixed(7) : 'n/a')
-// What a solve of this mesh costs against what one read of the same mesh costs, so the price of a
-// blade is measured in the same unit in both arms instead of being assumed equal per sample.
 let usRead = NaN, usSolve = NaN
 {
   const N = 20000
@@ -572,7 +470,6 @@ const tripled = arms.find((a) => a.k === 3) || null
 const S = shipped || {}
 console.log(`[grass-seam-card] MEASURED grass-seam-card: at k=1 the step a straddling card must cover is ${f5(S.jump && S.jump.mean)} m mean / ${f5(S.jump && S.jump.p95)} m p95 / ${f5(S.jump && S.jump.max)} m max, over ${S.nStraddle} of ${S.blades} blade(s) (${pct(S.nStraddle, S.blades)}); ${S.float ? S.float.n : 0} hang over the low side (max ${f5(S.float && S.float.max)} m) and ${S.sink ? S.sink.n : 0} are buried by the high side (max ${f5(S.sink && S.sink.max)} m); each blade's own foot is ${f5(S.own && S.own.mean)} m off the surface it was placed on`)
 
-// ---- the instrument, and the mechanism it separates
 check('the grass actually placed', S.blades, (v) => Number.isInteger(v) && v > 1000)
 check('some blade cards really straddle a seam', S.nStraddle, (v) => Number.isInteger(v) && v > 20)
 check('the blade is placed ON the surface at its own foot, not off it', S.own ? Math.round(S.own.mean * 1e6) / 1e6 : null, (v) => Number.isFinite(v) && v <= 0.01)
@@ -581,16 +478,10 @@ if (welded && shipped && tripled) {
   check('NON-VACUOUS UP: tripling the step grows what a card must cover', [Math.round(shipped.jump.max * 1e9) / 1e9, Math.round(tripled.jump.max * 1e9) / 1e9], (v) => Array.isArray(v) && v[1] > v[0] * 2)
   check('the step, not the placer, is what the card cannot cover: the own-foot residual is k-independent', [Math.round(welded.own.mean * 1e6) / 1e6, Math.round(shipped.own.mean * 1e6) / 1e6, Math.round(tripled.own.mean * 1e6) / 1e6], (v) => Array.isArray(v) && Math.max(...v) <= 0.01)
   check('the seam does not remove grass: welding it changes the blade count under 1%', Math.round(10000 * Math.abs(welded.blades - shipped.blades) / Math.max(1, shipped.blades)) / 100, (v) => Number.isFinite(v) && v <= 1)
-  // The pin. A card is a flat-based billboard: it can only be detach-visible if the step it has to
-  // cover is a visible fraction of the card, so the bound is 10 mm at p95 -- far under the 0.06257 m
-  // rim step the row was opened on, and under anything the eye can pick out at 40-90 m.
   check('a straddling card never has to cover a visible step: p95 under 10 mm', Math.round(shipped.jump.p95 * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.01)
   check('a straddling card never has to cover a visible step: max under 50 mm', Math.round(shipped.jump.max * 1e6) / 1e6, (v) => Number.isFinite(v) && v <= 0.05)
 }
 
-// The pin, and the non-vacuity of the instrument in both directions: the residual has to FALL when
-// the blade's own offset is sampled and RISE when the cell-ground extrapolation is put back. A
-// residual that never moves is an instrument gap, not a measurement.
 check('all three foot passes placed the same population', [footEx.blades, footSv.blades, footRd.blades], (v) => Array.isArray(v) && v[0] === v[1] && v[1] === v[2] && v[0] > 10000)
 check('NON-VACUOUS UP: the extrapolation really carried a residual (not an instrument gap)', Math.round(fB.mean * 1e6) / 1e6, (v) => Number.isFinite(v) && v > 0.001)
 check('NON-VACUOUS DOWN: solving the blade foot cuts the mean residual at least 5x', [Math.round(fB.mean * 1e6) / 1e6, Math.round(fS.mean * 1e6) / 1e6], (v) => Array.isArray(v) && v[1] * 5 <= v[0])

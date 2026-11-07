@@ -1,23 +1,3 @@
-// Witness: the three surfaces near the player -- the collider's baked lattice, the CPU mirror of the
-// rendered terrain mesh, and the placement sampler -- and how much of the same (x,z) height they each
-// recompute.
-//
-// The three consumers of one ground, as they shipped:
-//   COLLIDER  src/terrain/HeightfieldStreamer.js builds a Jolt HeightFieldShape at the spacing
-//             src/shared/colliderLattice.js derives; inside the bake's coverage it reads the baked
-//             artifact (apps/world/tps-game.hf, N=257 over 256 m = 1.0000 m) and outside it re-solves.
-//   MESH      src/terrain/TerrainMeshSurface.js reconstructs the drawn quads on the CPU by calling
-//             sampler.heightAt once PER VERTEX, so placement can sit on what is drawn.
-//   PLACEMENT src/terrain/PlacementChart.js surfaceAlongDir solves the surface per cell (five solves
-//             per grass cell: one for the cell, four for the slope/curvature jet), and
-//             src/terrain/GrassPlacement.js then extrapolates each blade off that cell.
-//
-// So one (x,z) near the player was answered up to four times: once by the GPU vertex stage, once by
-// the CPU mirror, once by the collider field, once per placement solve. The increment makes the CPU
-// mirror read the collider's own sample buffer, so the mirror, the collider and everything placement
-// asks are one copy, and this measures both halves: what that costs and exactly what it moves.
-//
-// No GPU: every number here is CPU main-thread, and no per-pass GPU timing is cited anywhere.
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 
@@ -82,8 +62,6 @@ const worldSeed = (tcfg.seed ?? 0) | 0
 const sampler = createHeightSampler({ radius: R, seed: tcfg.seed, reliefScale: tcfg.reliefScale, hashVersion, carves: terrainCarvesOf(tcfg) })
 const frame = createPlanetFrame({ sampler, anchorDir: tcfg.anchorDir || [0, 1, 0], offsetY: tcfg.offsetY || 0, reliefScale: tcfg.reliefScale })
 
-// Counted work: every CPU surface above is ultimately this one call, so counting it counts, in one
-// unit, how many times the same question is answered per unit of placement work.
 let solveCalls = 0
 const rawHeightAt = sampler.heightAt.bind(sampler)
 sampler.heightAt = (d) => { solveCalls++; return rawHeightAt(d) }
@@ -95,7 +73,6 @@ console.log(`bake=${tcfg.bakedHeightfield || '(none)'} ${baked ? `N=${baked.N} e
 expect('the verified bake loaded', !!baked, (v) => v === true)
 expect('the bake is the collider lattice: 1.0000 m over 256 m', baked ? [baked.N, bakedStep] : null, (v) => Array.isArray(v) && v[0] === 257 && Math.abs(v[1] - 1) < 1e-9)
 
-// ---------------------------------------------------------------- 1. lattice vs the exact CPU solve
 const half = baked.extent / 2
 const bands = BANDS.map(() => ({ n: 0, all: [] }))
 let nodeMax = 0
@@ -128,7 +105,6 @@ console.log(`  on the lattice's own nodes: max |delta| = ${nodeMax.toFixed(6)} m
 expect('lattice-vs-exact stays under 0.05 m mean inside the grass ring', r6(mean(bands[0].all)), (v) => finite(v) && v <= 0.05)
 expect('on-node quantization stays under 1 mm', r6(nodeMax), (v) => finite(v) && v <= 0.001)
 
-// ---------------------------------------------------------------- 2. what one answer costs
 function timePerCall(fn, n, make) {
   const args = []
   for (let i = 0; i < n; i++) args.push(make(i))
@@ -150,7 +126,6 @@ console.log(`  frame.elevationAtDir   : ${usElev.toFixed(3)} us  (${(usElev / us
 console.log(`  sampler.heightAt (raw) : ${usRaw.toFixed(3)} us  (${(usRaw / usBake).toFixed(0)}x)`)
 expect('one lattice sample is at least 10x cheaper than the chart-local solve', Math.round(usGround / usBake), (v) => finite(v) && v >= 10)
 
-// ---------------------------------------------------------------- 3. the drawn mesh, on the CPU
 const qt = new Quadtree(R)
 const lod = resolveLodConfig({ maxLevel: tcfg.maxLevel, splitFactor: tcfg.splitFactor }, 70 * Math.PI / 180)
 const splitDist = applyLodConfig(qt, R, 1080, lod)
@@ -170,10 +145,6 @@ for (let i = 0; i < leaves.length; i++) {
 }
 const quads = () => ({ offsets, faces, count: leaves.length, gridSize: TD.gridMeshSize, radius: R })
 console.log(`--- drawn mesh: maxLevel=${lod.maxLevel} splitDist=${splitDist.toFixed(3)} quads=${leaves.length} gridSize=${TD.gridMeshSize} vertsPerQuad=${(TD.gridMeshSize + 1) ** 2}`)
-// The duplicate, in one count: the GPU vertex stage evaluates the height function at every vertex of
-// every drawn quad EVERY frame, and the CPU mirror evaluated the same function again at the same
-// vertices to answer placement. The collider evaluates it once per field node, but reads the bake for
-// those. No GPU timing is used or implied -- this is a count of evaluations, not a measure of time.
 console.log(`--- same ground, counted evaluations: GPU vertex stage ${leaves.length * (TD.gridMeshSize + 1) ** 2}/frame ; collider field ${257 * 257} nodes per field (read from the bake where it covers) ; CPU mirror one per materialised vertex`)
 
 const anchorField = createCachedAnchorField(sampler.anchorField, frame)
@@ -185,9 +156,8 @@ for (let cz = -1; cz <= 1; cz++) for (let cx = -1; cx <= 1; cx++) {
 }
 const cellsPerChunk = GRASS.GRID * GRASS.GRID
 
-// One mirror per arm. The only difference between them is where a vertex's height comes from.
-function placeAll(latticeOpt) {
-  const surface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads, ...(latticeOpt ? { lattice: latticeOpt } : {}) })
+function placeAll(heightLattice) {
+  const surface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads, ...(heightLattice ? { lattice: heightLattice } : {}) })
   surface.setFocus(0, 0)
   surface.sync()
   const prev = frame.renderMeshHeightAtLocal
@@ -232,9 +202,6 @@ expect('AFTER: no mirror vertex needed the sampler', after.stats.latticeVertexMi
 expect('AFTER: the sampler was never called', after.solves, (v) => v === 0)
 expect('AFTER is no slower than BEFORE', r6(after.ms / before.ms), (v) => finite(v) && v <= 1.05)
 
-// ---------------------------------------------------------------- 4. exactly what moved
-// The point of one copy is that the consumers AGREE, so what matters is not agreement with a third
-// surface but the pairwise delta between the two builds over the same cells and the same blades.
 const bladeDy = [], cellDy = []
 let bladeCountMismatch = 0
 for (let c = 0; c < chunks.length; c++) {
@@ -257,12 +224,6 @@ expect('cell ground moved less than 5 cm', r6(Math.max(...cellDy)), (v) => finit
 expect('blade y moved less than 10 cm', r6(Math.max(...bladeDy)), (v) => finite(v) && v <= 0.1)
 expect('the change is not a no-op: something moved', r6(Math.max(...cellDy)), (v) => finite(v) && v > 0)
 
-// ---------------------------------------------------------------- 6. the same increment, for trees
-// Grass only reaches 61.6 m, where the drawn mesh is still at the collider's own spacing. Trees and
-// rocks reach far past it, and out there the drawn mesh is COARSE (measured 1.9 m at 61 m, 7.7 m at
-// 100 m), so reading the lattice there moves placement off the surface you see and onto the surface
-// the collider walks. That is the ruling's intent -- the collider lattice is the ground -- but it is
-// a move, so it is measured per band instead of assumed.
 const vegBands = [[0, 32], [32, 64], [64, 96], [96, 128]]
 const vegStats = vegBands.map(() => ({ n: 0, all: [] }))
 let vegCountMismatch = 0
@@ -274,8 +235,8 @@ try {
     const t = (a * Math.PI) / 180
     vegKeys.push(chunkKeyAtLocal(vegLattice, frame, Math.cos(t) * d, Math.sin(t) * d))
   }
-  const placeVeg = (latticeOpt) => {
-    const surface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads, ...(latticeOpt ? { lattice: latticeOpt } : {}) })
+  const placeVeg = (heightLattice) => {
+    const surface = createTerrainMeshSurface({ frame, heightAtDir: (d) => sampler.heightAt(d), quads, ...(heightLattice ? { lattice: heightLattice } : {}) })
     surface.setFocus(0, 0)
     surface.sync()
     const prev = frame.renderMeshHeightAtLocal
@@ -315,10 +276,6 @@ try {
   console.log(`--- tree placement A/B skipped: ${(e && e.message) || e}`)
 }
 
-// ---------------------------------------------------------------- 5. what the extrapolation costs
-// The blade's y is the cell's ground plus a second-order Taylor step out to the clump's offset, so it
-// disagrees with the surface AT the blade's own (x,z) by the extrapolation's own error. That is the
-// residual still open, and it is measured here so it can be closed from a number and not a hunch.
 const bladeVsLattice = []
 for (const list of after.lists) {
   if (!list) continue
