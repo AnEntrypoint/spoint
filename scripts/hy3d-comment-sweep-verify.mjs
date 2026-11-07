@@ -1,14 +1,50 @@
 import fs from 'node:fs'
+import os from 'node:os'
+import { dirname, join, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const AUDIT = '/tmp/hy3d-sd-audit.md'
-const HY3D = '/workspace/hy3d'
+const ARGS = process.argv.slice(2)
+const POSITIONAL = ARGS.filter(a => !a.startsWith('--'))
+const option = (name, fallback) => {
+  const hit = ARGS.find(a => a.startsWith('--' + name + '='))
+  return hit ? hit.slice(name.length + 3) : fallback
+}
+const AUDIT = option('audit', '/tmp/hy3d-sd-audit.md')
+const HY3D = option('hy3d', '/workspace/hy3d')
 const SPOINT = '/workspace/spoint'
+const AUDIT_PREFIX = '/workspace/hy3d/'
 const TICK = String.fromCharCode(96)
 
 function run(cmd, args, cwd) {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
   return { ok: r.status === 0, code: r.status, out: String(r.stdout || ''), err: String(r.stderr || '') }
+}
+
+let PIN = null
+let SCRATCH = null
+
+function relOf(file) {
+  return relative(HY3D, file)
+}
+
+function toLocal(p) {
+  return join(HY3D, p.slice(AUDIT_PREFIX.length))
+}
+
+function readText(file) {
+  if (PIN === null) return fs.readFileSync(file, 'utf8')
+  const r = run('git', ['-C', HY3D, 'show', PIN + ':' + relOf(file)])
+  if (!r.ok) throw new Error('git show ' + PIN + ':' + relOf(file) + ' failed: ' + r.err.trim())
+  return r.out
+}
+
+function materialize(file) {
+  if (PIN === null) return file
+  if (SCRATCH === null) SCRATCH = fs.mkdtempSync(join(os.tmpdir(), 'hy3d-sweep-'))
+  const dst = join(SCRATCH, relOf(file))
+  fs.mkdirSync(dirname(dst), { recursive: true })
+  fs.writeFileSync(dst, readText(file))
+  return dst
 }
 
 function sectionLines(lines, startPrefix, endPrefix) {
@@ -30,13 +66,13 @@ function parseAudit() {
   for (const line of tableLines) {
     if (line.startsWith('| ' + TICK + '/workspace/hy3d/')) {
       const parts = line.split(TICK)
-      if (parts.length > 1) table.push(parts[1])
+      if (parts.length > 1) table.push(toLocal(parts[1]))
     }
   }
   for (const line of commentLines) {
     if (line.startsWith('- ' + TICK + '/workspace/hy3d/') && line.includes('[shebang]')) {
       const parts = line.split(TICK)
-      if (parts.length > 1) shebangs.push(parts[1].split(':')[0])
+      if (parts.length > 1) shebangs.push(toLocal(parts[1].split(':')[0]))
     }
   }
   for (const line of secretLines) {
@@ -45,7 +81,7 @@ function parseAudit() {
       if (parts.length > 1) {
         const rest = line.slice(line.indexOf(' - ') + 3)
         const kind = rest.replace(/\s*\| value: \[REDACTED\].*$/, '')
-        findings.push({ file: parts[1].split(':')[0], kind })
+        findings.push({ file: toLocal(parts[1].split(':')[0]), kind })
       }
     }
   }
@@ -87,7 +123,7 @@ function trailingCommentKind(line, file) {
 }
 
 function commentViolations(file, shebangSet) {
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/)
+  const lines = readText(file).split(/\r?\n/)
   const out = []
   lines.forEach((line, i) => {
     const kind = commentKind(line) || trailingCommentKind(line, file)
@@ -99,7 +135,7 @@ function commentViolations(file, shebangSet) {
 }
 
 function shebangKept(file) {
-  const first = fs.readFileSync(file, 'utf8').split(/\r?\n/)[0] || ''
+  const first = readText(file).split(/\r?\n/)[0] || ''
   return first.trimStart().startsWith('#!')
 }
 
@@ -118,20 +154,20 @@ function rawSecretHitsIn(text) {
 }
 
 function rawSecretHits(file) {
-  return rawSecretHitsIn(fs.readFileSync(file, 'utf8'))
+  return rawSecretHitsIn(readText(file))
 }
 
 const ENV_REF = /process\.env\.|import\.meta\.env|os\.environ|secrets\.|Deno\.env|getenv\(|ENV\[/g
 const AUTH_REF = /Authorization|authorization|Bearer|bearer|X-API-Key|api[_-]?key/gi
 
 function referenceCount(file, kind) {
-  const text = fs.readFileSync(file, 'utf8')
+  const text = readText(file)
   const re = /environment variable/.test(kind) ? ENV_REF : AUTH_REF
   return (text.match(new RegExp(re.source, re.flags)) || []).length
 }
 
 function tsvCheck(file) {
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(l => l.length > 0)
+  const lines = readText(file).split(/\r?\n/).filter(l => l.length > 0)
   if (!lines.length) return { ok: false, out: '', err: 'empty TSV' }
   const cols = lines[0].split('\t').length
   const bad = lines.filter(l => l.split('\t').length !== cols).length
@@ -139,10 +175,11 @@ function tsvCheck(file) {
 }
 
 function syntaxCheck(file) {
-  if (/\.(mjs|js)$/.test(file)) return run('node', ['--check', file])
-  if (/\.py$/.test(file)) return run('python3', ['-c', "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())", file])
-  if (/\.sh$/.test(file)) return run('bash', ['-n', file])
   if (/\.tsv$/.test(file)) return tsvCheck(file)
+  const target = materialize(file)
+  if (/\.(mjs|js)$/.test(file)) return run('node', ['--check', target])
+  if (/\.py$/.test(file)) return run('python3', ['-c', "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())", target])
+  if (/\.sh$/.test(file)) return run('bash', ['-n', target])
   return { ok: true, out: 'no-syntax-check', err: '' }
 }
 
@@ -166,7 +203,7 @@ function commitChecks(sha, files) {
   const pushedOk = remote.startsWith(sha) || remote === full || (ancestry.ok && remote.length > 0)
   const tree = run('git', ['-C', HY3D, 'diff-tree', '--no-commit-id', '--name-only', '-r', sha])
   const paths = tree.out.trim().split('\n').filter(Boolean)
-  const rel = files.map(f => f.replace('/workspace/hy3d/', ''))
+  const rel = files.map(relOf)
   const missing = rel.filter(p => !paths.includes(p))
   const envCommitted = paths.includes('.env')
   const status = run('git', ['-C', HY3D, 'status', '--porcelain', '--', ...rel])
@@ -218,13 +255,12 @@ function buildReport(s) {
   return lines.join('\n') + '\n'
 }
 
-const args = process.argv.slice(2)
 const audit = parseAudit()
 const files = audit.table
 const shebangSet = new Set(audit.shebangs)
 const findings = audit.findings
 
-if (args[0] === '--self-test') {
+if (ARGS.includes('--self-test')) {
   const exists = files.every(f => fs.existsSync(f))
   const syntax = files.map(f => ({ file: f, ok: syntaxCheck(f).ok }))
   const raw = files.reduce((n, f) => n + rawSecretHits(f), 0)
@@ -233,18 +269,19 @@ if (args[0] === '--self-test') {
   process.exit(ok ? 0 : 1)
 }
 
-const sha = (args[0] || '').toLowerCase()
+const sha = (POSITIONAL[0] || '').toLowerCase()
 if (!sha || !/^[0-9a-f]{7,40}$/.test(sha)) {
-  console.error('usage: node /tmp/hy3d-comment-sweep-verify.mjs <commit-sha>')
+  console.error('usage: node scripts/hy3d-comment-sweep-verify.mjs [--hy3d=<path>] [--audit=<path>] [--self-test] <commit-sha>')
   process.exit(2)
 }
 
+PIN = sha
 const commentFindings = files.map(f => ({ file: f, violations: commentViolations(f, shebangSet) })).filter(x => x.violations.length)
 const violationCount = commentFindings.reduce((n, x) => n + x.violations.length, 0)
 const shebangMissing = [...shebangSet].filter(f => !shebangKept(f))
 const rawFileHits = files.reduce((n, f) => n + rawSecretHits(f), 0)
 const refChecks = findings.map(f => ({ file: f.file, kind: f.kind, count: referenceCount(f.file, f.kind) }))
-const removedRefs = ['/workspace/hy3d/work/combat/mk-tsv.py']
+const removedRefs = [join(HY3D, 'work/combat/mk-tsv.py')]
 const refMissing = refChecks.filter(x => x.count === 0).map(x => x.file).filter(f => !removedRefs.includes(f))
 const refTotal = refChecks.reduce((n, x) => n + x.count, 0)
 const syntax = files.map(f => ({ file: f, ok: syntaxCheck(f).ok }))
@@ -267,5 +304,6 @@ const draft = buildReport({ ...state, pass: hy3dOk, reportRaw: 0 })
 const reportRaw = rawSecretHitsIn(draft)
 const pass = hy3dOk && reportRaw === 0
 process.stdout.write(buildReport({ ...state, pass, reportRaw }))
+if (SCRATCH !== null) fs.rmSync(SCRATCH, { recursive: true, force: true })
 console.log(JSON.stringify({ pass, files: files.length, violationCount, shebangMissing: shebangMissing.length, rawFileHits, refTotal, refMissing: refMissing.length, removedRefs: removedRefs.length, syntaxFailures: syntaxFailures.length, commitOk: commit.ok, spointUnchanged: spoint.unchanged, reportRaw }))
 process.exit(pass ? 0 : 1)
