@@ -166,7 +166,8 @@ export function auditReceipts({ witnessOut = DEFAULT_WITNESS_OUT, prdText, logTe
       continue
     }
     summary.dispatchBound += 1
-    const token = (RECEIPT_MENTION.exec(witness) ?? [null])[0]
+    const declared = topField(block.raw, 'witness_path')
+    const token = (RECEIPT_MENTION.exec(witness) ?? [null])[0] ?? (declared.startsWith(RECEIPT_PREFIX) ? declared : null)
     const mention = token !== null && !NOT_A_CONCRETE_PATH.test(token) ? token : null
     if (mention === null) {
       if (selected) summary.noReceiptNamed.push(id)
