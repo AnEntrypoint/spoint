@@ -1,0 +1,8 @@
+KISS-n-r209-7 fix verdict (half 2: hit height from the scene, not the constant ARC_GROUND_Y).
+Half 1 (dead idx<positions.length guard): already removed; the arc writes positions unconditionally.
+Command: node scripts/xr-teleport-ground-witness.mjs
+floor marker visible=true y=2.02 expected=2.02
+no-floor marker visible=false (expected false: no ground, no teleport target)
+RESULT: PASS teleport marker sits on the scene surface it hits, and no-surface shows no target
+exit 0
+Before the fix on HEAD (same witness, client/xr/XRWidgets.js ARC_GROUND_Y path): floor marker y=0.12000000000000001 expected=2.02; RESULT: FAIL.

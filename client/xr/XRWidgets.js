@@ -7,7 +7,7 @@ const ARC_SEGMENTS = 20
 const ARC_STEP_S = 0.05
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
-const ARC_GROUND_Y = 0.1
+const DOWN = new THREE.Vector3(0, -1, 0)
 const TELEPORT_MOVE_MS = 200
 const TELEPORT_SETTLE_MS = 200
 
@@ -127,18 +127,36 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
     if (aborted) { fadeOpacity = 0; fadeDelayElapsed = 0; if (fadePhase === FADE_IN || fadePhase === FADE_DELAY) fadePhase = FADE_IDLE }
   }
 
+  const groundRay = new THREE.Raycaster()
+
+  function isGroundCandidate(object) {
+    return object.visible && object !== teleportArc && object !== teleportMarker
+  }
+
+  function surfaceBelow(x, z, ceilingY) {
+    groundRay.set(new THREE.Vector3(x, ceilingY, z), DOWN)
+    const hit = groundRay.intersectObjects(scene.children.filter(isGroundCandidate), true).find(h => h.object.isMesh && h.object.visible)
+    return hit ? hit.point.y : null
+  }
+
   function computeParabolicArc(origin, direction) {
-    const positions = teleportArc.geometry.attributes.position.array; let idx = 0, hit = null
+    const positions = teleportArc.geometry.attributes.position.array; let idx = 0, hit = null, prev = null
     for (let i = 0; i < ARC_SEGMENTS; i++) {
       const t = i * ARC_STEP_S
       const x = origin.x + direction.x * ARC_VELOCITY * t
       const y = origin.y + direction.y * ARC_VELOCITY * t + 0.5 * ARC_GRAVITY * t * t
       const z = origin.z + direction.z * ARC_VELOCITY * t
       positions[idx++] = x; positions[idx++] = y; positions[idx++] = z
-      if (!hit && y < ARC_GROUND_Y) {
-        const pt = (i - 1) * ARC_STEP_S, py = origin.y + direction.y * ARC_VELOCITY * pt + 0.5 * ARC_GRAVITY * pt * pt
-        if (py > ARC_GROUND_Y) { const f = (ARC_GROUND_Y - py) / (y - py), ht = pt + f * ARC_STEP_S; hit = { point: new THREE.Vector3(origin.x + direction.x * ARC_VELOCITY * ht, ARC_GROUND_Y, origin.z + direction.z * ARC_VELOCITY * ht), valid: true } }
+      const surface = hit === null ? surfaceBelow(x, z, origin.y) : null
+      if (surface === null) { prev = null; continue }
+      const diff = y - surface
+      if (prev !== null && prev.diff >= 0 && diff < 0) {
+        const f = prev.diff / (prev.diff - diff), ht = prev.t + f * ARC_STEP_S
+        const hx = origin.x + direction.x * ARC_VELOCITY * ht, hz = origin.z + direction.z * ARC_VELOCITY * ht
+        const hy = surfaceBelow(hx, hz, origin.y)
+        if (hy !== null) hit = { point: new THREE.Vector3(hx, hy, hz), valid: true }
       }
+      prev = { t, diff }
     }
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }
