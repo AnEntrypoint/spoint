@@ -106,6 +106,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
     teleportArc.visible = false; scene.add(teleportArc)
     teleportMarker = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide }))
     teleportMarker.name = 'teleportMarker'; teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker)
+    groundCandidates()
   }
 
   function executeTeleport(pt) {

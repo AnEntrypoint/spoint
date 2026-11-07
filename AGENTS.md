@@ -155,6 +155,16 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/perf-run.mjs` `--knob=<key>=<value>` (or `?knob=` in `--extra`) applies render knobs by registry `key` verbatim (`maxLevel`, not `__maxLevel`) through a setter trap on `window.__renderControls`, so a knob lands when the page assigns it, before boot-time reads. The script injected at document start applies each knob with `registry.set`.
 - `window.__vegAllOff` hides the foliage branch, leaf and shared-impostor meshes in `client/core/Vegetation.js` while set; `window.__vegHideFar` hides a named list the same way, and there is no per-part app toggle.
 
+## XR teleport arc
+
+- `client/xr/XRWidgets.js` `computeParabolicArc` reads the world matrices that the previous render left. `client/app.js` runs the XR update inside `buildFrameSectionNodes` before `renderGraph.run`, which `scripts/xr-arc-frame-order-witness.mjs` pins. A mesh added this frame is not targetable until one render computes its matrix, and a moving platform lags one frame.
+- `client/xr/XRWidgets.js` `initTeleport` builds the BVH for each ground mesh at or above `ARC_BOUNDS_TREE_MIN_TRIANGLES` (2000 triangles) through `groundCandidates`. A 320000-triangle terrain paid about 150 ms on the first aim before this, and now pays it at `initTeleport`; `scripts/xr-teleport-warm-witness.mjs` pins that. The build is moved, not removed: `initTeleport` is one synchronous task, so XR setup stalls by that amount.
+- Meshes under 2000 triangles still raycast brute force. Their cost at large counts is unmeasured.
+- `scripts/xr-arc-cost-witness.mjs` measures Node CPU, not a browser frame. Its steady p95 varied from 1.7 to 3.1 ms across runs, so it stays out of `scripts/check.mjs`.
+- The real planet terrain is not known to be one 320000-triangle mesh. The cost figure assumes one.
+- Controller, grip, hand and reticle objects are excluded from the ground probe only through `userData.xrPointer`, set by `addPointerObject` in `client/xr/XRSystem.js`. That exclusion is not verified in a headset.
+- A headful run of the real app on Xvfb reaches `loadingMachine.isReady` (e2e-ci-arena, about 8 s, 0 page errors) and runs rAF at 16.7 ms p50 with `navigator.xr` present. No XR session was entered, so `window.__app.xrSystem` is absent and the arc was not exercised live. Frame order is covered by the static witness only.
+
 ## Entry points
 
 - `ctx.defineGameFSM(spec)` `src/behaviours/game-fsm.js`; `ClientMachine.js` xstate5 parallel, fallback `after:` 10 s gated / 45 s hard stop. `ctx.defineFire(spec)` `src/behaviours/fire.js` (wired in `src/apps/AppContext.js`, default off).
