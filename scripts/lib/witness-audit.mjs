@@ -91,7 +91,7 @@ const HIGH_CHECKS = [
     why: 'prints PASS with no FAIL literal, no non-zero exit and no throw, so the verdict is a constant',
     find(text) {
       if (!has(text, /RESULT/) || !has(text, /\bPASS\b/)) return []
-      if (has(text, /\bFAIL\b/) || has(text, /process\.exit\(\s*[1-9]/) || has(text, /throw\s+new/)) return []
+      if (has(text, /\bFAIL\b/) || has(text, /process\.exit\(\s*[1-9]/) || has(text, /throw\s/) || (has(text, /from ['"]node:assert(\/strict)?['"]/) && has(text, /\bassert(?:\.\w+)?\(/))) return []
       return evidence(text, /.*RESULT.*PASS.*/g)
     },
   },
