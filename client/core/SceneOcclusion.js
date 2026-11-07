@@ -6,12 +6,6 @@ import { dbg } from './debug-log.js'
 
 const _dbgOcclusion = dbg('occlusion')
 
-// The tier is chosen by what the renderer can actually answer a query with, not by a
-// setting. OcclusionQueryTier needs a WebGL2 context, so under the default
-// WebGPURenderer its supported() is false and every query asked of it is dropped before
-// one is issued -- which is why this system owned a real population and had never run.
-// WebGpuHizTier reads the same depth buffer through a compute pass instead, so it works
-// on the renderer that is actually in force.
 function createOcclusionTier(renderer, opts) {
   if (renderer && renderer.isWebGPURenderer) return new WebGpuHizTier(renderer, opts)
   return new OcclusionQueryTier(renderer, opts)
@@ -185,9 +179,6 @@ export function createSceneOcclusion(renderer, opts = {}) {
       subsystems: subsystems.map(s => s.name),
       candidateCount,
       candidates: candidateCount,
-      // The HiZ tier counts its cluster dispatches in `queried` and its box dispatches in
-      // `entityTested`; this system's population is all boxes, so reading `queried` alone
-      // would print a zero that is indistinguishable from "the cull never ran".
       queriedThisFrame: (tier.stats.entityTested || 0) + (tier.stats.queried || 0),
       failOpens: _uniform.failOpens,
       anomalyTrips: _uniform.anomalyTrips,

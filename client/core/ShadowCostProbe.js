@@ -13,13 +13,6 @@ let _handle = null
 
 const MAX_SAMPLES = 240
 
-// Three's two renderers ask for a shadow redraw in two different places, so the probe has two arms.
-// The legacy one owns a renderer-level pass, WebGLShadowMap.render(lights, scene, camera), gated on
-// renderer.shadowMap.needsUpdate. three's WebGPU Renderer.shadowMap is { enabled, transmitted, type
-// } with no render and no needsUpdate: the pass is driven per light by ShadowNode.updateBefore out
-// of light.shadow.needsUpdate, and it reaches the renderer as render(scene, light.shadow.camera).
-// A probe that only ever looked for the renderer-level pass installed on neither's absence and
-// returned nothing, so "no shadow cost" was indistinguishable from "no probe".
 const ARM_RENDERER_PASS = 'renderer-shadow-pass'
 const ARM_PER_LIGHT_PASS = 'per-light-shadow-pass'
 
@@ -127,8 +120,6 @@ function _attachRendererPass(renderer, scene, camera, sunOrShadowPipeline) {
   return { attached: true, backend: ARM_RENDERER_PASS, splitSupported: true, reason: null }
 }
 
-// The pass this arm times is the one three issues per light it decided to redraw, told apart from
-// the main pass by camera identity: ShadowNode.renderShadow calls render(scene, shadow.camera).
 function _attachPerLightPass(renderer, lights) {
   const shadowCameras = new Set()
   for (const l of lights) {

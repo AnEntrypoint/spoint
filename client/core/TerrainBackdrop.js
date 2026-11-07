@@ -39,17 +39,12 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
   const terrainHashVersion = terrainHashVersionOf(cfg)
-  // THE NEAR FIELD'S DENSITY IS THE COLLIDER'S, not a level count. Both are resolved here from one
-  // derivation and handed to the planet as a lattice plan, so the ground the player walks on and the
-  // ground the player sees are built at one spacing by construction and cannot drift apart.
   const radius = cfg.radius || 6360000
   let nearLattice = null
   try {
     const { colliderLatticeSpacingOf } = await import('/src/shared/colliderLattice.js')
     const { createNearFieldLattice } = await import('/src/terrain/NearFieldLattice.js')
     const cl = await colliderLatticeSpacingOf(cfg)
-    // The band's spacing AND its extent are the collider's, so the ground the player walks on and the
-    // ground the player sees are one lattice and not two: neither number is chosen here.
     nearLattice = createNearFieldLattice({ spacingM: cl.spacingM, extentM: cl.extentM, faceHalfSpanM: radius })
     console.log(`[terrain] near-field lattice at the collider's ${cl.spacingM.toFixed(2)}m over its ${cl.extentM.toFixed(0)}m field (${cl.kind}: configured ${cl.resolutionM}m over ${cl.extentM}m -> N=${cl.N}), leaves finer than ${nearLattice.maxLeafM.toFixed(0)}m`)
   } catch (e) {
@@ -106,18 +101,10 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     performance.mark('terrain:planet-init')
     performance.mark('boot:backdrop:planet-initialised')
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
-    // The one copy of the ground: the baked sample field the server's collider builds from. Where it
-    // covers a point it IS the ground, so the mesh mirror reads it instead of solving the sampler per
-    // vertex, and grass, vegetation and rock placement -- which all ask the mirror through
-    // client/core/ExactPatchFrame.js -- sit on the collider's own lattice rather than on a third
-    // surface. Where it does not cover, every consumer keeps solving exactly as it did before.
     sharedLattice = null
     try {
       const { loadLatticeSurface } = await import('/src/terrain/LatticeSurface.js')
       sharedLattice = await loadLatticeSurface({ url: cfg.bakedHeightfield, tcfg: cfg, frame })
-      // Placement reads the collider's own buffer through the frame, so grass, vegetation and rocks
-      // sit on the same samples the server collides against and the near band draws
-      // (src/terrain/PlacementChart.js surfaceAlongDir), instead of re-solving the sampler per cell.
       if (sharedLattice) frame.sharedLattice = sharedLattice
       if (sharedLattice) console.log(`[terrain] shared lattice: ${sharedLattice.N} nodes over ${sharedLattice.extent}m (${sharedLattice.stepM.toFixed(4)}m) -> the mesh mirror reads the collider's own samples instead of re-solving them`)
     } catch (e) {
@@ -164,8 +151,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     return _createFallbackBackdrop()
   }
 
-  // sharedLattice and meshSurface are the one copy and its only reader-side instrument, so a witness
-  // can count how many vertex heights came from the copy instead of from a fresh solve.
   const registerDebugGlobals = () => { if (typeof window === 'undefined') return; window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats(), sharedLattice: () => sharedLattice, meshSurface: () => meshSurface }; window.__colliderProbe = colliderProbe }
   registerDebugGlobals()
 

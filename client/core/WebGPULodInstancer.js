@@ -160,10 +160,6 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   let meshFarSq = Infinity
   let meshFarDist = Infinity
   let meshInSq = Infinity
-  // Per-instance cutoff applied to this instancer's SATELLITES only (the leaf instancer is a
-  // satellite of the branch instancer). Positive => a satellite instance beyond this radius is
-  // placed in NO_MESH_TIER, so the host still draws its own mesh. Set from the host via
-  // setLeafDrawDistance(); Infinity is the no-cutoff default.
   let leafGateSq = Infinity
   let leafGateDist = Infinity
   let leafGateInSq = Infinity
@@ -185,8 +181,6 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   }
 
   function cellCrossesBand(dminSq, dmaxSq) {
-    // A cell straddling the leaf gate is not uniform in the SATELLITE (leaf) tier even when every
-    // host tier in it agrees, so it can never be skipped wholesale.
     if (leafGateDist !== Infinity && dmaxSq >= leafGateInSq && dminSq < leafGateSq) return true
     if (dmaxSq >= meshInSq && dminSq < meshFarSq) return true
     for (let i = 1; i < thresholdsSq.length; i++) if (dmaxSq >= leaveSq[i] && dminSq < thresholdsSq[i]) return true
@@ -309,11 +303,6 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     placeInTier(id, recs[id], gatedTier(id, tier, gated), culled)
   }
 
-  // A satellite (leaf) instance past the gate is dropped to NO_MESH_TIER while its host (branch)
-  // keeps its own tier, so shedding foliage never hands the tree a no-mesh gap the impostor does
-  // not already cover and never touches the instance inside the gate -- including the one at 0m.
-  // `gated` is the host's own decision; when it is absent (a host-side path that never computed a
-  // distance) the satellite derives it from its own span and the synced eye.
   function gatedTier(id, tier, gated) {
     if (gated === true) return NO_MESH_TIER
     if (gated === false || leafGateSq === Infinity) return tier
@@ -912,8 +901,6 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     },
     resizeBuffers() {},
     updateLOD,
-    // Host-only: gate the satellite (leaf) instances at a radius. Invalidating every cell's mode
-    // forces one full re-sweep, which is what re-mirrors every leaf instance through the new gate.
     setLeafDrawDistance(m) {
       const on = Number.isFinite(m) && m > 0
       leafGateDist = on ? m : Infinity

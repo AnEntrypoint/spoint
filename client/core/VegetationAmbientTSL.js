@@ -6,16 +6,6 @@ import { ATM_SOLAR_IRRADIANCE } from '/node_modules/mapspinner/src/tsl/sky-tsl.j
 import { TERRAIN_DEFAULTS as TD } from '/node_modules/mapspinner/src/terrain-defaults.js'
 import { vegetationAmbientDelta, NIGHT_FILL, INV_PI } from '/node_modules/mapspinner/src/tsl/terrain-ambient-shared.js'
 
-// Trees and every other standard-lit surface on this planet are lit by three's own lights, while
-// the terrain is lit by terrain-lighting-tsl.js. At noon the sun term dominates and the two agree;
-// at dusk the direct term collapses (NdotL falls with the sun) and what is left is the ambient, and
-// the two paths' ambient differs -- so the vegetation reads darker than the ground it stands on.
-//
-// This module closes that gap at the vegetation layer: it adds the terrain's sky irradiance and its
-// albedo-independent ambient floor to the vegetation's lit colour, and then puts the vegetation
-// through the terrain's own grade (dayShade, exposure, saturation, contrast). Nothing here dims the
-// terrain, and every number comes from terrain-ambient-shared.js, the module the terrain model
-// itself reads.
 
 export const vegAmbientUniforms = {
   uVegAmbMul: uniform(new THREE.Vector3(0, 0, 0)),
@@ -60,7 +50,6 @@ function windowNum(name, fallback) {
   return Number.isFinite(v) ? v : fallback
 }
 
-// Called once per frame with the same time-of-day state terrain-lighting-tsl.js reads.
 export function updateVegetationTerrainAmbient(tod, u = vegAmbientUniforms) {
   const muS = Number.isFinite(tod && tod.elevationDeg) ? Math.sin(tod.elevationDeg * Math.PI / 180) : 1
   const skyFill = windowNum('skyFill', TD.skyFill)

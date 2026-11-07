@@ -1,9 +1,3 @@
-// ez-tree loads its bark and leaf maps at 1024x1024 inside its own module scope,
-// before any client code can reach them, so the only place a budget can be applied
-// is the decoded image at species build time. The budget is a maximum edge in
-// pixels, and every value that reaches the halver has come through
-// resolveTreeTextureBudget: a value that is supplied but cannot be honoured is
-// refused there, never coerced into the default.
 
 export let TREE_TEXTURE_SOURCE_PX = 1024
 export let TREE_TEXTURE_MIN_PX = 64
@@ -99,15 +93,6 @@ export function mipChainBytes(widthPx, heightPx) {
   return total
 }
 
-// --- hot swap ----------------------------------------------------------------------------
-// An edit to this file used to be classified RELOAD: findBoundaries walked from here to the app
-// root and found no acceptor, so a save cost a whole page load. No boundary ABOVE this file can
-// fix that, because a re-import is a new module instance and every importer keeps reading the
-// one it imported at boot. What can is this file itself: an ESM import is a LIVE binding to this
-// instance's export bindings, so re-assigning them here is visible to every importer already
-// holding them. Self-accepting therefore turns the cost of a save into one module fetch.
-// This re-points code only. It does not rebuild state the page already built, and every export
-// below is re-assigned, so nothing an importer holds is left pointing at the previous copy.
 const _hotSwapTreeTextureBudget = (next) => {
   TREE_TEXTURE_SOURCE_PX = next.TREE_TEXTURE_SOURCE_PX
   TREE_TEXTURE_MIN_PX = next.TREE_TEXTURE_MIN_PX
