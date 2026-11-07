@@ -927,6 +927,9 @@
   session_id: orch-main-cs-protocol
   status: refuted
   witness_path: .gm/witness-out/prd-tail-msgpack-settle-probe.txt
+  witness_binding:
+    output_sha256: 77cea80b15ff8b1cc50925eb9d6fd080aba3e78d3b2c883fa1e95eb1095a227e
+    output_path: .gm/witness-out/csproto-3-verdict.txt
 - id: csproto-4
   SESSION_ID: orch-main-cs-protocol
   title: 'src/protocol: msgpack builds its non-node msgpackr specifier through an IIFE; never flatten it'
@@ -969,6 +972,9 @@
   session_id: orch-main-cs-protocol
   status: refuted
   witness_path: .gm/witness-out/prd-tail-protocol-probe-v2.txt
+  witness_binding:
+    output_sha256: 0089464a1bd33e5a263980cdd57b6efbf2bcc36d0f716d203708d0c3e0e26415
+    output_path: .gm/witness-out/csproto-2-verdict.txt
 - id: docclaim-dpr-auto-1
   SESSION_ID: orch-main-r275-w1
   status: refuted
