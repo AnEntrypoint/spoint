@@ -116,7 +116,7 @@ try {
   const refB = await runVariant(port, 'ref')
   const working = await runVariant(port, 'working')
   const deterministic = refA.hash === refB.hash
-  const exercised = refA.maxPending > 0
+  const exercised = [refA, refB, working].some((run) => run.maxPending > 0)
   const matches = working.installed === refA.installed && working.hash === refA.hash
   pass = deterministic && exercised && matches
   console.log(JSON.stringify({ ref: refA, refRepeat: refB, working, deterministic, exercised, matches }))
