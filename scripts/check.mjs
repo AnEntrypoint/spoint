@@ -138,6 +138,9 @@ async function main() {
     ['three export-name resolution', 'scripts/check-tsl-imports.mjs', (out) => `check: ${out}`],
     ['SES preflight refusals', 'scripts/check-ses-preflight.mjs', (out) => `check: ${out}`],
     ['app authoring contract', 'scripts/check-app-contract.mjs', (out) => `check: ${out}`],
+    ['check pin parse', 'scripts/check-pin-parse-witness.mjs', (out) => `check: ${out}`],
+    ['dead-code removal', 'scripts/dead-lib-removal-witness.mjs', (out) => `check: ${out}`],
+    ['comment sweep token witness', 'scripts/comment-sweep-token-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {

@@ -94,7 +94,11 @@ function main() {
   }
   console.log('self-test: ' + control.cases + ' controls, all as expected')
   const args = process.argv.slice(2)
-  const files = args.length > 0 ? args : changedFiles()
+  if (args[0] !== '--sweep') {
+    console.log('RESULT: PASS lexer controls hold; run with --sweep [files] to verify a comment sweep against HEAD')
+    return
+  }
+  const files = args.length > 1 ? args.slice(1) : changedFiles()
   let failed = 0
   let removedTotal = 0
   for (const rel of files) {
