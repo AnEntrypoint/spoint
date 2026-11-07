@@ -4,6 +4,7 @@ export const REFUSAL_ABSENT = 'check-pin-witness-absent'
 export const REFUSAL_EMPTY_PARSE = 'check-pin-parse-empty'
 
 const QUOTED_FILE_PIN_RE = /file:\s*'([^']+)'/g
+const QUOTED_SCRIPT_PIN_RE = /'(scripts\/[^']+\.(?:m?js|cjs))'/g
 
 export function witnessRel(name) {
   const clean = String(name).replace(/\\/g, '/').replace(/^\.\//, '')
@@ -13,11 +14,13 @@ export function witnessRel(name) {
 export function parseCheckPins(checkText) {
   const pins = []
   const text = String(checkText ?? '')
-  QUOTED_FILE_PIN_RE.lastIndex = 0
-  let m
-  while ((m = QUOTED_FILE_PIN_RE.exec(text)) !== null) {
-    const rel = witnessRel(m[1])
-    if (!pins.includes(rel)) pins.push(rel)
+  for (const pattern of [QUOTED_FILE_PIN_RE, QUOTED_SCRIPT_PIN_RE]) {
+    pattern.lastIndex = 0
+    let m
+    while ((m = pattern.exec(text)) !== null) {
+      const rel = witnessRel(m[1])
+      if (!pins.includes(rel)) pins.push(rel)
+    }
   }
   return pins
 }
