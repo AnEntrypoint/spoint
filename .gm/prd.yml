@@ -99,8 +99,8 @@
 - id: KISS-n-r209-7
   subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'
   description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'
-  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop.'
-  status: refuted
+  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop. Reopened 2026-11-07 by the verdict-truth lint: the verdict file (.gm/witness-out/KISS-n-r209-7-verdict.txt) reads needs-design. Half 1 (dead idx<positions.length guard) is fixed; half 2 (hardcoded ARC_GROUND_Y hit height) is still open and is a behaviour change, so the row is not refuted.'
+  status: open
   session_id: orch-main-r209
   witness_path: .gm/witness-out/KISS-n-r209-7-verdict.txt
   witness_binding:
