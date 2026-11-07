@@ -141,6 +141,7 @@ async function main() {
     ['check pin parse', 'scripts/check-pin-parse-witness.mjs', (out) => `check: ${out}`],
     ['dead-code removal', 'scripts/dead-lib-removal-witness.mjs', (out) => `check: ${out}`],
     ['comment sweep token witness', 'scripts/comment-sweep-token-witness.mjs', (out) => `check: ${out}`],
+    ['patch-deps marker witness', 'scripts/patch-deps-marker-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {

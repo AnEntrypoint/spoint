@@ -210,6 +210,14 @@ Skills encode environment-specific constraints that override general knowledge.
 
 - With prediction off, `BaseClient` keeps the raw input in the redundancy buffer and skips the quantized encode and decode per input step, which was the largest per-frame allocation the profiler named. The packets are byte-identical either way: a field the raw input omits encodes as the zero the template supplies. Non-finite and clamped fields are still refused and reported by the same encode the prediction path uses.
 
+## Patched dependencies
+
+- `scripts/patch-deps.mjs` `patch`: `src.includes(marker)` is the only idempotency test, so each payload carries its own marker as a string constant (`const _spointPatch… = "spoint patch] …"`). A payload without its marker is injected again on every postinstall. `scripts/patch-deps-marker-witness.mjs` pins the 18 markers and simulates each file's injection sequence.
+- three.ez `instanceIndex decl` guard: a shader that includes neither `#include <batching_pars_vertex>` nor `#include <instanced_pars_vertex>` has no `instanceIndex` declaration, so the patch prepends `_ezDecl`. In the three.ez build `batching_pars_vertex` concatenates `#include <instanced_pars_vertex>`, so both chunks count as a declaration. Repo shaders that include `instanced_pars_vertex` directly: `client/core/GrassMaterial.js`, `client/core/SSAO.js`, `client/core/WeatherMaterials.js`.
+- three.ez `bindTextures`: the patch no longer reads `gl.CURRENT_PROGRAM` and restores it. `WebGLState.useProgram` in `node_modules/three/build/three.module.js` returns early when the program is unchanged, `setProgram` calls `state.useProgram(program.program)`, and three.module.js reads `CURRENT_PROGRAM` nowhere.
+- three.ez `BVH LOD hysteresis`: the level distances passed to `frustumCullingLOD` shrink by each level's own hysteresis, `distance - distance * hysteresis`, the same levelDistance that `getObjectLODIndexForDistance` uses in `node_modules/@three.ez/instanced-mesh/build/index.js`.
+- msgpackr `-0` escapes: `-0 >>> 0 === 0` and `-0 >> 0 === 0` both hold in JavaScript, so `-0` enters the positive and negative fixint branches. The payload adds `!Object.is(value, -0)` to both tests in `node_modules/msgpackr/pack.js` and `node_modules/msgpackr/dist/node.cjs`.
+
 ## Hot swap
 
 A module that calls `globalThis.__spointHmr?.acceptSelf?.(import.meta.url, swap)` accepts its own edits. A save reloads only that module, and `swap(next)` re-assigns each export to the freshly imported copy. Re-assigning is what makes the edit visible: an ESM import is a live binding, so importers already holding the old copy read the new code on their next call. Self-acceptance therefore costs one module fetch per save, not a page load. It re-points code only and does not rebuild state the page already built. Walking up to an ancestor acceptor cannot help, because a re-import is a new module instance that existing importers never read.
