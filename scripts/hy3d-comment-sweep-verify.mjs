@@ -278,7 +278,7 @@ function scanHash(text, isPy) {
       for (let k = i; k < stop; k++) if (text[k] === '\n') line++
       i = stop
     } else if (c === '"' || c === "'") {
-      i = skipQuoted(text, i, c === '"' || isPy)
+      i = skipQuoted(text, i, c === '"' || isPy || (c === "'" && text[i - 1] === '$' && text[i - 2] !== '$'))
     } else if (c === '#' && text[i - 1] !== '$' && text[i - 1] !== '{') {
       found.push({ line, kind: 'hash-comment' })
       i = lineEnd(text, i)
@@ -325,6 +325,10 @@ const CONTROLS = [
   ['a.sh', "echo 'a # b'", []],
   ['a.sh', 'cat <<EOF\n# not a comment\nEOF\necho ok # real', ['hash-comment@4']],
   ['a.sh', "cat <<-'X'\n\t# body\n\tX\necho # c", ['hash-comment@4']],
+  ['a.sh', "echo $'a\\'b' # real", ['hash-comment@1']],
+  ['a.sh', "echo $'a#b' # real", ['hash-comment@1']],
+  ['a.sh', "echo $'x\\\\' # real", ['hash-comment@1']],
+  ['a.sh', "echo 'a\\' # real", ['hash-comment@1']],
   ['a.py', 'x = 1  # c', ['hash-comment@1']],
   ['a.py', 'x = """a\n# not\n"""\ny = 2 # c', ['hash-comment@4']],
   ['a.py', "x = '#not' ", []],
