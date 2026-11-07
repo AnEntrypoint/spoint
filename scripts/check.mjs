@@ -248,6 +248,9 @@ async function main() {
     ['world-movement-parse-witness', 'scripts/world-movement-parse-witness.mjs', (out) => `check: ${out}`],
     ['write-verified-witness', 'scripts/write-verified-witness.mjs', (out) => `check: ${out}`],
     ['receipt-audit', 'scripts/lib/witness-receipt-audit.mjs', (out) => `check: ${out}`],
+    ['xr-teleport-ground-witness', 'scripts/xr-teleport-ground-witness.mjs', (out) => `check: ${out}`],
+    ['xr-pointer-ground-witness', 'scripts/xr-pointer-ground-witness.mjs', (out) => `check: ${out}`],
+    ['xr-arc-frame-order-witness', 'scripts/xr-arc-frame-order-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {
