@@ -241,11 +241,12 @@ function buildReaderIndex(needles) {
       const line = lines[i];
       for (const n of needles) {
         const hits = readerIndex.get(n);
-        if (hits.length >= 12) continue;
         const idx = line.indexOf(n);
         if (idx < 0) continue;
         if (!readerBoundary.get(n).test(line)) continue;
-        hits.push({ loc: rel + ':' + (i + 1), kind: hitKind(rel, line, idx) });
+        const kind = hitKind(rel, line, idx);
+        if (kind !== 'consumer' && hits.filter((h) => h.kind !== 'consumer').length >= 12) continue;
+        hits.push({ loc: rel + ':' + (i + 1), kind });
       }
     }
   }
