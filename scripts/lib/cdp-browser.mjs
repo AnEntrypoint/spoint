@@ -479,6 +479,7 @@ export async function launch(opts = {}) {
     owner: opts.owner || `${path.basename(process.cwd())}-${process.pid}`,
     waitMs: opts.leaseWaitMs,
     ttlMs: opts.leaseTtlMs,
+    sinceMs: opts.sinceMs,
   })
   const profileDir = lease.profileDir
   fs.mkdirSync(profileDir, { recursive: true })
