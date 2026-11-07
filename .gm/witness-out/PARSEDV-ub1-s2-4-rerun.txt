@@ -1,0 +1,7 @@
+674b4d1 src/game: key player maps on one parsed playerId
+ce65f83 QuestSystem: refusals return a reason code
+72b636d AbilityTree: cast and bind return ok and reason
+aeee032 src/game/AbilityTree.js: name every refused definition and hotkey slot
+5fdd9b5 src/game/AbilityTree.js: reject a negative tick, do not grow cooldowns
+a7999d9 fix(src/game): name every AbilityTree refusal so a witness pins a cause, not a boolean
+4b9568f fix(src/game/AbilityTree): make applySnapshot report every refused record instead of skipping it

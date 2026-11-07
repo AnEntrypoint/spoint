@@ -1,0 +1,1 @@
+WADLER-relocation-probegroundy-m2-s1 resolved RETIRED (cannot be run): the cited witness is dispatch 1791705050847-500-11e0349d20177369, a live dispatch with no repo script. .gm/witness-out/WADLER-relocation-probegroundy-m2-s1-verdict.txt is a code excerpt; its 6 of 6 lines re-found in tracked source by git grep -F. Not counted as a witness run. 2026-11-07T10:00:40.680Z

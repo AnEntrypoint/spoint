@@ -1,6 +1,0 @@
-id: "WADLER-octree-mutations-contract-m2-s1"
-kind: "prd"
-title: "[WADLER-octree-mutations-contract-m2-s1] [open] src/spatial/Octree.js get mutations states no licence contract and set relevanceRadius rewrites the query geometry every Stage.js reader uses without bumping any of the six mutation sites, so src/sdk's epoch cannot tell a geometry change from a population change"
-body: "- id: WADLER-octree-mutations-contract-m2-s1\n  depth: 3\n  principle: WADLER\n  session: orch-main-spatial-m2-s1\n  surface: src/spatial\n  title: src/spatial/Octree.js get mutations states no licence contract and set relevanceRadius rewrites the query geometry every Stage.js reader uses without bumping any of the six mutation sites, so src/sdk's epoch cannot tell a geometry change from a population change\n  witness_dispatch_id: 1791705050847-500-11e0349d20177369\n  session_id: orch-main-spatial-m2-s1\n  status: refuted\n  witness_path: .gm/witness-out/WADLER-octree-mutations-contract-m2-s1-verdict.txt\n  note: mutations is the internal change counter that drives cache invalidation; the relevanceRadius setter validates through resolveRelevanceRadius and bumps the geometry epoch only when the value changes"
-status: "open"
-createdAt: "2026-11-05T13:14:33.804Z"

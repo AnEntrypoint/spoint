@@ -1,0 +1,1 @@
+PARSEDV-ub1-s2-4 resolved resolved: the owed src/game change is committed. Re-run: git log 4747096e..HEAD -- src/game/AbilityTree.js src/game/QuestSystem.js lists 7 commits (newest 674b4d1); git status -- src/game is clean. Output file: .gm/witness-out/PARSEDV-ub1-s2-4-rerun.txt 2026-11-07T10:00:16.247Z

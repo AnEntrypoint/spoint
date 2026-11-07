@@ -1,0 +1,1 @@
+DBC-ub1-s2-1 resolved RETIRED (cannot be run): the cited witness is dispatch 1791692068682-500-1a3d975fce1ea427, a live dispatch with no repo script. .gm/witness-out/DBC-ub1-s2-1-verdict.txt is a code excerpt; its 2 of 2 lines re-found in tracked source by git grep -F. Not counted as a witness run. 2026-11-07T10:00:40.810Z

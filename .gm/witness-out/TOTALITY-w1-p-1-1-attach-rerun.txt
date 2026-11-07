@@ -1,0 +1,14 @@
+== AppRuntime attach/setPlayerPosition
+705:  setPlayerPosition(id, p) { vec3(p, 'position'); this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManage
+768:  attachEntityToPlayer(entityId, playerId, offset = [0, 1, 0], bone = null) {
+770:    vec3(offset, 'attachEntityToPlayer offset')
+771:    if (bone !== null && (typeof bone !== 'string' || bone === '')) throw new TypeError('attachEntityToPlayer bone must be a non-empty string or null')
+  attachEntityToPlayer(entityId, playerId, offset = [0, 1, 0], bone = null) {
+    if (!this.entities.has(entityId)) return false
+    vec3(offset, 'attachEntityToPlayer offset')
+    if (bone !== null && (typeof bone !== 'string' || bone === '')) throw new TypeError('attachEntityToPlayer bone must be a non-empty string or null')
+    const att = { playerId, offset: [...offset], bone }
+    this._attachments.set(entityId, att)
+    this.broadcastToPlayers({ type: 'entity_attach', entityId, playerId, offset: att.offset, bone })
+    return true
+  }

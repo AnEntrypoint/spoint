@@ -1,0 +1,1 @@
+DBC-ub1-s2-2 resolved resolved (refuted): re-run of .gm/witness-out/DBC-ub1-s2-2-probe.mjs gives specUnchanged:true and threwOnNull "[chain] addChain requires a spec object", so the caller spec is not mutated and a precondition throws. Output: .gm/witness-out/DBC-ub1-s2-2-rerun.txt 2026-11-07T10:00:39.770Z

@@ -1,0 +1,8 @@
+AGENTS.md:
+(no match)
+tracked src/:
+(end)
+nearbyCylinder in src/spatial/Octree.js:
+154:  nearbyCylinder(position, radius, halfHeight, out) {
+verify-doc-claims.mjs:50:
+  'src/shared/clusterConfig.js#35': 'resolveClusterConfig',

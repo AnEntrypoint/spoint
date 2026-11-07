@@ -1,0 +1,1 @@
+ILLEGAL-r250-4 resolved RETIRED (cannot be run): the cited witness is live gm dispatch 1791694170365-500-e9644645a34ae43d with no repo script. .gm/witness-out/ILLEGAL-r250-4-verdict.txt is a code excerpt; its 3 of 3 lines re-found in tracked source by git grep -F. Not counted as a witness run. Reopen with prd_reopen if the owner disagrees. 2026-11-07T10:00:40.300Z

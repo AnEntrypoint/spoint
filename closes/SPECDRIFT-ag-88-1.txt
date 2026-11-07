@@ -1,0 +1,1 @@
+SPECDRIFT-ag-88-1 resolved resolved: codesearch re-run (.gm/witness-out/SPECDRIFT-ag-88-1-rerun.txt): AGENTS.md has no nearbyHorizontal; no tracked src/ file names it; src/spatial/Octree.js:154 defines nearbyCylinder. The remaining nearbyHorizontal occurrences in scripts/lib/verify-doc-claims.mjs are its absent-symbol entries, not claims. 2026-11-07T10:00:40.168Z

@@ -1,0 +1,1 @@
+{"specUnchanged":true,"name":"Event Chain chain_1","id":"chain_1","threwOnNull":"[chain] addChain requires a spec object"}

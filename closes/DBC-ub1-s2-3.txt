@@ -1,0 +1,1 @@
+DBC-ub1-s2-3 resolved resolved (refuted): re-run of .gm/witness-out/DBC-ub1-s2-3-probe.mjs restore({p1:{level:9,xp:0}}) reports level 1, xp 0, so the reported level is not contradicted by its xp. Output: .gm/witness-out/DBC-ub1-s2-3-rerun.txt 2026-11-07T10:00:39.899Z

@@ -1,0 +1,1 @@
+CHARTEST-est-s1-2 resolved RETIRED (cannot be run): the cited witness scripts/ground-source-port-witness.mjs was removed in 0514fd1 (dispatch 1791704838265-500-19e97f5d075d8453). .gm/witness-out/CHARTEST-est-s1-2-verdict.txt is a code excerpt; its 4 of 4 lines re-found in tracked source by git grep -F. Not counted as a witness run. 2026-11-07T10:00:40.937Z

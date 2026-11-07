@@ -1,0 +1,1 @@
+{"nan":"threw: entity.position must be a length-3 array of finite numbers","short":"threw: entity.position must be a length-3 array of finite numbers","str":"threw: entity.position must be a length-3 array of finite numbers"}
