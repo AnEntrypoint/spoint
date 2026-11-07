@@ -42,60 +42,100 @@
   notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal client/xr fadeMachine 1791674449159 (2 occurrences: definition :12, actor :28). node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-1-verdict.txt
+  witness_binding:
+    output_sha256: a58d1098adc9d754877d1d5f6d0a574305099dcfd889bb8ccb79a57455bf3e09
+    output_path: .gm/witness-out/KISS-n-r209-1-verdict.txt
 - id: KISS-n-r209-2
   subject: 'client/xr: an aborted teleport is dropped by the fade machine - DONE is accepted only in fadeOut'
   description: 'KISS / client/xr. XRWidgets.js:124-128 endTeleport(aborted) sends DONE only when aborted, and DONE is listed only on fadeOut (:19), so an abort raised during fadeIn or delay lands in no state: the screen still fades to full black and back by itself, and teleportPending is already null so no later event can stop it. The only caller passing true is the missing-reference-space path at :119; cancelTeleport, wired for the same case, has zero call sites tree-wide (codesearch 1791674199237). It is the transition table that makes this possible: a phase string set to idle directly cannot swallow an event. EVIDENCE exec_js dispatch 1791674671727-500-b00b6b86a408ac01: after START then DONE the snapshot value is still fadeIn, exactly as written before the dispatch. FIX: on abort set the phase to idle and fadeOpacity to 0 in one place; no event is needed.'
   notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal cancelTeleport tree-wide 1791674199237 (0 occurrences outside this file). node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-2-verdict.txt
+  witness_binding:
+    output_sha256: 7ffa6d342a9047dc48ec93ed2c40542c1fc871b8055614db3901dd55f41320f0
+    output_path: .gm/witness-out/KISS-n-r209-2-verdict.txt
 - id: KISS-n-r209-3
   subject: 'client/xr: XRControls ships a dead public surface - placeAtCamera, getPlacementInfo and options.scale have no reader'
   description: 'KISS / client/xr. XRControls.js:71 placeAtCamera() and :99 getPlacementInfo() are public methods with zero call sites anywhere in the tree; :6 puts scale: 1 into this.options and nothing on the surface reads it (it is not a WebXR feature: it is never sent to a session and never applied to a mesh). Three knobs shaped like API on a class whose live path is createReticle/start/update/placeAnchor. EVIDENCE codesearch literal tree-wide placeAtCamera dispatch 1791674306401 (1 occurrence: the definition), getPlacementInfo dispatch 1791674241210 (definition plus prd text only), scoped literal scale over client/xr dispatch 1791674334255 (exhaustive:true, 1 occurrence: the default at :6); exec_js 1791674670580 over the real class shows scaleOption=1 and no read. FIX: delete all three. setInitialFPSPosition (:76) is dead too, but DRY-n-r200-3 already names it for its 1.6 literal; this row carries the dead-surface half of that finding so the two do not duplicate.'
   notes: 'witness: codesearch literal 1791674306401, 1791674241210, 1791674334255 (all exhaustive:true); exec_js 1791674670580-500-28dc34af9f8cff1. Merges the dead-surface half of DRY-n-r200-3. node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-3-verdict.txt
+  witness_binding:
+    output_sha256: 8dd59b82a758fa8d93b4ef9f5f90374956f19f47fb32d8f4247e1d9de4c7d143
+    output_path: .gm/witness-out/KISS-n-r209-3-verdict.txt
 - id: KISS-n-r209-4
   subject: 'client/xr: reticleVisible mirrors this.reticle.visible by hand and the two disagree during placement'
   description: 'KISS / client/xr. XRControls.js:12 declares this.reticleVisible and :60/:63 keep it in step with this.reticle.visible manually; :66 placeAnchor() gates on the flag rather than on the mesh, so one fact has two holders and the gate can be satisfied by a reticle that is not being shown. EVIDENCE exec_js dispatch 1791674700932-500-ca0dd4cbb6a92743 over the real class with a stub renderer, printing the flag BEFORE the call: pre reticleVisible=true meshVisible=false, post placeAnchor=true anchorPlaced=true reticleVisible=false -- an anchor was placed from a reticle marked visible while its mesh was not, matching the values written before the dispatch. FIX: gate on this.reticle?.visible and delete the flag.'
   notes: 'witness: exec_js 1791674700932-500-ca0dd4cbb6a92743 (live, exact match; an earlier read taken after placeAnchor is superseded by this ordering). node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-4-verdict.txt
+  witness_binding:
+    output_sha256: b6c085eb0cb810436d41e5fb2ea504ec0fb04864c95bd3b2b5ddcc5a5ea8948a
+    output_path: .gm/witness-out/KISS-n-r209-4-verdict.txt
 - id: KISS-n-r209-5
   subject: 'client/xr: detected planes build meshes that are never parented, so plane detection is invisible by construction'
   description: 'KISS / client/xr. XRControls.js:50-53 onPlanesDetected creates a mesh per plane, stores it in this.planes and pushes it into planeMeshes; no mesh is ever added to a scene, so the entire visualisation is inert whatever the hardware reports. EVIDENCE exec_js dispatch 1791674670580-500-28dc34af9f8cff1 over the real class fed a synthetic planesdetected event: planeMeshes=2 planes=2 planeDetected=true parents=[null,null]. MERGES HUGHES-n-r163-4 (planeMeshes has zero readers): that row asks for the field to be deleted or derived; this row records that deleting it is only half the fix, because the meshes are also unparented -- either parent them on create or drop the visualisation and keep this.planes alone.'
   notes: 'witness: exec_js 1791674670580-500-28dc34af9f8cff1 (live, exact match). Merges HUGHES-n-r163-4. node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-5-verdict.txt
+  witness_binding:
+    output_sha256: 3b74c34d2854504010aac50188932bc66125ca6b81f4e25ff5c0dcdf3145cc22
+    output_path: .gm/witness-out/KISS-n-r209-5-verdict.txt
 - id: KISS-n-r209-6
   subject: 'client/xr: update() throttles on the absolute clock with now % 66 < 16 and now % 100 < 16'
   description: 'KISS / client/xr. XRSystem.js:151 gates the wrist-UI refresh on (now % 66 < 16) and :155 gates updateControllerVisibility on (now % 100 < 16). now is not a frame counter: client/app.js:2586 calls xrSystem?.update(ctx.res.frameDt, local, ctx.now), a millisecond clock, so both are modulo samples of wall time whose firing count per second tracks the frame rate instead of expressing a rate. EVIDENCE exec_js dispatch 1791674660915-500-e4bb063fa0da389c stepping the real expressions over 1000 ms at four frame rates: 30fps modulo66=15 modulo100=8, 60fps modulo66=16 modulo100=6, 120fps modulo66=30 modulo100=16, 144fps modulo66=32 modulo100=24, against a dt accumulator holding 15/15/15/14. The claim under test (the refresh rate scales with frame rate, so the wrist UI and controller visibility update at whatever rate the device happens to run) is confirmed; the pre-declared expectation missed by one at 60 and 144 fps from float stepping, and the observed numbers above are the record. FIX: accumulate dt and refresh when it crosses the interval.'
   notes: 'witness: exec_js 1791674660915-500-e4bb063fa0da389c (live); codesearch literal xrSystem scoped to client/app.js 1791674734849 (exhaustive:true, 7 lines) pins now = ctx.now at :2586. node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-6-verdict.txt
+  witness_binding:
+    output_sha256: cc61788c0991a709d2a32659803323fcb2237f992b3911c2f97bd9a5a2e423b1
+    output_path: .gm/witness-out/KISS-n-r209-6-verdict.txt
 - id: KISS-n-r209-7
   subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'
   description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'
   notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop.'
   status: refuted
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-7-verdict.txt
+  witness_binding:
+    output_sha256: 7901b28dc15fe5a347dd2d279e0cc9f7e148096a91892a798366510920e761e1
+    output_path: .gm/witness-out/KISS-n-r209-7-verdict.txt
 - id: KISS-n-r209-8
   subject: 'client/xr: alias bindings and a duplicated handsDetected flag carry state the objects already own'
   description: 'KISS / client/xr. XRWidgets.js:25 keeps wristUI, wristUICanvas and wristUIContext as three bindings to one object fields (:43, read at :48/:49/:59); :68/:96 keep vrSettingsPanel.visible in step with vrSettingsPanel.mesh.visible by hand; and handsDetected exists twice -- XRSystem.js:21/:75/:156 and XRWidgets.js:31/:147/:151 -- where the second copy is only a restatement of the argument passed in. EVIDENCE codesearch literal client/xr, exhaustive:true: wristUI dispatch 1791674770189 (7 lines, 16 occurrences, every canvas/ctx read going through the aliases), handsDetected dispatch 1791674774853 (8 occurrences across both files, two independent declarations). FIX: read wristUI.canvas/.ctx directly, drop the visible field and test mesh.visible, delete the widgets copy of handsDetected. MERGES OWNERSHIP-n-r192-4, whose no-single-writer finding on vrSettings is the same one-fact-two-holders shape on an adjacent object.'
   notes: 'witness: codesearch literal 1791674770189, 1791674774853 (both exhaustive:true). Merges OWNERSHIP-n-r192-4. node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-8-verdict.txt
+  witness_binding:
+    output_sha256: 6378a6ad1bc89db6b21512fd49bce361b7bf9a460bc6a104fd9cbce634e43f7d
+    output_path: .gm/witness-out/KISS-n-r209-8-verdict.txt
 - id: KISS-n-r209-9
   subject: 'client/xr: _tmp1/_tmp2 scratch vectors are cloned at every use, so the scratch buys nothing'
   description: 'KISS / client/xr. XRWidgets.js:32 allocates _tmp1/_tmp2 as scratch, but both use sites copy out of them anyway: :157 origin = _tmp1.clone(); direction = _tmp2.clone().multiplyScalar(-1), and :165 origin = _tmp1.clone(); direction = _tmp2.clone(). The values are then held across updateTeleportArc and handed to computeParabolicArc, so the shared temporaries cannot be reused in any case -- two allocations per frame dressed up as zero. EVIDENCE codesearch literal client/xr clone() dispatch 1791674780005 (exhaustive:true, 4 occurrences, all on those two lines). FIX: write into pre-allocated origin/direction vectors and keep them, or delete _tmp1/_tmp2 and allocate at the use site; do not keep both.'
   notes: 'witness: codesearch literal 1791674780005 (exhaustive:true). node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-9-verdict.txt
+  witness_binding:
+    output_sha256: d00445f78308b509f7feb82d065e2a17271a9724926a6c4f488a1acd0e978898
+    output_path: .gm/witness-out/KISS-n-r209-9-verdict.txt
 - id: KISS-n-r209-10
   subject: 'client/xr: __freshnessProbe is a committed witness marker with no reader'
   description: 'KISS / client/xr. XRWidgets.js:203 exports const __freshnessProbe = 1. Nothing in the tree reads it: the only other occurrences of the string are scripts/bundle-freshness-witness.mjs:155 and :174, which APPEND that exact line to a scratch-root copy of a client input (:146 makeScratchRoot) or to a dist artifact so the freshness check sees a changed input. The witness writes the marker; it never reads the committed one, so a marker whose only purpose is to mutate a temporary copy ships in source and rides every bundle. EVIDENCE codesearch literal __freshnessProbe dispatch 1791674219166 (3 occurrences: the export plus the two witness append sites). FIX: delete the export; nothing depends on it.'
   notes: 'witness: codesearch literal 1791674219166; scripts/bundle-freshness-witness.mjs:145-181 read directly (scratch-root append path). node-only row; not resolved by this hop.'
   status: fixed
   session_id: orch-main-r209
+  witness_path: .gm/witness-out/KISS-n-r209-10-verdict.txt
+  witness_binding:
+    output_sha256: 7e30aaba864ae272e3ba631eb0dfcc930e985fae52280a49e7dfd6caeffaf3e4
+    output_path: .gm/witness-out/KISS-n-r209-10-verdict.txt
 - id: OWNERSHIP-n-r192-4-blocker-orch-main-r205
   subject: 'OWNERSHIP-n-r192-4 delivery blocked: another lane owns client/xr/XRSystem.js and client/xr/XRWidgets.js'
   description: |-
@@ -135,6 +175,10 @@
     WORK: parse the inbound message once into `{kind:'emote', playerId, clip}` at the transport boundary, rejecting a message with no resolvable player id and a code outside EMOTE_CLIPS with a named parse error; delete the `msg.senderId || msg.playerId` guess and let the parsed record carry the clip, not `EMOTE_CLIPS.get(msg.code)`.
   title: 'PARSEDV apps/tps-game: the emote message is guessed (`msg.senderId || msg.playerId`) and unidentifiable senders get a literal "undefined" rate-limit bucket'
   session_id: orch-main-r216
+  witness_path: .gm/witness-out/PARSEDV-n-r216-4-verdict.txt
+  witness_binding:
+    output_sha256: af8ddfbd611db2203254e12823b07a3f31637485cf40616fd3ed27688ecc81f5
+    output_path: .gm/witness-out/PARSEDV-n-r216-4-verdict.txt
 - id: DRY-n-r200-9-blocker-orch-main-r214
   SESSION_ID: orch-main-r214
   session_id: orch-main-r214
@@ -153,6 +197,10 @@
   title: RenderGraph.nodes.js defaults the frame step to 0 at :100 and :109 -- a value the producer cannot produce
   body: 'Claim: this hop gave the frame step one producer, client/app.js frameStepSeconds(now, prev) over FRAME_STEP = {unit:''s'', min:0.001, max:0.1}, which refuses a non-finite reading (witness P2-P10 of exec_js 1791678779525-500-492e6237e6822a03, RESULT: PASS 30/30). client/core/RenderGraph.nodes.js:100 (`const _windDt = ctx.res.frameDt || 0`) and :109 (`const frameDt = ctx.res.frameDt || 0`) still admit 0 -- outside the declared range, and the one value a consumer cannot tell apart from ''the clock was never read''. The fallback is unreachable in the live order: app.js runs frameGraph (which writes res.frameDt) at :2755 before renderGraph.run at :2762, so today it is dead code that nevertheless states a second, contradictory contract -- the same re-guard class this hop deleted at app.js:2445 (`if (frameDt <= 0) return`) and at :2756/:2757 (`|| 0.016`). Fix: read ctx.res.frameDt directly so one contract is visible; if a node can genuinely run before the frame clock, the graph must declare that (required/shouldRun), not the consumer. NODE-ONLY: the file is outside this hop''s surface (client/app.js) and is not edited here.'
   notes: 'witness: codesearch literal ''frameDt'' dispatch 1791678386141-11873 (counts_by_file: RenderGraph.nodes.js 5 hits, lines 100/109/115/118/143); Read client/core/RenderGraph.nodes.js:95-124; exec_js 1791678779525-500-492e6237e6822a03 (P2-P14 range + non-finite rejection, P20 single writer, P21/P22 re-guards deleted). Not executed by this hop.'
+  witness_path: .gm/witness-out/MILNER-ub1-s4-1-verdict.txt
+  witness_binding:
+    output_sha256: 6a2296e55d70b4373b2b05cdf713bc6716d685c924f30507a9674c867ef3f528
+    output_path: .gm/witness-out/MILNER-ub1-s4-1-verdict.txt
 - id: MILNER-ub1-s4-2
   detail: 'Merged into MILNER-ub1-s4-1 by hop orch-main-r260-sub1-s2 (DBC over src/game) to pay for one of the four rows it added. Same single condition as the parent: the frame-step contract has no one home, so each site restates the bounds. This row was the XRSystem.js site (:bounds as local literals, rejection encoded as 0, a number inside the parameter''s domain). Its substance now belongs on MILNER-ub1-s4-1, which names the producer default at RenderGraph.nodes.js:100/:109.'
   session_id: orch-main-r260-sub1-s2
@@ -169,36 +217,60 @@
   status: refuted
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. resolveTerrainConfig (src/shared/terrainConfig.js:13) is a getter, not a parser: it returns the raw entity config or worldDef.terrain untouched, so the interior re-validates and re-derives defaults at every read: minimapExtentOf:54 re-checks Number.isFinite(tcfg.minimapExtent) and re-derives the radius default, minimapResOf:58 re-checks minimapRes, minimapDescriptor:62 re-checks isWorldName/enabled/Number.isFinite(tcfg.seed), terrainHashVersionOf:19 re-derives hashVersion on every call, terrainCarvesOf:33 re-validates carve center/radius/falloff. Two sources (entity.config, unvalidated by worldResolve.checkSlices, and worldDef.terrain, validated) feed one untyped shape, so the checks are duplicated rather than paid once. Fix: one parseTerrainConfig(tcfg) at the source boundary returning a normalized typed config (seed, radius, hashVersion, extent, res, center, carves resolved once) and accessors that read it without re-checking. Evidence: codesearch literal Number.isFinite over src/shared, dispatch 1791678775821-500-2f531e02bf1d2452.'
   session_id: orch-main-r248
+  witness_path: .gm/witness-out/PARSEDV-n-r248-1-verdict.txt
+  witness_binding:
+    output_sha256: ba8611c06de874ce0a3ba10c336bdb7298f96db759ee42e468bcc804dd300c0a
+    output_path: .gm/witness-out/PARSEDV-n-r248-1-verdict.txt
 - id: PARSEDV-n-r248-2
   SESSION_ID: orch-main-r248
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/MinimapBiome.js uses failure sentinels instead of parsed results, so every caller must re-check: sampleMinimapCell:38 and :41 write four zeros into out and return NaN when the guarded height or the elevation is non-finite, and reliefShade:63 returns a literal 1 when the computed shade is non-finite. NaN and 1 are valid values of the return type, so the caller cannot distinguish a solved cell from a failed one and has to re-validate the output. Fix: parse the height/elevation once at the cell boundary into a value that carries the failure (null or a {ok,value} result), keep reliefShade total over finite inputs, and let sampleMinimapCell return that result instead of an in-band NaN. Evidence: Read src/shared/MinimapBiome.js (located by codesearch filename dispatch 1791678757082-500-a3e3b5eb789d5696).'
   status: refuted
   title: src/shared/MinimapBiome.js returns NaN and 1 as failure sentinels, forcing every caller to re-validate
   session_id: orch-main-r248
+  witness_path: .gm/witness-out/PARSEDV-n-r248-2-verdict.txt
+  witness_binding:
+    output_sha256: db21983b9cee81fb0eda4f8ffa1b316f614bfd02a17745c3211f34d4cc20a6ea
+    output_path: .gm/witness-out/PARSEDV-n-r248-2-verdict.txt
 - id: PARSEDV-n-r248-3
   SESSION_ID: orch-main-r248
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/SpawnSurface.js:52 spawnSurfaceY validates its arguments at entry (typeof raycast !== ''function'', !Number.isFinite(pose?.[1]), !(standingOffset > 0), !(headroom > 0)) and returns null, the same value it returns when the column finds no surface (line 65 standing ?? lifted ?? dropped). A misuse of the API is indistinguishable from a legitimate miss, so the caller cannot parse the result and every caller must re-validate its own arguments before calling. Fix: make the argument contract a parse that throws (or return a {ok,reason, y} result), keep null for the genuine no-surface case only. Evidence: Read src/shared/SpawnSurface.js (located by codesearch filename dispatch 1791678757082-500-a3e3b5eb789d5696); Number.isFinite literal sweep dispatch 1791678775821-500-2f531e02bf1d2452.'
   status: fixed
   title: src/shared/SpawnSurface.js collapses invalid input and no-surface-found into the same null
   session_id: orch-main-r248
+  witness_path: .gm/witness-out/PARSEDV-n-r248-3-verdict.txt
+  witness_binding:
+    output_sha256: 6430059581f9988a8c3cf00fff8a543d42ce8795be47924a789f71a3ea93f2b2
+    output_path: .gm/witness-out/PARSEDV-n-r248-3-verdict.txt
 - id: PARSEDV-n-r248-4
   SESSION_ID: orch-main-r248
   body: 'PARSEDV (Parse, Don''t Validate) over src/shared. src/shared/worldResolve.js checkSlices/parseWorld/assertWorld is the world boundary, but it returns the SAME untyped object it was given ({ ok: true, world: w }, line 74; assertWorld line 84 returns r.world). Nothing in the result carries the proof, so the interior repeats the same checks: src/shared/worldDefaults.js:70 re-tests Number.isFinite(v) && v > 0 for exactly the PLAYER_POSITIVE_KEYS checkSlices already proved at line 24, and src/shared/terrainConfig.js re-checks terrain.seed (line 62) and hashVersion (line 20) after checkSlices proved them at lines 29 and via terrainHashVersionOf. Fix: have parseWorld build the typed world it vouches for (defaults filled, slices as named records) and let interior consumers read it without re-validating. Note worldResolve.js itself is the best-shaped file on the surface; this row is about the value it hands back. Evidence: Read src/shared/worldResolve.js and src/shared/terrainConfig.js; Number.isFinite literal sweep dispatch 1791678775821-500-2f531e02bf1d2452.'
   status: fixed
   title: src/shared/worldResolve.js validates but returns the same untyped object, so the interior re-validates (worldDefaults:70, terrainConfig)
   session_id: orch-main-r248
+  witness_path: .gm/witness-out/PARSEDV-n-r248-4-verdict.txt
+  witness_binding:
+    output_sha256: 61872e8a3d9901fd2d5c42b80046ceb78627278ec70c673a2cefcf65dd57b6dc
+    output_path: .gm/witness-out/PARSEDV-n-r248-4-verdict.txt
 - id: HUGHES-n-r251-1
   SESSION_ID: orch-main-r251
   title: 'HUGHES src/sdk: StaticHandler''s .glb.prog/ and .glb.ktx2/ branches join the source path with no containment check, so a URL bakes a file outside the served root'
   status: fixed
   session_id: orch-main-r251
   body: 'Property (HUGHES, universal over the surface): every file createStaticHandler reads or writes lies under one of the dirs it was given. FALSIFIED. src/sdk/StaticHandler.js:157-166 (.glb.prog/) and :200-210 (.glb.ktx2/) build the source path as join(dir, sourceUrl.slice(prefix.length)) and pass it to getProgressive/getKtx2Extracted with no containment test, while the plain-file loop at :238-245 does test resolve(fp) against resolve(dir) (fpResolved !== baseResolved && !fpResolved.startsWith(baseResolved + sep) -> continue). Live witness exec_js 1791679479055-500-a957d8f4fb578293 against the real module: dirs=[{prefix:''/served'',dir:<tmp>/served}], a sibling <tmp>/outside holding x.glb; GET /../outside/x.glb.prog/model.progressive.glb and /../outside/x.glb.ktx2/0.ktx2 (plus 8 further traversal shapes through the plain loop) => the handler hashed and baked the OUTSIDE file and created .progressive-cache/ and .glb-cache/ inside <tmp>/outside. Minimal counterexample: one URL, one ''..'' segment, either branch. Shrunk property: the branch touches a path outside every served dir. Both responses stayed 404 ''baking''/''extracting'' and no outside bytes were served, so the escape is write/CPU side (hash + bake of an arbitrary readable path, cache dirs created next to it), not a read of file contents; it is not contained by anything the caller controls. The same traversal shapes through the plain loop 404''d, so :163 and :207 are the only gap. Fix: apply the :238-245 test to srcPath at :163 and :207 before existsSync (resolve(dir), resolve(srcPath), require equality or prefix baseResolved + sep). Consumers to keep green: src/sdk/ServerAPI.js:131, src/sharding/RegionRouter.js:314, scripts/bundle-freshness-witness.mjs:97, scripts/static-handler-identity-witness.mjs:104. No file edited this hop: src/sdk/StaticHandler.js carries another lane''s uncommitted hunks (git_status paths + git_diff dispatch 1791679545295).'
+  witness_path: .gm/witness-out/HUGHES-n-r251-1-verdict.txt
+  witness_binding:
+    output_sha256: 676b93d970f1e4192199475a6a08e4638c6ceca87972546f24fa622038e34b9f
+    output_path: .gm/witness-out/HUGHES-n-r251-1-verdict.txt
 - id: HUGHES-n-r251-2
   SESSION_ID: orch-main-r251
   title: 'HUGHES src/sdk: emitEnvelope produces an envelope its own validateEnvelope rejects (empty channel => kind:'''' )'
   status: fixed
   session_id: orch-main-r251
   body: 'Property (HUGHES, universal over the surface): every envelope emitEnvelope produces is accepted by validateEnvelope - one module''s producer and its validator agree on their shared type. FALSIFIED. src/sdk/SharedEventEnvelope.js:10-19 emitEnvelope(bus, channel, data) copies channel straight into kind with no check; :21-30 validateEnvelope rejects kind that is not a non-empty string (''kind is required (string)''). Live witness exec_js 1791679479055-500-a957d8f4fb578293 against the real modules: emitEnvelope(bus, '''', {}) returns {id, ts, source, kind:'''', payload} and validateEnvelope(env) answers {valid:false, errors:[''kind is required (string)'']}; every generated non-empty channel (''a'', ''x.y'', ''system.handover'', ''*'', ''fire:ignite'', '' '', ''0'') validates. Minimal counterexample: channel '''' - shrinks to a one-character input. The producer is total over strings and the validator is partial, so the round trip emit->validate, the only contract the file states, is false for one member of the generator''s domain. Adjacent fact from the same run: EventBus.emit (src/apps/EventBus.js:49) reads channel.length, so a non-string channel throws instead of returning an envelope - the empty string is the only case that passes silently through both. Fix: reject a blank channel at the producer (throw a named error or return null), or replace the pair with one parseEnvelope that both the producer and the consumer use, so kind has exactly one accepted set. No file edited this hop: src/sdk/SharedEventEnvelope.js carries another lane''s uncommitted hunk (ts finiteness check, git_diff dispatch 1791679545295). Supersedes the contract-duplication half of PARSEDV-n-r234-2 (same file); that row is merged here.'
+  witness_path: .gm/witness-out/HUGHES-n-r251-2-verdict.txt
+  witness_binding:
+    output_sha256: 2a79b3161d2c473fe3038dda8a861cc8c0ee65270f6838e430c4b31c1adcd378
+    output_path: .gm/witness-out/HUGHES-n-r251-2-verdict.txt
 - id: ILLEGAL-r250-1
   SESSION_ID: orch-main-r250
   status: fixed
@@ -273,6 +345,10 @@
   status: fixed
   surface: src/shared
   title: SpawnSurface admits a malformed ray hit as a walkable surface and returns one null for two causes (walkable half CLOSED, hitY half open)
+  witness_path: .gm/witness-out/ILLEGAL-n-r256-3-verdict.txt
+  witness_binding:
+    output_sha256: 6430059581f9988a8c3cf00fff8a543d42ce8795be47924a789f71a3ea93f2b2
+    output_path: .gm/witness-out/ILLEGAL-n-r256-3-verdict.txt
 - id: ILLEGAL-n-r256-4
   title: createChartAnchorLattice encodes one invalid-config class two ways
   principle: ILLEGAL
@@ -319,6 +395,10 @@
     BLOCKER: not an edit this hop. git_status paths-scoped dispatch 1791680434257-500-1052df89cb4dff42 reports src/apps/AppContext.js already modified by another writer (real hunk at :107, the `set custom` plain-object guard), so the hop rule 'close it only if no other writer holds the file' makes this a row. The fix also spans AppPhysics.js and AppContext.js, not one exact-match Edit.
 
     MERGE: this is the same one-parser work as PARSEDV-n-r249-1 (prd.yml:41370, pending, session orch-main-r249), which owns AppContext.interactable's predicate. Not retired here - another lane owns it. Fold both into one change: a single parseInteractable used by all three producers.
+  witness_path: .gm/witness-out/WADLER-n-r249sub1-1-verdict.txt
+  witness_binding:
+    output_sha256: 7f0ada7c2881fc9ebd0dca7c3ce6a95de811a1a5f03c53b0f9474bba342a888d
+    output_path: .gm/witness-out/WADLER-n-r249sub1-1-verdict.txt
 - id: WADLER-n-r249sub1-2
   SESSION_ID: orch-main-r249-sub1
   acceptance_criteria: A live node dispatch shows interactable({cooldown:1500}) surviving a serialize -> _hydrateInteractable round trip with _interactCooldown 1500 (not 500), and shows interactable({prompt:42}) either rejected with a TypeError by the shared parser or coerced to a string by it - never stored as the number 42.
@@ -343,6 +423,10 @@
   status: refuted
   surface: src/apps/AppContext.js:301-308 and src/apps/AppRuntime.js:412-425; consumer client/AppModuleSystem.js:84
   title: 'src/apps: the interactable parse result is reified as {prompt, radius} only, so a non-default cooldown is lost on every hydrate and prompt is an untyped value rendered into the DOM'
+  witness_path: .gm/witness-out/WADLER-n-r249sub1-2-verdict.txt
+  witness_binding:
+    output_sha256: 55eb2d36e435a25992b3b81cb5de17ebd8049f6dbd82238e384453ab26ca339d
+    output_path: .gm/witness-out/WADLER-n-r249sub1-2-verdict.txt
 - id: ILLEGAL-n-r259-1
   title: 'src/protocol/InputCodec.js: an extra axis named expr/analogForward/analogRight, or duplicated, is accepted and silently overwritten'
   body: 'createInputSchema filters extra axes against the button names, ''yaw'' and ''pitch'' (InputCodec.js:25) but not against ''expr'', ''analogForward'', ''analogRight''; readRecord then assigns input.expr (line 81) and input.analogForward/analogRight (lines 86-87) after the axis loop, so such an axis is written and then destroyed, and a duplicate axis name is written twice with the last write winning. Illegal schema -> well-formed wire bytes carrying a lost value. Fix: apply RESERVED_INPUT_NAMES (added by this hop at line 7) plus a duplicate check to the axes filter, throwing as the button path now does. Unreachable for shipped worlds: codesearch literal ''inputButtons'' is 0 matches in apps (dispatch 1791680780808-500-7307115b039e78b0, exhaustive) and in packages (1791680734212-500-d55e75e84c6561e8).'
@@ -353,26 +437,46 @@
   body: 'encodeInputPacket (lines 96-97) takes Math.min(MAX_INPUTS_PER_PACKET, entries.length) and encodes only the newest n; the caller gets bytes back and no signal that older entries were dropped, so an over-full batch is an encodable state that loses data invisibly. decodeInputPacket already refuses a count outside 1..8 (line 114) and refuses trailing bytes (line 128), so the encoder is the only half of the pair that tolerates an illegal input count. Fix: report the truncation to the caller (dropped count or a flag) so an over-full batch cannot be silently reduced. Tracked witness scripts/input-packet-codec-roundtrip-witness.mjs already asserts the keep-newest-8 behaviour, so the fix must keep it.'
   session_id: orch-main-r259
   status: refuted
+  witness_path: .gm/witness-out/ILLEGAL-n-r259-2-verdict.txt
+  witness_binding:
+    output_sha256: f2d9677179c493caaf6de2061d9514a5e74adecb6a2a1533e6cb0ff2efc85dc2
+    output_path: .gm/witness-out/ILLEGAL-n-r259-2-verdict.txt
 - id: ILLEGAL-n-r259-3
   title: 'src/protocol/ComponentSchema.js: an out-of-enum value and an out-of-range enum byte both become enum[0]'
   body: '_writeField (lines 118-122) encodes idx >= 0 ? idx : 0, so any value outside field.enum is written as the first legal member; _readField (line 157) returns field.enum[byte] ?? field.enum[0], so a corrupt, truncated or future index decodes as the first member. Both directions map an illegal member onto a legal one instead of refusing it. Fix: throw when encoding a value outside field.enum and when decoding an index >= field.enum.length. FILE HELD: src/protocol/ComponentSchema.js carries foreign uncommitted dirt (git_status dispatch 1791680687421-500-3fc6c43e77f10d9c), so this row is filed, not applied.'
   session_id: orch-main-r259
   status: refuted
+  witness_path: .gm/witness-out/ILLEGAL-n-r259-3-verdict.txt
+  witness_binding:
+    output_sha256: 922ad98abffe527ec1a17852bd454542aff567384f9dc20cdbf2c4d75b7fe9e4
+    output_path: .gm/witness-out/ILLEGAL-n-r259-3-verdict.txt
 - id: ILLEGAL-n-r259-4
   title: 'src/protocol/ComponentSchema.js: decodeCustomFields turns a corrupt or truncated buffer into a well-formed object'
   body: 'presence is `dv.getUint8(off) === 1` (line 139), so any non-1 byte -- corruption, not just 0 -- reads as absent; the string length from getUint16 (line 142) is never checked against the bytes remaining and subarray silently clamps (line 143), so a truncated string decodes shorter instead of being refused; no read is bounds-checked against bytes.length, and bytes past the last schema field are ignored, while the sibling decoder InputCodec.js:128 refuses trailing bytes. fieldByteSize also returns null for ''string'' (VARIABLE_BYTE_SIZE, lines 5 and 12) and callers coerce it with `|| 0` (line 72) and `1 + fieldByteSize(field)` (line 90). Fix: bound-check every read, reject a string length exceeding the buffer, reject trailing bytes, and give string its own size path. FILE HELD: see ILLEGAL-n-r259-3.'
   session_id: orch-main-r259
   status: refuted
+  witness_path: .gm/witness-out/ILLEGAL-n-r259-4-verdict.txt
+  witness_binding:
+    output_sha256: 4499712363ccc2305f48b3ea15ce3eaa171990cf522d5b8ac5cca212ee501cc0
+    output_path: .gm/witness-out/ILLEGAL-n-r259-4-verdict.txt
 - id: ILLEGAL-n-r259-5
   title: 'src/protocol/EventEmitter.js: emit skips the next listener after any removal, once leaks on a throwing listener, and emit reports success when every listener threw'
   body: 'emit iterates the live array with forEach (lines 33-39); the visited range is fixed at the start, so off() during an emit shifts the array and the following listener is skipped -- once() (lines 22-29) removes its wrapper only after fn returns, and fn throwing leaves the wrapper registered for every later emit, because emit swallows the error at lines 34-38. emit then returns true either way, so ''delivered'' and ''every listener failed'' are the same value and a failed delivery is unrepresentable. Fix: iterate a snapshot, remove the once wrapper in a finally, and return (or throw) the failure count. Live witness dispatch 1791680865914-500-49414c50f413ee2f observes all three states.'
   session_id: orch-main-r259
   status: fixed
+  witness_path: .gm/witness-out/ILLEGAL-n-r259-5-verdict.txt
+  witness_binding:
+    output_sha256: 19280f4d232906bf1dd41905484d731dc56089c35c4c01d0e2da843e39ef53a6
+    output_path: .gm/witness-out/ILLEGAL-n-r259-5-verdict.txt
 - id: ILLEGAL-n-r259-6
   title: 'src/protocol/MessageTypes.js: MSG and DISCONNECT_REASONS are mutable tables, a duplicate id is invisible, and an id outside the table reads as reliable'
   body: 'MSG (line 3) and DISCONNECT_REASONS (line 156) are exported unfrozen while the sibling table DEFAULT_INPUT_BUTTONS is Object.freeze''d (InputCodec.js:1-4); nameMap is built with set() in a loop (lines 140-141), so two names sharing one id silently overwrite and msgName reports whichever came last, making a duplicate-id protocol unrepresentable as an error; isUnreliable(type) (lines 152-154) returns false for any id not in MSG, so an unknown or newly added message type defaults to reliable. Fix: Object.freeze both tables, assert id uniqueness while building nameMap, and refuse an unknown id in isUnreliable.'
   session_id: orch-main-r259
   status: refuted
+  witness_path: .gm/witness-out/ILLEGAL-n-r259-6-verdict.txt
+  witness_binding:
+    output_sha256: f95adda648d8665a43b6174beae4c923f3e0b89649835fa13a813e25b32704b4
+    output_path: .gm/witness-out/ILLEGAL-n-r259-6-verdict.txt
 - id: PARSEDV-0-sub1-1
   SESSION_ID: orch-main-r250-sub1-2
   acceptance: 'Nothing further: commit 0a53e6c367 already satisfies this row''s stated acceptance (renderedSpeciesOf returns the total ALL_SPECIES_RENDERED mask, the rock kind''s rendered hook returns that mask, packTree''s `rendered &&` guard is gone), and the standing witness re-asserts it on every run.'
@@ -400,6 +504,10 @@
   state: pending
   session_id: orch-main-r256
   status: refuted
+  witness_path: .gm/witness-out/ILLEGAL-n-r256-6-verdict.txt
+  witness_binding:
+    output_sha256: 2a27b13381981c4371fa6717788241ec0ca66ec2985fec3bdf00803d8992c684
+    output_path: .gm/witness-out/ILLEGAL-n-r256-6-verdict.txt
 - id: MILNER-n-r260-3
   SESSION_ID: orch-main-r260
   body: 'MILNER: a player id has two domains inside one surface, so the type does not pin the fact. QuestSystem.js:20 normalises with `const key = String(pid)` and StatsSystem.js:38 does the same, but ProgressionSystem.js:36/37/46/107 keys playerProgression by the raw argument and AbilityTree.js:82 keys playerAbilityStates by the raw argument. addXp(1, 10) and addXp(''1'', 10) therefore create two progression entries while the quest and stats systems read them as one player; conversely getPlayerState(''1'') and getPlayerState(1) are different players. Events add a third spelling (QuestSystem.js:70/93/108, StatsSystem.js:240 send String(pid)). Fix direction (not applied): one playerId parser at the surface boundary - every system keys on the parsed value and no function accepts the unparsed one.'
@@ -471,6 +579,10 @@
   status: fixed
   title: 'src/game/AbilityTree.js: bindHotkey flattens out-of-range-slot and unknown-ability into one false (:148,:149), and castAbility/canCastAbility still return a bare boolean so locked and cooling are indistinguishable without a second call'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/PARSEDV-ub1-s2-2-verdict.txt
+  witness_binding:
+    output_sha256: 45e93717b47b86c61625c6b1b42676165a0a880be862b52bdcc8316a9b30b5cc
+    output_path: .gm/witness-out/PARSEDV-ub1-s2-2-verdict.txt
 - id: PARSEDV-ub1-s2-1
   SESSION_ID: orch-main-r260-sub1-s2
   status: fixed
@@ -486,6 +598,10 @@
 
     NEEDED: 'one declared result type per entry point (e.g. {ok:true} | {ok:false, reason:''unknown-quest''|''already-started''|...}) landed together with the witness update and the tutorial-rpg call site, in one commit, on a surface no other lane holds.'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/PARSEDV-ub1-s2-1-verdict.txt
+  witness_binding:
+    output_sha256: 476ce24501bea400e35b80ad632e332f25797f6b2d4f1274a6debdd525c8c6cc
+    output_path: .gm/witness-out/PARSEDV-ub1-s2-1-verdict.txt
 - id: PARSEDV-ub1-s2-3
   SESSION_ID: orch-main-r260-sub1-s2
   body: |-
@@ -501,6 +617,10 @@
   status: fixed
   title: 'src/game: StatsSystem.js (:95,:111,:112,:183,:213,:230), EventChainManager.js (:106,:110,:114,:118,:122) and ProgressionSystem.js (:71,:80) return one bare false for every refusal cause'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/PARSEDV-ub1-s2-3-verdict.txt
+  witness_binding:
+    output_sha256: 096ecf72694f7f88f4e068f41657970cd0917bdc54fc34962586477fccd45d3b
+    output_path: .gm/witness-out/PARSEDV-ub1-s2-3-verdict.txt
 - id: PARSEDV-ub1-s2-4
   SESSION_ID: orch-main-r260-sub1-s2
   principle: PARSEDV
@@ -545,6 +665,10 @@
 
     Target shape: return {ok, reason, leveledUp} with reason in 'invalid-amount' | 'xp-saturated' | null, and update the three witness expectations plus PROGRESSION.md:36/:308 in the same commit. src/game/EventChainManager.js runChain already ships the in-repo shape to copy ({success, reason}).
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/WADLER-ub1-s2-1-verdict.txt
+  witness_binding:
+    output_sha256: 2f2c767b3b8fa25e1b7599ec8c67cda84031738874f0ca62062efa4a4a308e16
+    output_path: .gm/witness-out/WADLER-ub1-s2-1-verdict.txt
 - id: WADLER-ub1-s2-2
   body: |-
     WADLER over src/game. startQuest returns one false for two causes: :77 unknown quest, :81 already-started and not replayable. completeObjective returns false for six: :100 no quest or not active, :103 unknown quest or bad objective index, :105 non-finite/non-positive amount, :109 objective already at target. claimReward returns null for both 'not complete' (:143) and 'unknown quest' (:146), so the reward object and the refusal are not the same case at all and null is not destructurable.
@@ -558,6 +682,10 @@
   witness_path: .gm/witness-out/WADLER-ub1-s2-2-verdict.txt
   title: 'src/game/QuestSystem.js: startQuest collapses unknown-quest and already-started into one false (:77,:81); completeObjective six false causes (:100,:103,:105,:109); claimReward null for two causes (:143,:146)'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/WADLER-ub1-s2-2-verdict.txt
+  witness_binding:
+    output_sha256: ff59eecda44abde31418286d5910db7e6d4d95d64bc8a0d5362b7e26e4661e0e
+    output_path: .gm/witness-out/WADLER-ub1-s2-2-verdict.txt
 - id: WADLER-ub1-s2-3
   body: |-
     WADLER over src/game, result side of PARSEDV-ub1-s2-2 (that row frames the input side of the same sites and stays open). canCastAbility (:118) and castAbility (:131) return false for unknown-ability, locked-by-level and cooling-down; bindHotkey (:148,:149) returns false for an out-of-range slot AND for an unknown ability. Parametricity: the caller cannot recover which of the three refused, so a cooling cast and a locked cast are indistinguishable downstream, and bindHotkey's two refusals ask for different caller reactions (fix the slot vs. fix the ability).
@@ -569,6 +697,10 @@
   witness_path: .gm/witness-out/WADLER-ub1-s2-3-verdict.txt
   title: 'src/game/AbilityTree.js: canCastAbility/castAbility return one false for unknown-ability, locked and cooling (:118,:131); bindHotkey for out-of-range-slot and unknown-ability (:148,:149)'
   session_id: orch-main-r260-sub1-s2
+  witness_path: .gm/witness-out/WADLER-ub1-s2-3-verdict.txt
+  witness_binding:
+    output_sha256: 546d07b14a801abad07d7d37310402c6f206e41336730b63bb7b9c0e6befb30a
+    output_path: .gm/witness-out/WADLER-ub1-s2-3-verdict.txt
 - id: WADLER-ub1-s2-4
   body: |-
     Owed commit. Two path-scoped git_commit dispatches for src/game/QuestSystem.js + src/game/AbilityTree.js starved at the 120 s git serial lane cap and were NOT executed (re_dispatch_safe: true both times): 1791690487731-500-5b409f9042f812aa and 1791690627272-500-e8274fc2d8482b05. Lane holder f73df536-0f66-49a1-8888-2a064d23416a-hhotscbx, lane_waiters 3 then 5. HEAD is still 4747096e16baef4c05236d57134a0beaff113f1c.
@@ -594,6 +726,10 @@
   claim: 'WADLER hop over types/ctx.d.ts (dispatch 1791690990833-500-126c377a54d7121a, exhaustive over src/apps/AppPhysics.js). AppPhysics.js:81 gates addBoxCollider''s size with an inline `typeof x !== ''number'' || !Number.isFinite(x) || x < 0` instead of consuming nonNeg from src/shared/vecGuard.js, so the retired row ILLEGAL-n-r270-2''s claim that every numeric sink asserts one nonNeg precondition is half false. The matching declarations are still bare: types/ctx.d.ts:36 `addBoxCollider(size: Vector3 | number)`, :39 `addCylinderCollider(radius: number, height: number)`, :41 `addConvexHullCollider(shapeKey?: string)`, and ColliderConfig :56-59 radius/height/mass. The shipped tree therefore carries four independent spellings of one predicate plus a declaration that admits what the sink throws on.'
   acceptance_criteria: 'A live dispatch shows AppPhysics.js:81 routing every element of size through nonNeg (no inline Number.isFinite/x<0 text left in src/apps/AppPhysics.js), and types/ctx.d.ts declaring addBoxCollider(size: Vector3 | NonNegFinite), addCylinderCollider(radius: NonNegFinite, height: NonNegFinite) and ColliderConfig radius/height/mass as NonNegFinite; a codesearch literal nonNeg over src/apps/AppPhysics.js returns one use site per guarded sink and zero inline isFinite comparisons.'
   session_id: orch-main-r270-sub1-w1
+  witness_path: .gm/witness-out/WADLER-ub1-w1-1-verdict.txt
+  witness_binding:
+    output_sha256: 97f9ad503718f21d55ab7ecfdf37309ce23cc7b92f2471bf78341b090b41e174
+    output_path: .gm/witness-out/WADLER-ub1-w1-1-verdict.txt
 - id: WADLER-ub1-w1-2
   SESSION_ID: orch-main-r270-sub1-w1
   acceptance_criteria: types/ctx.d.ts declares NonNegFinite at every radius parameter whose AppRuntime counterpart spells the non-negative rule (nearby, getNearest, broadcastNearby, onPlayerContact, nearestOtherPlayer, onPlayerProximity), and a live dispatch shows no declaration in that file admitting a value the running AppRuntime rejects; closed together with DBC-n-r270-1.
@@ -603,6 +739,10 @@
   note: all six radius parameters named in the row are NonNegFinite in types/ctx.d.ts
   title: 'types/ctx.d.ts: six more radius parameters are bare number while AppRuntime spells the same non-negative rule inline at :566/:573/:617'
   session_id: orch-main-r270-sub1-w1
+  witness_path: .gm/witness-out/WADLER-ub1-w1-2-verdict.txt
+  witness_binding:
+    output_sha256: 7a6fe33d598c3a9db5403b2195fdaef9355f4f1bb675fd6b4ff6b962df403e5d
+    output_path: .gm/witness-out/WADLER-ub1-w1-2-verdict.txt
 - id: WADLER-ub1-w1-3
   SESSION_ID: orch-main-r270-sub1-w1
   acceptance_criteria: 'A live dispatch shows client/editor/sdk-typings.generated.d.ts carrying the sink parameter types declared in types/ctx.d.ts (no bare `(v: any)` for a sink whose runtime guard is nonNeg), regenerated by scripts/bundle-client.mjs or its generator rather than hand-edited, and byte-identical to a committed re-bake.'
@@ -610,6 +750,10 @@
   status: fixed
   title: 'client/editor/sdk-typings.generated.d.ts:36/:110 declares every physics sink as (v: any), a third description weaker than both ctx.d.ts and nonNeg'
   session_id: orch-main-r270-sub1-w1
+  witness_path: .gm/witness-out/WADLER-ub1-w1-3-verdict.txt
+  witness_binding:
+    output_sha256: 15ebd687ca5a913a878f9dca53314aeae06a7558ce7061e2adc431b4a189224f
+    output_path: .gm/witness-out/WADLER-ub1-w1-3-verdict.txt
 - id: DBC-ub1-s2-1
   title: src/game/ProgressionSystem.js:40 calculateXpThreshold's explicit `curve` arg bypasses the config contract -- an unknown curve silently falls to the switch default (linear), so one predicate has two bodies
   status: open
@@ -664,6 +808,10 @@
   why: 'There is no closed set of weather types: :8 and :9 name rain and snow and :10 returns 0 for everything else, so a typo (''Rain'') and a genuinely dry type (''fog'', ''clear'') are indistinguishable; :6 returns the same 0 for a non-finite intensity and for an absent weather object, so four causes share one sentinel that then drives the drying branch at :35.'
   acceptance: Either enumerate the real weather types and reject every other string, with fireWeather-witness.mjs updated to pin that enumeration, or record in AGENTS.md that unknown-type-means-dry is the contract. A throw that reddens the shipped witness without that decision is refused.
   session_id: orch-main-h22-sub1
+  witness_path: .gm/witness-out/GUARD-2-sub1-1-verdict.txt
+  witness_binding:
+    output_sha256: 4414d8d4db656ae1bbe18639f087fa83a88b46fb3ac84d2e07f4d8d0f5f511e7
+    output_path: .gm/witness-out/GUARD-2-sub1-1-verdict.txt
 - id: GUARD-2-sub1-2
   acceptance: 'Drive apps/fsm-arena/index.js buildMatchFSM through the real src/behaviours/gamemode.js and game-fsm.js inside the fsm-arena witness instead of the recorder, and pin the RESULT: FAIL it currently prints at HEAD.'
   principle: GUARD
@@ -675,6 +823,10 @@
   why: GUARD's proof obligation is that a guard fires when the real module runs; a witness that substitutes the module under test proves nothing about it, and the arena's own end builder at apps/fsm-arena/index.js:26 reads fsm.context.kills, which only the real runtime populates.
   witness: node scripts/fsm-arena-index-witness.mjs
   session_id: orch-main-h22-sub1
+  witness_path: .gm/witness-out/GUARD-2-sub1-2-verdict.txt
+  witness_binding:
+    output_sha256: 65a387da16a67d274d5a4dd1e224adaa1b415bf554bb0971d1170020bed7500a
+    output_path: .gm/witness-out/GUARD-2-sub1-2-verdict.txt
 - id: TOTALITY-w1-p-1-1
   status: open
   witness_path: .gm/witness-out/TOTALITY-w1-p-1-1-verdict.txt
@@ -715,6 +867,10 @@
 
     FIX give the ring semantics one named owner inside the module (an explicit radius-semantics argument or a distinct type), rather than three methods distinguished only by name. Note the landed half: nearbyHorizontal now honours the same `out` buffer protocol as nearby (:113-116), so a caller passing out is no longer silently ignored.
   session_id: orch-main-r310-sub2-p1
+  witness_path: .gm/witness-out/PARNAS-cylinder-ub2-p1-verdict.txt
+  witness_binding:
+    output_sha256: c3d918f150e5c8e551fb0ef5e59a182c869153d4d9b467061e0c07f2e67621cc
+    output_path: .gm/witness-out/PARNAS-cylinder-ub2-p1-verdict.txt
 - id: PARNAS-ringbranch-ub2-p1
   title: 'src/spatial: the 2D-vs-3D relevance decision lives in TickHandlerAOI, and the snapshot path never takes it'
   status: refuted
@@ -731,6 +887,10 @@
 
     FIX move the choice into src/spatial behind one entry point and delete the duplicated facade bodies. Verify by live execution on a shipped world, not by reading the branch.
   session_id: orch-main-r310-sub2-p1
+  witness_path: .gm/witness-out/PARNAS-ringbranch-ub2-p1-verdict.txt
+  witness_binding:
+    output_sha256: 932b3d3644c7f5db08bdaa72c1c96788cb7158698bf7e5cd0823909388742eaf
+    output_path: .gm/witness-out/PARNAS-ringbranch-ub2-p1-verdict.txt
 - id: ILLEGAL-r250-4
   witness: 'Live dispatches, all this session: callers createVoiceIndicator dispatch 1791694170365-500-e9644645a34ae43d (index complete:true; defined_at client/hud/VoiceIndicator.js:23-246; exactly 2 call sites, client/app.js:2792 and :2828, both `window.__app.voiceIndicator = createVoiceIndicator(uiRoot, () => window.__app.wireweave, engineCtx, MSG)`); codesearch literal voiceHUD over client/app.js dispatch 1791694229815-500-989ef8d3ce843343 (exhaustive, 0 matches - no voiceHUD binding); codesearch literal createVoiceIndicator over client/app.js dispatch 1791694269468-500-76f932cdcddaf42e (exhaustive, 4 lines: two dynamic imports at :2791/:2827 and the two assignments at :2792/:2828); codesearch literal voiceIndicator over client dispatch 1791694310458-500-adb589e64eacb7c1 (exhaustive, 3 lines, 46790 lines read - no reader of the exported `joined` getter, so the stale post-destroy `joined` is latent, not yet observed by a caller); fs_read client/hud/VoiceIndicator.js dispatch 1791694036546-500-9a12b448d22e032d (lines 1-129) and dispatch 1791694104328-500-9988a778b28569cb (lines 130-246) read the whole 246-line module on the work tree: :29-32 the four declarations, :52 `if (destroyed) return`, :163 the `disconnected` listener setting joined=false while session stays non-null, :186 joined=true only after connect, :213 `get joined()`, :232 `destroyed = true` in destroy with joined left set; git_show at the shipped row -2 commit 2f4b3c31df dispatch 1791693989228-500-e7b4c192a939bc71 shows the same file already carrying teamChannelTeamId, i.e. this is the tip of the module. LIVE EXECUTION (added after gm 0.1.1579 started persisting exec_js bodies): exec_js dispatch 1791698084802-500-d2d4c37a14865133 imported the real module under DOM stubs and failed at the import stage - `Cannot find package ''anentrypoint-design'' imported from C:\dev\spoint\client\hud\VoiceIndicator.js`, ERR_MODULE_NOT_FOUND, exit 0. Both outcomes were predicted before dispatch; this is outcome B. Consequence, now part of the row: this module has NO node-runnable witness path - `anentrypoint-design` is an import-map name resolved only in the browser from the pinned CDN design bundle, not an installable package - so the illegal state cannot be driven by exec_js and must be witnessed on the browser surface, or carried on source truth as here. The probe is persisted and re-runnable at .gm/witness-out/witness-1791698084802-500-d2d4c37a14865133.mjs; it prints RESULT: FAIL with the error today and will print RESULT: PASS the moment the module becomes importable in node, so a resolver lane gets a red-then-green signal for free.'
   principle: ILLEGAL
