@@ -20,15 +20,7 @@ let queue = Promise.resolve()
 let lastBootId = null
 let liveBootId = null
 let toastModule = null
-// The reproduction switch scripts/hmr-reload-block-witness.mjs A/Bs: false replays the pre-fix
-// path (scan every resource timing entry, one ancestor walk per node, no macrotask yield).
 let sliced = true
-// One save is N fs events whenever it writes N files -- a save-all, a branch switch, or one agent
-// turn -- and N events used to be N applies: N module fetches, N subsystem rebuilds and, for the
-// modules with no accept boundary above them (92% of the real graph), N whole page reloads back to
-// back. Two updates that cannot both change the outcome must not both do the work, so the queue
-// keeps only the NEWEST event per module and drops the ones it supersedes, and once a page reload
-// is ordered every later update already lands with it and does nothing.
 let coalesced = true
 const pendingUpdates = new Map()
 let draining = false
@@ -39,11 +31,6 @@ const isSingleplayer = () => !!window.__app?.client?._worker
 const listOf = (map, key) => { if (!map.has(key)) map.set(key, []); return map.get(key) }
 
 function accept(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: false }) }
-// ONE self-accept handler per module for the life of the page, and the first registration wins.
-// A self-accept handler re-assigns the export bindings of the module instance this page already
-// imported, because that is the instance every static importer's live binding reads. A copy
-// imported later would re-bind ITS OWN bindings, which nobody reads, so the registration from the
-// boot copy is the only one that can take effect and it is never replaced.
 function acceptSelf(url, fn) {
   const list = listOf(acceptors, keyOf(url))
   if (list.some(h => h.self)) return
@@ -53,11 +40,6 @@ const assetHandlers = []
 function acceptAsset(fn) { assetHandlers.push(fn) }
 function dispose(url, fn) { listOf(disposers, keyOf(url)).push(fn) }
 
-// A subsystem is one object the app holds that its module's factory can rebuild
-// from scratch. `rebuild` is the function the app calls to build it in the first
-// place, so registering it here means a swap runs exactly what a cold boot ran
-// and the two cannot drift apart. The returned function is the same one, so the
-// construction site and the accept handler are literally one call.
 function subsystem(url, rebuild) {
   listOf(acceptors, keyOf(url)).push({ fn: rebuild, self: false })
   return rebuild
@@ -113,8 +95,6 @@ async function waitForServer(staleBootId) {
 }
 
 async function reloadPreserving(ev, reason) {
-  // Set before the first await, not after it: the reload is ordered HERE, and every update that
-  // arrives while waitForServer runs is already going to land with it.
   reloadOrdered = true
   record(ev, 'reload', reason)
   savePose()
@@ -133,9 +113,6 @@ function trackChain(ev, boundary) {
     }
     return
   }
-  // `boundary in ancestorsOf(parents, node)` is one walk up per node, so the whole chain cost
-  // nodes squared. Walk the parents map down from the boundary once instead: a node is under the
-  // boundary exactly when the boundary is one of its ancestors.
   const children = new Map()
   for (const [node, parents] of Object.entries(ev.parents)) {
     for (const p of parents) { const list = children.get(p); if (list) list.push(node); else children.set(p, [node]) }
@@ -200,8 +177,6 @@ async function applyBoundary(ev, boundary) {
   if (sliced) await macrotaskYield()
   const newMod = await import(versionedUrl(boundary, ev.v))
   trackChain(ev, boundary)
-  // The handlers of one boundary stay in one block on purpose: a frame rendered between them
-  // would run update() against a subsystem half of the way through being replaced.
   if (sliced) await macrotaskYield()
   for (const h of handlers) await h.fn(newMod, data(boundary))
 }
@@ -322,8 +297,6 @@ async function apply(ev) {
   }
 }
 
-// A versioned import reads the file from disk at request time, so for one module the newest event
-// already carries every older one's edit: applying it makes the superseded ones pure waste.
 const updateKey = (ev) => (ev.kind === 'module' ? 'module:' + ev.url : ev.kind + ':' + (ev.url || '') + ':' + (ev.path || ''))
 const enqueue = (ev) => {
   if (!coalesced) { queue = queue.then(() => apply(ev)); return queue }

@@ -11,10 +11,6 @@ const DEPTH_STEP_DIVISOR = 16
 const FAR_CASCADE_REDRAWS_PER_FRAME = 1
 const FAR_CASCADE_MAX_DEFER_FRAMES = 2
 
-// A fragment samples cascade i only inside cascade i's camera-distance band, cross-fading over
-// CASCADE_BLEND_M at each split, and a caster's shadow lands within roughly one caster height of
-// the caster itself (_casterShadowReachM). So a caster outside cascade i's widened band cannot
-// change any texel cascade i ever reads: re-rendering cascade i for it shows nothing new.
 
 export function createShadowPipeline(sun, opts = {}) {
   const scene = opts.scene || sun.parent || null
@@ -124,11 +120,6 @@ export function createShadowPipeline(sun, opts = {}) {
     return moved
   }
 
-  // Cascade 0 is the only cascade whose texel is finer than one frame of walking, so it is the only
-  // one that has to follow the eye every frame, and it is never held. The far cascades time-share a
-  // redraw budget per frame instead of all of them landing on the same frame: a far map held one
-  // frame sits one frame of travel behind the eye, which is below its own snap step, and the defer
-  // ceiling means a far cascade cannot be starved by one that comes due more often.
   function update(target) {
     let anyMoved = false
     let farIssued = 0
@@ -145,9 +136,6 @@ export function createShadowPipeline(sun, opts = {}) {
     return anyMoved
   }
 
-  // How far a caster can throw a shadow sideways, derived from the live sun elevation rather than
-  // a flat guess: a caster of SHADOW_REDRAW_CASTER_HEIGHT_M throws height/tan(elevation). At the
-  // horizon that is unbounded, which correctly disables the band skip altogether.
   function _casterShadowReachM() {
     const horiz = Math.hypot(offset.x, offset.z)
     const vert = Math.abs(offset.y)
@@ -155,23 +143,13 @@ export function createShadowPipeline(sun, opts = {}) {
     return SHADOW_REDRAW_CASTER_HEIGHT_M * (horiz / vert)
   }
 
-  // Camera-distance band of cascade i, widened by the cross-fade and by how far a caster can throw
-  // a shadow. Outside it, a fragment never samples cascade i, so a caster there cannot dirty
-  // anything cascade i shows.
   function _bandReachesCaster(index, dist, reach) {
     const lo = index === 0 ? 0 : _cascades[index - 1].extent - CASCADE_BLEND_M - reach
     const hi = _cascades[index].extent + CASCADE_BLEND_M + reach
     return dist >= lo && dist <= hi
   }
 
-  // Dirty only the cascades a moved caster can actually change. `movers` are the caster roots
-  // whose pose changed since the last sync and `eye` is the camera world position the bands are
-  // measured from. Without both -- a caster appearing or vanishing carries no position -- every
-  // cascade is dirtied, because the invalidation is then unbounded.
   function forceUpdate(movers, eye) {
-    // One cascade is not band-selected at all -- installCascadeShadowSelect(TSL) leaves a lone
-    // light on three's default shadow node, which samples its map at every fragment -- so there
-    // is no band to test against and every caster can reach it.
     if (_cascades.length <= 1) { for (const c of _cascades) c.light.shadow.needsUpdate = true; return }
     if (!movers || movers.length === 0 || !eye || !Number.isFinite(eye.x)) {
       for (const c of _cascades) c.light.shadow.needsUpdate = true
@@ -224,12 +202,6 @@ export function createShadowPipeline(sun, opts = {}) {
   return pipeline
 }
 
-// Asking for a shadow redraw is a two-backend question and only one of the two answers is a
-// renderer-level write. three's WebGPU Renderer.shadowMap is { enabled, transmitted, type } and
-// ShadowNode.updateBefore gates on the PER-LIGHT light.shadow.needsUpdate, which forceUpdate()
-// already writes; three's WebGLShadowMap.render gates the whole pass on renderer.shadowMap
-// .needsUpdate because autoUpdate is off. So the renderer-level write is load-bearing on the legacy
-// renderer and unreadable on the WebGPU one, and this is the one place that decides.
 export function requestShadowRedraw(renderer) {
   const sm = renderer && renderer.shadowMap
   if (!sm || typeof sm.render !== 'function') return false
@@ -266,9 +238,6 @@ export function createShadowCasterTracker() {
   const _poses = new WeakMap()
   let _castingCount = 0
 
-  // `movers` accumulates the roots whose pose changed, so the caller can dirty only the cascades
-  // they can reach. A change in the NUMBER of casters has no position, so it clears `movers` and
-  // the caller falls back to dirtying every cascade.
   function sync(objects, movers) {
     let moved = false
     let castingNow = 0

@@ -4,18 +4,6 @@ import { isMeshSurfaceNoGround, renderMeshHeightAt } from '../../src/terrain/Ter
 const MESH_SOLVE_ITERS = 4
 const MESH_SOLVE_TOL_M = 1e-6
 
-// The solve keeps two seeds and no distance threshold. It starts from the chart's own anchor
-// height, which is already known and costs nothing, and it is ANSWERED from that start only where
-// the iteration reached its own tolerance. Where it did not, the answer would be wherever the
-// iteration ran out of budget -- a function of the seed rather than of the surface -- so the CPU
-// sampler is paid there and the solve runs from its elevation, exactly as it did before c822a7b4.
-//
-// The budget is what makes this necessary rather than theoretical: inside every placement ring the
-// anchor-seeded solve converges and agrees with the CPU-seeded one to 1e-9 m, but past ~200 m the
-// rendered mesh is coarse enough that 4 iterations no longer reach it, and the unguarded answer
-// there moves vegetation and rock placement by up to 1.77 m
-// (scripts/exact-patch-seed-radius-witness.mjs). Convergence is a property of the answer, so it
-// holds or fails per direction; a radius threshold would not.
 function meshElevationAtDir(frame, meshAt, fallback) {
   const radius = frame.radius
   const base = radius + frame.anchorHeight - frame.offsetY
@@ -58,12 +46,6 @@ function meshElevationAtDir(frame, meshAt, fallback) {
 
 export function createExactPatchFrame(frame) {
   let missing = false
-  // The drawn-mesh surface is resolved per call, never captured: it is the frame's own port and the
-  // port is re-attached whenever the planet is rebuilt, so whatever this frame was built against is
-  // not necessarily what is drawn now. The resolved FUNCTION is memoised, not its answer, so the
-  // elevation solver is rebuilt only when the frame actually points at a different surface -- and
-  // where no surface is attached at all the frame's own sampler is read live, because that one is
-  // swapped too (a ground-source registration replaces frame.elevationAtDir).
   let meshAt = null
   let meshElev = null
   const meshAtNow = () => {
@@ -74,9 +56,6 @@ export function createExactPatchFrame(frame) {
     }
     return at
   }
-  // frame.groundHeightLocal is an ACCESSOR with a setter that installs the assigned function as
-  // the whole frame's ground source, so a plain assignment on a derived object would retarget
-  // every reader of the frame, not just placement. Own data properties keep the override local.
   const placementFrame = Object.create(frame)
   Object.defineProperty(placementFrame, 'elevationAtDir', {
     value: (d) => {
@@ -108,9 +87,6 @@ export function createExactPatchFrame(frame) {
   }
 }
 
-// --- hot swap -----
-// An edit here is accepted by this module: every export is re-assigned to the freshly imported copy,
-// so importers already holding the live binding read the edited code without a page reload.
 const _hotSwapExports = (next) => {
   createExactPatchFrame = next.createExactPatchFrame
 }

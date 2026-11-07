@@ -25,24 +25,12 @@ function reportSampleFailure(e) {
   console.error('[minimap] terrain cell sample failed; unsampled cells draw as background:', e && e.message || e)
 }
 
-// A refresh re-solves the whole BUFFER_CELLS^2 grid. The grid origin used to be the pose, so a
-// refresh triggered by drift re-solved every cell at a slightly different (x,z) and the ground
-// sampler's memo could not recognise any of it as work it had already done. Snapping the origin to
-// a world-aligned multiple of the cell size makes a cell's (x,z) a pure function of its lattice
-// index, which is what lets the next refresh reuse the overlap instead of re-solving it.
-// Rounding (not flooring) keeps the snapped origin within half a cell of the pose; flooring would
-// push it a whole cell away on one side.
 export function minimapGridOrigin(centreM, spanM, cells) {
   const cellMeters = spanM / cells
   if (!(cellMeters > 0) || !Number.isFinite(centreM)) return { cellMeters, origin: NaN }
   return { cellMeters, origin: Math.round((centreM - spanM / 2) / cellMeters) * cellMeters }
 }
 
-// Whole-cell shift of the next grid relative to the previous one, or null when the two do not sit
-// on the same lattice. Destination cell (r, c) reads source cell (r + dRow, c + dCol), so a
-// positive shift means the new grid lies further along the axis than the old one and its first
-// rows/columns are territory the previous refresh never covered. A fractional shift means the
-// lattices disagree and nothing may be reused.
 export function minimapCarryShift(prevLeft, prevTop, nextLeft, nextTop, cellMeters, cells) {
   if (!(cellMeters > 0) || !Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(nextLeft) || !Number.isFinite(nextTop)) return null
   const dCol = Math.round((nextLeft - prevLeft) / cellMeters)
@@ -54,10 +42,6 @@ export function minimapCarryShift(prevLeft, prevTop, nextLeft, nextTop, cellMete
   return { dRow, dCol }
 }
 
-// Scroll-blit the overlapping window of the previous grid onto the next one and mark those cells
-// solved. Iteration runs against the shift on both axes so a destination never overwrites a source
-// it has still to read. This moves bytes, not heights: a carried cell keeps the value the previous
-// refresh solved for that exact (x,z).
 export function minimapCarryGrid(dRow, dCol, cells, heights, land, biome, filled) {
   let carried = 0
   if (filled) filled.fill(0)
@@ -132,8 +116,6 @@ function seedOf(sources, terrain) {
   return published.seed
 }
 
-// The grid geometry a minimap-refresh witness has to mirror; exported so the witness measures the
-// numbers the HUD actually uses instead of a copy that can drift.
 export const MINIMAP_GRID = Object.freeze({
   cells: BUFFER_CELLS,
   overView: BUFFER_OVER_VIEW,
@@ -197,8 +179,6 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   }
 
   function carryPreviousGrid(w) {
-    // __minimapNoCarry is a witness hook: set it before boot and every refresh re-solves the whole
-    // grid, which is the pre-dedup behaviour the minimap-refresh witness measures against.
     if (typeof window !== 'undefined' && window.__minimapNoCarry === true) { filled.fill(0); return 0 }
     const prev = state.sampled
     if (!prev || prev.frame !== w.frame || prev.epoch !== w.epoch || prev.cellMeters !== w.cellMeters) { filled.fill(0); return 0 }
@@ -221,8 +201,6 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
       progressive: !state.current || state.current.span !== span,
       seed: seedOf(sources, terrain),
     }
-    // begin's verdict is recorded on the work item: a refused window (null handle) is terminal, so
-    // it touches no cache and reaches no layer swap or refresh count in advanceRefresh.
     w.placement = scanner.begin(w.frame, w.anchorField, sources, w.seed, w.cx, w.cz, span / 2)
     w.refused = w.placement === null
     state.work = w
@@ -245,8 +223,6 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
       const end = Math.min(BUFFER_CELLS, w.col + TERRAIN_CELLS_PER_CHECK)
       for (let i = w.col; i < end; i++) {
         const idx = w.row * BUFFER_CELLS + i
-        // A carried cell the previous refresh could not sample stays unsampled: it is re-asked here
-        // rather than inheriting a NaN it might not deserve a second time.
         if (filled[idx] && Number.isFinite(heights[idx])) { w.rowGuess = heights[idx]; continue }
         try {
           heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb, w.rowGuess) ?? NaN

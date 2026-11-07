@@ -223,9 +223,6 @@ try {
         renderer.setAnimationLoop(null)
         _showBootFailureOverlay('GPU device lost', `${api} device lost: ${why}\nRendering stopped. Reload the page to recover.`)
       }
-      // A newly visible render object would otherwise compile its pipeline synchronously inside
-      // render(), so scenery that streams in as a batch lands every compile in one frame.
-      // createRenderPipeline exists only on the WebGPU backend; on WebGL2 the escort would hold back draws.
       if (renderer.backend?.isWebGPUBackend && !installAsyncRenderPipelines(renderer)) {
         console.warn('[renderer] installAsyncRenderPipelines could not bind; first draws will compile synchronously')
       }
@@ -554,8 +551,6 @@ function _ensureRocks(tb) {
   _foliagePending.rocks = pending
   return pending
 }
-// Rebuilds the cave meshes from the live terrain config. Boot and the hot-reload
-// swap both call this, so a swapped cave pass is built exactly as boot built it.
 function _rebuildCaveMeshes() {
   const caveCfg = _terrainCfg && _terrainCfg.caveCarve
   if (!Array.isArray(caveCfg) || caveCfg.length === 0) {
@@ -698,8 +693,6 @@ loadingMgr.setLabel(STRINGS.loadingConnecting)
 const deviceInfo = _deviceInfoEarly; let mobileControls = null, mobileControlsUI = null, inputConfig = { pointerLock: true }
 let _worldDef = null
 if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); mobileControlsUI = _hmrFactories.createMobileControlsUI(mobileControls, worldMobileButtons(null)); inputConfig.pointerLock = false }
-// The boot build and the hot-reload swap are the same function, so a swapped
-// mobile HUD cannot end up built differently from the one a cold boot built.
 const _rebuildMobileControls = (wd) => {
   if (!deviceInfo.isMobile || !mobileControls) return
   mobileControlsUI?.destroy?.()
@@ -723,8 +716,6 @@ floatingOrigin.onRebase((dx, dy, dz) => {
 })
 let replayBuffer = _hmrFactories.createReplayBuffer({ maxFrames: 600, captureFn: _hmrFactories.createSceneGraphCaptureFn(sceneGraph) })
 if (typeof window !== 'undefined') window.__replayBuffer = replayBuffer
-// A replay buffer captures the scene graph it was built with, so a swap has to
-// re-capture from the live one instead of keeping the graph boot had.
 const _rebuildReplayBuffer = () => {
   const prev = replayBuffer
   replayBuffer = _hmrFactories.createReplayBuffer({ maxFrames: 600, captureFn: _hmrFactories.createSceneGraphCaptureFn(sceneGraph) })
@@ -757,9 +748,6 @@ function _applyPendingSculptBackfill() {
     console.log(`[terrain] sculpt late-join backfill: replayed=${replayed} uploaded=${uploaded}`)
   } catch (e) { console.error('[terrain] sculpt late-join backfill failed:', e?.message || e) }
 }
-// Rebuilds the sculpt overlay over a terrain backdrop. Boot, a reseed and the
-// hot-reload swap all call this one function, so a swapped overlay is built the
-// same way the boot one was.
 function _rebuildSculptOverlay(tb = terrainBackdrop) {
   if (!tb) return null
   const prev = sculptOverlay
@@ -767,9 +755,6 @@ function _rebuildSculptOverlay(tb = terrainBackdrop) {
   if (prev && prev !== sculptOverlay) { try { prev.dispose?.() } catch (_) {} }
   return sculptOverlay
 }
-// Rebuilds the collider debug view over the live terrain frame. Boot and the
-// hot-reload swap call this one function; the ?drawcollider visibility is part
-// of the build so a swap keeps whatever the operator had on screen.
 function _rebuildColliderDebug() {
   const frame = terrainBackdrop && terrainBackdrop.frame
   if (!frame || !_terrainCfg) return null
@@ -784,9 +769,6 @@ const modelPool=createModelPool(scene,renderer,camera,{deviceInfo})
 const decalSystem = createDecalSystem(scene, THREE)
 let sceneOcclusion=_hmrFactories.createSceneOcclusion(renderer)
 window.__sceneOcclusion=sceneOcclusion
-// Rebuilds the occlusion registry over whatever scenery is live right now. Boot
-// and the hot-reload swap call this same function, so a swap re-registers the
-// current vegetation/rocks/grass instead of whatever was live at first boot.
 const _rebuildSceneOcclusion = () => {
   const prev = sceneOcclusion
   sceneOcclusion = _hmrFactories.createSceneOcclusion(renderer)
@@ -797,8 +779,6 @@ const _rebuildSceneOcclusion = () => {
 }
 let occlusionQueryBudget=createOcclusionQueryBudget()
 window.__occlusionQueryBudget=occlusionQueryBudget
-// The query budget owns no scenery, so a swap is a fresh budget published to the
-// same two places boot published it.
 const _rebuildOcclusionQueryBudget = () => {
   const prev = occlusionQueryBudget
   occlusionQueryBudget = _hmrFactories.createOcclusionQueryBudget()
@@ -807,8 +787,6 @@ const _rebuildOcclusionQueryBudget = () => {
   return occlusionQueryBudget
 }
 let cullingHub = createCullingHub()
-// The hub is a pure registry of stat getters, so a swap re-runs the same four
-// registrations boot ran against whatever is live now.
 const _rebuildCullingHub = () => {
   const prev = cullingHub
   cullingHub = _hmrFactories.createCullingHub()
@@ -908,25 +886,11 @@ window.__debugDepthAt = function (px, py) {
     }
   } catch (e) { return { error: e && e.message, stack: e && e.stack } }
 }
-// Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
-// shipped `gateCompile` below, so one witness can measure both arms against the same bytes.
 const _warmGateEnabled = () => (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false
 const gateCompile = m => {
   try {
     const ud = m.userData || (m.userData = {})
     if (_warmGateEnabled()) {
-      // three's `_projectObject` returns at the first object whose `visible` is false, so a mesh
-      // hidden BEFORE its compile is compiled as nothing at all: `compileAsync` projects an empty
-      // render list, resolves on the next microtask, and this gate then reveals a mesh whose node
-      // graph has never been built. The build therefore lands on the draw path instead --
-      // synchronously, inside `_renderObjectDirect`, in the first frame the mesh is drawn.
-      //
-      // So the compile has to SEE the mesh visible. It only needs `visible` long enough to be
-      // projected, which happens before compileAsync's first await; the mesh is taken back out of
-      // the draw path immediately afterwards so the draw path cannot reach it and build the same
-      // graph a second time, and it is restored when the compile settles. The 4s timer is
-      // unchanged and still the thing that keeps a warm that never settles from becoming an object
-      // that never draws.
       const wasVisible = m.visible
       m.visible = true
       ud._compileHidden = true
@@ -1045,12 +1009,6 @@ if (globalThis.__spointHmr) {
     _hmrFactories.createTerrainBackdrop = m.createTerrainBackdrop
     if (terrainBackdrop) await engineCtx.rebuildTerrain({})
   })
-  // Each line is a subsystem the app built with one factory call, and its rebuild
-  // function is the function boot itself ran -- so pairing the two is all an
-  // in-place swap needs. The handler is handed the freshly imported module, puts
-  // its new factory where boot reads it, then runs the same rebuild: a swapped
-  // subsystem is built exactly the way a cold boot built it, or it throws and
-  // the page reloads.
   hmr.subsystem('/core/SceneOcclusion.js', m => { _hmrFactories.createSceneOcclusion = m.createSceneOcclusion; return _rebuildSceneOcclusion() })
   hmr.subsystem('/core/OcclusionQueryBudget.js', m => { _hmrFactories.createOcclusionQueryBudget = m.createOcclusionQueryBudget; return _rebuildOcclusionQueryBudget() })
   hmr.subsystem('/core/ReplayBuffer.js', m => { _hmrFactories.createReplayBuffer = m.createReplayBuffer; _hmrFactories.createSceneGraphCaptureFn = m.createSceneGraphCaptureFn; return _rebuildReplayBuffer() })
@@ -2843,8 +2801,6 @@ function buildFrameSectionNodes() {
         const _entityCasterMoved = shadowEntityCasters.sync(el.entityMeshes.values(), _shadowMovers)
         const _casterMoved = _playerCasterMoved || _entityCasterMoved
         if (_shadowMoved || _casterMoved) requestShadowRedraw(renderer)
-        // A caster that only moved near the camera cannot change what the far cascades show, so
-        // hand the movers over and let the pipeline dirty the cascades their band actually covers.
         if (_casterMoved && shadowPipeline) {
           shadowPipeline.forceUpdate(_shadowMovers.length ? _shadowMovers : null, camera.position)
         }

@@ -8,33 +8,16 @@ export const RAISE_BELOW_MS = FRAME_BUDGET_MS - DEAD_BAND_LOWER_MS
 const FRAMES_PER_WINDOW = 30
 const WINDOWS_BEFORE_STEP = 2
 export const MIN_STEP_INTERVAL_MS = 1000
-// Recovery used to share the shed path's 1000ms floor, so a tier shed in 200ms took >=1000ms to
-// come back -- a 5:1 ratchet that only ever walked down. Raising is gated on 2 clean 30-frame
-// windows anyway, so the interval is what decides how fast a recovered frame budget is given back.
 export const RECOVER_STEP_INTERVAL_MS = 400
 export const HITCH_ABOVE_MS = 2 * FRAME_BUDGET_MS
-// 200ms let the latch shed a full tier every 12 frames at 60Hz: a single dropped frame on every
-// other tick walked the ladder to the floor while nothing on screen said why. 500ms still answers
-// a sustained stall inside 2 windows but leaves the ladder legible.
 export const HITCH_STEP_INTERVAL_MS = 500
 export const HITCH_RESPONSE_BOUND_FRAMES = 1
 const WINDOW_P95_Q = 0.95
 
-// The per-frame latch only sees a frame above HITCH_ABOVE_MS (2 x budget), so a SUSTAINED overrun
-// in the 17.67-33.34ms band -- the load a player feels as the game running badly rather than as one
-// discrete hitch -- was answered only by the 30-frame mean: 2 windows + MIN_STEP_INTERVAL_MS,
-// measured 60 frames / 1062-2000ms. Lowering hitchAboveMs to the budget instead would make every
-// frame marginally over budget trip the latch and the ladder would oscillate, so the band is
-// governed by a COUNT: a frame over EXCURSION_ABOVE_MS is one excursion, and EXCURSION_TRIP_COUNT
-// of the last EXCURSION_WINDOW_FRAMES frames must be excursions before a tier is shed. One
-// over-budget frame is one excursion out of 12 and can never reach the count, so a spike does not
-// shed; a sustained overrun reaches it inside EXCURSION_TRIP_COUNT frames.
 export const EXCURSION_ABOVE_MS = LOWER_ABOVE_MS
 export const EXCURSION_WINDOW_FRAMES = 12
 export const EXCURSION_TRIP_COUNT = 8
 
-// vegLeafOff is a DISTANCE, not a boolean: leaf meshes are dropped at or beyond it, so the near
-// range (including 0m) keeps its foliage at every tier. 0 means "no cutoff".
 export const LEAF_OFF_UNLIMITED_M = 0
 
 export const RESOLUTION_KEYS = new Set([
@@ -66,17 +49,6 @@ export const GOVERNED_KNOBS = [
     enableBit: 'live per-frame read. Smaller = quads split only when nearer the camera = coarser mesh = cheaper, so the governor only ever lowers it.' },
 ]
 
-// vegLeafOff is a leaf-mesh cutoff in metres, shrinking as the tier deepens. Tier 3 used to be a
-// global boolean that stripped the foliage off every tree including the one at 0m while maxLevel
-// only moved 10 -> 9; the ladder below drops leaves from the OUTSIDE of the mesh band inward.
-//
-// The cutoff is "no leaf meshes at or beyond N metres", and Vegetation.js draws leaf meshes in
-// three bands -- near 0-D1, mid D1-D2, far D2-FAR_LOD_SWAP -- handing everything past
-// FAR_LOD_SWAP to the shared impostor, whose baked atlas already carries foliage. D1/D2 cap at
-// 14/35 m and LOD_HYS is 0.12, so the mid band ends at 39.2 m: a cutoff inside it reads on screen
-// as "medium distance trees have no foliage". Every rung therefore sits AT OR BEYOND that edge and
-// sheds only the outer mesh band; Vegetation.js re-floors the value there as well, so no knob
-// setting can reach into the mid band.
 export const LEAF_OFF_MID_BAND_EDGE_M = 39.2
 export const QUALITY_TIERS = [
   { maxLevel: 11, splitFactor: 0.25, vegLeafOff: 0, effectScale: 1 },
@@ -99,18 +71,12 @@ export function effectCountBudget(baseCount, effectScale) {
   return Math.floor(baseCount * effectScale)
 }
 
-// One parse boundary for the leaf cutoff: metres at/beyond which leaf meshes stop drawing.
-// 0 (and every non-number, and every non-finite or negative number) means "no cutoff", so a bad
-// or legacy boolean value can never turn into a 1m cutoff that strips the tree you are standing on.
 export function leafCutoffM(v) {
   if (typeof v !== 'number') return LEAF_OFF_UNLIMITED_M
   if (!Number.isFinite(v) || v <= 0) return LEAF_OFF_UNLIMITED_M
   return v
 }
 
-// The consumer-side floor, applied where the band edges live: Vegetation.js owns D1/D2/LOD_HYS and
-// passes the mid band's far edge in, so a cutoff that would strip foliage inside that band is
-// floored to it instead of applied. 0 stays 0 -- no cutoff is not a cutoff to be raised.
 export function leafGateM(v, midBandEdgeM = LEAF_OFF_MID_BAND_EDGE_M) {
   const c = leafCutoffM(v)
   if (c <= 0) return LEAF_OFF_UNLIMITED_M
@@ -118,8 +84,6 @@ export function leafGateM(v, midBandEdgeM = LEAF_OFF_MID_BAND_EDGE_M) {
   return Math.max(c, floor)
 }
 
-// The governor only ever degrades: two cutoffs combine to the SMALLER positive one, and an absent
-// cutoff never wins against a real one in either direction.
 function _cutoffMin(a, b) {
   if (a > 0 && b > 0) return Math.min(a, b)
   return a > 0 ? a : b
@@ -172,8 +136,6 @@ export function createQualityGovernor(opts = {}) {
   const excursionRing = new Uint8Array(EXCURSION_WINDOW_FRAMES)
   let excursionAt = 0
   let excursions = 0
-  // Which path took the last step, so the debug panel can name it. Without this a shed in the
-  // 17.67-33.34ms band reads as "the 30-frame window", which is the one path that did NOT act.
   let shedCause = 'none'
   let shedExcursions = 0
   const applied = {}

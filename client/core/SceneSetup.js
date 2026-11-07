@@ -8,8 +8,6 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm'
 import { installUnderwaterTint as _installUnderwaterTint, setSeaLevelY as _setSeaLevelY } from './UnderwaterTint.js'
 import { RenderControls } from './RenderControls.js'
 import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
-// Re-exported as `let`, not `export {}`: a hot swap re-assigns these bindings (see the hot swap
-// block at the bottom) and a re-export cannot be assigned to.
 export let installUnderwaterTint = _installUnderwaterTint
 export let setSeaLevelY = _setSeaLevelY
 
@@ -442,24 +440,6 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   }
 }
 
-// --- hot swap -------------------------------------------------------------------
-// client/app.js imports this module STATICALLY, and an ESM import is a live binding to THIS
-// instance's export bindings, so no accept boundary above this file can re-point what app.js
-// holds: an acceptor sitting above a root-level static import can only re-import, and a re-import
-// is a new instance app.js never reads. The classification this file landed in was therefore
-// "no accept boundary up to the app root", and every edit to it cost a whole page load -- four
-// real edits measured 0.83 playable frames/s against 59.21 settled
-// (scripts/one-fps-pathology-witness.mjs).
-//
-// What CAN move those bindings is the module itself: re-assigning an export binding is visible to
-// every importer that is already holding it. Self-accepting here and re-assigning each binding to
-// the freshly imported copy makes the edit take effect in the running page, and the cost of a save
-// becomes one module fetch instead of a boot.
-//
-// The functions being replaced are the new copy's, so a change to anything they close over --
-// _textureSizeLimit, the STUCK_PIPELINE_* thresholds, the light setup in setupLights -- is live
-// for every call made after the swap. State the app already built (the scene, the renderer) is
-// left alone: this re-points code, it does not rebuild the world.
 const _hotSwap = (next) => {
   installUnderwaterTint = next.installUnderwaterTint
   setSeaLevelY = next.setSeaLevelY
@@ -482,7 +462,5 @@ const _hotSwap = (next) => {
   waitForManifestResidence = next.waitForManifestResidence
   warmupShaders = next.warmupShaders
 }
-// hotSwapSceneSetup is deliberately left out of _hotSwap: it is the entry that re-binds, so it has
-// to stay the one belonging to the instance every consumer already holds.
 export function hotSwapSceneSetup(next) { _hotSwap(next) }
 globalThis.__spointHmr?.acceptSelf?.(import.meta.url, _hotSwap)

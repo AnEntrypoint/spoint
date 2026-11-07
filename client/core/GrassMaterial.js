@@ -71,9 +71,6 @@ export function makeWind() {
     t, wind.uCamPosXZ.value.x, wind.uCamPosXZ.value.y,
     wind.uGrassWind.value, wind.uGrassWindDir.value.x, wind.uGrassWindDir.value.y,
     wind.uGrassRing.value + GRASS_WIND_FIELD_DROP_MARGIN_M)
-  // uGrassTime is a property, not a plain field. Advancing the clock is what advances the shared
-  // gust field, and it happens once per frame here instead of once per vertex inside the shader --
-  // the join is only real if something drives it, and nothing outside this module has to know.
   Object.defineProperty(wind.uGrassTime, 'value', {
     enumerable: true,
     get() { return this._t },
@@ -98,8 +95,6 @@ const GRASS_GAIN_DUSK = 1.08
 const GRASS_GAIN_DAY = 0.67
 const GRASS_GAIN_ELEV_SPAN = 0.92
 
-// The filmic curve written out with the coefficients terrain-ambient-shared.js exports, so the
-// legacy grass shader cannot grow a second copy of a number the terrain grade owns.
 const grassAcesGlsl = (v) =>
   `clamp((${v}) * ((${v}) * ${ACES_FILMIC[0]} + ${ACES_FILMIC[1]}) / ((${v}) * ((${v}) * ${ACES_FILMIC[2]} + ${ACES_FILMIC[3]}) + ${ACES_FILMIC[4]}), 0.0, 1.0)`
 
@@ -128,12 +123,6 @@ export function setGrassSun(wind, sun) {
   const gain = grassLightGain(sun.dir[1])
   const sunK = (Number.isFinite(sun.sunIntensity) ? sun.sunIntensity / GRASS_SUN_REF_INTENSITY : 1) * dayShade * gain
   wind.uSunColor.value.setHex(sun.sunColor).multiplyScalar(sunK)
-  // Grass is lit by its own uniforms, so it never saw the two ambient terms the terrain model
-  // carries and the standard-lit path does not: the tinted sky irradiance and the albedo-independent
-  // AMBIENT_FLOOR_ADD. Both come from terrain-ambient-shared.js -- the module terrain-lighting-tsl.js
-  // reads -- so the ground and the grass growing out of it cannot drift apart. uAmbient is left at
-  // the irradiance the scene ambient already delivers (ambientColor * ambientIntensity / pi) and the
-  // delta carries the rest, which is what keeps them equal instead of double counted.
   const amb = wind.uAmbient.value.setHex(sun.ambientColor)
     .multiplyScalar((Number.isFinite(sun.ambientIntensity) ? sun.ambientIntensity : 1) * INV_PI)
   const muS = Number.isFinite(sun.elevDeg) ? Math.sin(sun.elevDeg * Math.PI / 180) : sun.dir[1]

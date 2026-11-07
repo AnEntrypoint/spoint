@@ -142,9 +142,6 @@ function halveTexture(tex, maxPx, kind) {
   if (halvedOutputs.has(tex)) return tex
   const w = img.width | 0
   if (!(w > 0)) {
-    // An undecoded image cannot be budgeted, and handing the full-size original
-    // back is exactly the silent no-op this budget exists to remove, so the miss
-    // is recorded where a witness can count it instead of passing unnoticed.
     halveCountsFor(kind).notDecoded++
     _halveRefusals.push({ reasonCode: 'texture-not-decoded', kind, maxPx })
     console.error(`[veg-tex] ${kind} texture still undecoded at halve time -- ${maxPx}px budget not applied`)
@@ -193,10 +190,6 @@ async function _capGeo(geo, maxTris) {
   if (!idx) return geo.clone()
   const tris = idx.length / 3
   if (tris <= maxTris) return geo.clone()
-  // LOD0 is the near band. Reaching an aggressive cap on a leaf-card cloud is only
-  // possible by merging whole leaf cards into one, which is a visible change at
-  // that range, so the cap is refused here rather than delivered: a budget that is
-  // asked for and not delivered must say so, not hand back the source quietly.
   const out = await simplifyGeo(geo, maxTris / tris, false, false)
   const delivered = triCountOf(out)
   if (delivered <= maxTris) return out
@@ -217,14 +210,6 @@ async function _capGeo(geo, maxTris) {
   return out
 }
 
-// A leaf cloud is a flat list of independent quads: card c owns vertices 4c..4c+3,
-// and every triangle stays inside one such group. meshopt's vertex collapse cannot
-// decimate it -- collapsing inside a card moves the leaf by the leaf's own size, so
-// the strict 0.02 error budget refuses nearly every collapse and the call hands back
-// the input. The unit of decimation for a leaf cloud is therefore the CARD, not the
-// vertex: cluster cards by Morton order of their centroids and emit one card per
-// cluster carrying the cluster's total leaf area, so the canopy keeps its area as
-// the triangle count falls.
 const LEAF_CARD_VERTICES = 4
 
 function triCountOf(geo) { return geo && geo.index ? geo.index.array.length / 3 : 0 }
@@ -546,13 +531,6 @@ function generateSpecies(name, Tree, variant, TreePreset) {
   return { branchGeo, leafGeo, branchMat, leafMat, tree, dims }
 }
 
-// A species' LOD chain is a pure function of (name, variant, branch cap, leaf cap): the same input
-// bytes produce the same geometry every time. A landscape change rebuilds every species, and the
-// rebuild used to pay the whole meshopt simplification again for identical input, which is the
-// main-thread block a landscape change is felt as. The finished chain is kept here, next to the
-// template cache it already shares a key shape with, so a rebuild clones it and the work stops
-// existing instead of being retimed. Materials are never cached: they are cloned per consumer
-// because a consumer mutates its own (wind, tint, texture budget).
 const _speciesLodCache = new Map()
 const LOD_CHAIN_KEYS = ['branchGeo0', 'leafGeo0', 'b1', 'b2', 'l1', 'l2', 'b2shadow']
 function _cloneLodChain(e) {

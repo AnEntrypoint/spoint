@@ -66,17 +66,11 @@ export async function createGrass(opts = {}) {
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
 
-  // A blade's edge radius is at least FULL_R, so inside FULL_R the law keeps everything and the
-  // population is the one the near-LOD pin already measures. Everything the law removes is beyond.
   const FULL_R = Number.isFinite(cfg.grassDensityFullR) ? cfg.grassDensityFullR : GRASS_DENSITY.FULL_R
   const DENSITY_LEAD_M = GRASS_DENSITY.LEAD_M
-  // The outermost blades' fade has to finish inside the ring, or the ring's edge is a hard cut.
   const EDGE_CAP_M = Math.max(FULL_R + GRASS_DENSITY.FADE_M + 1, ringRadius - GRASS_DENSITY.EDGE_M)
   const DENSITY_REACH_M = EDGE_CAP_M + DENSITY_LEAD_M
   const DENSITY_REACH_SQ = DENSITY_REACH_M * DENSITY_REACH_M
-  // The placement a chunk is generated with knows the law, so it can materialise the blades the
-  // law will draw at this distance and refine as the player closes. null is the whole-chunk
-  // placement it replaces, kept only so the two can be measured against each other.
   const LOD_LAW = (cfg.grassPlacementLod === false) ? null : {
     fullR: FULL_R, capM: EDGE_CAP_M, leadM: GRASS_DENSITY.LEAD_M,
     spreadM: Number.isFinite(cfg.grassLodSpreadM) ? cfg.grassLodSpreadM : undefined,
@@ -90,8 +84,6 @@ export async function createGrass(opts = {}) {
     faceStart: GRASS_DENSITY.FACE_START, faceEnd: GRASS_DENSITY.FACE_END,
   }
 
-  // The wind bend is quadratic in the card height coordinate (gw = gv*gv*0.45), so three rows
-  // (two segments) is the fewest that still carries the curve; a fourth row only subdivides it.
   const geoNear = makeClumpGeo(2, 1)
   const geoMid = makeClumpGeo(1, 1)
 
@@ -199,8 +191,6 @@ export async function createGrass(opts = {}) {
     profile.densityRemoves += idx.length
   }
 
-  // One blade row: the transform and the per-instance payload, plus the squared reach the LOD
-  // revisit decides the blade against. Nothing here touches an instancer.
   function writeRow(p, i, xf, pf, lod, keepR2, px, pz, classify, chunkNear) {
     _q.setFromAxisAngle(_up, p.yaw)
     _qTilt.setFromUnitVectors(_up, _nrm.set(p.nx, p.ny, p.nz))
@@ -222,9 +212,6 @@ export async function createGrass(opts = {}) {
     return near
   }
 
-  // A chunk's population grows as the player closes on it and gives back what the law has finished
-  // with as the player recedes, so the buffers behind a cell are held with headroom and a change of
-  // size is a new view over the same bytes. views() re-slices, buffers() (re)allocates.
   function buffersFor(cell, count) {
     const reuse = !!(cell && cell.bufXf && cell.cap >= count)
     const cap = reuse ? cell.cap : Math.max(64, count, Math.ceil(count * 1.4))
@@ -294,10 +281,6 @@ export async function createGrass(opts = {}) {
     profile.loads++
   }
 
-  // The chunk grew: the blades it gained are written into the cell it already holds, and they
-  // start switched off. Nothing is added to an instancer here -- revisit owns instances, and it
-  // already decides every blade in the cell every LOD_REVISIT_STEP_M of travel -- so a growth
-  // costs the rows it writes and not a re-commit.
   function appendChunk(cell, list, px, pz) {
     const from = cell.count
     const count = Math.min(list.length, from + Math.max(0, MAX_INSTANCES - totalInstances))
@@ -325,9 +308,6 @@ export async function createGrass(opts = {}) {
       writeRow(p, i, v.xf, v.pf, v.lod, v.keepR2, px, pz, classify, chunkNear)
       v.on[i] = 0
     }
-    // The bounds a commit takes already carry the chunk's own corners, so a growth only has to
-    // widen them by the blades it wrote: re-scanning the whole population would be the same
-    // answer at the cost of the whole population.
     Object.assign(cell, v, { count, entries: v.allEntries, bounds: [minX, minZ, maxX, maxZ] })
     const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [cell.cx, cell.cz], [minX, minZ, maxX, maxZ], cell.minY, cell.maxY, 1)
     for (const k in extent) cell[k] = extent[k]
@@ -391,9 +371,6 @@ export async function createGrass(opts = {}) {
     profile.lodMigrations += idx.length
   }
 
-  // Two decisions per blade, re-taken together every LOD_REVISIT_STEP_M of travel: whether the
-  // distance-density law still holds the blade at all, and if it does, which of the two clump
-  // geometries it is drawn with. The first is the one that moves the instance count.
   function scanChunk(cell, px, pz) {
     if (cell.pending || !cell.xf || !cell.keepR2 || !cell.bounds) return
     const b = cell.bounds
@@ -401,8 +378,6 @@ export async function createGrass(opts = {}) {
     const nearestZ = pz < b[1] ? b[1] : (pz > b[3] ? b[3] : pz)
     const ddx = nearestX - px, ddz = nearestZ - pz
     const nearestSq = ddx * ddx + ddz * ddz
-    // A chunk whose nearest corner is already past the law's reach holds nothing the law
-    // could switch on, so it only costs a pass while it still holds something switched on.
     const chunkOutside = nearestSq > LOD_NEAR_DIST * LOD_NEAR_DIST
     if (nearestSq > DENSITY_REACH_SQ && cell.onCount === 0) return
     const xf = cell.xf, keepR2 = cell.keepR2, on = cell.on, lod = cell.lod
@@ -417,8 +392,6 @@ export async function createGrass(opts = {}) {
     }
   }
 
-  // A released blade keeps its instance: the row it owns is dropped and the rows behind it close
-  // up, which is a move of the row and not of the instance it names.
   function compactChunk(cell, drop, px, pz) {
     const n = cell.count
     if (!n || !drop.length) return
@@ -444,8 +417,6 @@ export async function createGrass(opts = {}) {
     Object.assign(cell, viewsFor(cell, null, w))
     cell.count = w
     profile.released += drop.length
-    // The flips the chunk had queued name rows that have just moved, so they are dropped and the
-    // chunk is re-scanned at the position they were taken at: a scan is the same decisions again.
     if (dropFlips(cell)) scanChunk(cell, px, pz)
   }
 
@@ -555,9 +526,6 @@ export async function createGrass(opts = {}) {
     _inflight = null
     loaded.delete(key)
     if (missing) { deferGrassChunk(key); return }
-    // The focus a chunk commits against has to be the player's current one, not the one captured
-    // when the chunk started placing: the keep decision is a distance and a stale focus holds
-    // blades past their own edge.
     const fx = Number.isFinite(streamFocus[0]) ? streamFocus[0] : px
     const fz = Number.isFinite(streamFocus[1]) ? streamFocus[1] : pz
     commitChunk(key, cursor.blades, fx, fz, cursor)
@@ -573,10 +541,6 @@ export async function createGrass(opts = {}) {
     if (stepInflight()) finishInflight()
   }
 
-  // A chunk is generated with the population the law will draw from where the player is, so the
-  // population has to grow as the player closes. The chunk's own placement decides whether it has
-  // grown, which is free until the player has actually closed on it, and the commit keeps the
-  // prefix it already holds.
   function refineRing(px, pz) {
     if (!LOD_LAW) return
     let budget = REFINE_BUDGET_MS
@@ -773,11 +737,6 @@ export async function createGrass(opts = {}) {
       if (totalInstances >= MAX_INSTANCES) break
       if (workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
-      // The slice is one LOAD_BUDGET step of the chunk's own placement cursor -- the same
-      // incremental loader the streaming path already uses -- neither the whole chunk nor a
-      // millisecond budget accumulated across chunks. A grass chunk is itself about a frame of
-      // placement, so a chunk-sized unit could not bound the block either; one step can, and a
-      // frame runs after every step.
       const _c0 = _nowMs()
       startInflight(key, px, pz)
       workMs += _nowMs() - _c0
