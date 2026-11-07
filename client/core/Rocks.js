@@ -287,9 +287,6 @@ export async function createRocks(opts = {}) {
       if (loadChunk(key)) n++
       const _c1 = _nowMs()
       workMs += _c1 - _c0
-      // One chunk per macrotask: the slice IS the chunk. A millisecond budget accumulated across
-      // chunks was checked only BETWEEN them, so it could never cut a long chunk and let the main
-      // thread run that many milliseconds of placement with no frame in it.
       const _y0 = _nowMs()
       await macrotaskYield()
       yieldMs += _nowMs() - _y0

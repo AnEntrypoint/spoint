@@ -31,12 +31,6 @@ export function createOcclusionPolicy(config = {}) {
       rec.seen = resolveCount
       rec.staleFrames = 0
       const verdictNow = occludedThisResolve ? 'hidden' : 'visible'
-      // Stability is agreement between two CONSECUTIVE verdicts, so it has to compare
-      // against the last verdict, not against the state the record is in. Compared
-      // against `rec.hidden`, a candidate that is visible and has just been reported
-      // occluded disagrees with itself by construction, `stableCount` sits at 1 forever,
-      // and the policy can never flip in either direction -- which is a cull that issues
-      // queries and hides nothing.
       const verdictBefore = rec.lastVerdict === undefined ? (rec.hidden ? 'hidden' : 'visible') : rec.lastVerdict
       if (verdictNow === verdictBefore) {
         rec.stableCount = (rec.stableCount || 0) + 1

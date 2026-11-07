@@ -177,8 +177,6 @@ export function createPlacementScanner() {
   let s = 0
   let generation = 0
 
-  // begin returns the armed scan, or null on refusal. A refused window hands back
-  // no handle, so its step cannot be reached and cannot report a finished empty scan.
   function begin(frame, anchorField, sources, worldSeed, cx, cz, halfM) {
     s = 0
     const breach = beginInputsBreach(frame, sources, worldSeed, cx, cz, halfM)

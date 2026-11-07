@@ -48,11 +48,6 @@ function tick(nowMs) {
   const renderMs = performance.now() - renderStartMs
   frameCount++
 
-  // frameCount === 1 is the first rendered frame, and it is posted unconditionally: `nowMs` here is
-  // a worker-relative clock that starts at 0 when the worker is created, so the gate below reads
-  // `nowMs - 0 > 250` as false for the first ~250ms of the loop and swallows every frame in it.
-  // Swallowing the first frame is what left the first-frame cost unmeasured and made the reported
-  // frame numbers start at whatever count the loop had reached a quarter second in.
   if (frameCount === 1 || nowMs - lastStatsPost > PROTOCOL.WORKER_CLOCK_MS.FRAME_STATS_GATE_MS) {
     lastStatsPost = nowMs
     const info = renderer.info

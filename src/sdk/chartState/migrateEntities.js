@@ -30,8 +30,6 @@ function reexpressEntityTransform(pass, entity) {
 }
 
 
-// The pass transforms each array once, by identity, so an entity whose basis-owned array was already
-// transformed under another entity keeps its old-basis value while everything around it moves.
 function assertBasisFieldsWalked(entity, walked, movedBy) {
   if (movedBy === walked) return
   throw new Error(`chart re-anchor walked ${movedBy} of ${walked} basis-owned fields on entity ${entity.id}: two entities share one basis-owned array, so the second stays on the old chart`)

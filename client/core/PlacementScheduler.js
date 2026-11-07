@@ -60,8 +60,6 @@ export function createPlacementScheduler(getHandles) {
       )
     }
 
-    // Terrain and grass both read the contact-occlusion field, so the scheduler owns its
-    // recentre and upload: a toggle that disables one scenery module must not strand it.
     if (Number.isFinite(focus.x) && Number.isFinite(focus.z)) {
       contactOcclusionDrive.ticks++
       if (contactFieldRecentre(contactOcclusionField, focus.x, focus.z)) contactOcclusionDrive.recentres++

@@ -1,7 +1,5 @@
 import { ensureStyle } from './ensureStyle.js'
 
-// Pure renderers for the governor readout, kept out of createRenderDebugPanel so the "why did the
-// picture change" text is witnessable in Node without a DOM.
 export function leafPhrase(leafOffM) {
   return Number.isFinite(leafOffM) && leafOffM > 0
     ? `leaves off beyond ${leafOffM}m (near and mid trees keep theirs)`
@@ -105,8 +103,6 @@ export function createRenderDebugPanel(uiRoot, renderControls) {
   hint.textContent = 'Uncheck one at a time to find what causes the ground-mark artifact.'
   card.appendChild(hint)
 
-  // Why the picture changed. The governor's tier/knob state used to exist only as a window global,
-  // so a tier 3 leaf strip was invisible as a cause -- the user saw degraded trees and no reason.
   const govHead = document.createElement('div')
   govHead.className = 'rdp-h'
   govHead.style.cssText = 'margin-top:8px'

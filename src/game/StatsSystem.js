@@ -77,7 +77,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return { ok: false, reason: 'not-an-object', player: null, dropped: [] }
     }
 
-    // level is derived from the restored xp, the same invariant addXP keeps; the xp floor matches _getPlayerData
     const declaredXP = typeof record.xp === 'number' && !Number.isNaN(record.xp) ? record.xp : 0
     const xp = Math.min(_xpForLevel(maxLevel + 1), Math.max(_xpForLevel(Math.min(startLevel, maxLevel)), declaredXP))
     const player = {
