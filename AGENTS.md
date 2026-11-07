@@ -200,6 +200,9 @@ Skills encode environment-specific constraints that override general knowledge.
 - The lattice origin snaps to `GRASS_WIND_FIELD_SNAP_M` (24 m), bounded by the slack the extent leaves over the reach, so the lattice is not rebuilt every frame. `GRASS_WIND_FIELD_REACH_M` (77.6) and `GRASS_WIND_FIELD_DROP_MARGIN_M` (16) bracket the ring that `Grass.js` keeps before it drops a chunk.
 - A recentre that moves by whole cells copies the rows it keeps (`scroll`) and writes only the exposed border. With one band, `bandWrite` rewrites every row in the same frame, so a scroll costs the exposed writes on top of a full rebuild.
 - The amplitudes are the constants the shader carried before the join (`GRASS_SWAY_BASE/FLOW`, `GRASS_FLUTTER_*`); the join changes where they are evaluated, not how large they are.
+- `client/core/GrassMaterial.js` vertex stage: the gust is one bilinear fetch of `uGrassWindField` per blade, so neighbouring blades move together. `gw` (`gv * gv * 0.45`, with `gv` the clamped `position.y`) is the only wind term that varies within a blade, so it is evaluated per vertex and cannot ride the per-cell field.
+- The distance growth `gGrow` scales a card uniformly on all three axes, while the fade `gIn` scales only `transformed.y`, so a card loses height, not width, as it fades.
+- The card face turns to the camera by blending its in-plane axis toward `gTarget = gPerp`, which is perpendicular to the camera direction, with weight `gFace`. The card's face is a quarter turn from that axis, so it points at the camera as `gFace` reaches 1.
 
 ## Netcode and wire
 

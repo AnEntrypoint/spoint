@@ -217,9 +217,6 @@ export function makeGrassMaterial(wind, density) {
         vLocalNoise = grassNoise(gWXZ * 1.0);
         float gv = clamp(position.y, 0.0, 1.0);
         float gw = gv * gv * 0.45;
-        // The gust is one bilinear fetch: the whole neighbourhood rides it, so neighbours move
-        // together and the turbulence reads as a wave crossing the field instead of as per-blade
-        // noise. gw is the only part of the wind that varies within a blade, so it stays here.
         vec2 gGust = texture2D(uGrassWindField, (gWXZ - uFieldOrigin) * uFieldInvExtent).xy;
         transformed.x += gGust.x * gw;
         transformed.z += gGust.y * gw;
@@ -254,17 +251,11 @@ export function makeGrassMaterial(wind, density) {
         float gEdge = min(${glslFloat(d.fullR)} / clumpRank + ${glslFloat(d.fadeM)}, uGrassRing);
         float gIn = clamp((gEdge - gDist) / ${glslFloat(d.fadeM)}, 0.0, 1.0);
         float gGrow = min(${glslFloat(d.growMax)}, 1.0 + ${glslFloat(d.growK)} * max(gDist - ${glslFloat(d.fullR)}, 0.0));
-        // The distance enlargement stays uniform; the fade takes the card's HEIGHT to zero the way
-        // the ring fade it replaced did. Scaling the card's width with the fade is what made the
-        // field read narrow as well as small.
         transformed *= gGrow;
         transformed.y *= gIn;
         float gFace = smoothstep(${glslFloat(d.faceStart)}, ${glslFloat(d.faceEnd)}, gDist);
         vec2 gAxis = normalize(instanceMatrix[0].xz + vec2(1e-5, 0.0));
         vec2 gToCam = normalize(uCamPosXZ - gWXZ + vec2(1e-5, 0.0));
-        // A card's face is a quarter turn from its in-plane axis: turning the AXIS at the camera
-        // turns the card edge-on (1.732 of silhouette, no card ever face-on) where turning the
-        // NORMAL at the camera turns it face-on (2.000).
         vec2 gPerp = vec2(-gToCam.y, gToCam.x);
         vec2 gTarget = gPerp * (dot(gAxis, gPerp) >= 0.0 ? 1.0 : -1.0);
         vec2 gDir = normalize(mix(gAxis, gTarget, gFace));
