@@ -127,7 +127,7 @@ export function auditReceipts({ witnessOut = DEFAULT_WITNESS_OUT, prdText, logTe
   const mismatch = (row, receipt, reason, detail = '') => summary.mismatches.push({ row, receipt, reason, detail })
 
   for (const [id, block] of latest) {
-    if (topField(block.raw, 'status') !== 'completed') continue
+    if (!['completed', 'fixed', 'refuted'].includes(topField(block.raw, 'status'))) continue
     summary.completed += 1
     const selected = onlyRow === null || id === onlyRow
     const binding = nestedFields(block.raw, 'witness_binding')
