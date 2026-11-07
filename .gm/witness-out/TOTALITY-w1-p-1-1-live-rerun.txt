@@ -1,0 +1,1 @@
+{"setNaN":"threw: entity.position must be a length-3 array of finite numbers","setNull":"threw: entity.position must be a length-3 array of finite numbers","attachNull":"threw: entity.attachEntityToPlayer offset must be a length-3 array of finite numbers","attachShort":"threw: entity.attachEntityToPlayer offset must be a length-3 array of finite numbers"}
