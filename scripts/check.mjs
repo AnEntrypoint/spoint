@@ -231,6 +231,20 @@ async function main() {
     ['tick-drop-counter-witness', 'scripts/tick-drop-counter-witness.mjs', (out) => `check: ${out}`],
     ['touch-selector-channels-witness', 'scripts/touch-selector-channels-witness.mjs', (out) => `check: ${out}`],
     ['touch-surface-resolver-witness', 'scripts/touch-surface-resolver-witness.mjs', (out) => `check: ${out}`],
+    ['trigger-volume-witness', 'scripts/trigger-volume-witness.mjs', (out) => `check: ${out}`],
+    ['two-sided-trade-witness', 'scripts/two-sided-trade-witness.mjs', (out) => `check: ${out}`],
+    ['vec3-witness', 'scripts/vec3-witness.mjs', (out) => `check: ${out}`],
+    ['vibe-event-list-witness', 'scripts/vibe-event-list-witness.mjs', (out) => `check: ${out}`],
+    ['vibe-pattern-witness', 'scripts/vibe-pattern-witness.mjs', (out) => `check: ${out}`],
+    ['voxels-witness', 'scripts/voxels-witness.mjs', (out) => `check: ${out}`],
+    ['water-helpers-witness', 'scripts/water-helpers-witness.mjs', (out) => `check: ${out}`],
+    ['water-level-witness', 'scripts/water-level-witness.mjs', (out) => `check: ${out}`],
+    ['witness-server-assertions-witness', 'scripts/witness-server-assertions-witness.mjs', (out) => `check: ${out}`],
+    ['worker-entry-bare-specifier-witness', 'scripts/worker-entry-bare-specifier-witness.mjs', (out) => `check: ${out}`],
+    ['worker-field-paint-witness', 'scripts/worker-field-paint-witness.mjs', (out) => `check: ${out}`],
+    ['world-identity-witness', 'scripts/world-identity-witness.mjs', (out) => `check: ${out}`],
+    ['world-movement-parse-witness', 'scripts/world-movement-parse-witness.mjs', (out) => `check: ${out}`],
+    ['write-verified-witness', 'scripts/write-verified-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {
