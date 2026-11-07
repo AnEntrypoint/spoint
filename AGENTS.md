@@ -84,6 +84,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/lib/tree-under-test.mjs` `catFileBatch`: all objects a scan needs come from one `git cat-file --batch` process. One process per tracked script was most of the audit wall time on Windows.
 - `scripts/gpulock.mjs run <owner> -- <cmd>` holds the GPU lock as the directory `.gpu-lock` (`SPOINT_GPU_LOCK_DIR` overrides it), recording the holder in `.gpu-lock/owner.json`. `run` exits with the child's code, so the witness's own `RESULT:` line decides pass or fail.
 - `scripts/lib/witness-audit.mjs --gate` compares per-file, per-check counts with the tracked `.witness-audit-baseline.json` and fails on an absent check id or a count above it. It is not wired into `scripts/check.mjs` or `package.json`, so run it by hand.
+- `scripts/perf-run.mjs` `avgMs` is a per-pass average that drain-biases low (25-36% in an earlier run, not re-derived at HEAD); quote `p50Ms` with `p95Ms` beside it, never the average.
 ## Client render placement
 
 - `client/core/Vegetation.js` `createVegetation` declares its tier-warm state above the species loop, because a `const` read from inside the loop body is in its temporal dead zone. On WebGPU, node graphs compile while species are built, so `warmTierMesh` warms each mesh once (`warmedTierMeshes`), and `createVegetation` does not resolve until `awaitTierNodeWarm` settles.
@@ -118,6 +119,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `client/core/ShadowPipeline.js forceUpdate` sets `light.shadow.needsUpdate` on every cascade, and `cascadeCount` clamps to 1 when `sun.castShadow === false`, since cascade 0 is then the sun itself, which never renders.
 - Vegetation LOD in `client/core/WebGPULodInstancer.js` `updateLOD` re-evaluates only after the `lodEye` moves `LOD_REEVAL_MOVE_M` (0.5 m), so a LOD decision can lag the camera by up to that distance.
 - A leaf `WebGPULodInstancer` built with `opts.host` is a satellite of its branch: its `updateLOD` returns immediately and it mirrors the host's LOD pair, tier, shadow and visibility. Construction throws if its LOD tier or threshold counts differ from the host's.
+- `packages/streaming-gltf/src/model-pool.js` drains (the impostor bake loop `_impostorCellBudget`, the cluster build `_clusterBuildQueue`) run only while their per-frame budget is above zero, so a zero budget (for example `opts.impostorCellBudget: 0`) never drains the queue; the fps ladders keep at least one unit per frame.
 ## Repo boundaries
 - Module workers have no import map: `src/animation/*.js` import three via `/node_modules/three/build/three.module.js`, never the bare `three` specifier. `scripts/worker-entry-bare-specifier-witness.mjs` pins the whole `WorkerEntry.js` closure; `src/sdk/WorkerBoot.js` turns a module-load failure into a coded `BOOT_ERROR`.
 
