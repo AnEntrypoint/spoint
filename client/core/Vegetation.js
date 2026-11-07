@@ -54,11 +54,7 @@ const _cullMat = new THREE.Matrix4(), _cullShift = new THREE.Matrix4(), _cullFru
 
 export async function createVegetation(opts = {}) {
   const { renderer, scene, frame } = opts
-  // Tier-mesh TSL node-graph warm state. Declared here and not beside the functions that use it
-  // because the species build loop calls them from above: a `const` placed next to its functions
-  // would still be in its temporal dead zone at the call site. See warmTierMeshes below.
-  // `pendingTierWarm` is the shipped queue, kept only so the reproduction switch can select it.
-  const pendingTierWarm = []
+  const deferredTierWarmQueue = []
   const warmedTierMeshes = new WeakSet()
   const tierWarmPromises = []
   const warmCamera = new THREE.PerspectiveCamera()
@@ -148,13 +144,7 @@ export async function createVegetation(opts = {}) {
     return _vegShadowSkipFar
   }
 
-  // Reproduction switch, not a tuning knob: `window.__spointNodeGraphWarm === false` selects the
-  // shipped behaviour (queue every tier mesh and drain one per placement tick, discarding each
-  // compile's promise), so a single witness can measure both arms against the same bytes.
-  // Declared above the species loop, and as a hoisted function rather than a `const`: the loop
-  // reaches this through `queueTierNodeWarm`, so a binding declared below the loop is still in its
-  // temporal dead zone on the first species.
-  function warmOnceRetained() { return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false }
+  function buildTimeNodeWarmEnabled() { return (typeof window === 'undefined') || window.__spointNodeGraphWarm !== false }
 
   const meshes = []
 
@@ -163,13 +153,8 @@ export async function createVegetation(opts = {}) {
     try {
       const label = name + '#' + variant
       let _t = performance.now()
-      // speciesLodChain both builds (or clones) the species and returns its finished LOD chain, so
-      // this phase is one call and one macrotask.
       const sp = await speciesLodChain(name, variant, Tree, TreePreset, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 6000, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
       bootSpan('generate', label, _t)
-      // Every phase is its own macrotask: a millisecond budget checked between species could not
-      // cut a species that costs more than a frame, so the longest block the main thread takes
-      // here is one phase and a frame runs after each one.
       await macrotaskYield()
       _t = performance.now()
       const branchGeo0 = sp.branchGeo0, leafGeo0 = sp.leafGeo0
@@ -275,8 +260,6 @@ export async function createVegetation(opts = {}) {
       branch.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER; leaf.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER
       meshes.push({ name, variant, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
     } catch (e) {
-      // A species that fails to build is not a smaller landscape, it is an empty one, and the boot
-      // that follows looks healthy: `meshes` short, placements counting, nothing drawn. Refuse.
       console.error('[veg] species build failed:', name, e?.message || e)
       throw e
     }
@@ -287,9 +270,6 @@ export async function createVegetation(opts = {}) {
       bootSpan('yield', name + '#' + buildList[i].variant, _yieldT)
     }
   }
-  // Every tier mesh of every species has had its warm started and awaited before anything can be
-  // streamed into it: instances arrive through `update()`, and the caller only reaches `update()`
-  // once `createVegetation` has resolved.
   await awaitTierNodeWarm()
   performance.mark('boot:vegetation:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=0')
   if (typeof window !== 'undefined') window.__vegTexBudget = { budget: TEX_BUDGET, stats: treeTextureStats(), refusals: treeTextureHalveRefusals() }
@@ -356,10 +336,6 @@ export async function createVegetation(opts = {}) {
 
   const FAR_LOD_SWAP = Math.max(D2 * (1 + LOD_HYS), impostorHandoffDistances(IMPOSTOR_NEAR_CUTOFF).meshEnd)
   const MESH_REENTRY_DIST = IMPOSTOR_NEAR_CUTOFF + LOD_REEVAL_MOVE_M
-  // A leaf cutoff is "no leaf meshes at or beyond N metres", so anything at or inside the mid band's
-  // far edge reads on screen as bare branches at medium distance -- trees are mesh-drawn out to
-  // FAR_LOD_SWAP and only then does the shared impostor (whose atlas already carries foliage) take
-  // over. The consumer therefore refuses a cutoff inside the mid band and floors it at that edge.
   const LEAF_OFF_FLOOR_M = D2 * (1 + LOD_HYS)
   for (const rec of meshes) {
     if (!rec.impostor && rec.impTile == null) continue
@@ -382,9 +358,7 @@ export async function createVegetation(opts = {}) {
 
   const loaded = new Map()
   const deferredChunks = new Set()
-  // Chunks a rebuild discarded the placement of: they keep drawing what they hold until loadChunk
-  // has built their replacement, so a rebuild swaps trees instead of blanking the ring.
-  const staleKeys = new Set()
+  const discardedPlacementKeys = new Set()
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, VEG, ringRadius)
   let _occCands = null
@@ -395,7 +369,7 @@ export async function createVegetation(opts = {}) {
   const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
 
   function loadChunk(key, px, pz) {
-    const replacingStale = staleKeys.has(key)
+    const replacingStale = discardedPlacementKeys.has(key)
     if (loaded.has(key) && !replacingStale) return true
     const _lcT0 = _nowMs()
     const entries = []
@@ -479,7 +453,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function unloadChunk(key) {
-    staleKeys.delete(key)
+    discardedPlacementKeys.delete(key)
     contactFieldUnloadChunk(contactOcclusionField, 'v' + String(key))
     const cell = loaded.get(key)
     if (!cell) return
@@ -528,11 +502,11 @@ export async function createVegetation(opts = {}) {
       attempts++
       if (loadChunk(key, px, pz)) didLoad = true
     }
-    for (let ringAttempts = 0; (staleKeys.size > 0 || totalInstances < MAX_INSTANCES) && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
+    for (let ringAttempts = 0; (discardedPlacementKeys.size > 0 || totalInstances < MAX_INSTANCES) && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
       let found = false
       for (; _vegSpiralCursor < ring.length; _vegSpiralCursor++) {
         const key = ring[_vegSpiralCursor]
-        if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !staleKeys.has(key)) || deferredChunks.has(key)) continue
+        if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !discardedPlacementKeys.has(key)) || deferredChunks.has(key)) continue
         if (loadChunk(key, px, pz)) didLoad = true
         found = true; break
       }
@@ -544,8 +518,8 @@ export async function createVegetation(opts = {}) {
       if (didDrop && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
       unloadChunk(key); didDrop = true
     }
-    if (staleKeys.size > 0 && !didLoad && !didDrop && deferredChunks.size === 0) {
-      for (const key of [...staleKeys]) { unloadChunk(key); didDrop = true }
+    if (discardedPlacementKeys.size > 0 && !didLoad && !didDrop && deferredChunks.size === 0) {
+      for (const key of [...discardedPlacementKeys]) { unloadChunk(key); didDrop = true }
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -563,16 +537,12 @@ export async function createVegetation(opts = {}) {
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (n >= minChunks && workMs >= budgetMs) break
-      if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !staleKeys.has(key))) continue
+      if (placementRing.distSqFromFocus(key) > ringRadiusSq || (loaded.has(key) && !discardedPlacementKeys.has(key))) continue
       const _c0 = _nowMs()
       if (loadChunk(key, px, pz)) n++
       else deferred++
       const _c1 = _nowMs()
       workMs += _c1 - _c0
-      // One chunk per macrotask: the slice IS the chunk. A millisecond budget accumulated across
-      // chunks let the main thread run that many milliseconds of placement with no frame in it;
-      // slicing at the chunk bounds the block to one chunk's worth of work and lets a frame run
-      // after every chunk.
       const _y0 = _nowMs()
       await macrotaskYield()
       yieldMs += _nowMs() - _y0
@@ -587,41 +557,12 @@ export async function createVegetation(opts = {}) {
   }
 
   function queueTierNodeWarm(instancer) {
-    if (warmOnceRetained()) { warmTierMeshes(instancer); return }
+    if (buildTimeNodeWarmEnabled()) { warmTierMeshes(instancer); return }
     const tierCount = instancer.tierMeshes.length
-    for (let k = 0; k < tierCount; k++) pendingTierWarm.push([instancer, k])
-    if (instancer.shadowMesh) pendingTierWarm.push([instancer, -1])
+    for (let k = 0; k < tierCount; k++) deferredTierWarmQueue.push([instancer, k])
+    if (instancer.shadowMesh) deferredTierWarmQueue.push([instancer, -1])
   }
 
-  // ---------------------------------------------------------------------------------------------
-  // A WebGPU tier mesh carries a TSL material, and three builds its node graph -- NodeBuilder
-  // setup/analyze/generate -- the first time the mesh is drawn: synchronously, inside
-  // `_renderObjectDirect -> needsRefresh -> Nodes.getForRender -> nodeBuilder.build()`, in whatever
-  // frame that first draw lands in. Measured while walking tps-game on an accelerated walk: three
-  // long tasks of 1041/683/644 ms, 979/636/615 ms of them main-thread CPU, dominated by `build`.
-  //
-  // So the graph is built here instead, while the species is being built: an instancer created in
-  // this loop has no instances yet, and a tier mesh with no instances is `visible === false` to the
-  // pool that owns it, so none of them can be drawn. That ordering is what makes this a fix rather
-  // than a race -- there is no draw to lose to.
-  //
-  // Two properties make a repeat impossible rather than rarer:
-  //   * a mesh is warmed at most once for the life of the object (warmedTierMeshes), so no second
-  //     request -- from a rebuild, a hot reload or a second queueing -- can build a graph that
-  //     already exists;
-  //   * `createVegetation` does not resolve until every warm it started has settled. The caller
-  //     assigns the module from that resolution and the placement tick only reaches `update()`
-  //     afterwards, so the interval is not what warms any more: nothing can be streamed into a
-  //     tier mesh before its graph exists, and there is no queue left to re-fill.
-  //
-  // The camera is a stand-in because there is no camera here. That is sound for two reasons three
-  // itself gives: a render object's identity is (object, material, renderContext, lightsNode) with
-  // no camera in it, so this builds the same render object the first real draw will use; and every
-  // tier mesh is created with `frustumCulled = false`, so `_projectObject` pushes it for any camera
-  // and the compile produces the same graph. Hiding a mesh before compiling it, by contrast,
-  // compiles nothing at all -- `_projectObject` returns at the first object whose `visible` is
-  // false -- which is why the mesh is forced visible for the call and restored afterwards.
-  // ---------------------------------------------------------------------------------------------
   function warmTierMeshes(instancer) {
     const tierCount = instancer.tierMeshes.length
     for (let k = 0; k < tierCount; k++) warmTierMesh(instancer.tierMeshes[k])
@@ -636,17 +577,12 @@ export async function createVegetation(opts = {}) {
     mesh.visible = true
     let settled = null
     try {
-      // `renderer.compile` is a getter returning `compileAsync`, whose node build yields between
-      // build stages, so this returns a promise rather than blocking the caller. Its projection
-      // runs before the first await, so the mesh's visibility is only needed until it returns.
       settled = Promise.resolve(renderer.compile(mesh, warmCamera, scene))
     } catch (_) {
       settled = Promise.resolve()
     }
     mesh.count = count
     mesh.visible = visible
-    // Retained: the warm is awaited before this module resolves, and a rejection must not be able
-    // to strand the build loop.
     tierWarmPromises.push(settled.then(() => {}, () => {}))
   }
 
@@ -658,7 +594,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function warmOneTierMesh(camera) {
-    const [instancer, slot] = pendingTierWarm.shift()
+    const [instancer, slot] = deferredTierWarmQueue.shift()
     const mesh = slot < 0 ? instancer.shadowMesh : instancer.tierMeshes[slot]
     if (!mesh) return
     const { count, visible } = mesh
@@ -765,9 +701,7 @@ export async function createVegetation(opts = {}) {
 
   function update(dt, camera, playerPos, shadowStill) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
-    // Only the shipped queue reaches this: a warm-once build fills `pendingTierWarm` never, so the
-    // placement tick carries no node-graph work at all.
-    if (isWebGPU && pendingTierWarm.length > 0 && camera) warmOneTierMesh(camera)
+    if (isWebGPU && deferredTierWarmQueue.length > 0 && camera) warmOneTierMesh(camera)
     let px, pz
     if (playerPos && Array.isArray(playerPos.position)) { px = playerPos.position[0]; pz = playerPos.position[2] }
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
@@ -784,20 +718,16 @@ export async function createVegetation(opts = {}) {
     }
     if (shadowStill === false) _cullDirty = true
     if (totalInstances > 0) { try { if (!bvhBuilt) ensureBVH(); else rebuildBVHAfterIncrementalGrowth() } catch (_) { bvhBuilt = true } }
-    // vegLeafOff is a DISTANCE in metres, not a boolean: leaf meshes stop drawing at or beyond it,
-    // applied per instance inside the instancer, so the near and mid bands -- including 0m -- keep
-    // their foliage at every tier. 0 means no cutoff, and a cutoff inside the mid band is floored to
-    // that band's far edge rather than applied, so no knob value can strip mid-distance foliage.
-    const leafCut = (typeof window !== 'undefined')
+    const leafDrawCutoffM = (typeof window !== 'undefined')
       ? leafGateM(window.__vegLeafOff, LEAF_OFF_FLOOR_M)
       : LEAF_OFF_UNLIMITED_M
     for (const rec of meshes) {
       const vis = rec.count > 0
       if (rec.branch.visible !== vis) { rec.branch.visible = vis; rec.leaf.visible = vis }
-      if ((rec.leafGate || LEAF_OFF_UNLIMITED_M) !== leafCut) {
-        if (typeof rec.branch.setLeafDrawDistance === 'function') rec.branch.setLeafDrawDistance(leafCut > 0 ? leafCut : Infinity)
-        else rec.leaf.visible = !(leafCut > 0) // legacy GL InstancedMesh2 has no per-instance gate
-        rec.leafGate = leafCut
+      if ((rec.leafGate || LEAF_OFF_UNLIMITED_M) !== leafDrawCutoffM) {
+        if (typeof rec.branch.setLeafDrawDistance === 'function') rec.branch.setLeafDrawDistance(leafDrawCutoffM > 0 ? leafDrawCutoffM : Infinity)
+        else rec.leaf.visible = !(leafDrawCutoffM > 0)
+        rec.leafGate = leafDrawCutoffM
       }
       if (typeof window !== 'undefined' && window.__vegAllOff) { rec.branch.visible = false; rec.leaf.visible = false }
       if (typeof window !== 'undefined' && window.__vegHideFar && window.__vegHideFar.includes(rec.name)) { rec.branch.visible = false; rec.leaf.visible = false }
@@ -868,7 +798,6 @@ export async function createVegetation(opts = {}) {
       profile.meshTierInstances = bandTotals
       profile.leafMeshInstances = leafMeshInst
       profile.leafTierInstances = leafBands
-      // Read back the gate the instancer actually holds, not the knob that asked for it.
       profile.leafGateM = meshes.length && typeof meshes[0].branch.leafDrawDistance === 'number' ? meshes[0].branch.leafDrawDistance : null
       profile.leafFloorM = LEAF_OFF_FLOOR_M
       profile.vegDrawCalls = vegDraws
@@ -976,7 +905,7 @@ export async function createVegetation(opts = {}) {
     get sharedImpostor() { return sharedImpostor ? sharedImpostor.mesh : null },
     get totalInstances() { return totalInstances },
     get profile() { return profile },
-    rebuildPlacement() { for (const key of loaded.keys()) staleKeys.add(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN },
+    rebuildPlacement() { for (const key of loaded.keys()) discardedPlacementKeys.add(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN },
     repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); this.rebuildPlacement() },
     biomeOverride,
     getOcclusionCandidates, applyOcclusion,

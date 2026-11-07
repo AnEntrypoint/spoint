@@ -65,7 +65,7 @@ Skills encode environment-specific constraints that override general knowledge.
 
 - `scripts/gpulock.mjs` `WAITERS_DIR` sits beside the lock dir (`${LOCK_DIR}-waiters`), because the lock dir's existence is the lock. `acquire()` takes the browser lease before the GPU lock and exits 145 (`EXIT_LEASE_UNAVAILABLE`) without claiming it, so a queued lane holds neither.
 - `scripts/gpulock.mjs` `oldestLiveTicket`: lanes defer to the oldest live ticket. Tickets with a dead pid or older than `TICKET_MAX_AGE_MS` are removed, and a holder with no ticket is never waited on.
-- Known gap: `scripts/lib/cdp-browser.mjs` `launch` does not pass `sinceMs` to the browser lease, so a retried launch loses its queue place. The gpulock path does pass `sinceMs: waitSinceMs()`.
+- Known gap: `scripts/lib/cdp-browser.mjs` `launch` passes no `sinceMs` to the browser lease, so a caller that re-invokes `launch()` re-enters the queue at the back. Only `scripts/gpulock.mjs` carries seniority (`sinceMs: waitSinceMs()`). Nothing in the repo sets `SPOINT_GPU_LOCK_SINCE`, which gpulock reads. No witness covers this path, so it is not fixed.
 - `scripts/lib/git-api-publish.mjs` `enforceCheckPinGate`: a publish touching `scripts/check.mjs` is refused when a pinned witness is in neither the commit nor the tip tree, and refused outright at zero parsed pins. It runs before any blob POST. The test itself is `missingCheckPins`, defined in `scripts/lib/check-pin-gate.mjs`.
 - `scripts/lib/git-api-publish.mjs` `publishOnce`: each retry re-reads and re-hashes blobs and re-runs `planRebaseOnTip` against the new tip.
 - `scripts/lib/tip-rebase.mjs` `planRebaseOnTip`: on a tip move, a path this publish left unchanged adopts the new tip's blob. A path both sides moved is refused as `REFUSAL_CONTESTED`.
@@ -74,6 +74,11 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/planet-orbit-hitch-probe.mjs`: `ctrl.setMode('custom')` hands the camera to the probe. It is the only such call in scripts, src and client.
 - `scripts/nearfield-lod-lattice-witness.mjs`: the transect window widens to `cl.extentM / 2`, so a ±30 m window cannot pass on the band alone.
 - `src/terrain/GrassPlacement.js` `GRASS_FOOT_READS`: a blade's height at its clump offset reads the drawn mesh that many times, and falls back to the jet solve when a read is non-finite.
+## Client render placement
+
+- `client/core/Vegetation.js` `createVegetation` declares its tier-warm state above the species loop, because a `const` read from inside the loop body is in its temporal dead zone. On WebGPU, node graphs compile while species are built, so `warmTierMesh` warms each mesh once (`warmedTierMeshes`), and `createVegetation` does not resolve until `awaitTierNodeWarm` settles.
+- `client/core/Vegetation.js` `prewarm`: each phase yields its own macrotask (`macrotaskYield`), because a millisecond budget checked between species cannot cut a species that is longer than a frame.
+- `client/core/Vegetation.js` `createVegetation` species loop: a species failure is rethrown, never a shorter `meshes` list, since a partial list would look healthy.
 ## Repo boundaries
 - Module workers have no import map: `src/animation/*.js` import three via `/node_modules/three/build/three.module.js`, never the bare `three` specifier. `scripts/worker-entry-bare-specifier-witness.mjs` pins the whole `WorkerEntry.js` closure; `src/sdk/WorkerBoot.js` turns a module-load failure into a coded `BOOT_ERROR`.
 
