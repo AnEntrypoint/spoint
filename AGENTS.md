@@ -74,6 +74,8 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/planet-orbit-hitch-probe.mjs`: `ctrl.setMode('custom')` hands the camera to the probe. It is the only such call in scripts, src and client.
 - `scripts/nearfield-lod-lattice-witness.mjs`: the transect window widens to `cl.extentM / 2`, so a ±30 m window cannot pass on the band alone.
 - `src/terrain/GrassPlacement.js` `GRASS_FOOT_READS`: a blade's height at its clump offset reads the drawn mesh that many times, and falls back to the jet solve when a read is non-finite.
+- `scripts/lib/js-token-stream.mjs` `tokenize`: the regex-vs-division choice follows the previous token (a `)` closing `if`, `while`, `for` or `with` opens a regex; a `}` always does). A misread hides a real comment from `scripts/comment-sweep-token-witness.mjs`, because the witness uses this same lexer on both sides. Treat a clean witness as evidence only when the swept files contain no `//` or `/*` outside template literals and strings.
+
 ## Client render placement
 
 - `client/core/Vegetation.js` `createVegetation` declares its tier-warm state above the species loop, because a `const` read from inside the loop body is in its temporal dead zone. On WebGPU, node graphs compile while species are built, so `warmTierMesh` warms each mesh once (`warmedTierMeshes`), and `createVegetation` does not resolve until `awaitTierNodeWarm` settles.
