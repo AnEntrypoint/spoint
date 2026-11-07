@@ -21,34 +21,15 @@ function headText(cwd, rel) {
   return done.status === 0 ? done.stdout : null
 }
 
-/**
- * Stage 0 of the index: the text a commit from this checkout would write for
- * `rel`. It is what `git commit` records for a path nobody stages by hand, and
- * on a clean checkout it is byte-identical to HEAD.
- */
 export function indexText(cwd, rel) {
   const done = gitAt(cwd, ['show', `:${rel}`])
   return done.status === 0 ? done.stdout : null
 }
 
-/**
- * True when the work tree and the index both match HEAD, which is what a CI
- * checkout is. Then HEAD *is* the tree under test and needs no second opinion.
- */
 export function headIsWorktree(cwd) {
   return gitAt(cwd, ['diff', '--quiet']).status === 0 && gitAt(cwd, ['diff', '--cached', '--quiet']).status === 0
 }
 
-/**
- * A rev whose checkout is this work tree's tracked state, or null when no
- * tracked path differs from HEAD. `git stash create` writes objects and touches
- * neither the work tree, the index nor any ref, so it cannot disturb another
- * lane's in-flight edit; the rev it prints is unreferenced, so a caller must
- * use it in the same run.
- *
- * Null means a clean checkout, where HEAD already is the work tree's tracked
- * state: callers fall back to HEAD and behave exactly as they always did there.
- */
 export function worktreeStateRev(cwd) {
   const done = gitAt(cwd, ['stash', 'create'])
   if (done.status !== 0) return null
@@ -93,25 +74,6 @@ function publishedText(cwd, tree, rel) {
   return got.stdout
 }
 
-/**
- * Where "the committed content of a tracked path" comes from, named so no run
- * is silent about it.
- *
- * HEAD is not it in a shared checkout. Lanes publish path-scoped through the
- * GitHub Git API (blobs -> tree -> commit -> PATCH refs/heads/main), which
- * advances remote main and never advances local HEAD, and a local `git commit
- * -- paths` in the same shared work tree can leave a re-baked closure beside
- * the .hf it replaced. Measured 2026-10-12 at local HEAD 5e4b8969 with remote
- * main 135 commits ahead: under scripts/ 45 published blobs are absent from
- * local HEAD and 43 more differ from it, so HEAD is a tree nobody shipped and
- * a gate reading it either fails on a published file or resurrects a fix that
- * is already published.
- *
- * A clean checkout (CI, push and pull_request alike) keeps HEAD. Otherwise the
- * published tree answers, with stage 0 of the index behind it for a path that
- * is tracked but not yet published -- a file that has never shipped is in
- * flight, and the one thing this must not do is drop it silently.
- */
 export function committedSource(cwd) {
   if (headIsWorktree(cwd)) {
     return batchedSource(cwd, 'HEAD (the work tree and the index both match HEAD, so HEAD is the tree under test)',
@@ -126,13 +88,6 @@ export function committedSource(cwd) {
     (rel) => tree.blobs.get(rel) ?? null, (rel) => publishedText(cwd, tree, rel) ?? indexText(cwd, rel), tree.tip)
 }
 
-/**
- * Every object a scan needs, read in one `git cat-file --batch` process. The
- * per-path `git show`/`cat-file` this replaces was one process creation per
- * tracked script, and on Windows that is most of the audit's wall time. A name
- * git cannot resolve comes back as null, so a caller falls back exactly as it
- * did before.
- */
 export function catFileBatch(cwd, names) {
   const out = new Map()
   if (names.length === 0) return out
