@@ -1,41 +1,3 @@
-// Witness-side server lifecycle: one registry, one exit path.
-//
-// A spoint server that is started and never stopped keeps the node event loop
-// alive forever (measured: 358 active handles after `server.start()`, process
-// still alive 20 s after main returned), so a witness that boots one and then
-// merely falls off the end of main leaks a live process holding a port. Ten
-// tracked witnesses boot a server and have no stop site; they survive only
-// because they reach a `process.exit()`, which skips `stop()` entirely -- and
-// `process.exit()` with handles mid-close is the uv_async_send assert case.
-//
-// The same class exists one process OUT: `node server.js` -- the repo-root
-// entry that boots src/sdk/server.js and serves the client index.html a browser
-// witness drives -- started by hand and never stopped. Measured 2026-10-12:
-// three of them on :3001, :3002 and :8090, each with ZERO established TCP
-// connections, each started by a lane that had since finished. Two were spawned
-// through Git-for-Windows `nohup.exe`, whose own parent was already dead, and
-// the third hung off a claude.exe stdio MCP that had gone quiet 617 minutes
-// earlier. Nothing in the tree owned any of them, so nothing could stop them.
-//
-// `nohup` is what makes that unfixable in principle: it detaches the server
-// from the witness's process group, so a guard that only ever calls
-// `process.exit()` in the witness process cannot reach a server it detached.
-// `spawnStandaloneServer()` is the answer: it starts that process INSIDE the
-// witness that needs it, un-detached, and registers the child here, so a leak
-// of this class is unrepresentable instead of merely discouraged.
-//
-// The registry deliberately does NOT reap servers it does not own. A repo-local
-// pid registry would be shared by every lane on the box, and reaping from it is
-// exactly what scripts/server-leak-witness.mjs refuses to do ("it never reaps
-// any other process, including the spoint servers other lanes are running").
-// `standaloneServerRegistry()` is therefore write-and-report only: it records a
-// pid so the lane that owns retirement can see it, and `spawnStandaloneServer`
-// removes its own row when it stops. Nothing here kills a pid it did not spawn.
-//
-// The fix is this registry, not a try/finally per witness: register the server
-// at the boot site (one line) and the process-exit hook stops it. Witnesses that
-// route their exit through scripts/lib/quiesce.mjs get the stop before the
-// handle drain, so they exit because the loop emptied rather than by force.
 import { execFileSync, spawn } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -55,9 +17,6 @@ let guardArmedByRegister = false
 
 const alive = proc => !!proc && proc.exitCode === null && proc.signalCode === null && !proc.killed
 
-// TerminateProcess kills one pid, not a tree, and `node server.js` is a spawn
-// root: without the tree kill a grandchild would keep the port bound after the
-// witness that started it is gone.
 function killTreeSync(proc) {
   if (process.platform !== 'win32') return
   try {
@@ -136,10 +95,6 @@ export function witnessServerCount() {
   return tracked.filter(e => !e.stopped).length
 }
 
-// A witness that registers a server has already told us it intends to exit, so
-// it gets the hard-exit bound for free. The verdict guard's fail-loud arm (post-
-// verdict silence is a red RESULT) stays opt-in: only a witness that calls
-// armVerdictExitGuard() itself has asked to be judged on that.
 function armGuardFromRegister(label) {
   if (guardArmedByRegister) return
   guardArmedByRegister = true
@@ -173,9 +128,6 @@ export function registerWitnessDeps(deps, label = 'server-deps') {
   return deps
 }
 
-// A child process this witness spawned -- a `node server.js` or any other
-// helper -- holds the parent's event loop open for as long as it lives, so an
-// unregistered child is both a leaked handle and a leaked process.
 export function registerWitnessChild(proc, label = 'child') {
   if (!proc || typeof proc !== 'object') return proc
   installExitHook()
@@ -184,11 +136,7 @@ export function registerWitnessChild(proc, label = 'child') {
   return proc
 }
 
-// ------------------------------------------------------- pid registry (report)
 
-// Write-and-report only. Rows are keyed by pid so the lane that owns retirement
-// can see what this repo started; nothing in this module kills a row it did not
-// spawn, because a repo-local registry is shared by every lane on the box.
 export function standaloneServerRegistry() {
   try {
     return JSON.parse(readFileSync(STANDALONE_SERVER_REGISTRY, 'utf8'))
@@ -220,7 +168,6 @@ function dropRegistryRow(entry) {
   if (reg.rows.length === 0) rmSync(STANDALONE_SERVER_REGISTRY, { force: true })
 }
 
-// ---------------------------------------------------------- standalone server
 
 export async function isPortServing(port, host = '127.0.0.1') {
   try {
@@ -233,14 +180,6 @@ export async function isPortServing(port, host = '127.0.0.1') {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-/**
- * Starts the repo-root `node server.js` inside this process and registers the
- * child, so the server cannot outlive the witness that needs it.
- *
- * Never detached, never through a shell and never through `nohup`: detaching is
- * precisely what put servers on :3001/:3002/:8090 beyond the reach of every
- * exit guard in the tree.
- */
 export async function spawnStandaloneServer(opts = {}) {
   const {
     port = 0,
@@ -300,11 +239,6 @@ export async function spawnStandaloneServer(opts = {}) {
   return { proc, port, url: `http://127.0.0.1:${port}/`, label, owned: true }
 }
 
-/**
- * The server a browser witness needs, without making the caller own a process.
- * A server already listening on `port` is used and NOT owned -- it belongs to
- * whoever started it, and this module never stops a process it did not spawn.
- */
 export async function ensureStandaloneServer(opts = {}) {
   const { port = 0 } = opts
   if (await isPortServing(port)) return { up: true, owned: false, port, proc: null }
