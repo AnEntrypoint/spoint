@@ -207,12 +207,79 @@ const inputs = makeInputs(TICKS + 400, 7)
   check('a jump press inside the coyote window survives an ack for the step before it, whose entry was dropped', dropped && err < 1e-6, `dropped ${dropped}, error ${err.toExponential(2)} m, moved ${dist(client.localState.position, before).toExponential(2)} m, lastAcked ${client._lastAckedSeq}`)
 }
 
+{
+  const LEDGE_Z = 0.6
+  const FLAT = [0, 1, 0]
+  const TILT = [0, 0.8, 0.6]
+  const walk = { forward: true, backward: false, left: false, right: false, analogForward: 1, analogRight: 0, sprint: false, crouch: false, jump: false, yaw: 0 }
+  const ledgeEngine = () => {
+    const e = new PredictionEngine(TICK_RATE)
+    e.setGroundProvider((x, z) => (z <= LEDGE_Z ? GROUND_Y : NaN))
+    e.init(1, { position: [0, GROUND_Y, 0], velocity: [0, 0, 0] })
+    return e
+  }
+  const normalAt = (seq, flip) => (seq <= flip ? FLAT : TILT)
+  const authorityStates = (flip, count) => {
+    const server = ledgeEngine()
+    const out = []
+    for (let seq = 1; seq <= count; seq++) {
+      const normal = normalAt(seq, flip)
+      server.lastServerState.groundNormal = [...normal]
+      server.addInput(walk)
+      out.push({ id: 1, position: [...server.localState.position], rotation: [0, 0, 0, 1], velocity: [...server.localState.velocity], onGround: server.localState.onGround, health: 100, inputSequence: seq, groundNormal: normal })
+    }
+    return out
+  }
+  const liveClient = (flip, states) => {
+    const client = ledgeEngine()
+    for (let seq = 1; seq <= states.length; seq++) {
+      client.lastServerState.groundNormal = [...normalAt(seq, flip)]
+      client.addInput(walk)
+      if (seq === 1) client.onServerSnapshot({ players: [states[0]] }, 0)
+    }
+    return client
+  }
+  const probe = authorityStates(Infinity, 400)
+  const ackSeq = probe.findIndex(s => s.position[2] > LEDGE_Z)
+  const count = ackSeq + 200
+  const flipAt = ackSeq
+  const flat = authorityStates(Infinity, count)
+  const tilt = authorityStates(flipAt, count)
+  check('the walk leaves the ledge after the ack, so the replayed steps have no ground sample', ackSeq >= 1 && tilt[ackSeq - 1].onGround && flat[count - 1].position[2] > LEDGE_Z, `ack seq ${ackSeq}, run ${count} steps, end z ${flat[count - 1].position[2].toFixed(3)}`)
+  const live = liveClient(flipAt, tilt)
+  const liveErr = dist(live.localState.position, tilt[count - 1].position)
+  check('a live client whose ground normal changes after the ack step never corrects against an exact authority', live.stats.corrections === 0 && liveErr < 1e-9, `corrections ${live.stats.corrections}, error ${liveErr.toExponential(2)} m`)
+  const normalMatters = dist(flat[count - 1].position, tilt[count - 1].position)
+  check('the normal change moves the replayed steps, so the case is not vacuous', normalMatters > 0.05, `steady and changing authorities end ${normalMatters.toFixed(3)} m apart`)
+  const correctedAck = (flip) => {
+    const states = authorityStates(flip, count)
+    const client = liveClient(flip, states)
+    const base = states[ackSeq - 1]
+    const shifted = { ...base, position: [base.position[0], base.position[1], base.position[2] + 0.5] }
+    const before = [...client.localState.position]
+    const moveAtAck = { ...client.predictedAt(ackSeq).move }
+    client.onServerSnapshot({ players: [shifted] }, count)
+    const ref = ledgeEngine()
+    ref.init(1, { position: shifted.position, velocity: shifted.velocity })
+    Object.assign(ref.localState, moveAtAck)
+    for (let seq = ackSeq + 1; seq <= count; seq++) {
+      ref.lastServerState.groundNormal = [...normalAt(seq, flip)]
+      ref.addInput(walk)
+    }
+    return { err: dist(client.localState.position, ref.localState.position), corrections: client.stats.corrections, moved: dist(client.localState.position, before) }
+  }
+  const steady = correctedAck(Infinity)
+  check('a corrected ack on the ledge with a steady normal replays onto the reference (control)', steady.corrections === 1 && steady.err < 1e-6, `corrections ${steady.corrections}, error vs reference ${steady.err.toExponential(2)} m`)
+  const changing = correctedAck(flipAt)
+  check('a corrected ack replays each step with the ground normal it was predicted with, when the normal changes after the ack', changing.corrections === 1 && changing.err < 1e-6, `corrections ${changing.corrections}, error vs reference ${changing.err.toExponential(2)} m, moved ${changing.moved.toFixed(3)} m`)
+}
+
 const failed = checks.filter(c => !c.ok)
 console.log(`${checks.length - failed.length}/${checks.length} checks passed`)
 if (failed.length) {
   console.log(`RESULT: FAIL ${failed.length} check(s): ${failed.map(c => c.name).join('; ')}`)
   await exitAfterQuiesce(1)
 } else {
-  console.log(`RESULT: PASS PredictionEngine and ReconciliationEngine keep prediction matched to an exact authority, rebase and replay on a corrected ack, refuse stale, duplicate and out-of-range acks, and never replay across a gap in the retained input history (${checks.length} checks)`)
+  console.log(`RESULT: PASS PredictionEngine and ReconciliationEngine keep prediction matched to an exact authority, rebase and replay on a corrected ack, refuse stale, duplicate and out-of-range acks, and never replay across a gap in the retained input history, each step with the ground normal it was predicted with (${checks.length} checks)`)
   await exitAfterQuiesce(0)
 }

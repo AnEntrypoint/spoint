@@ -418,7 +418,7 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    for (const e of this.inputHistory) { this._step(e.data, e.sequence); saveEntry(e, ls) }
+    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {
