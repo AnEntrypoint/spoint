@@ -5,11 +5,21 @@ const MAX_UNCLAIMED = 96
 const READY_TIMEOUT_MS = 60000
 const NO_TILE_WATCHDOG_MS = 45000
 
+function refusal(code, detail) {
+  const err = new Error(code + ': ' + detail)
+  err.code = code
+  return err
+}
+
 export function createRemotePatchBaker(opts = {}) {
-  if (typeof Worker === 'undefined') return Promise.resolve(null)
+  if (typeof Worker === 'undefined') return Promise.reject(refusal('no-worker', 'Worker is not defined'))
   let worker
   try { worker = new Worker(new URL('./patch-baker-worker.js', import.meta.url), { type: 'module' }) }
-  catch (e) { console.warn('[PatchBaker] worker construction failed:', e && e.message || e); return Promise.resolve(null) }
+  catch (e) {
+    const detail = e && e.message || e
+    console.warn('[PatchBaker] worker construction failed:', detail)
+    return Promise.reject(refusal('worker-construct-failed', detail))
+  }
   const bakerOpts = { radius: opts.radius, reliefScale: opts.reliefScale, seed: opts.seed }
   const unclaimed = new Map()
   const inFlight = new Set()
@@ -19,7 +29,9 @@ export function createRemotePatchBaker(opts = {}) {
   let lastTileAt = 0
   let fallback = null
   let settleReady
+  let readyTimer
   const ready = new Promise((resolve) => { settleReady = resolve })
+  function settleInit(result) { clearTimeout(readyTimer); settleReady(result) }
 
   function resolveStatsWaiters(value) { const waiters = statsWaiters.splice(0); for (const w of waiters) w(value) }
 
@@ -35,7 +47,7 @@ export function createRemotePatchBaker(opts = {}) {
 
   worker.onmessage = (e) => {
     const m = e.data
-    if (m.type === 'ready') { settleReady(m); return }
+    if (m.type === 'ready') { settleInit(m); return }
     if (m.type === 'stats') { resolveStatsWaiters(m.stats); return }
     if (m.type === 'failed') { die(m.reason); return }
     if (m.type !== 'tile') return
@@ -49,7 +61,7 @@ export function createRemotePatchBaker(opts = {}) {
   worker.onerror = (e) => {
     const reason = 'worker error: ' + (e && e.message || e)
     if (isReady) die(reason)
-    else { console.warn('[PatchBaker] ' + reason); settleReady({ ok: false, res: 0 }) }
+    else { console.warn('[PatchBaker] ' + reason); settleInit({ ok: false, res: 0, reason }) }
   }
   worker.postMessage({ type: 'init', opts: bakerOpts })
 
@@ -77,13 +89,20 @@ export function createRemotePatchBaker(opts = {}) {
   }
   function dispose() { try { worker.terminate() } catch (_) {} unclaimed.clear(); inFlight.clear(); resolveStatsWaiters(null) }
 
-  const readyTimeout = new Promise((resolve) => setTimeout(() => resolve({ ok: false, res: 0, timedOut: true }), READY_TIMEOUT_MS))
+  const readyTimeout = new Promise((resolve) => { readyTimer = setTimeout(() => resolve({ ok: false, res: 0, timedOut: true }), READY_TIMEOUT_MS) })
   return Promise.race([ready, readyTimeout]).then((r) => {
-    if (!r || !r.ok) { if (r && r.timedOut) console.warn('[PatchBaker] worker init exceeded ' + READY_TIMEOUT_MS + ' ms'); dispose(); return null }
-    isReady = true
-    return {
-      bakeTileAsync, flushBakes, dirToFace: makeDirToFaceMemo(opts.radius), res: r.res,
-      remote: true, stats, workerStats, inFlightCount: () => inFlight.size, dispose,
+    if (r && r.ok) {
+      isReady = true
+      return {
+        bakeTileAsync, flushBakes, dirToFace: makeDirToFaceMemo(opts.radius), res: r.res,
+        remote: true, stats, workerStats, inFlightCount: () => inFlight.size, dispose,
+      }
     }
+    dispose()
+    if (r && r.timedOut) {
+      console.warn('[PatchBaker] worker init exceeded ' + READY_TIMEOUT_MS + ' ms')
+      throw refusal('worker-init-timeout', READY_TIMEOUT_MS + ' ms')
+    }
+    throw refusal('worker-init-failed', r && r.reason || 'worker reported not ready')
   })
 }
