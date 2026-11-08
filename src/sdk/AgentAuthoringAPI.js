@@ -48,6 +48,8 @@ function encodeWorldEntity(id, e, toBase = null) {
   return out
 }
 
+import { timingSafeTokenEqual } from './authCompare.js'
+
 export const AGENT_TOKEN_ENV = 'SPOINT_AGENT_TOKEN'
 const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
 const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
@@ -68,7 +70,7 @@ export function createAgentAuthoringHandler() {
       json(res, 403, { ok: false, code: 'agent-token-required', error: 'non-loopback /agent/ requests need SPOINT_AGENT_TOKEN set on the server' })
       return
     }
-    if (token && req.headers['x-agent-token'] !== token) {
+    if (token && !timingSafeTokenEqual(req.headers['x-agent-token'], token)) {
       json(res, 403, { ok: false, code: 'agent-token-mismatch', error: 'missing or wrong x-agent-token (SPOINT_AGENT_TOKEN is set)' })
       return
     }
