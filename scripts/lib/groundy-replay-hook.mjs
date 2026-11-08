@@ -52,6 +52,16 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   const reference = predictedAtAck ?? server
   const errM = distance(server.position, reference.position)
   const offsetM = distance(before, after.position)
+  const peers = this._peers
+  let peerNearM = null
+  if (peers && this.localState) {
+    for (const [pid, peer] of peers) {
+      if (pid === this.localPlayerId || !Array.isArray(peer.position)) continue
+      const d = Math.hypot(peer.position[0] - this.localState.position[0], peer.position[2] - this.localState.position[2])
+      if (peerNearM === null || d < peerNearM) peerNearM = d
+    }
+  }
+  const separationDistM = this.separationDistM
   records.push({
     engine: idOf(this),
     seq: last.sequence,
@@ -64,7 +74,10 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     serverOnGround: !!server.onGround,
     verticallyBlocked: !!this.verticallyBlocked,
     injectedM: INJECT_M,
-    t: Date.now()
+    peerNearM,
+    separationDistM,
+    inContact: peerNearM !== null && peerNearM < separationDistM,
+    t: performance.now()
   })
 }
 

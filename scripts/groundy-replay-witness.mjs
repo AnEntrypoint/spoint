@@ -58,20 +58,39 @@ const selectMover = (records, mispredict) => {
 
 const gapOf = r => (r.serverGroundY === null || r.predictedGroundY === null ? null : r.serverGroundY - r.predictedGroundY)
 
-const summarizeRun = (records, popsPerMin) => {
+const POP_MATCH_MS = 100
+
+const correlatePops = (records, popEvents) => {
+  let matched = 0, onPeerPush = 0
+  for (const p of popEvents) {
+    let best = null, bestDt = Infinity
+    for (const r of records) {
+      const dt = Math.abs(r.t - p.t)
+      if (dt < bestDt) { best = r; bestDt = dt }
+    }
+    if (best && bestDt <= POP_MATCH_MS) { matched++; if (best.inContact) onPeerPush++ }
+  }
+  return { pops: popEvents.length, matched, onPeerPush }
+}
+
+const summarizeRun = (records, popsPerMin, popEvents) => {
   const growths = records.map(r => r.growthM)
   const gaps = records.map(gapOf).filter(g => g !== null).map(Math.abs)
   const over = records.filter(r => r.growthM > GROWTH_LIMIT_M)
   const injected = records.filter(r => INJECT_M > 0 && gapOf(r) !== null && Math.abs(Math.abs(gapOf(r)) - INJECT_M) <= INJECT_MATCH_M)
+  const pops = correlatePops(records, popEvents)
   return {
     replays: records.length,
     overLimit: over.length,
     overLimitWithGroundYGap: over.filter(r => gapOf(r) !== null && Math.abs(gapOf(r)) > SAME_STAT_M).length,
+    overLimitInContact: over.filter(r => r.inContact).length,
+    inContactReplays: records.filter(r => r.inContact).length,
     maxGrowthM: growths.length ? Math.max(...growths) : null,
     maxGroundYGapM: gaps.length ? Math.max(...gaps) : null,
     injectedReplays: injected.length,
     injectedOverLimit: injected.filter(r => r.growthM > GROWTH_LIMIT_M).length,
-    popsPerMin
+    popsPerMin,
+    pops
   }
 }
 
@@ -92,15 +111,16 @@ const main = async () => {
     }
     const harness = JSON.parse(await readFile(outPath, 'utf8'))
     const popsPerMin = harness.results?.[0]?.localVisual?.popsPerMin ?? null
+    const popEvents = harness.results?.[0]?.localVisual?.popEvents ?? []
     const records = JSON.parse(await readFile(recordPath, 'utf8'))
     const mover = selectMover(records, harness.results?.[0]?.mispredict)
     if (!mover) {
       failures.push(`run ${i}: no engine's replays match the mover's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} harness corrections`)
       continue
     }
-    const summary = summarizeRun(mover, popsPerMin)
+    const summary = summarizeRun(mover, popsPerMin, popEvents)
     runs.push(summary)
-    console.log(`run ${i}: mover replays ${summary.replays} over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'}`)
+    console.log(`run ${i}: mover replays ${summary.replays} over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush})`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)
@@ -110,7 +130,13 @@ const main = async () => {
   const withGap = runs.reduce((s, r) => s + r.overLimitWithGroundYGap, 0)
   const injectedReplays = runs.reduce((s, r) => s + r.injectedReplays, 0)
   const injectedOver = runs.reduce((s, r) => s + r.injectedOverLimit, 0)
-  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns}`)
+  const overInContact = runs.reduce((s, r) => s + r.overLimitInContact, 0)
+  const inContactReplays = runs.reduce((s, r) => s + r.inContactReplays, 0)
+  const popTotal = runs.reduce((s, r) => s + r.pops.pops, 0)
+  const popMatched = runs.reduce((s, r) => s + r.pops.matched, 0)
+  const popOnPeer = runs.reduce((s, r) => s + r.pops.onPeerPush, 0)
+  const popsPerMinMax = runs.reduce((m, r) => (r.popsPerMin === null ? m : Math.max(m, r.popsPerMin)), -Infinity)
+  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer}`)
   for (const f of failures) console.log(`failed: ${f}`)
 
   if (CONTROL) {
