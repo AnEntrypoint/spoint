@@ -863,8 +863,13 @@ export class AppRuntime {
   _spatialInsert(entity) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage && !stage.hasEntity(entity.id)) { stage.entityIds.add(entity.id); stage.spatial.insert(entity.id, entity.position); if (entity.bodyType==='static') stage._staticIds.add(entity.id) } }
   _spatialRemove(entityId) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage) { stage.spatial.remove(entityId); stage._staticIds.delete(entityId); stage.entityIds.delete(entityId) } }
   _spatialSync() { if (this._stageLoader) this._stageLoader.syncAllPositions() }
-  nearbyEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getNearbyEntities(position, radius) }
-  relevantEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getRelevantEntities(position, radius) }
+  _radiusQueryWithoutStage(position, radius) {
+    const index = new SpatialIndex()
+    for (const [id, entity] of this.entities) if (entity.position) index.insert(id, entity.position)
+    return index.nearby(position, radius ?? index.relevanceRadius)
+  }
+  nearbyEntities(position, radius) { if (!this._stageLoader) return this._radiusQueryWithoutStage(position, radius); return this._stageLoader.getNearbyEntities(position, radius) }
+  relevantEntities(position, radius) { if (!this._stageLoader) return this._radiusQueryWithoutStage(position, radius); return this._stageLoader.getRelevantEntities(position, radius) }
   _log(type, data, meta = {}) { if (this._eventLog) this._eventLog.record(type, data, { ...meta, tick: this.currentTick }) }
   _logAppError(l, e) {
     console.error(`[AppRuntime] ${l}: ${e.message}`)
