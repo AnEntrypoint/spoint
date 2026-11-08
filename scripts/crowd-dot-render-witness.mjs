@@ -2,16 +2,24 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { launch } from './lib/cdp-browser.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MIME = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.json': 'application/json' }
 const SIZE = 256
 const DOT_SIZE = 1.4
+const COUNT_LARGEST = 64
 const CAMERA_D = 10
 const FOV_DEG = 50
 const PX_PER_M = (SIZE / 2) / (CAMERA_D * Math.tan((FOV_DEG / 2) * Math.PI / 180))
 const TOLERANCE_PX = 4
+
+const bucketScale = count => Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
+const widthM = scale => DOT_SIZE * scale
+const widthPx = scale => widthM(scale) * PX_PER_M
+const SINGLE_SCALE = DOT_SIZE
+const SINGLE_WIDTH_M = widthM(SINGLE_SCALE)
+const LARGEST_SCALE = DOT_SIZE * bucketScale(COUNT_LARGEST)
+const LARGEST_WIDTH_M = widthM(LARGEST_SCALE)
 
 const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'client', 'index.html'), 'utf8')
 const IMPORT_MAP = INDEX_HTML.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]
@@ -45,7 +53,7 @@ const PAGE_LINES = [
   '  }',
   '  const run = (dots, cx, cz, side) => {',
   '    const scene = new THREE.Scene()',
-  '    const rec = createCrowdDotRenderer(scene, { renderer, dotSize: 1.4, capacity: 64 })',
+  `    const rec = createCrowdDotRenderer(scene, { renderer, dotSize: ${DOT_SIZE}, capacity: 64 })`,
   '    rec.update(dots, 0)',
   '    const material = rec.instancedMesh.material',
   '    if (side !== undefined) { material.side = side; material.needsUpdate = true }',
@@ -63,6 +71,7 @@ const PAGE_LINES = [
   '    doubleSided: run([{ x: 0, y: 0, z: 0 }], 0, 0, THREE.DoubleSide),',
   '    bucket4: run([[0, 0, 4]], 12.5, 12.5),',
   '    bucket9: run([[0, 0, 9]], 12.5, 12.5),',
+  `    largest: run([[0, 0, ${COUNT_LARGEST}]], 12.5, 12.5),`,
   '  }',
   '  renderer.dispose()',
   '} catch (e) {',
@@ -71,7 +80,7 @@ const PAGE_LINES = [
 ]
 const PAGE_MODULE = PAGE_LINES.join('\n') + '\n'
 
-const server = http.createServer((req, res) => {
+const serve = () => http.createServer((req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1')
   if (url.pathname === '/') {
     res.setHeader('content-type', 'text/html')
@@ -95,52 +104,46 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res)
 })
 
-const widthPx = scale => DOT_SIZE * scale * PX_PER_M
-const bucketScale = count => DOT_SIZE * Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
+const checksFor = res => [
+  ['the dot as shipped (FrontSide) draws dot pixels', res.single.n > 0, `side ${res.single.side}, ${res.single.n} pixels`],
+  ['the control with DoubleSide draws dot pixels', res.doubleSided.n > 0, `${res.doubleSided.n} pixels`],
+  [`a single dot is ${SINGLE_WIDTH_M.toFixed(2)} m wide: geometry ${DOT_SIZE} m times instance scale ${SINGLE_SCALE}, applied once`, Math.abs(res.single.w - widthPx(SINGLE_SCALE)) <= TOLERANCE_PX, `got ${res.single.w} px, expected ${widthPx(SINGLE_SCALE).toFixed(1)} px`],
+  [`a count-4 bucket dot is ${widthM(bucketScale(4)).toFixed(2)} m wide, geometry times its scale`, Math.abs(res.bucket4.w - widthPx(bucketScale(4))) <= TOLERANCE_PX, `got ${res.bucket4.w} px, expected ${widthPx(bucketScale(4)).toFixed(1)} px`],
+  [`a count-9 bucket dot is ${widthM(bucketScale(9)).toFixed(2)} m wide, geometry times its scale`, Math.abs(res.bucket9.w - widthPx(bucketScale(9))) <= TOLERANCE_PX, `got ${res.bucket9.w} px, expected ${widthPx(bucketScale(9)).toFixed(1)} px`],
+  [`the largest bucket dot (count ${COUNT_LARGEST}, scale ${LARGEST_SCALE.toFixed(1)}) is ${LARGEST_WIDTH_M.toFixed(1)} m wide`, Math.abs(res.largest.w - widthPx(LARGEST_SCALE)) <= TOLERANCE_PX, `got ${res.largest.w} px, expected ${widthPx(LARGEST_SCALE).toFixed(1)} px`],
+]
 
-async function renderPage(port) {
-  const browser = await launch({ args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] })
-  let page = null
-  try {
-    page = await browser.newPage()
-    await page.goto('http://127.0.0.1:' + port + '/')
-    const deadline = Date.now() + 120000
-    for (;;) {
-      const state = await page.evaluate(() => ({ result: window.__result ?? null, error: window.__error ?? null }))
-      if (state.error) throw new Error('page error: ' + state.error)
-      if (state.result) return state.result
-      if (Date.now() > deadline) throw new Error('render did not finish')
-      await new Promise(r => setTimeout(r, 300))
-    }
-  } finally {
-    if (page) await page.close()
-    await browser.close()
-  }
-}
-
-await new Promise(r => server.listen(0, '127.0.0.1', r))
-const port = server.address().port
-let failures = []
-try {
-  const res = await renderPage(port)
-  const checks = [
-    ['the dot as shipped (FrontSide) draws dot pixels', res.single.n > 0, `side ${res.single.side}, ${res.single.n} pixels`],
-    ['the control with DoubleSide draws dot pixels', res.doubleSided.n > 0, `${res.doubleSided.n} pixels`],
-    ['a single dot is 1.4 m wide, the instance scale applied once', Math.abs(res.single.w - widthPx(DOT_SIZE)) <= TOLERANCE_PX, `got ${res.single.w} px, expected ${widthPx(DOT_SIZE).toFixed(1)} px`],
-    ['a count-4 bucket dot is 1.4 x its scale wide, applied once', Math.abs(res.bucket4.w - widthPx(bucketScale(4))) <= TOLERANCE_PX, `got ${res.bucket4.w} px, expected ${widthPx(bucketScale(4)).toFixed(1)} px`],
-    ['a count-9 bucket dot is 1.4 x its scale wide, applied once', Math.abs(res.bucket9.w - widthPx(bucketScale(9))) <= TOLERANCE_PX, `got ${res.bucket9.w} px, expected ${widthPx(bucketScale(9)).toFixed(1)} px`],
-  ]
-  for (const [name, ok, detail] of checks) {
+const check = file => {
+  const res = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const failures = []
+  for (const [name, ok, detail] of checksFor(res)) {
     console.log(`check ${name}: ${ok ? 'ok' : 'FAIL'} (${detail})`)
     if (!ok) failures.push(name)
   }
   console.log(JSON.stringify(res))
-} finally {
-  server.close()
+  if (failures.length) {
+    console.log(`RESULT: FAIL ${failures.length} check(s): ${failures.join('; ')}`)
+    process.exitCode = 1
+  } else {
+    console.log(`RESULT: PASS the WebGL crowd dots draw with the material as shipped; a single dot measures ${SINGLE_WIDTH_M.toFixed(2)} m and the largest bucket dot ${LARGEST_WIDTH_M.toFixed(1)} m, the instance scale applied once`)
+  }
 }
-if (failures.length) {
-  console.log(`RESULT: FAIL ${failures.length} check(s): ${failures.join('; ')}`)
-  process.exitCode = 1
-} else {
-  console.log('RESULT: PASS the WebGL crowd dots draw with the material as shipped, and their on-screen width is the dot size times the instance scale, applied once')
+
+const startServer = () => {
+  const port = Number(process.argv.find(a => a.startsWith('--port='))?.slice(7) ?? 0)
+  const server = serve()
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`crowd dot page http://127.0.0.1:${server.address().port}/ pid ${process.pid}`)
+  })
+  const stop = () => server.close(() => process.exit(0))
+  process.on('SIGTERM', stop)
+  process.on('SIGINT', stop)
+}
+
+const resultArg = process.argv.find(a => a.startsWith('--check='))
+if (process.argv.includes('--serve')) startServer()
+else if (resultArg) check(resultArg.slice('--check='.length))
+else {
+  console.log('usage: node scripts/crowd-dot-render-witness.mjs --serve [--port=N] | --check=<result.json>')
+  process.exitCode = 2
 }
