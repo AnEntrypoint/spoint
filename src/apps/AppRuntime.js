@@ -15,6 +15,10 @@ const _UNIT_SCALE = [1, 1, 1]
 const _ZERO_VEL = [0, 0, 0]
 const SUPPORT_RAY_LENGTH_M = 60
 const UNCOVERED_GROUND_HOLD_MAX_MS = 20000
+const SUPPORT_HOLD_REASON = {
+  HEIGHTFIELD_NOT_LANDED: 'heightfield-collider-not-landed',
+  RAY_MISSED_GROUND: 'ray-missed-ground',
+}
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
@@ -719,9 +723,11 @@ export class AppRuntime {
     const covered = () => this._terrainCoversPosition(p[0], p[2])
     const where = `chart-local (${p[0].toFixed(0)}, ${p[2].toFixed(0)})`
     let warned = false
+    let groundReason = null
     const options = {
       probeGroundY: () => {
         if (!covered()) {
+          groundReason = SUPPORT_HOLD_REASON.HEIGHTFIELD_NOT_LANDED
           if (!warned) {
             warned = true
             console.warn(`[terrain] holding player ${player.id} at ${where}: no heightfield collider covers it yet, so it stays held until its field lands`)
@@ -729,11 +735,16 @@ export class AppRuntime {
           return null
         }
         const hit = physics.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)
-        return hit && hit.hit && Number.isFinite(hit.position?.[1]) ? hit.position[1] : null
+        if (hit && hit.hit && Number.isFinite(hit.position?.[1])) {
+          groundReason = null
+          return hit.position[1]
+        }
+        groundReason = SUPPORT_HOLD_REASON.RAY_MISSED_GROUND
+        return null
       },
       onRelease: ({ groundHit, heldMs }) => {
         if (groundHit) return
-        console.warn(`[terrain] released player ${player.id} at ${where} after ${Math.round(heldMs)} ms with no ground under it: it falls to the kill plane (heightfield covers the point: ${covered()})`)
+        console.warn(`[terrain] released player ${player.id} at ${where} after ${Math.round(heldMs)} ms with no ground under it (${groundReason}): it falls to the kill plane (heightfield covers the point: ${covered()})`)
       }
     }
     if (!terrainKnown || !covered()) options.maxMs = UNCOVERED_GROUND_HOLD_MAX_MS
