@@ -5,8 +5,8 @@ export default {
   relevanceRadius: 200,
   physicsRadius: 30,
   movement: {
-    maxSpeed: 7,
-    sprintSpeed: 12,
+    maxSpeed: 14,
+    sprintSpeed: 24,
     groundAccel: 300,
     airAccel: 30,
     airMaxSpeed: 0.15,

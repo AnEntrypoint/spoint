@@ -45,7 +45,7 @@ npm test
   physicsBodyBudget: 512,
   
   movement: {
-    maxSpeed: 7, sprintSpeed: 12, groundAccel: 300, airAccel: 30,
+    maxSpeed: 14, sprintSpeed: 24, groundAccel: 300, airAccel: 30,
     airMaxSpeed: 0.15, airSpeedCap: 16, friction: 5, stopSpeed: 1,
     jumpImpulse: 5.5, collisionRestitution: 0.2, collisionDamping: 0.25
   },

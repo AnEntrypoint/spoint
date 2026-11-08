@@ -247,6 +247,7 @@ async function main() {
     ['world-identity-witness', 'scripts/world-identity-witness.mjs', (out) => `check: ${out}`],
     ['world-movement-parse-witness', 'scripts/world-movement-parse-witness.mjs', (out) => `check: ${out}`],
     ['movement-defaults-readme-witness', 'scripts/movement-defaults-readme-witness.mjs', (out) => `check: ${out}`],
+    ['default-world-movement-readme-witness', 'scripts/default-world-movement-readme-witness.mjs', (out) => `check: ${out}`],
     ['write-verified-witness', 'scripts/write-verified-witness.mjs', (out) => `check: ${out}`],
     ['receipt-audit', 'scripts/lib/witness-receipt-audit.mjs', (out) => `check: ${out}`],
     ['xr-teleport-ground-witness', 'scripts/xr-teleport-ground-witness.mjs', (out) => `check: ${out}`],
