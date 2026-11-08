@@ -110,7 +110,7 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
   let overlay = null
   let pool = null
   let subId = null
-  const dedicatedRowsByDTag = new Map()
+  const dedicatedRowsById = new Map()
   const p2pRowsByPubkeyRoom = new Map()
   const pingByHostPort = new Map()
   let pingTimer = null
@@ -135,10 +135,9 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
     const row = parseEvent(event)
     if (!row) return
     if (row.kind === 'dedicated') {
-      const dTag = event.tags.find(t => t[0] === 'd')[1]
-      if (row.action === 'offline') { dedicatedRowsByDTag.delete(dTag); render(); return }
-      const existing = dedicatedRowsByDTag.get(dTag)
-      if (!existing || row.ts >= existing.ts) dedicatedRowsByDTag.set(dTag, row)
+      if (row.action === 'offline') { dedicatedRowsById.delete(row.id); render(); return }
+      const existing = dedicatedRowsById.get(row.id)
+      if (!existing || row.ts >= existing.ts) dedicatedRowsById.set(row.id, row)
     } else {
       const key = row.pubkey + ':' + row.room
       if (row.action === 'leave') { p2pRowsByPubkeyRoom.delete(key); render(); return }
@@ -149,7 +148,7 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
 
   function liveRows() {
     const now = Date.now()
-    const dedicated = Array.from(dedicatedRowsByDTag.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS)
+    const dedicated = Array.from(dedicatedRowsById.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS)
     const p2p = collapseP2P(Array.from(p2pRowsByPubkeyRoom.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS))
     return [...dedicated, ...p2p].sort((a, b) => b.ts - a.ts)
   }
