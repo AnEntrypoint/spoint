@@ -52,8 +52,9 @@ hysteresis), and declares the chosen index ranges as geometry GROUPS -- three's
 normal pipeline then issues one `drawElements` per group with the correct VAO/
 attributes (NOT a raw `WEBGL_multi_draw` call: `onBeforeRender` fires before three
 binds the VAO, so a manual multi-draw there hit stale buffer state). When no
-cluster survives culling, `_render()` emits one fallback group spanning the full
-LOD0, and the constructor seeds that same group for the first frame.
+cluster survives culling, `_render()` emits no group and nothing draws, as the GPU
+cull does. The constructor seeds one LOD0 group for the first frame, before any cull
+has run.
 
 `model-pool.js` detects `EP_cluster_lod` at asset load, prepares the cluster
 geometry once, and each spawned `Entity` renders a `ClusterLodMesh` — bypassing
@@ -75,10 +76,11 @@ a moving/disappearing occluder doesn't leave it permanently hidden.
 
 `src/webgpu-hiz-tier.js` `WebGpuHizTier` + `src/webgpu-hiz-shaders.js` run the
 per-cluster GPU frustum + HiZ occlusion cull. The invariant is that this cull
-EQUALS the CPU cull above, not approximately: `scripts/webgpu-hiz-cull-parity-witness.mjs`
-drives both culls over one 16-cluster mesh in a real accelerated browser and
-counts disagreements per frame (CPU-culls-but-GPU-draws, GPU-culls-but-CPU-draws,
-LOD mismatch); zero is a pass. It once reported 164 disagreements over a 12-frame
+EQUALS the CPU cull above, not approximately. The browser witness that drove both culls
+over one 16-cluster mesh and counted disagreements per frame (CPU-culls-but-GPU-draws,
+GPU-culls-but-CPU-draws, LOD mismatch) was removed in 0514fd1 and is not in the tree.
+`scripts/cluster-lod-gpu-parity-witness.mjs` checks the GPU side by source text only and
+runs no GPU, so the GPU draw count is unmeasured. It once reported 164 disagreements over a 12-frame
 sweep because `CULL_LOD_WGSL` did not compile at all (`operator >> (i32, i32)`
 in `selectHzbLevel`), so the pipeline was invalid and the cull emitted ZERO
 indirect draws while the CPU drew every cluster -- a shader that fails to compile
@@ -94,8 +96,10 @@ mutation that removes the scope. So the cull reads the CPU's own inputs
 and thresholds from the mesh, and the pre-frame LOD index `_pickLod` read,
 published as `ClusterLodMesh._lodStateIn`) rather than keeping a second copy that
 drifts, uses three's own six-plane set over the eight world AABB corners, and
-mirrors `_render`'s full-LOD0 fallback group in `fallbackMain`, keyed off a
-frustum-visible count and not off the occluded draw count. The pyramid is one
+draws nothing when no cluster survives the frustum cull, as the CPU does through
+`_writeCompactIndex`: there is no LOD0 fallback group on either side and no
+`fallbackMain` pass. The GPU writes indirect draws only in `main`, after the frustum
+gate, so zero frustum survivors leaves the draw count at zero. The pyramid is one
 mip chain with per-level storage views (`textureLoad` at an arbitrary level needs
 `mipLevelCount > 1` on the view), reduces with `max`, and reads every texel the
 footprint touches, so occlusion errs towards drawing.

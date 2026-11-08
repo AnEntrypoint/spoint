@@ -65,7 +65,7 @@ struct FrameParams {
   hzbH           : f32,
   thresholdCount : u32,
   cullDisable    : u32,
-  fallbackIndexCount : u32,
+  pad5           : u32,
   pad4           : u32,
 };
 
@@ -87,7 +87,6 @@ struct IndirectArgs {
 // Previous LOD index per cluster, owned by the CPU cull (ClusterLodMesh._curLod) and
 // uploaded each dispatch: the GPU cull must not keep a second copy of hysteresis state.
 @group(0) @binding(6) var<storage, read> lodState : array<i32>;
-@group(0) @binding(7) var<storage, read_write> frustumVisible : atomic<u32>;
 
 fn aabbOutsidePlane(mn: vec3<f32>, mx: vec3<f32>, plane: vec4<f32>) -> bool {
   let px = select(mn.x, mx.x, plane.x > 0.0);
@@ -183,10 +182,6 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (lod == 1) { offset = c.lod1Offset; count = c.lod1Count; }
   if (lod == 2) { offset = c.lod2Offset; count = c.lod2Count; }
 
-  // ClusterLodMesh counts a cluster as drawn on the frustum result alone, so the
-  // fallback group has to key off that count and not off the occluded draw count.
-  if (count != 0u) { atomicAdd(&frustumVisible, 1u); }
-
   if (allInFront && anyInFront && frame.hzbLevels > 0u) {
     minX = clamp(minX, 0.0, 1.0); maxX = clamp(maxX, 0.0, 1.0);
     minY = clamp(minY, 0.0, 1.0); maxY = clamp(maxY, 0.0, 1.0);
@@ -216,21 +211,6 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   indirectArgs[slot].instanceCount = 1u;
   indirectArgs[slot].firstIndex = offset;
   atomicStore(&indirectArgs[slot].indexCount, count);
-  indirectArgs[slot].baseVertex = i32(frame.baseVertex);
-  indirectArgs[slot].firstInstance = frame.firstInstance;
-}
-
-// ClusterLodMesh._render emits one group spanning the whole LOD0 when no cluster
-// survives the cull; the GPU cull must emit the same draw or the two disagree.
-// Runs as a separate dispatch after main, so it sees main's final draw count.
-@compute @workgroup_size(1, 1, 1)
-fn fallbackMain() {
-  if (atomicLoad(&frustumVisible) != 0u) { return; }
-  if (frame.fallbackIndexCount == 0u) { return; }
-  let slot = atomicAdd(&drawCount, 1u);
-  indirectArgs[slot].instanceCount = 1u;
-  indirectArgs[slot].firstIndex = 0u;
-  atomicStore(&indirectArgs[slot].indexCount, frame.fallbackIndexCount);
   indirectArgs[slot].baseVertex = i32(frame.baseVertex);
   indirectArgs[slot].firstInstance = frame.firstInstance;
 }`;

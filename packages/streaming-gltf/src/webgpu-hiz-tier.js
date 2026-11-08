@@ -210,12 +210,10 @@ export class WebGpuHizTier {
       createPipelineScoped(device, 'compute', { label: 'hzb-seed-pipeline', layout: 'auto', compute: { module: seedMod, entryPoint: 'main' } }),
       createPipelineScoped(device, 'compute', { label: 'hzb-reduce-pipeline', layout: 'auto', compute: { module: reduceMod, entryPoint: 'main' } }),
       createPipelineScoped(device, 'compute', { label: 'cluster-cull-lod-pipeline', layout: 'auto', compute: { module: cullMod, entryPoint: 'main' } }),
-      createPipelineScoped(device, 'compute', { label: 'cluster-cull-fallback-pipeline', layout: 'auto', compute: { module: cullMod, entryPoint: 'fallbackMain' } }),
     ];
     this._seedPipeline = built[0].pipeline;
     this._reducePipeline = built[1].pipeline;
     this._cullPipeline = built[2].pipeline;
-    this._fallbackPipeline = built[3].pipeline;
     this.stats.pipelinesValidated = 0;
     this._pipelineInit = Promise.all(built.map((b) => b.verdict.then((error) => ({ label: b.label, pipeline: b.pipeline, thrown: b.thrown, error }))))
       .then((results) => this._settlePipelines(results));
@@ -409,15 +407,12 @@ export class WebGpuHizTier {
     const countBuf = device.createBuffer({
       size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    const visibleBuf = device.createBuffer({
-      size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
     const lodStateBuf = device.createBuffer({
       size: Math.max(1, n) * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    const rec = { clusterSet, clusterBuf, indirectBuf, countBuf, visibleBuf, lodStateBuf, n, lod0Count: mesh.lod0Count, lodSlot: new Int32Array(Math.max(1, n)) };
+    const rec = { clusterSet, clusterBuf, indirectBuf, countBuf, lodStateBuf, n, lodSlot: new Int32Array(Math.max(1, n)) };
     this._meshBuffers.set(mesh, rec);
     return rec;
   }
@@ -428,7 +423,6 @@ export class WebGpuHizTier {
     rec.clusterBuf.destroy();
     rec.indirectBuf.destroy();
     rec.countBuf.destroy();
-    if (rec.visibleBuf) rec.visibleBuf.destroy();
     if (rec.lodStateBuf) rec.lodStateBuf.destroy();
     if (rec.frameBuf) rec.frameBuf.destroy();
     if (rec.stagingBuf) rec.stagingBuf.destroy();
@@ -482,7 +476,6 @@ export class WebGpuHizTier {
     fp[47] = this._hzbH || 1;
     fpU32[48] = thresholdCount;
     fpU32[49] = mesh._spointNoClusterCull ? 1 : 0;
-    fpU32[50] = rec.lod0Count;
     fpU32[51] = 0;
 
     if (!rec.frameBuf || rec.frameBuf.size !== fp.byteLength) {
@@ -492,7 +485,6 @@ export class WebGpuHizTier {
     device.queue.writeBuffer(rec.frameBuf, 0, fp.buffer, fp.byteOffset, fp.byteLength);
     const zero = new Uint32Array([0]).buffer;
     device.queue.writeBuffer(rec.countBuf, 0, zero);
-    device.queue.writeBuffer(rec.visibleBuf, 0, zero);
 
     const curLod = (mesh._lodStateIn && mesh._lodStateIn.length >= rec.n) ? mesh._lodStateIn : mesh._curLod;
     const lodSlot = rec.lodSlot;
@@ -515,7 +507,6 @@ export class WebGpuHizTier {
         { binding: 3, resource: { buffer: rec.countBuf } },
         { binding: 4, resource: hzbView || rec.dummyView },
         { binding: 6, resource: { buffer: rec.lodStateBuf } },
-        { binding: 7, resource: { buffer: rec.visibleBuf } },
       ],
     });
 
@@ -524,18 +515,6 @@ export class WebGpuHizTier {
     pass.setPipeline(this._cullPipeline);
     pass.setBindGroup(0, bg);
     pass.dispatchWorkgroups(Math.ceil(rec.n / CULL_WORKGROUP_SIZE), 1, 1);
-    const fbBg = device.createBindGroup({
-      layout: this._fallbackPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 1, resource: { buffer: rec.frameBuf } },
-        { binding: 2, resource: { buffer: rec.indirectBuf } },
-        { binding: 3, resource: { buffer: rec.countBuf } },
-        { binding: 7, resource: { buffer: rec.visibleBuf } },
-      ],
-    });
-    pass.setPipeline(this._fallbackPipeline);
-    pass.setBindGroup(0, fbBg);
-    pass.dispatchWorkgroups(1, 1, 1);
     pass.end();
     device.queue.submit([encoder.finish()]);
 

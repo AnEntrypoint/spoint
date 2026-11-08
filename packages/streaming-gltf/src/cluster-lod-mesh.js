@@ -25,9 +25,6 @@ export class ClusterLodMesh extends THREE.Mesh {
     this._screenHeight = opts.screenHeight || 1080;
     this._hyst = opts.hysteresis != null ? opts.hysteresis : 0.15;
     this._curLod = new Int8Array(clusterSet.clusters.length).fill(-1);
-    // The LOD index each cluster had at the START of this frame's selection, i.e.
-    // the input _pickLod actually read. The GPU cull consumes this so it never
-    // decides from a second, one-frame-skewed copy of the hysteresis state.
     this._lodStateIn = new Int8Array(clusterSet.clusters.length).fill(-1);
 
     const n = clusterSet.clusters.length;
@@ -175,11 +172,7 @@ export class ClusterLodMesh extends THREE.Mesh {
   _writeCompactIndex(n) {
     const dst = this._drawIndex.array, src = this._srcIndex, pool = this._groupPoolByClusterIndex, drawnCi = this._drawnCi;
     let w = 0;
-    if (n === 0) {
-      dst.set(src.subarray(0, this.lod0Count), 0);
-      w = this.lod0Count;
-      this.stats.drawnTris = w / 3;
-    } else {
+    if (n > 0) {
       let runStart = -1, runEnd = -1;
       for (let i = 0; i < n; i++) {
         const g = pool[drawnCi[i]];
@@ -221,14 +214,8 @@ export class ClusterLodMesh extends THREE.Mesh {
     let drawnTris = this.stats.drawnTris;
     const view = this._groupView || (this._groupView = []);
     view.length = 0;
-    if (n === 0) {
-      const fb = this._fallbackGroup || (this._fallbackGroup = { start: 0, count: 0, materialIndex: 0 });
-      fb.start = 0; fb.count = this.lod0Count; fb.materialIndex = 0;
-      view.push(fb);
-      drawnTris = this.lod0Count / 3;
-    } else {
-      for (let i = 0; i < drawnCi.length; i++) view.push(pool[drawnCi[i]]);
-    }
+    if (n === 0) drawnTris = 0;
+    else for (let i = 0; i < drawnCi.length; i++) view.push(pool[drawnCi[i]]);
     geometry.groups = view;
     this.stats.drawnTris = drawnTris;
     this.stats.multiDrawSubmissions = geometry.groups.length;
