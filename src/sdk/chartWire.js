@@ -20,7 +20,7 @@ export function chartHandshakeFields(ctx) {
 }
 
 export function createChartWireStats() {
-  return { staleInputPackets: 0, staleShots: 0, rejectedFuture: 0, rejectedExpired: 0, rejectedTeleports: 0, resyncServed: 0, resyncExpired: 0 }
+  return { staleInputPackets: 0, staleShots: 0, rejectedMalformed: 0, rejectedFuture: 0, rejectedExpired: 0, rejectedTeleports: 0, resyncServed: 0, resyncExpired: 0 }
 }
 
 const statsByPhysics = new WeakMap()
@@ -33,8 +33,9 @@ export function chartWireStatsOf(ctx) {
 
 export function resolveEpochTransfer(ctx, epoch) {
   const current = currentChartEpoch(ctx.physics)
-  if (epoch === current) return { transfer: null, rejected: null }
   const stats = chartWireStatsOf(ctx)
+  if (!Number.isInteger(epoch) || epoch < 0) { stats.rejectedMalformed++; return { transfer: null, rejected: `malformed-chart-epoch:${String(epoch)}` } }
+  if (epoch === current) return { transfer: null, rejected: null }
   if (epoch > current) { stats.rejectedFuture++; return { transfer: null, rejected: `future-chart-epoch:${epoch}>${current}` } }
   const ledger = ctx.chartEpochLedger
   if (!ledger) { stats.rejectedExpired++; return { transfer: null, rejected: `no-chart-ledger-for-epoch:${epoch}` } }
