@@ -7,7 +7,7 @@ const isNum = v => typeof v === 'number' && Number.isFinite(v)
 const isVec = (v, n) => Array.isArray(v) && v.length === n && v.every(isNum)
 const PLAYER_POSITIVE_KEYS = ['capsuleRadius', 'capsuleHalfHeight', 'crouchHalfHeight', 'mass', 'health']
 const MOVEMENT_EXTENSION_FIELDS = Object.freeze([
-  'sprintSpeed', 'crouchSpeedMul', 'coyoteTime', 'jumpBuffer', 'slideMinSpeed',
+  'crouchSpeedMul', 'coyoteTime', 'jumpBuffer', 'slideMinSpeed',
   'airMaxSpeed', 'airSpeedCap', 'collisionRestitution', 'collisionDamping'
 ])
 

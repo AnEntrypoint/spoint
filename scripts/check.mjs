@@ -246,6 +246,7 @@ async function main() {
     ['worker-field-paint-witness', 'scripts/worker-field-paint-witness.mjs', (out) => `check: ${out}`],
     ['world-identity-witness', 'scripts/world-identity-witness.mjs', (out) => `check: ${out}`],
     ['world-movement-parse-witness', 'scripts/world-movement-parse-witness.mjs', (out) => `check: ${out}`],
+    ['movement-defaults-readme-witness', 'scripts/movement-defaults-readme-witness.mjs', (out) => `check: ${out}`],
     ['write-verified-witness', 'scripts/write-verified-witness.mjs', (out) => `check: ${out}`],
     ['receipt-audit', 'scripts/lib/witness-receipt-audit.mjs', (out) => `check: ${out}`],
     ['xr-teleport-ground-witness', 'scripts/xr-teleport-ground-witness.mjs', (out) => `check: ${out}`],

@@ -115,11 +115,12 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
 }
 
 export let DEFAULT_MOVEMENT = {
-  maxSpeed: 7.0,
-  groundAccel: 150.0,
-  airAccel: 15.0,
-  friction: 10.0,
-  stopSpeed: 2.0,
+  maxSpeed: 14.0,
+  sprintSpeed: 24.0,
+  groundAccel: 300.0,
+  airAccel: 30.0,
+  friction: 5.0,
+  stopSpeed: 1.0,
   jumpImpulse: 5.5,
   slideDuration: 0.6,
   slideSpeedMul: 1.15,

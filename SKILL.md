@@ -74,7 +74,7 @@ export default {
   entityTickRate: 16,      // app update() Hz (default = tickRate). Lower = fewer update() calls, less CPU
   physicsRadius: 0,        // dynamic body LOD radius (0 = disabled). Bodies outside all players suspended from Jolt
   movement: {
-    maxSpeed: 4.0,         // code default is 7.0 — always override explicitly
+    maxSpeed: 4.0,         // code default is 14.0 — always override explicitly
     groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0,
     jumpImpulse: 4.0,      // velocity SET (not added) on jump
     crouchSpeedMul: 0.4, sprintSpeed: null  // null = maxSpeed * 1.75
@@ -491,7 +491,7 @@ const e = ctx.world.spawn('floor', {...}); e.bodyType = 'static'  // ignored
 ctx.world.spawn('floor', { app:'box-static', config:{ hx:5, hy:0.25, hz:5 } })
 ```
 
-**maxSpeed default mismatch.** Code default is 7.0. Always set `movement.maxSpeed` explicitly.
+**maxSpeed default mismatch.** Code default is 14.0. Always set `movement.maxSpeed` explicitly.
 
 **Horizontal velocity is wish-based.** After physics step, wish velocity overwrites XZ physics result. `player.state.velocity[0/2]` = wish velocity. Only `velocity[1]` (Y) comes from physics.
 

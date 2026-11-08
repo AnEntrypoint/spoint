@@ -347,7 +347,7 @@ npm run check:sdk-types
 ## Common Pitfalls
 
 1. **Physics only activates in `setup()`** — `entity.bodyType = 'static'` does nothing without `ctx.physics.*`
-2. **Set `movement.maxSpeed` explicitly** — code default is 8.0
+2. **Set `movement.maxSpeed` explicitly** — code default is 14.0
 3. **Horizontal velocity is wish-based** — only Y velocity comes from physics
 4. **Capsule params**: `addCapsuleCollider(radius, fullHeight)` — full height, halved internally
 5. **Trimesh is static-only** — use `addConvexCollider` for dynamic/kinematic

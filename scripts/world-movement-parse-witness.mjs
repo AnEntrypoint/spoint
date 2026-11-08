@@ -19,7 +19,7 @@ const asserted = (world, name) => { probes += 1; return assertWorld(world, name)
 
 const CORE_FIELDS = Object.keys(DEFAULT_MOVEMENT)
 const EXTENSION_FIELDS = [
-  'sprintSpeed', 'crouchSpeedMul', 'coyoteTime', 'jumpBuffer', 'slideMinSpeed',
+  'crouchSpeedMul', 'coyoteTime', 'jumpBuffer', 'slideMinSpeed',
   'airMaxSpeed', 'airSpeedCap', 'collisionRestitution', 'collisionDamping'
 ]
 const INVALID_VALUES = [
