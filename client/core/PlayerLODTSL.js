@@ -12,8 +12,7 @@ export function createDotMaterialTSL(matrixNode) {
     const up = vec3(0.0, 1.0, 0.0)
     const right = toCam.cross(up).normalize()
     const camUp = right.cross(toCam)
-    const sx = instanceMatrixNode[0].xyz.length()
-    const billboardLocal = right.mul(positionGeometry.x).mul(sx).add(camUp.mul(positionGeometry.z).mul(sx))
+    const billboardLocal = right.mul(positionGeometry.x).add(camUp.mul(positionGeometry.z))
     return instanceMatrixNode.mul(vec4(billboardLocal, 1.0)).xyz
   })()
 

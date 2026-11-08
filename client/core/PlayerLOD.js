@@ -67,10 +67,9 @@ function makeDotMaterial() {
         vec3 worldPos = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         vec3 toCam = normalize(cameraPosition - worldPos);
         vec3 up = vec3(0.0, 1.0, 0.0);
-        vec3 right = normalize(cross(up, toCam));
-        vec3 camUp = cross(toCam, right);
-        float sx = length(instanceMatrix[0].xyz);
-        transformed = right * position.x * sx + camUp * position.z * sx;
+        vec3 right = normalize(cross(toCam, up));
+        vec3 camUp = cross(right, toCam);
+        transformed = right * position.x + camUp * position.z;
       }`
     )
   }
