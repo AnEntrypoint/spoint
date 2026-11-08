@@ -561,7 +561,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **PROVEN** Event emitter with unsubscribe — source `src/protocol/EventEmitter.js`, proof `scripts/tick-drop-counter-witness.mjs`
 - **UNPROVEN** Base client prediction lead bound (MAX_PREDICTION_LEAD_STEPS) — source `src/client/BaseClient.js`, proof none
 - **PROVEN** Coalesced frame split (splitCoalesced) — source `src/client/BaseClient.js`, proof `scripts/verify-session.mjs`
-- **UNPROVEN** Transport connect rejects with TransportConnectError — source `src/client/PhysicsNetworkClient.js`, proof none
+- **PROVEN** Transport connect rejects with TransportConnectError — source `src/client/PhysicsNetworkClient.js`, proof `scripts/transport-connect-error-witness.mjs`
 - **PROVEN** Physics network client connection — source `src/client/PhysicsNetworkClient.js`, proof `scripts/planet-multiplayer-harness.mjs`
 - **UNPROVEN** Reconnect manager — source `src/client/ReconnectManager.js`, proof none
 - **UNPROVEN** Transport migration trigger — source `src/client/TransportMigrationTrigger.js`, proof none
