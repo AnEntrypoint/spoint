@@ -73,16 +73,12 @@ export function buildCrowdDots(players, viewerPos, dotCellM) {
   for (const p of players) {
     const pos = p.position; if (!pos) continue
     const cx = Math.floor(pos[0] / cell), cz = Math.floor(pos[2] / cell)
-    const key = cx * 1000003 + cz
-    buckets.set(key, (buckets.get(key) || 0) + 1)
+    const key = `${cx},${cz}`
+    const bucket = buckets.get(key)
+    if (bucket) bucket[2]++
+    else buckets.set(key, [cx, cz, 1])
   }
-  const out = []
-  for (const [key, count] of buckets) {
-    const cz = key % 1000003
-    const cx = (key - cz) / 1000003
-    out.push([cx, cz, count])
-  }
-  return out
+  return [...buckets.values()]
 }
 
 const _tierIds = []
