@@ -6,6 +6,7 @@ import { prewarmCompression } from './StaticHandler.js'
 import { clientBundleDir, clientBundleState, describeBundleState, workerBundleDir, workerBundleState } from './bundleFreshness.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
 import { createServer } from './server.js'
+import { AGENT_TOKEN_ENV, agentBindRefusal } from './AgentAuthoringAPI.js'
 import { logServerIdentity } from './ServerIdentity.js'
 import { createServerPresence } from './ServerPresence.js'
 import { parseTerrainHashOverride, withTerrainHashVersion } from '../shared/terrainConfig.js'
@@ -197,6 +198,7 @@ export async function boot(overrides = {}) {
   }
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
+    host: process.env.SPOINT_HOST || undefined,
     tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: SDK_ROOT,
     gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,
     physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0, entityTickRate: worldDef.entityTickRate,
@@ -207,6 +209,9 @@ export async function boot(overrides = {}) {
     bootTiming: bootTimer.phases,
     ...overrides
   }
+  const agentBind = agentBindRefusal(config.host || '0.0.0.0', process.env[AGENT_TOKEN_ENV])
+  if (agentBind) throw Object.assign(new Error(`[server] refusing to bind ${agentBind.host}: /agent/ routes would be reachable from the network without ${AGENT_TOKEN_ENV}. Set ${AGENT_TOKEN_ENV}, or set SPOINT_HOST=127.0.0.1 for a loopback-only server.`), { code: agentBind.code })
+  if (!process.env[AGENT_TOKEN_ENV]) console.warn(`[server] ${AGENT_TOKEN_ENV} is not set: /agent/ routes accept loopback peers only`)
   const server = await createServer(config)
   bootTimer.lap('create server')
   try {

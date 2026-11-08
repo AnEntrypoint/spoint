@@ -48,11 +48,28 @@ function encodeWorldEntity(id, e, toBase = null) {
   return out
 }
 
+export const AGENT_TOKEN_ENV = 'SPOINT_AGENT_TOKEN'
+const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost'])
+const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+
+export function agentBindRefusal(host, token) {
+  if (token || LOOPBACK_BIND_HOSTS.has(host)) return null
+  return { code: 'agent-token-required-for-bind', host }
+}
+
+export function isAgentPeerAllowed(remoteAddress, token) {
+  return Boolean(token) || LOOPBACK_PEERS.has(remoteAddress)
+}
+
 export function createAgentAuthoringHandler() {
   return async function handleAgentRoute(req, res, appRuntime, ctx) {
-    const token = process.env.SPOINT_AGENT_TOKEN
+    const token = process.env[AGENT_TOKEN_ENV]
+    if (!isAgentPeerAllowed(req.socket?.remoteAddress, token)) {
+      json(res, 403, { ok: false, code: 'agent-token-required', error: 'non-loopback /agent/ requests need SPOINT_AGENT_TOKEN set on the server' })
+      return
+    }
     if (token && req.headers['x-agent-token'] !== token) {
-      json(res, 403, { ok: false, error: 'missing or wrong x-agent-token (SPOINT_AGENT_TOKEN is set)' })
+      json(res, 403, { ok: false, code: 'agent-token-mismatch', error: 'missing or wrong x-agent-token (SPOINT_AGENT_TOKEN is set)' })
       return
     }
     const url = new URL(req.url, 'http://localhost')
