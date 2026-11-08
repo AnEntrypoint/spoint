@@ -49,7 +49,9 @@ export function worldToCell(x, y, z, R, cellSize) {
 const SEAM_OVERSHOOT_SLACK_CELLS = 2
 export function packCellKey(face, cx, cy, cellsPerFace) {
   const stride = cellsPerFace + SEAM_OVERSHOOT_SLACK_CELLS
-  return ((face * stride + cx) * (stride * 4) + cy) | 0
+  const key = (face * stride + cx) * (stride * 4) + cy
+  if (!Number.isSafeInteger(key)) throw new RangeError(`cell (${face}, ${cx}, ${cy}) at ${cellsPerFace} cells per face has no exact integer key`)
+  return key
 }
 
 function _edgeCoord(cellsPerFace, coord) {
