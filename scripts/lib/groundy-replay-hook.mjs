@@ -7,6 +7,12 @@ const { PredictionEngine } = await import('../../src/client/PredictionEngine.js'
 const RECORD_PATH = process.env.GROUNDY_RECORD || ''
 const INJECT_M = Number(process.env.GROUNDY_INJECT_M || 0)
 const records = []
+const engineIds = new WeakMap()
+let engineCount = 0
+const idOf = engine => {
+  if (!engineIds.has(engine)) engineIds.set(engine, engineCount++)
+  return engineIds.get(engine)
+}
 const proto = PredictionEngine.prototype
 const realOnServerSnapshot = proto.onServerSnapshot
 const realRebaseAndReplay = proto._rebaseAndReplay
@@ -18,11 +24,18 @@ const entryWithSequence = (engine, sequence) => {
   return null
 }
 
+const INJECT_EVERY = Number(process.env.GROUNDY_INJECT_EVERY || 25)
+const localAckCounts = new WeakMap()
+
 proto.onServerSnapshot = function (snapshot, tick) {
   if (INJECT_M && Array.isArray(snapshot.players)) {
-    const players = snapshot.players.map(p => (p && p.id === this.localPlayerId && Array.isArray(p.position)
-      ? { ...p, position: [p.position[0], p.position[1] + INJECT_M, p.position[2]] }
-      : p))
+    const players = snapshot.players.map(p => {
+      if (!p || p.id !== this.localPlayerId || !p.position || p.position.length !== 3) return p
+      const count = (localAckCounts.get(this) || 0) + 1
+      localAckCounts.set(this, count)
+      if (count % INJECT_EVERY !== 0) return p
+      return { ...p, position: [p.position[0], p.position[1] + INJECT_M, p.position[2]] }
+    })
     return realOnServerSnapshot.call(this, { ...snapshot, players }, tick)
   }
   return realOnServerSnapshot.call(this, snapshot, tick)
@@ -40,10 +53,12 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   const errM = distance(server.position, reference.position)
   const offsetM = distance(before, after.position)
   records.push({
+    engine: idOf(this),
     seq: last.sequence,
     errM,
     offsetM,
     growthM: offsetM - errM,
+    jumpM: this.stats.lastCorrectionM,
     serverGroundY: server.onGround || this.verticallyBlocked ? server.position[1] : null,
     predictedGroundY: predictedAtAck && Number.isFinite(predictedAtAck.groundY) ? predictedAtAck.groundY : null,
     serverOnGround: !!server.onGround,

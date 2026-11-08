@@ -36,16 +36,41 @@ const runChild = (env, outPath) => new Promise(resolveRun => {
   child.on('close', code => resolveRun({ code, stderr }))
 })
 
+const SAME_STAT_M = 1e-6
+const INJECT_MATCH_M = 1e-3
+
+const sameStat = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= SAME_STAT_M
+
+const selectMover = (records, mispredict) => {
+  const expected = mispredict?.correctionsApplied
+  const jumps = mispredict?.correctionJumpM
+  if (!Number.isFinite(expected) || !jumps || !Number.isFinite(jumps.n)) return null
+  const byEngine = new Map()
+  for (const r of records) byEngine.set(r.engine, [...(byEngine.get(r.engine) || []), r])
+  const matches = [...byEngine.values()].filter(rs => {
+    if (rs.length !== expected || rs.length !== jumps.n) return false
+    const got = rs.map(r => r.jumpM)
+    const mean = got.reduce((s, x) => s + x, 0) / got.length
+    return sameStat(mean, jumps.mean) && sameStat(Math.max(...got), jumps.max)
+  })
+  return matches.length === 1 ? matches[0] : null
+}
+
+const gapOf = r => (r.serverGroundY === null || r.predictedGroundY === null ? null : r.serverGroundY - r.predictedGroundY)
+
 const summarizeRun = (records, popsPerMin) => {
   const growths = records.map(r => r.growthM)
-  const gaps = records
-    .filter(r => r.serverGroundY !== null && r.predictedGroundY !== null)
-    .map(r => Math.abs(r.serverGroundY - r.predictedGroundY))
+  const gaps = records.map(gapOf).filter(g => g !== null).map(Math.abs)
+  const over = records.filter(r => r.growthM > GROWTH_LIMIT_M)
+  const injected = records.filter(r => INJECT_M > 0 && gapOf(r) !== null && Math.abs(Math.abs(gapOf(r)) - INJECT_M) <= INJECT_MATCH_M)
   return {
     replays: records.length,
-    overLimit: records.filter(r => r.growthM > GROWTH_LIMIT_M).length,
+    overLimit: over.length,
+    overLimitWithGroundYGap: over.filter(r => gapOf(r) !== null && Math.abs(gapOf(r)) > SAME_STAT_M).length,
     maxGrowthM: growths.length ? Math.max(...growths) : null,
     maxGroundYGapM: gaps.length ? Math.max(...gaps) : null,
+    injectedReplays: injected.length,
+    injectedOverLimit: injected.filter(r => r.growthM > GROWTH_LIMIT_M).length,
     popsPerMin
   }
 }
@@ -68,26 +93,32 @@ const main = async () => {
     const harness = JSON.parse(await readFile(outPath, 'utf8'))
     const popsPerMin = harness.results?.[0]?.localVisual?.popsPerMin ?? null
     const records = JSON.parse(await readFile(recordPath, 'utf8'))
-    const summary = summarizeRun(records, popsPerMin)
+    const mover = selectMover(records, harness.results?.[0]?.mispredict)
+    if (!mover) {
+      failures.push(`run ${i}: no engine's replays match the mover's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} harness corrections`)
+      continue
+    }
+    const summary = summarizeRun(mover, popsPerMin)
     runs.push(summary)
-    console.log(`run ${i}: replays ${summary.replays} over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m local pops/min ${summary.popsPerMin ?? '-'}`)
+    console.log(`run ${i}: mover replays ${summary.replays} over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'}`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)
   const runsOverLimit = runs.filter(r => r.overLimit > 0).length
   const maxGrowth = runs.reduce((m, r) => (r.maxGrowthM === null ? m : Math.max(m, r.maxGrowthM)), -Infinity)
   const popRuns = runs.filter(r => r.popsPerMin > 0).length
-  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m runs with local pops ${popRuns}`)
+  const withGap = runs.reduce((s, r) => s + r.overLimitWithGroundYGap, 0)
+  const injectedReplays = runs.reduce((s, r) => s + r.injectedReplays, 0)
+  const injectedOver = runs.reduce((s, r) => s + r.injectedOverLimit, 0)
+  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns}`)
   for (const f of failures) console.log(`failed: ${f}`)
 
   if (CONTROL) {
-    const shown = overLimit > 0
-    console.log(shown
-      ? `control: injected ${INJECT_M} m ack error produced replay growth over ${GROWTH_LIMIT_M * 100} cm`
-      : `control: injected ${INJECT_M} m ack error produced no replay growth over ${GROWTH_LIMIT_M * 100} cm, so this flat-ground case cannot test the groundY base`)
+    const shown = injectedReplays > 0 && injectedOver > 0
+    console.log(`control: ${injectedReplays} mover replay(s) carried the injected ${INJECT_M} m groundY gap, ${injectedOver} of them over ${GROWTH_LIMIT_M * 100} cm growth`)
     console.log(shown && failures.length === 0
-      ? `RESULT: PASS the witness sees replay growth when the ack error is injected (${overLimit} replay(s) over ${GROWTH_LIMIT_M * 100} cm, max ${maxGrowth.toFixed(4)} m)`
-      : `RESULT: FAIL the injected ack error produced no replay growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} run(s); the witness cannot show growth on this case`)
+      ? `RESULT: PASS the injected ${INJECT_M} m ack error reaches the replay base and shows replay growth over ${GROWTH_LIMIT_M * 100} cm (${injectedOver} of ${injectedReplays} injected replays)`
+      : `RESULT: FAIL the injected ${INJECT_M} m ack error did not show replay growth over ${GROWTH_LIMIT_M * 100} cm in the replays that carry it (${injectedReplays} carried it, ${injectedOver} grew, ${failures.length} run(s) failed)`)
     await exitAfterQuiesce(shown && failures.length === 0 ? 0 : 1)
     return
   }
