@@ -1,4 +1,4 @@
-import { TransportWrapper } from './TransportWrapper.js'
+import { TransportWrapper, SEND_ACCEPTED, SEND_REJECTED } from './TransportWrapper.js'
 
 const BATCH_THRESHOLD = 128
 const BATCH_PREFIX = 0xBE
@@ -44,18 +44,18 @@ export class WireweaveTransport extends TransportWrapper {
   }
 
   send(data) {
-    if (!this.ready) return false
+    if (!this.ready) return SEND_REJECTED
     const buf = _toArrayBuffer(data)
     if (buf.byteLength >= BATCH_THRESHOLD) {
       this._flushBatch()
-      this._sendFrame(_wireFrameOf(buf))
-      return
+      return this._sendFrame(_wireFrameOf(buf)) ? SEND_ACCEPTED : SEND_REJECTED
     }
     this._batchQueue.push(buf)
     if (!this._batchTimer) {
       this._batchTimer = Promise.resolve().then(() => this._flushBatch())
         .catch((err) => this.emit('error', { reason: 'flush-threw', message: err && err.message }))
     }
+    return SEND_ACCEPTED
   }
 
   sendUnreliable(data) { return this.send(data) }
