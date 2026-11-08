@@ -377,13 +377,21 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   Object.defineProperty(frame, 'registerGroundSource', {
     enumerable: true,
     configurable: true,
-    value: installGroundSource,
+    value: function registerGroundSource(name, fn) {
+      return installOwned(this, 'registerGroundSource', () => installGroundSource(name, fn))
+    },
   })
+  function installOwned(receiver, member, install) {
+    if (receiver !== frame) throw new TypeError(`${member} installs a ground source on the frame that owns the ground sources; this receiver reaches that frame through its prototype and does not own them, so the install is refused`)
+    return install()
+  }
   Object.defineProperty(frame, 'groundHeightLocal', {
     enumerable: true,
     configurable: true,
     get: () => _groundHeightLocal,
-    set: (fn) => { installGroundSource(fn === groundHeightLocal ? 'cpu-solve' : anonymousSourceName(fn), fn) },
+    set: function (fn) {
+      installOwned(this, 'groundHeightLocal', () => installGroundSource(fn === groundHeightLocal ? 'cpu-solve' : anonymousSourceName(fn), fn))
+    },
   })
   function reanchor(newDir) {
     const b = anchorBasis(newDir)
