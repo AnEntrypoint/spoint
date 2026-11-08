@@ -7,7 +7,7 @@ import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { displayReferredToSceneLinear } from './display-referred-tsl.js'
 import { ATM_RAYLEIGH } from '../atmosphere-transmittance-lut.js'
 import { contactOcclusionFactor } from './contact-occlusion-tsl.js'
-import { INV_PI, SUN_IRRADIANCE_GAIN, SKY_IRRADIANCE_SCALE, SKY_BALANCE_TO_GREY, SKY_FILL_TINT, TERMINATOR_TINT, NIGHT_FILL, AMBIENT_FLOOR_ALBEDO, AMBIENT_FLOOR_ADD, AP_GATE_KM, SUN_DARK_LUMINANCE, SHADOW_CASCADE_NAME_PREFIX, RAYLEIGH_SKY_TINT, SKY_DAY_MU, TERMINATOR_FADE_SIN } from './terrain-ambient-shared.js'
+import { INV_PI, SUN_IRRADIANCE_GAIN, SKY_IRRADIANCE_SCALE, SKY_BALANCE_TO_GREY, SKY_FILL_TINT, TERMINATOR_TINT, NIGHT_FILL, AMBIENT_FLOOR_ALBEDO, AMBIENT_FLOOR_ADD, AP_GATE_KM, SUN_DARK_LUMINANCE, SHADOW_CASCADE_NAME_PREFIX, RAYLEIGH_SKY_TINT, SKY_DAY_MU, TERMINATOR_FADE_SIN, ACES_FILMIC } from './terrain-ambient-shared.js'
 
 const SKY_HAZE_TINT = [0.40, 0.55, 0.78]
 
@@ -90,7 +90,7 @@ export function createLegacyTerrainLighting({ sky, planetNormal, up, wetPool, vi
     const color = mix(lit, hazed, apGate.mul(u.hazeMul))
     const dayShade = mix(u.nightFloor, 1.0, smoothstep(u.termWidth.negate(), u.termWidth, nwSun))
     const c = color.mul(dayShade).add(vec3(...NIGHT_FILL).mul(u.nightLights).mul(float(1.0).sub(dayShade)).mul(float(1.0).sub(nightAmtNode()))).mul(u.exposure)
-    const aces = clamp(c.mul(c.mul(2.51).add(0.03)).div(c.mul(c.mul(2.43).add(0.59)).add(0.14)), 0.0, 1.0)
+    const aces = clamp(c.mul(c.mul(ACES_FILMIC[0]).add(ACES_FILMIC[1])).div(c.mul(c.mul(ACES_FILMIC[2]).add(ACES_FILMIC[3])).add(ACES_FILMIC[4])), 0.0, 1.0)
     const sat = mix(vec3(dot(aces, vec3(0.2126, 0.7152, 0.0722))), aces, u.lookSat)
     const graded = clamp(sat.sub(0.5).mul(u.lookContrast).add(0.5), 0.0, 1.0)
     return vec4(displayReferredToSceneLinear(pow(graded, vec3(1.0 / 2.2))), outputNode.a)

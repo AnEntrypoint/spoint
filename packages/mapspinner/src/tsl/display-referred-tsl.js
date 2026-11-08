@@ -1,9 +1,26 @@
-import { float, vec3, uniform, select, pow, sqrt, max, clamp, mat3, acesFilmicToneMapping, reinhardToneMapping, linearToneMapping, sRGBTransferOETF } from 'three/tsl'
+import { float, vec3, uniform, select, pow, sqrt, max, clamp, mat3, acesFilmicToneMapping, sRGBTransferOETF } from 'three/tsl'
 
-const TONE_MAPPING_LINEAR = 1
-const TONE_MAPPING_REINHARD = 2
+const TONE_MAPPING_NONE = 0
 const TONE_MAPPING_ACES = 4
+const TONE_MAPPING_AGX = 6
+const TONE_MAPPING_NEUTRAL = 7
+const KNOWN_TONE_MAPPING_MODES = new Set([TONE_MAPPING_NONE, TONE_MAPPING_ACES, TONE_MAPPING_AGX, TONE_MAPPING_NEUTRAL])
 const DISPLAY_CLAMP = 0.995
+
+export class UnknownToneMappingModeError extends Error {
+  constructor(mode) {
+    super(`unknown tone mapping mode ${String(mode)}`)
+    this.name = 'UnknownToneMappingModeError'
+    this.code = 'unknown-tone-mapping-mode'
+    this.mode = mode
+  }
+}
+
+export function readToneMappingMode(mode) {
+  if (!Number.isInteger(mode) || !KNOWN_TONE_MAPPING_MODES.has(mode)) throw new UnknownToneMappingModeError(mode)
+  return mode
+}
+
 const ACES_INPUT_ROWS = [[0.59719, 0.35458, 0.04823], [0.07600, 0.90834, 0.01566], [0.02840, 0.13383, 0.83777]]
 const ACES_OUTPUT_ROWS = [[1.60475, -0.53108, -0.07367], [-0.10208, 1.10813, -0.00605], [-0.00327, -0.07276, 1.07602]]
 
@@ -21,7 +38,7 @@ const matrixInThreeAcesConvention = (rows) => mat3(...rows.flat())
 const acesInputInverse = matrixInThreeAcesConvention(invertRows3(ACES_INPUT_ROWS))
 const acesOutputInverse = matrixInThreeAcesConvention(invertRows3(ACES_OUTPUT_ROWS))
 
-const toneMappingMode = uniform(TONE_MAPPING_ACES, 'int').onRenderUpdate(({ renderer }) => renderer.toneMapping | 0)
+const toneMappingMode = uniform(TONE_MAPPING_ACES, 'int').onRenderUpdate(({ renderer }) => readToneMappingMode(renderer.toneMapping))
 const toneMappingExposure = uniform(1.0).onRenderUpdate(({ renderer }) => renderer.toneMappingExposure || 1.0)
 
 const srgbToLinear = (c) => select(c.lessThanEqual(vec3(0.04045)), c.div(12.92), pow(c.add(0.055).div(1.055), vec3(2.4)))
@@ -36,15 +53,11 @@ function invertAcesFilmic(t) {
 }
 
 export function sceneLinearToDisplayReferred(linear) {
-  const mapped = select(toneMappingMode.equal(TONE_MAPPING_ACES), acesFilmicToneMapping(linear, toneMappingExposure),
-    select(toneMappingMode.equal(TONE_MAPPING_REINHARD), reinhardToneMapping(linear, toneMappingExposure),
-      select(toneMappingMode.equal(TONE_MAPPING_LINEAR), linearToneMapping(linear, toneMappingExposure), linear)))
+  const mapped = select(toneMappingMode.equal(TONE_MAPPING_ACES), acesFilmicToneMapping(linear, toneMappingExposure), linear)
   return sRGBTransferOETF(clamp(mapped, vec3(0.0), vec3(1.0)))
 }
 
 export function displayReferredToSceneLinear(display) {
   const t = clamp(srgbToLinear(display), vec3(0.0), vec3(DISPLAY_CLAMP))
-  return select(toneMappingMode.equal(TONE_MAPPING_ACES), invertAcesFilmic(t),
-    select(toneMappingMode.equal(TONE_MAPPING_REINHARD), t.div(vec3(1.0).sub(t)).div(toneMappingExposure),
-      select(toneMappingMode.equal(TONE_MAPPING_LINEAR), t.div(toneMappingExposure), t)))
+  return select(toneMappingMode.equal(TONE_MAPPING_ACES), invertAcesFilmic(t), t)
 }
