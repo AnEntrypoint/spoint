@@ -3,6 +3,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'nostr-tools'
 import { WireweaveTransport } from '../src/transport/WireweaveTransport.js'
+import { SEND_ACCEPTED, SEND_REJECTED } from '../src/transport/TransportWrapper.js'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -126,9 +127,10 @@ try {
     const resultMark = alice.session.results.length
     const receivedMark = bob.session.received.length
     const inboxMark = bob.inbox.length
-    for (const item of items) alice.transport.send(item)
+    const answers = items.map((item) => alice.transport.send(item))
     await waitFor(() => bob.inbox.length >= inboxMark + expectedMessages, 'delivery through the relay')
     return {
+      answers,
       frames: alice.session.sent.slice(sentMark),
       results: alice.session.results.slice(resultMark),
       wireReceived: bob.session.received.slice(receivedMark),
@@ -141,40 +143,48 @@ try {
   check('three items under the threshold cross as one spoint batch frame, byte for byte', results.batch.frames.length === 1 && hex(results.batch.frames[0]) === hex(batchOf(small)), `frames=${results.batch.frames.length}`)
   check('the batch frame arrives at the peer exactly as it was sent', results.batch.wireReceived.length === 1 && hex(results.batch.wireReceived[0]) === hex(results.batch.frames[0]))
   check('the peer delivers the three items in order, each byte for byte', results.batch.delivered.length === 3 && results.batch.delivered.every((item, i) => hex(item) === hex(small[i])))
+  check('every batch-path send answers SEND_ACCEPTED', results.batch.answers.every((answer) => answer === SEND_ACCEPTED), results.batch.answers.map(String).join(','))
 
   const raw = itemOf(200, 0x41, 4)
   results.raw = await phase([raw])
   check('a 200-byte item at the threshold or above crosses as its own unwrapped frame', results.raw.frames.length === 1 && hex(results.raw.frames[0]) === hex(raw))
   check('the peer delivers the 200-byte item unchanged', results.raw.delivered.length === 1 && hex(results.raw.delivered[0]) === hex(raw))
+  check('the large-item send answers SEND_ACCEPTED', results.raw.answers[0] === SEND_ACCEPTED, `answer=${String(results.raw.answers[0])}`)
 
   const lead = itemOf(5, 0x42, 10)
   const mixedBig = itemOf(200, 0x43, 11)
   results.mixed = await phase([lead, mixedBig])
   check('a small item queued before a 200-byte item is flushed alone, so the large item is never batched with it', results.mixed.frames.length === 2 && hex(results.mixed.frames[0]) === hex(lead) && hex(results.mixed.frames[1]) === hex(mixedBig), `frames=${results.mixed.frames.length}`)
   check('the peer delivers both items in order', results.mixed.delivered.length === 2 && hex(results.mixed.delivered[0]) === hex(lead) && hex(results.mixed.delivered[1]) === hex(mixedBig))
+  check('the queued small item and the large item both answer SEND_ACCEPTED', results.mixed.answers.every((answer) => answer === SEND_ACCEPTED), results.mixed.answers.map(String).join(','))
 
   const prefixed = itemOf(150, BATCH_PREFIX, 5)
   results.prefixed = await phase([prefixed])
   check('a large item that begins with the batch prefix byte is wrapped as a batch of one', results.prefixed.frames.length === 1 && hex(results.prefixed.frames[0]) === hex(batchOf([prefixed])))
   check('the peer unwraps that batch of one back to the original item', results.prefixed.delivered.length === 1 && hex(results.prefixed.delivered[0]) === hex(prefixed))
+  check('the prefixed large-item send answers SEND_ACCEPTED', results.prefixed.answers[0] === SEND_ACCEPTED, `answer=${String(results.prefixed.answers[0])}`)
 
   const oversize = itemOf(3 * MTU + 17, 0x01, 6)
   results.fragmented = await phase([oversize])
   check('an item of three MTUs and a tail is fragmented by jayzee into four wireweave frames', results.fragmented.results.length === 1 && results.fragmented.results[0].ok === true && results.fragmented.results[0].fragments === 4, JSON.stringify(results.fragmented.results[0] ?? null))
   check('the reassembled item reaches the peer byte for byte', results.fragmented.delivered.length === 1 && hex(results.fragmented.delivered[0]) === hex(oversize))
+  check('the fragmented send answers SEND_ACCEPTED once every fragment is published', results.fragmented.answers[0] === SEND_ACCEPTED, `answer=${String(results.fragmented.answers[0])}`)
 
   const many = Array.from({ length: 300 }, (_, i) => itemOf(100, 0x10 + (i % 200), 100 + i))
   results.many = await phase(many)
   check('300 small items queued in one tick form one batch that spans more than one MTU', results.many.frames.length === 1 && results.many.results[0].fragments > 1 && hex(results.many.frames[0]) === hex(batchOf(many)), `fragments=${results.many.results[0]?.fragments}`)
   check('the peer delivers all 300 items in order', results.many.delivered.length === 300 && results.many.delivered.every((item, i) => hex(item) === hex(many[i])))
+  check('every send in the 300-item batch answers SEND_ACCEPTED', results.many.answers.every((answer) => answer === SEND_ACCEPTED), `sends=${results.many.answers.length}`)
 
   const echoed = [itemOf(7, 0x20, 7), itemOf(130, 0x21, 8), itemOf(60, 0x22, 9)]
-  bob.transport.on('message', (item) => bob.transport.send(item))
+  const echoAnswers = []
+  bob.transport.on('message', (item) => echoAnswers.push(bob.transport.send(item)))
   const aliceMark = alice.inbox.length
-  for (const item of echoed) alice.transport.send(item)
+  const outbound = echoed.map((item) => alice.transport.send(item))
   await waitFor(() => alice.inbox.length >= aliceMark + echoed.length, 'the echoed round trip')
   const returned = alice.inbox.slice(aliceMark)
   check('a round trip returns the same items in the same order, byte for byte', returned.length === echoed.length && returned.every((item, i) => hex(item) === hex(echoed[i])))
+  check('every send in the round trip, outbound and echoed back, answers SEND_ACCEPTED', [...outbound, ...echoAnswers].every((answer) => answer === SEND_ACCEPTED), [...outbound, ...echoAnswers].map(String).join(','))
 } catch (error) {
   console.log(`check phases completed without error: FAIL (${error.message})`)
   check('phases completed without error', false, error.message)
@@ -184,7 +194,7 @@ const cold = new RelaySession({ relay: alice.wire, peerPubkey: pubkeys[1], open:
 const coldTransport = new WireweaveTransport({ session: cold, peerPubkey: pubkeys[1] })
 const coldMark = alice.session.sent.length
 const coldAnswer = coldTransport.send(itemOf(4, 0x30))
-check('a transport whose peer is not open refuses the send and puts nothing on the wire', coldAnswer === false && coldTransport.ready === false && alice.session.sent.length === coldMark)
+check('a transport whose peer is not open answers SEND_REJECTED and puts nothing on the wire', coldAnswer === SEND_REJECTED && coldTransport.ready === false && alice.session.sent.length === coldMark, `answer=${String(coldAnswer)}`)
 
 alice.transport.close()
 bob.transport.close()
