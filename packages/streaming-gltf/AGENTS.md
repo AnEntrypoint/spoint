@@ -42,7 +42,11 @@ runtime swaps sibling geometry onto the root's skeleton.
 
 `src/meshlet-codec.js` holds the bake-side `buildClusterLod`/`buildClusterLodExtra`
 and the browser-safe `parseClusterLod`; `attachClusterLod` lives in
-`src/cluster-lod-mesh.js`.
+`src/cluster-lod-mesh.js`. `parseClusterLod` returns null when the `EP_cluster_lod` key is
+absent or null, and throws `ClusterLodRecordError` (`code` `cluster-lod-malformed`) when the
+record is present but has no clusters array or holds a malformed cluster. `model-pool.js`
+rethrows that with the asset URL and primitive key, so a malformed bake fails the asset load
+rather than rendering the discrete fallback.
 
 `src/cluster-lod-mesh.js` `ClusterLodMesh` (a `THREE.Mesh`)
 holds the unified geometry (LOD0 + coarse concatenated into one element buffer) and

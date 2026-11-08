@@ -263,10 +263,16 @@ export function lod0OnlyClusterLodExtras(extras) {
   return { ...extras, [CLUSTER_LOD_EXTRA_KEY]: { ...meta, lodCount: 1, coarseIndexAccessor: -1, coarseIndexCount: 0, clusters } };
 }
 
+export class ClusterLodRecordError extends Error {
+  constructor(message) { super(message); this.name = 'ClusterLodRecordError'; this.code = 'cluster-lod-malformed'; }
+}
+
 export function parseClusterLod(extras) {
   const meta = extras && extras[CLUSTER_LOD_EXTRA_KEY];
-  if (!meta || !Array.isArray(meta.clusters) || !meta.clusters.length) return null;
-  if (!meta.clusters.every(_isValidRawCluster)) return null;
+  if (meta == null) return null;
+  if (!Array.isArray(meta.clusters)) throw new ClusterLodRecordError('parseClusterLod: EP_cluster_lod carries no clusters array');
+  if (!meta.clusters.length) return null;
+  if (!meta.clusters.every(_isValidRawCluster)) throw new ClusterLodRecordError('parseClusterLod: EP_cluster_lod holds a malformed cluster record');
   const clusters = meta.clusters.map((c) => {
     const sphere = c.sphere.length === SPHERE_WITH_CENTER_LEN
       ? c.sphere
