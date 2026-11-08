@@ -60,7 +60,6 @@ const FAMILIES = {
 const GAPS = [
   { id: 'CHARTEST-est-s1-3', kind: 'PRD-REAL', family: 'terrain', paths: ['src/terrain/PlanetFrame.js'], keywords: ['CHARTEST', 'installGroundSource'] },
   { id: 'WADLER-relocation-probegroundy-m2-s1', kind: 'PRD-REAL', family: 'sdkServer', paths: ['src/sdk/Relocation.js'], keywords: ['probeGroundY'] },
-  { id: 'GAP-bundle-freshness', kind: 'NON-PRD-REAL', family: 'tooling-gate', paths: ['package.json'], keywords: ['bundle-freshness'] },
   { id: 'GAP-MSG-DELTA_UPDATE', kind: 'NON-PRD-REAL', family: 'protocol', paths: ['src/protocol/MessageTypes.js'], keywords: ['DELTA_UPDATE'] },
   { id: 'GAP-trimesh-failure-propagation', kind: 'NON-PRD-REAL', family: 'appsRuntime', paths: ['src/apps/AppRuntime.js'], keywords: ['trimesh'] },
   { id: 'GAP-port-3002-shared', kind: 'NON-PRD-REAL', family: 'worlds-config', paths: ['apps/world/tps-game.js'], keywords: ['3002'] },
@@ -69,7 +68,7 @@ const GAPS = [
 const problems = [];
 const requirePath = (p, ctx) => { if (!existsSync(join(SPOINT, p))) problems.push(`${ctx}: missing ${p}`) };
 for (const [fam, paths] of Object.entries(FAMILIES)) for (const p of paths) requirePath(p, `family ${fam}`);
-for (const g of GAPS) for (const p of g.paths) if (g.id !== 'GAP-bundle-freshness') requirePath(p, `gap ${g.id}`);
+for (const g of GAPS) for (const p of g.paths) requirePath(p, `gap ${g.id}`);
 
 const parityText = readFileSync(PARITY_FILE, 'utf8');
 const rankedBlock = parityText.split('## Ranked rows')[1].split('## Split')[0];
@@ -79,7 +78,6 @@ const parityRowCount = rankedRowLines.length;
 rankedRowLines.forEach((r, i) => { if (r.row !== i + 1) problems.push(`PARITY ranked row numbering: row ${r.row} at position ${i + 1}`) });
 
 const ENFORCE_UNLABELLED = true;
-const EXPECTED_ABSENT = ['scripts/bundle-freshness-witness.mjs'];
 const EXT_CANDIDATES = ['.js', '.mjs', '.cjs', '.ts', '.json', '.rs', '.md', '.yml'];
 const resolvesIn = (p) => [existsSync(join(SPOINT, p)) && 'spoint', existsSync(join(JAYZEE, p)) && 'jayzee'].filter(Boolean);
 const pathReport = [];
@@ -113,10 +111,7 @@ const ROWS = rankedRowLines.map((r) => {
       continue;
     }
     const homeOk = home ? repoExists(home, c.path) : c.resolvesIn.length > 0 || repoExists('savi', c.path);
-    if (EXPECTED_ABSENT.includes(c.path)) {
-      c.reason = c.resolvesIn.length ? 'EXPECTED_ABSENT_BUT_PRESENT' : 'EXPECTED_ABSENT';
-      if (c.resolvesIn.length) problems.push(`PARITY row ${r.row} ${c.reason} ${c.path} (exists in ${c.resolvesIn.join(',')})`);
-    } else if (!homeOk) {
+    if (!homeOk) {
       const searched = home ? [home] : ['spoint', 'jayzee'];
       c.hints = searched.flatMap((repo) => EXT_CANDIDATES.map((e) => ({ path: `${c.path}${e}`, repo }))).filter((h) => repoExists(h.repo, h.path)).map((h) => ({ path: h.path, resolvesIn: [h.repo] }));
       const wrongHome = home && c.resolvesIn.length > 0;
@@ -137,7 +132,6 @@ const ROWS = rankedRowLines.map((r) => {
   const families = Object.keys(FAMILIES).filter((f) => FAMILIES[f].some((p) => spointCited.some((c) => c === p || p.startsWith(c + '/') || c.startsWith(p + '/'))));
   return { row: r.row, families, cited, spointCited };
 });
-for (const p of EXPECTED_ABSENT) if (existsSync(join(SPOINT, p))) problems.push(`expected-absent ${p} now exists in spoint: the gap is closed`);
 
 const jayzeeSha = execFileSync('git', ['-C', JAYZEE, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
 const spoint = execFileSync('git', ['-C', SPOINT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -217,7 +211,6 @@ const evidence = {
   },
   lostVerdictSurvivingEvidence: ['work/rows/ILLEGAL-n-r256-5.yml', 'work/rows/ILLEGAL-n-r259-1.yml', 'work/rows/docclaim-gm-git-push-1.yml', '.gm/witness-out/ILLEGAL-n-r256-4-5-verdict.txt', '.gm/witness-out/ILLEGAL-n-r259-verdict.txt', '.gm/witness-out/completed-rows-check.txt', '.gm/witness-out/migration-map.txt'].map((p) => ({ path: p, exists: existsSync(join(SPOINT, p)) })),
   waveC: ['.gm/WAVE_C_COMPLETION_SUMMARY.md', '.gm/MODEL_BROWSER_DELIVERY.md'].map((p) => ({ path: p, exists: existsSync(join(SPOINT, p)) })),
-  bundleFreshnessWitnessPresent: existsSync(join(SPOINT, 'scripts/bundle-freshness-witness.mjs')),
   scriptsTopLevelFiles: readdirSync(join(SPOINT, 'scripts')).filter((f) => !f.startsWith('.')).length,
   scriptsWitnessMjs: scriptsMjs.filter((f) => /witness/i.test(f)).length,
   scriptsHarnessMjs: scriptsMjs.filter((f) => /harness/i.test(f)).length,
@@ -226,7 +219,6 @@ if (prdIds !== 103) problems.push(`prd.yml ids ${prdIds}, expected 103`);
 if (trackedVerdicts !== 76) problems.push(`tracked verdict files ${trackedVerdicts}, expected 76`);
 if (untrackedLines !== 0) problems.push(`git status lines ${untrackedLines}, expected 0`);
 if (!evidence.prdNumberingCandidates.vendorDesignPRD.item2 || !evidence.prdNumberingCandidates.vendorDesignPRD.item3 || !evidence.prdNumberingCandidates.vendorDesignPRD.item4) problems.push('vendor/design items 2-4 not all present');
-if (evidence.bundleFreshnessWitnessPresent) problems.push('bundle-freshness witness now exists: GAP-bundle-freshness is closed');
 for (const e of [...evidence.lostVerdictSurvivingEvidence, ...evidence.waveC, ...evidence.prdNumberingCandidates.workRowsCsproto]) if (!e.exists) problems.push(`evidence path missing: ${e.path}`);
 
 const out = {
