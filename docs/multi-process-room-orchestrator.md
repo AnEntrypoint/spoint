@@ -93,29 +93,29 @@ curl -X DELETE 'http://localhost:3400/rooms/lobby-1'
 
 ## Cross-machine deployment
 
-Register an external worker on a different Machine:
+Register an external worker on a different host:
 
 ```sh
-# On the external worker's Machine (start a RoomDirectory independently,
+# On the external worker's host (start a RoomDirectory independently,
 # then register it with the router):
 curl -X POST 'http://<router-host>:3400/workers/register' \
   -H 'Content-Type: application/json' \
-  -d '{"host":"worker-3.fly.dev","portRange":[19048,19063]}'
-# -> {"workerIndex":3,"host":"worker-3.fly.dev","portRange":[19048,19063]}
+  -d '{"host":"worker-3.example.com","portRange":[19048,19063]}'
+# -> {"workerIndex":3,"host":"worker-3.example.com","portRange":[19048,19063]}
 
 # List all workers:
 curl 'http://localhost:3400/workers'
-# -> [{"workerIndex":0,"host":"127.0.0.1","ready":true,...},{"workerIndex":3,"host":"worker-3.fly.dev","ready":true,"isExternal":true,...}]
+# -> [{"workerIndex":0,"host":"127.0.0.1","ready":true,...},{"workerIndex":3,"host":"worker-3.example.com","ready":true,"isExternal":true,...}]
 
 # Now /route/:roomId returns the external worker's public host:
 curl 'http://localhost:3400/route/lobby-external'
-# -> {"host":"worker-3.fly.dev","port":19050,...}
+# -> {"host":"worker-3.example.com","port":19050,...}
 ```
 
 Or set per-worker hosts for locally-forked workers at boot:
 
 ```sh
-ROOM_WORKER_HOSTS="machine-0.fly.dev,machine-1.fly.dev" \
+ROOM_WORKER_HOSTS="worker-0.example.com,worker-1.example.com" \
 ROOM_WORKER_COUNT=2 ROUTER_PORT=3400 node bin/room-orchestrator-boot.js
 ```
 
@@ -137,34 +137,6 @@ A game client (or a matchmaker service sitting in front of this router)
 resolves `/route/:roomId` first, then connects its real WebSocket game
 transport straight to the returned `host:port`.
 
-## Deploy recipe
-
-`deploy/fly-rooms.toml` is a fly.io recipe for this shape -- a **separate**
-deploy config from the repo-root `nixpacks.toml` (which is still the right
-choice for a single always-on world/room). It runs
-`node bin/room-orchestrator-boot.js` as the fly.io Machine's start command,
-fronts the router's HTTP port with `[http_service]`, and exposes the
-`ROOM_PORT_MIN..ROOM_PORT_MAX` range via `[[services]]` TCP blocks so a
-client can connect directly to whichever port `/route/:roomId` returns.
-
-fly.toml has no native port-range shorthand, so a real deploy needs one
-`[[services]]` block per port. Generate the remaining blocks with:
-
-```sh
-node -e '
-const min = 19000, max = 19031
-for (let p = min; p <= max; p++) {
-  console.log(`\n[[services]]\n  internal_port = ${p}\n  protocol = "tcp"\n  [[services.ports]]\n    port = ${p}`)
-}
-' >> deploy/fly-rooms.toml
-```
-
-(Run once against a fresh copy of the recipe -- `deploy/fly-rooms.toml` ships
-with only the first representative block, to keep the file legible in the
-repo; a real deploy should widen `ROOM_PORT_MIN`/`ROOM_PORT_MAX` to match
-the actual number of concurrent rooms expected, then generate the matching
-block set with the snippet above.)
-
 ## Known limitations / scoped-out follow-ups
 
 - **Cross-machine/cross-region orchestration** -- SHIPPED in this row
@@ -173,7 +145,7 @@ block set with the snippet above.)
   workers, overridable via `ROOM_WORKER_HOSTS` env var or per-worker
   constructor option).  `route(roomId)` returns the per-worker host, so a
   client connecting to the routed host:port pair reaches the correct
-  Machine.  External workers (on separate Machines, not forked locally)
+  host.  External workers (on separate hosts, not forked locally)
   register via `POST /workers/register {"host":"..."}` and are tracked
   alongside local workers.  See `GET /workers` and `GET /crash-stats` for
   fleet monitoring.

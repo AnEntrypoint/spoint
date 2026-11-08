@@ -1016,23 +1016,23 @@ curl 'http://localhost:3400/status'
 # -&gt; {&quot;workerCount&quot;:4,&quot;rooms&quot;:[{&quot;roomId&quot;:&quot;lobby-1&quot;,&quot;worldName&quot;:&quot;tps-game&quot;,&quot;port&quot;:19000,&quot;uptimeMs&quot;:1234,&quot;tick&quot;:56,&quot;players&quot;:0,&quot;entities&quot;:6}]}
 curl -X DELETE 'http://localhost:3400/rooms/lobby-1'</code></pre>
 <h2>Cross-machine deployment</h2>
-<p>Register an external worker on a different Machine:</p>
-<pre><code class="language-sh"># On the external worker's Machine (start a RoomDirectory independently,
+<p>Register an external worker on a different host:</p>
+<pre><code class="language-sh"># On the external worker's host (start a RoomDirectory independently,
 # then register it with the router):
 curl -X POST 'http://&lt;router-host&gt;:3400/workers/register' \
   -H 'Content-Type: application/json' \
-  -d '{&quot;host&quot;:&quot;worker-3.fly.dev&quot;,&quot;portRange&quot;:[19048,19063]}'
-# -&gt; {&quot;workerIndex&quot;:3,&quot;host&quot;:&quot;worker-3.fly.dev&quot;,&quot;portRange&quot;:[19048,19063]}
+  -d '{&quot;host&quot;:&quot;worker-3.example.com&quot;,&quot;portRange&quot;:[19048,19063]}'
+# -&gt; {&quot;workerIndex&quot;:3,&quot;host&quot;:&quot;worker-3.example.com&quot;,&quot;portRange&quot;:[19048,19063]}
 
 # List all workers:
 curl 'http://localhost:3400/workers'
-# -&gt; [{&quot;workerIndex&quot;:0,&quot;host&quot;:&quot;127.0.0.1&quot;,&quot;ready&quot;:true,...},{&quot;workerIndex&quot;:3,&quot;host&quot;:&quot;worker-3.fly.dev&quot;,&quot;ready&quot;:true,&quot;isExternal&quot;:true,...}]
+# -&gt; [{&quot;workerIndex&quot;:0,&quot;host&quot;:&quot;127.0.0.1&quot;,&quot;ready&quot;:true,...},{&quot;workerIndex&quot;:3,&quot;host&quot;:&quot;worker-3.example.com&quot;,&quot;ready&quot;:true,&quot;isExternal&quot;:true,...}]
 
 # Now /route/:roomId returns the external worker's public host:
 curl 'http://localhost:3400/route/lobby-external'
-# -&gt; {&quot;host&quot;:&quot;worker-3.fly.dev&quot;,&quot;port&quot;:19050,...}</code></pre>
+# -&gt; {&quot;host&quot;:&quot;worker-3.example.com&quot;,&quot;port&quot;:19050,...}</code></pre>
 <p>Or set per-worker hosts for locally-forked workers at boot:</p>
-<pre><code class="language-sh">ROOM_WORKER_HOSTS=&quot;machine-0.fly.dev,machine-1.fly.dev&quot; \
+<pre><code class="language-sh">ROOM_WORKER_HOSTS=&quot;worker-0.example.com,worker-1.example.com&quot; \
 ROOM_WORKER_COUNT=2 ROUTER_PORT=3400 node bin/room-orchestrator-boot.js</code></pre>
 <h2>Crash auto-restart</h2>
 <pre><code class="language-sh"># Enable crash auto-restart (default: on, max 3 restarts per 60s window):
@@ -1045,19 +1045,9 @@ ROOM_RESTART_ON_CRASH=0 node bin/room-orchestrator-boot.js
 curl 'http://localhost:3400/crash-stats'
 # -&gt; {&quot;0&quot;:{&quot;crashCount&quot;:0,&quot;restartCount&quot;:0},&quot;1&quot;:{&quot;crashCount&quot;:2,&quot;restartCount&quot;:2}}</code></pre>
 <p>A game client (or a matchmaker service sitting in front of this router) resolves <code>/route/:roomId</code> first, then connects its real WebSocket game transport straight to the returned <code>host:port</code>.</p>
-<h2>Deploy recipe</h2>
-<p><code>deploy/fly-rooms.toml</code> is a fly.io recipe for this shape -- a <strong>separate</strong> deploy config from the repo-root <code>nixpacks.toml</code> (which is still the right choice for a single always-on world/room). It runs <code>node bin/room-orchestrator-boot.js</code> as the fly.io Machine's start command, fronts the router's HTTP port with <code>[http_service]</code>, and exposes the <code>ROOM_PORT_MIN..ROOM_PORT_MAX</code> range via <code>[[services]]</code> TCP blocks so a client can connect directly to whichever port <code>/route/:roomId</code> returns.</p>
-<p>fly.toml has no native port-range shorthand, so a real deploy needs one <code>[[services]]</code> block per port. Generate the remaining blocks with:</p>
-<pre><code class="language-sh">node -e '
-const min = 19000, max = 19031
-for (let p = min; p &lt;= max; p++) {
-  console.log(`\n[[services]]\n  internal_port = ${p}\n  protocol = &quot;tcp&quot;\n  [[services.ports]]\n    port = ${p}`)
-}
-' &gt;&gt; deploy/fly-rooms.toml</code></pre>
-<p>(Run once against a fresh copy of the recipe -- <code>deploy/fly-rooms.toml</code> ships with only the first representative block, to keep the file legible in the repo; a real deploy should widen <code>ROOM_PORT_MIN</code>/<code>ROOM_PORT_MAX</code> to match the actual number of concurrent rooms expected, then generate the matching block set with the snippet above.)</p>
 <h2>Known limitations / scoped-out follow-ups</h2>
 <ul><li><strong>Cross-machine/cross-region orchestration</strong> -- SHIPPED in this row</li></ul>
-<p>  (<code>server-scale-room-orchestrator-cross-machine-routing</code>).  Each worker   entry now carries a <code>host</code> field (defaults to <code>127.0.0.1</code> for local   workers, overridable via <code>ROOM_WORKER_HOSTS</code> env var or per-worker   constructor option).  <code>route(roomId)</code> returns the per-worker host, so a   client connecting to the routed host:port pair reaches the correct   Machine.  External workers (on separate Machines, not forked locally)   register via <code>POST /workers/register {&quot;host&quot;:&quot;...&quot;}</code> and are tracked   alongside local workers.  See <code>GET /workers</code> and <code>GET /crash-stats</code> for   fleet monitoring.</p>
+<p>  (<code>server-scale-room-orchestrator-cross-machine-routing</code>).  Each worker   entry now carries a <code>host</code> field (defaults to <code>127.0.0.1</code> for local   workers, overridable via <code>ROOM_WORKER_HOSTS</code> env var or per-worker   constructor option).  <code>route(roomId)</code> returns the per-worker host, so a   client connecting to the routed host:port pair reaches the correct   host.  External workers (on separate hosts, not forked locally)   register via <code>POST /workers/register {&quot;host&quot;:&quot;...&quot;}</code> and are tracked   alongside local workers.  See <code>GET /workers</code> and <code>GET /crash-stats</code> for   fleet monitoring.</p>
 <ul><li><strong>Worker crash auto-restart</strong> -- SHIPPED in the same row.  Locally-forked</li></ul>
 <p>  workers that exit unexpectedly are automatically respawned (configurable   via <code>ROOM_RESTART_ON_CRASH</code>, <code>ROOM_MAX_RESTARTS</code>, <code>ROOM_RESTART_WINDOW_MS</code>   env vars).  A per-worker sliding-window crash count prevents infinite   restart loops.  Restarted workers start with empty rooms (fresh state) --   state recovery across crashes depends on the separate   <code>server-scale-persistent-world-snapshot-restart-survival</code> row.  External   workers are never auto-restarted (the orchestrator cannot fork a process   on a different machine).</p>
 <ul><li><strong>Load-aware placement</strong> -- SHIPPED in sibling row</li></ul>
