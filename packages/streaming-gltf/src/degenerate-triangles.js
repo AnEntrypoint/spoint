@@ -1,4 +1,4 @@
-export const EPS_AREA = 1e-4;
+export const EPS_RELATIVE_AREA = 1e-6;
 export const FAN_EDGE_MAX_CLUSTER_DIAGONALS = 3;
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -18,9 +18,19 @@ export function triangleArea(pos, a, b, c, m = IDENTITY) {
   return 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
 }
 
+function isDegenerateIn(pos, a, b, c, m) {
+  transformInto(0, pos, a, m); transformInto(3, pos, b, m); transformInto(6, pos, c, m);
+  const ux = _w[3] - _w[0], uy = _w[4] - _w[1], uz = _w[5] - _w[2];
+  const vx = _w[6] - _w[0], vy = _w[7] - _w[1], vz = _w[8] - _w[2];
+  const wx = _w[6] - _w[3], wy = _w[7] - _w[4], wz = _w[8] - _w[5];
+  const twiceArea = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+  const longestEdgeSq = Math.max(ux * ux + uy * uy + uz * uz, vx * vx + vy * vy + vz * vz, wx * wx + wy * wy + wz * wz);
+  return twiceArea <= EPS_RELATIVE_AREA * longestEdgeSq;
+}
+
 function isDegenerateUnderAll(pos, a, b, c, worldMatrices) {
-  if (!worldMatrices.length) return triangleArea(pos, a, b, c) < EPS_AREA;
-  for (const m of worldMatrices) if (triangleArea(pos, a, b, c, m) >= EPS_AREA) return false;
+  if (!worldMatrices.length) return isDegenerateIn(pos, a, b, c, IDENTITY);
+  for (const m of worldMatrices) if (!isDegenerateIn(pos, a, b, c, m)) return false;
   return true;
 }
 

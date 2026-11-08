@@ -48,6 +48,13 @@ record is present but has no clusters array or holds a malformed cluster. `model
 rethrows that with the asset URL and primitive key, so a malformed bake fails the asset load
 rather than rendering the discrete fallback.
 
+`src/degenerate-triangles.js` decides degeneracy relative to the triangle's own size: a
+triangle is degenerate when twice its area is at most `EPS_RELATIVE_AREA` (1e-6) times the
+squared length of its longest edge, measured under every world matrix it is drawn with
+(it is degenerate only if all of them agree). The earlier absolute threshold, 1e-4 in the
+triangle's own units, dropped valid small triangles: a 1 mm triangle has area 5e-7.
+`scripts/degenerate-triangles-threshold-witness.mjs` pins the kept and dropped cases.
+
 `src/cluster-lod-mesh.js` `ClusterLodMesh` (a `THREE.Mesh`)
 holds the unified geometry (LOD0 + coarse concatenated into one element buffer) and
 the parsed cluster set. Its `onBeforeRender` each frame: frustum-culls clusters by
