@@ -368,7 +368,7 @@ export class PredictionEngine {
     const firstContact = !this._hasServerState
     this._hasServerState = true
     const ackedTicks = firstContact ? 1 : ackedSeq - this._lastAckedSeq
-    const replayable = ackedSeq < this._inputSeq && this._firstHeldSequence() <= Math.max(ackedSeq + 1, 1)
+    const replayable = ackedSeq < this._inputSeq && this._firstHeldSequence() <= Math.max(ackedSeq + 1, 1) && (ackedSeq < 1 || this.inputHistory.indexOf(ackedSeq) >= 0)
     const ackUsable = replayable && (firstContact || (ackedTicks > 0 && ackedTicks <= this.maxAckAdvanceTicks()))
     this.horizontallyWedged = false
     this.wedgeNormal[0] = 0

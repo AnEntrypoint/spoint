@@ -157,6 +157,56 @@ const inputs = makeInputs(TICKS + 400, 7)
   check('the error offset decays by e^-dt/0.08 s', Math.abs(decayed - Math.exp(-1)) < 1e-9, `after 80 ms ${decayed.toFixed(6)}, expected ${Math.exp(-1).toFixed(6)}`)
 }
 
+{
+  const rng = seeded(11)
+  const jumping = inputs.slice(0, 800).map(input => ({ ...input, jump: rng() < 0.12 }))
+  const client = engine()
+  const server = engine()
+  const snaps = new Map()
+  const n = client.inputHistory.capacity + 1
+  for (let t = 0; t < n; t++) {
+    const seq = client.addInput(jumping[t])
+    server.addInput(jumping[t])
+    snaps.set(seq, snapshotOf(server, seq))
+  }
+  const before = [...client.localState.position]
+  client.onServerSnapshot({ players: [snaps.get(1)] }, n)
+  const authority = snaps.get(n)
+  const err = dist(client.localState.position, authority.position)
+  check('an ack whose own prediction entry was dropped leaves the prediction matching the authority', err < 1e-6, `error ${err.toExponential(2)} m, moved ${dist(client.localState.position, before).toExponential(2)} m, lastAcked ${client._lastAckedSeq}`)
+}
+
+{
+  const LEDGE_Z = 0.6
+  const PIT_Y = -5000
+  const pressAt = 5
+  const walk = { forward: true, backward: false, left: false, right: false, analogForward: 1, analogRight: 0, sprint: false, crouch: false, jump: false, yaw: 0 }
+  const press = { ...walk, jump: true }
+  const pitEngine = () => {
+    const e = new PredictionEngine(TICK_RATE)
+    e.setGroundProvider((x, z) => (z <= LEDGE_Z ? GROUND_Y : PIT_Y))
+    e.init(1, { position: [0, GROUND_Y, 0], velocity: [0, 0, 0] })
+    return e
+  }
+  const client = pitEngine()
+  const server = pitEngine()
+  const total = pressAt + client.inputHistory.capacity - 1
+  const snaps = new Map()
+  for (let t = 0; t < total; t++) {
+    const input = t + 1 === pressAt ? press : walk
+    const seq = client.addInput(input)
+    server.addInput(input)
+    snaps.set(seq, snapshotOf(server, seq))
+  }
+  const ackSeq = pressAt - 1
+  const dropped = client.predictedAt(ackSeq) === null && client.predictedAt(pressAt) !== null
+  const authority = snaps.get(total)
+  const before = [...client.localState.position]
+  client.onServerSnapshot({ players: [snaps.get(ackSeq)] }, total)
+  const err = dist(client.localState.position, authority.position)
+  check('a jump press inside the coyote window survives an ack for the step before it, whose entry was dropped', dropped && err < 1e-6, `dropped ${dropped}, error ${err.toExponential(2)} m, moved ${dist(client.localState.position, before).toExponential(2)} m, lastAcked ${client._lastAckedSeq}`)
+}
+
 const failed = checks.filter(c => !c.ok)
 console.log(`${checks.length - failed.length}/${checks.length} checks passed`)
 if (failed.length) {
