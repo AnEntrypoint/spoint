@@ -254,6 +254,7 @@ async function main() {
     ['fetch-manifest-containment-witness', 'scripts/fetch-manifest-containment-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-encode-witness', 'scripts/input-codec-encode-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-quantize-witness', 'scripts/input-codec-quantize-witness.mjs', (out) => `check: ${out}`],
+    ['expr-truncation-witness', 'scripts/expr-truncation-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-decode-witness', 'scripts/input-codec-decode-witness.mjs', (out) => `check: ${out}`],
     ['lockstep-input-delay-witness', 'scripts/lockstep-input-delay-witness.mjs', (out) => `check: ${out}`],
     ['rollback-stall-witness', 'scripts/rollback-stall-witness.mjs', (out) => `check: ${out}`],
