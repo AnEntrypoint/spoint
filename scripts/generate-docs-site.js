@@ -48,7 +48,19 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-const BLOCK_START = /^(```|#{1,4} |- )/
+const BLOCK_START = /^(```|#{1,4} |- |\|)/
+
+const TABLE_DIVIDER = /^\|?\s*:?-{3,}:?(\s*\|\s*:?-{3,}:?)*\s*\|?$/
+
+const splitTableRow = (line) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'))
+
+const isTableAt = (lines, i) => lines[i].trim().startsWith('|') && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1].trim())
+
+function tableHtml(rows) {
+  const row = (line, tag) => `<tr>${splitTableRow(line).map((cell) => `<${tag}>${inline(cell)}</${tag}>`).join('')}</tr>`
+  const [head, , ...body] = rows
+  return `<table><thead>${row(head, 'th')}</thead><tbody>${body.map((line) => row(line, 'td')).join('')}</tbody></table>`
+}
 
 function inline(text) {
   return text.split(/(`[^`]+`)/).map((part, i) => i % 2
@@ -78,10 +90,14 @@ function markdownToHtml(md) {
       const items = []
       for (; i < lines.length && lines[i].startsWith('- '); i++) items.push(`<li>${inline(lines[i].slice(2))}</li>`)
       blocks.push(`<ul>${items.join('')}</ul>`)
+    } else if (isTableAt(lines, i)) {
+      const rows = []
+      for (; i < lines.length && lines[i].trim().startsWith('|'); i++) rows.push(lines[i])
+      blocks.push(tableHtml(rows))
     } else if (line.trim() === '') {
       i++
     } else {
-      const para = []
+      const para = [lines[i++]]
       for (; i < lines.length && lines[i].trim() !== '' && !BLOCK_START.test(lines[i]); i++) para.push(lines[i])
       blocks.push(`<p>${inline(para.join(' '))}</p>`)
     }
@@ -157,6 +173,8 @@ async function main() {
   body { font-family: system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 1rem; background: var(--bg); color: var(--fg); line-height: 1.6; }
   h1 { border-bottom: 2px solid var(--border); padding-bottom: .5rem; }
   h2 { border-bottom: 1px solid var(--border); padding-bottom: .25rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9em; margin: 1rem 0; }
+  th, td { border: 1px solid var(--border); padding: .25rem .5rem; text-align: left; vertical-align: top; }
   code { background: var(--code-bg); padding: .1em .3em; border-radius: 3px; font-size: .9em; }
   pre { background: var(--code-bg); padding: 1rem; border-radius: 6px; overflow-x: auto; }
   pre code { background: none; padding: 0; }
