@@ -164,7 +164,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `scripts/xr-arc-cost-witness.mjs` measures Node CPU, not a browser frame. Its steady p95 varied from 1.7 to 3.1 ms across runs, so it stays out of `scripts/check.mjs`.
 - The real planet terrain is not known to be one 320000-triangle mesh. The cost figure assumes one.
 - Controller, grip, hand and reticle objects are excluded from the ground probe only through `userData.xrPointer`, set by `addPointerObject` in `client/xr/XRSystem.js`. That exclusion is not verified in a headset.
-- A headful run of the real app on Xvfb reaches `loadingMachine.isReady` (e2e-ci-arena, about 8 s, 0 page errors) and runs rAF at 16.7 ms p50 with `navigator.xr` present. No XR session was entered, so `window.__app.xrSystem` is absent and the arc was not exercised live. Frame order is covered by the static witness only.
+- `scripts/e2e-ci.mjs` on the software rasterizer connects two clients, checks each one's predicted local position, and reports zero uncaught page errors on both (`[e2e-ci] RESULT: PASS`). No XR session was entered, so `window.__app.xrSystem` is absent and the arc was not exercised live. Frame order is covered by the static witness only.
 
 ## Entry points
 
