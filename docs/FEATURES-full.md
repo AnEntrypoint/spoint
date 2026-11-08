@@ -507,7 +507,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 
 ## src/netcode, src/protocol, src/client, src/sharding, src/static, src/animation
 
-- **UNPROVEN** Lockstep game loop refuses inputDelayTicks above INPUT_RETAIN_TICKS — source `src/netcode/LockstepGameLoop.js`, proof none — **Verifier note:** No scripts/ reference to INPUT_RETAIN_TICKS (0 files); UNPROVEN confirmed
+- **PROVEN** Lockstep game loop refuses inputDelayTicks above INPUT_RETAIN_TICKS — source `src/netcode/LockstepGameLoop.js`, proof `scripts/lockstep-input-delay-witness.mjs` (also refuses NaN, undefined, fractional and string delays, and the maxCatchUpTicks and stallTicks equivalents)
 - **UNPROVEN** Lockstep game loop factory — source `src/netcode/LockstepGameLoop.js`, proof none
 - **UNPROVEN** Lockstep tick system — source `src/netcode/LockstepTickSystem.js`, proof none
 - **UNPROVEN** Lockstep input transport — source `src/netcode/LockstepInputTransport.js`, proof none

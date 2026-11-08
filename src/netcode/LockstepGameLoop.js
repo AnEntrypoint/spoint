@@ -7,6 +7,7 @@ const DROP_LOG_LIMIT = 16
 const TIME_SYNC_SLACK_TICKS = 2
 const TIME_SYNC_YIELD_EVERY = 4
 const ADVANTAGE_SMOOTHING = 0.05
+const isWholeTicks = (v, lo) => Number.isInteger(v) && v >= lo
 
 export function createLockstepGameLoop({ tickSystem, transport, roster, localPeerId, simulate, getLocalInput, voter = null, options = {}, now = () => performance.now() } = {}) {
   if (!tickSystem || typeof tickSystem.onTick !== 'function') throw new Error('[LockstepGameLoop] tickSystem is required')
@@ -14,8 +15,9 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   if (!Array.isArray(roster) || !roster.includes(localPeerId)) throw new Error('[LockstepGameLoop] roster must list every peer pubkey including localPeerId')
   if (typeof simulate !== 'function' || typeof getLocalInput !== 'function') throw new Error('[LockstepGameLoop] simulate(tick, dt, inputsByPeer) and getLocalInput() are required')
   const opts = { ...LOCKSTEP_DEFAULTS, ...options }
-  if (opts.inputDelayTicks < 1) throw new Error('[LockstepGameLoop] inputDelayTicks must be >= 1: tick t can only run once every peer input for t has arrived')
-  if (opts.maxCatchUpTicks < 1) throw new Error('[LockstepGameLoop] maxCatchUpTicks must be >= 1')
+  if (!isWholeTicks(opts.inputDelayTicks, 1)) throw new Error(`[LockstepGameLoop] inputDelayTicks must be an integer >= 1, got ${String(opts.inputDelayTicks)}: tick t can only run once every peer input for t has arrived`)
+  if (!isWholeTicks(opts.maxCatchUpTicks, 1)) throw new Error(`[LockstepGameLoop] maxCatchUpTicks must be an integer >= 1, got ${String(opts.maxCatchUpTicks)}`)
+  if (!isWholeTicks(opts.stallTicks, 1)) throw new Error(`[LockstepGameLoop] stallTicks must be an integer >= 1, got ${String(opts.stallTicks)}`)
   if (opts.inputDelayTicks > INPUT_RETAIN_TICKS) throw new Error(`[LockstepGameLoop] inputDelayTicks (${opts.inputDelayTicks}) must be <= INPUT_RETAIN_TICKS (${INPUT_RETAIN_TICKS}): a peer can only simulate t once every peer has simulated t - inputDelayTicks, so two survivors are at most inputDelayTicks apart and a drop tail must still hold everything a slower survivor needs`)
 
   const inputs = new Map(roster.map(pk => [pk, new Map()]))
