@@ -270,6 +270,10 @@ export class PredictionEngine {
     return i < 0 ? null : this.inputHistory.at(i)
   }
 
+  _firstHeldSequence() {
+    return this.inputHistory.length ? this.inputHistory.at(0).sequence : this._inputSeq
+  }
+
   _step(input, seq, groundNormal) {
     const env = this._env
     env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = groundNormal || this.lastServerState?.groundNormal || null; env.walls = this.walls; env.wedgeNormal = this.wedgeNormal
@@ -364,7 +368,8 @@ export class PredictionEngine {
     const firstContact = !this._hasServerState
     this._hasServerState = true
     const ackedTicks = firstContact ? 1 : ackedSeq - this._lastAckedSeq
-    const ackUsable = firstContact || (ackedTicks > 0 && ackedTicks <= this.maxAckAdvanceTicks())
+    const replayable = ackedSeq < this._inputSeq && this._firstHeldSequence() <= Math.max(ackedSeq + 1, 1)
+    const ackUsable = replayable && (firstContact || (ackedTicks > 0 && ackedTicks <= this.maxAckAdvanceTicks()))
     this.horizontallyWedged = false
     this.wedgeNormal[0] = 0
     this.wedgeNormal[1] = 0
