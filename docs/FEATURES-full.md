@@ -854,7 +854,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **UNPROVEN** Quality presets — source `client/core/QualityPresets.js`, proof none — **Verifier note:** Proof downgraded to UNPROVEN. QualityPresets and installQualityPresets are not referenced as symbols by verify-doc-claims.mjs; the hits are client/core/QualityPresets.js path strings in doc-claim tables. installQualityPresets has 0 hits.
 - **UNPROVEN** Quality tier choice (resolveQualityTier, QualityTierError) — source `client/core/QualityTierChoice.js`, proof none
 - **UNPROVEN** Relocation client drive — source `client/core/Relocation.js`, proof none
-- **UNPROVEN** Relocation bookmark search (searchBookmark) with NaN behaviour — source `client/core/RelocationSearch.js`, proof none — **Verifier note:** The owner hold on NaN behaviour is not recorded in AGENTS.md or any docs (git grep for RelocationSearch and NaN found nothing), so the row is UNPROVEN, not HELD, per the HELD rule. The owner hold needs a doc line before it can be marked HELD.
+- **PROVEN** Relocation bookmark search (searchBookmark) with NaN behaviour — source `client/core/RelocationSearch.js`, proof `scripts/relocation-search-nodata-witness.mjs`
 - **UNPROVEN** Relocation settle wait (whenSettled) — source `client/core/RelocationSettle.js`, proof none
 - **UNPROVEN** Render controls registry and install (RenderControls, installRenderControls) — source `client/core/RenderControls.js`, proof none
 - **PROVEN** Render graph (createRenderGraph) — source `client/core/RenderGraph.js`, proof `scripts/postfx-graph-structure-witness.mjs`
