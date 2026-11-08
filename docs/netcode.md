@@ -80,7 +80,7 @@ Player records in a snapshot depend on distance from the viewer (`classifyPlayer
 - The remaining players within 120 m (`PLAYER_LOD_REDUCED2`, 120 squared) get a reduced pose every `reducedTickMod` ticks. `reducedTickMod` is `round(snapshotHz / PLAYER_LOD_REDUCED_HZ)` with `PLAYER_LOD_REDUCED_HZ` of 5, so the reduced pose is sent at about 5 Hz (`src/sdk/TickHandler.js`).
 - Players beyond 120 m get no pose. They appear only as crowd dots (`buildCrowdDots`).
 
-Entities go through `resolveDeliveredIds` in `src/sdk/TickHandlerAOI.js`. The ring-relevant ids are always delivered. An unmanaged dynamic id is delivered when its position is unknown, or when it lies within the relevance radius of one of the gate points of its cell's viewers. With fewer than three gate points, every unmanaged id is delivered.
+Entities go through `resolveDeliveredIds` in `src/sdk/TickHandlerAOI.js`. The ring-relevant ids are always delivered. An unmanaged dynamic id is delivered when its position is unknown, or when it lies within the relevance radius of one of the gate points of its cell's viewers. The gate points are the flat x, y, z coordinates of the viewers in the cell (three numbers per viewer). When the cell has no viewer (no gate array, or an empty one), every unmanaged id is delivered.
 
 ## Session TTL
 
