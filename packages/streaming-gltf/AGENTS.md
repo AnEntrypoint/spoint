@@ -94,8 +94,11 @@ per-cluster GPU frustum + HiZ occlusion cull. The invariant is that this cull
 EQUALS the CPU cull above, not approximately. The browser witness that drove both culls
 over one 16-cluster mesh and counted disagreements per frame (CPU-culls-but-GPU-draws,
 GPU-culls-but-CPU-draws, LOD mismatch) was removed in 0514fd1 and is not in the tree.
-`scripts/cluster-lod-gpu-parity-witness.mjs` checks the GPU side by source text only and
-runs no GPU, so the GPU draw count is unmeasured. It once reported 164 disagreements over a 12-frame
+`scripts/gpu-cull-draw-count-probe.mjs` measures it in a headful Chromium WebGPU page
+(`WebGPUBackend`): over 8 camera poses on a 64-cluster non-compact mesh, 244 GPU draws equal
+244 CPU groups with 0 mismatches. With `PROBE_REV=ecfcc2c` (before the fully-culled fix) the
+same poses give 246: the two fully-culled poses drew one LOD0 group on each side.
+`scripts/cluster-lod-gpu-parity-witness.mjs` checks the GPU side by source text only. It once reported 164 disagreements over a 12-frame
 sweep because `CULL_LOD_WGSL` did not compile at all (`operator >> (i32, i32)`
 in `selectHzbLevel`), so the pipeline was invalid and the cull emitted ZERO
 indirect draws while the CPU drew every cluster -- a shader that fails to compile
