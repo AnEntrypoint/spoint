@@ -1,6 +1,12 @@
 const VRAM_UNLOAD_TRIGGER_FRACTION = 0.85;
 const KEEP_PRIORITY_MEDIUM = 0;
 const KEEP_PRIORITY_HIGH = 1;
+const UNKNOWN_DISTANCE_IS_NEAREST = -Infinity;
+
+function distanceOf(entity) {
+  const recorded = entity._currentDistance;
+  return typeof recorded === 'number' && !Number.isNaN(recorded) ? recorded : UNKNOWN_DISTANCE_IS_NEAREST;
+}
 
 function keepPriorityOf(lodIdx) {
   return lodIdx === 0 ? KEEP_PRIORITY_HIGH : KEEP_PRIORITY_MEDIUM;
@@ -51,7 +57,7 @@ export class LodUnloadManager {
   _nearestInvisibleDistanceByAsset() {
     const nearest = new Map();
     for (const entity of this._invisibleEntities) {
-      const d = entity._currentDistance ?? Infinity;
+      const d = distanceOf(entity);
       const prev = nearest.get(entity.asset);
       if (prev === undefined || d < prev) nearest.set(entity.asset, d);
     }
