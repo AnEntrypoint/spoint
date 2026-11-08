@@ -1,6 +1,6 @@
 export default {
   presets: ['tps'],
-  port: 3002,
+  port: 3007,
   physicsBodyBudget: 256,
   scene: {
     skyColor: 0x87ceeb,

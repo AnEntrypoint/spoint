@@ -1,6 +1,6 @@
 export default {
   presets: ['tps', 'platformer'],
-  port: 3002,
+  port: 3010,
   physicsBodyBudget: 512,
   scene: {
     skyColor: 0x87ceeb,

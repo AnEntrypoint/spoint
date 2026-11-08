@@ -1,5 +1,5 @@
 export default {
-  port: 3002,
+  port: 3008,
   tickRate: 30,
   gravity: [0, -9.81, 0],
 
