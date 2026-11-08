@@ -87,6 +87,7 @@ export class AppRuntime {
     this._deferredPopulationOps = []; this._resimSuppressed = false
     this._deferredCommitmentOps = []
     this._pendingTrimeshBuilds = new Set()
+    this._trimeshBuildFailures = []
     this.chartReanchorBlocks = new Map()
     this._movedStaticIds = new HookedSet(markUnmanagedDirty)
     mixinPhysics(this); mixinTick(this); mixinStaticMotion(this); if (this._physics) this._registerPhysicsCallbacks()
@@ -190,6 +191,12 @@ export class AppRuntime {
     }
     if (timedOut) console.warn(`[AppRuntime] waitForPendingTrimeshBuilds timed out after ${timeoutMs}ms with ${this._pendingTrimeshBuilds.size}/${pending.length} still pending`)
     return { waited: pending.length, timedOut }
+  }
+
+  assertTrimeshBuildsClean() {
+    const failures = this._trimeshBuildFailures
+    if (failures.length === 0) return
+    throw colliderBuildError(`${failures.length} static trimesh collider build(s)`, failures[0])
   }
 
   spawnEntity(id, config = {}) {
@@ -441,6 +448,7 @@ export class AppRuntime {
       .catch(e => {
         const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
         console.error(`[AppRuntime] ${err.message}`)
+        this._trimeshBuildFailures.push(err)
         entity.collider = null
         entity._failedColliderType = 'trimesh'
         this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })

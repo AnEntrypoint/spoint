@@ -225,6 +225,12 @@ export async function boot(overrides = {}) {
     const { waited, timedOut } = await server.runtime.waitForPendingTrimeshBuilds()
     bootTimer.lap('wait for trimesh builds')
     if (waited > 0) console.log(`[boot] waited for ${waited} pending trimesh collider build(s)${timedOut ? ' (timed out, proceeding anyway)' : ''}`)
+    try {
+      server.runtime.assertTrimeshBuildsClean()
+    } catch (e) {
+      try { server.stop() } catch (stopErr) { console.error('[boot] stop after a failed trimesh collider build failed:', stopErr?.message || stopErr) }
+      throw e
+    }
   }
   const resolveModel = m => {
     const rel = m.startsWith('./') ? m.slice(2) : m.startsWith('/') ? m.slice(1) : m
