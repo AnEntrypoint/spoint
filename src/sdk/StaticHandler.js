@@ -1,9 +1,10 @@
-import { existsSync, statSync, realpathSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, extname, resolve, sep, dirname } from 'node:path'
+import { join, extname, resolve, dirname } from 'node:path'
 import { getTransformedAsync, getTransformedHashAsync } from '../static/GLBTransformer.js'
 import { getProgressive, resolveBakedFile } from '../static/ProgressiveBake.js'
 import { getKtx2Extracted, resolveKtx2File } from '../static/KTX2Extract.js'
+import { containedRealFile } from '../static/containedFile.js'
 import { buildFetchManifest } from '../static/FetchManifest.js'
 import { getServerIdentity } from '../sdk/ServerIdentity.js'
 import { worldIceServers } from '../shared/worldDefaults.js'
@@ -99,28 +100,6 @@ const ALT_SVC_VALUE = computeAltSvc()
 
 const COOP_VALUE = 'same-origin'
 const COEP_VALUE = 'require-corp'
-
-function nodeModulesRealRoots(fpResolved, baseResolved) {
-  const roots = []
-  let at = baseResolved
-  for (const segment of fpResolved.slice(baseResolved.length + 1).split(sep).slice(0, -1)) {
-    at = join(at, segment)
-    if (segment !== 'node_modules') continue
-    try { roots.push(realpathSync(at)) } catch { continue }
-  }
-  return roots
-}
-
-function containedRealFile(fp, dir) {
-  const baseResolved = resolve(dir)
-  const fpResolved = resolve(fp)
-  if (!fpResolved.startsWith(baseResolved + sep)) return false
-  if (!existsSync(fp) || !statSync(fp).isFile()) return false
-  let realFp
-  try { realFp = realpathSync(fp) } catch { return false }
-  const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved)]
-  return allowedRoots.some((root) => realFp === root || realFp.startsWith(root + sep))
-}
 
 export function createStaticHandler(dirs, opts = {}) {
   const getWorldInfo = typeof opts.getWorldInfo === 'function' ? opts.getWorldInfo : null

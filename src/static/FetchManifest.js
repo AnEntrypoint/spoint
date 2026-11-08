@@ -3,6 +3,7 @@ import { resolve, sep, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getTransformedAsync } from './GLBTransformer.js'
 import { getKtx2Extracted } from './KTX2Extract.js'
+import { containedRealFile } from './containedFile.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const _streamingSchedulerCandidates = [
@@ -26,7 +27,7 @@ function resolveModelPaths(model, project, sdkRoot) {
   const rel = model.startsWith('./') ? model.slice(2) : model.startsWith('/') ? model.slice(1) : model
   for (const dir of [project, sdkRoot]) {
     const fp = resolve(dir, rel)
-    if (existsSync(fp)) return { fp, url: '/' + rel.split(sep).join('/') }
+    if (containedRealFile(fp, dir)) return { fp, url: '/' + rel.split(sep).join('/') }
   }
   return null
 }
