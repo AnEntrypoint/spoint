@@ -58,6 +58,8 @@ export class BatchedFarTier {
 
     this._lerpTexelsPerInstance = 2;
     this._initLerpTexture(this.maxInstances);
+    this._uLerpTexW = { value: this._lerpTexW };
+    this._uLerpTexWNode = null;
     this._uNow = { value: 0 };
     this._uNowNode = null;
 
@@ -66,12 +68,13 @@ export class BatchedFarTier {
     if (isWebGPU) {
       const built = makeBatchedFarTierMaterialTSL(this._lerpTex, this._lerpTexW, this._uNow.value);
       material = built.material;
+      this._uLerpTexWNode = built.uLerpTexW;
       this._uNowNode = built.uNow;
     } else {
       material = new THREE.MeshBasicMaterial({ vertexColors: true });
       material.onBeforeCompile = (shader) => {
         shader.uniforms.uLerpTex = { value: this._lerpTex };
-        shader.uniforms.uLerpTexW = { value: this._lerpTexW };
+        shader.uniforms.uLerpTexW = this._uLerpTexW;
         shader.uniforms.uNow = this._uNow;
         shader.vertexShader = shader.vertexShader.replace(
           '#include <color_vertex>',
@@ -149,6 +152,7 @@ export class BatchedFarTier {
         id = this.mesh.addInstance(gid);
       } catch (e) {
         this.mesh.setInstanceCount(this.maxInstances *= 2);
+        this._growLerpTexture(this.maxInstances);
         id = this.mesh.addInstance(gid);
       }
       this._instances.set(entity, id);
@@ -176,9 +180,13 @@ export class BatchedFarTier {
     this.mesh.setMatrixAt(id, matrix);
   }
 
-  _initLerpTexture(maxInstances) {
+  _lerpTexWFor(maxInstances) {
     const texelCount = maxInstances * this._lerpTexelsPerInstance;
-    const w = Math.max(1, Math.ceil(Math.sqrt(texelCount)));
+    return Math.max(1, Math.ceil(Math.sqrt(texelCount)));
+  }
+
+  _initLerpTexture(maxInstances) {
+    const w = this._lerpTexWFor(maxInstances);
     this._lerpTexW = w;
     this._lerpData = new Float32Array(w * w * 4);
     const tex = new THREE.DataTexture(this._lerpData, w, w, THREE.RGBAFormat, THREE.FloatType);
@@ -187,6 +195,19 @@ export class BatchedFarTier {
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
     this._lerpTex = tex;
+  }
+
+  _growLerpTexture(maxInstances) {
+    const w = this._lerpTexWFor(maxInstances);
+    const data = new Float32Array(w * w * 4);
+    data.set(this._lerpData);
+    this._lerpData = data;
+    this._lerpTexW = w;
+    this._lerpTex.image = { data, width: w, height: w };
+    this._lerpTex.dispose();
+    this._lerpTex.needsUpdate = true;
+    this._uLerpTexW.value = w;
+    if (this._uLerpTexWNode) this._uLerpTexWNode.value = w;
   }
 
   updateNow(nowSec) { this._uNow.value = nowSec; if (this._uNowNode) this._uNowNode.value = nowSec; }
