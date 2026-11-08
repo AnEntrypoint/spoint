@@ -13,12 +13,12 @@ const FOV_DEG = 50
 const PX_PER_M = (SIZE / 2) / (CAMERA_D * Math.tan((FOV_DEG / 2) * Math.PI / 180))
 const TOLERANCE_PX = 4
 
-const bucketScale = count => Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
+const bucketScale = count => DOT_SIZE * Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
 const widthM = scale => DOT_SIZE * scale
 const widthPx = scale => widthM(scale) * PX_PER_M
 const SINGLE_SCALE = DOT_SIZE
 const SINGLE_WIDTH_M = widthM(SINGLE_SCALE)
-const LARGEST_SCALE = DOT_SIZE * bucketScale(COUNT_LARGEST)
+const LARGEST_SCALE = bucketScale(COUNT_LARGEST)
 const LARGEST_WIDTH_M = widthM(LARGEST_SCALE)
 
 const INDEX_HTML = fs.readFileSync(path.join(ROOT, 'client', 'index.html'), 'utf8')
