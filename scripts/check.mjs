@@ -256,6 +256,7 @@ async function main() {
     ['input-codec-quantize-witness', 'scripts/input-codec-quantize-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-decode-witness', 'scripts/input-codec-decode-witness.mjs', (out) => `check: ${out}`],
     ['lockstep-input-delay-witness', 'scripts/lockstep-input-delay-witness.mjs', (out) => `check: ${out}`],
+    ['rollback-stall-witness', 'scripts/rollback-stall-witness.mjs', (out) => `check: ${out}`],
     ['write-verified-witness', 'scripts/write-verified-witness.mjs', (out) => `check: ${out}`],
     ['receipt-audit', 'scripts/lib/witness-receipt-audit.mjs', (out) => `check: ${out}`],
     ['xr-teleport-ground-witness', 'scripts/xr-teleport-ground-witness.mjs', (out) => `check: ${out}`],

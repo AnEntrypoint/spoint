@@ -511,7 +511,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **UNPROVEN** Lockstep game loop factory — source `src/netcode/LockstepGameLoop.js`, proof none
 - **UNPROVEN** Lockstep tick system — source `src/netcode/LockstepTickSystem.js`, proof none
 - **UNPROVEN** Lockstep input transport — source `src/netcode/LockstepInputTransport.js`, proof none
-- **UNPROVEN** Rollback game loop stalls past maxRollbackTicks — source `src/netcode/RollbackGameLoop.js`, proof none — **Verifier note:** proofPath scripts/peer-profile-harness.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **PROVEN** Rollback game loop stalls past maxRollbackTicks — source `src/netcode/RollbackGameLoop.js`, proof `scripts/rollback-stall-witness.mjs` (also checks the lift at the bound, the rollback depth and the window-size refusal)
 - **UNPROVEN** Rollback loop — source `src/netcode/RollbackLoop.js`, proof none
 - **UNPROVEN** Rollback input transport — source `src/netcode/RollbackInputTransport.js`, proof none
 - **PROVEN** Tick system and tick-drop counter — source `src/netcode/TickSystem.js`, proof `scripts/tick-drop-counter-witness.mjs`

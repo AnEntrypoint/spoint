@@ -287,7 +287,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Headless Node witnesses that construct `PhysicsNetworkClient` must assign `globalThis.WebSocket` from `ws` first (see `scripts/chart-reanchor-wire-harness.mjs`, `scripts/planet-multiplayer-harness.mjs`); `scripts/lib/witness-audit.mjs` flags a WebSocket reach that lacks it.
 - `src/netcode/LockstepGameLoop.js` refuses an `inputDelayTicks` above `INPUT_RETAIN_TICKS` (240) at construction, because a peer can only simulate a tick once every peer's input for it is retained.
 - `src/sdk/TickHandler.js processPlayerMovement` consumes one input per tick, then catches up extra inputs only while `inputs.length > INPUT_BUFFER_CATCHUP_DEPTH` (8), capped by `MAX_CATCHUP_STEPS_PER_TICK` and the player's `inputStepBudget`.
-- `src/netcode/RollbackGameLoop.js` stalls (runs no simulation step) when the tick it would run is more than `maxRollbackTicks` (12 by default) ahead of the newest confirmed remote input, so rollback depth, not rate, is the bounded quantity to measure. Construction also refuses `maxRollbackTicks + inputDelayTicks` at or above the state ring window.
+- `src/netcode/RollbackGameLoop.js` stalls (runs no simulation step) when the tick it would run is more than `maxRollbackTicks` (12 by default) ahead of the slowest remote's contiguous confirmed input (`minRemoteConfirmed`), so rollback depth, not rate, is the bounded quantity to measure. Construction also refuses `maxRollbackTicks + inputDelayTicks` at or above the state ring window.
 
 ## Patched dependencies
 
