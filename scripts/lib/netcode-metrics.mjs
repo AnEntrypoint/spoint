@@ -56,15 +56,16 @@ export function effectiveDelay(samples, truth, maxDelayMs = 600, stepMs = 2) {
 
 export function detectPops(frames, thresholdM = 0.01) {
   let pops = 0, maxBack = 0
+  const events = []
   for (let i = 1; i < frames.length; i++) {
     const a = frames[i - 1], b = frames[i]
     const vx = b.v[0], vz = b.v[2]
     const vh = Math.hypot(vx, vz)
     if (vh < 1) continue
     const back = -((b.p[0] - a.p[0]) * vx + (b.p[2] - a.p[2]) * vz) / vh
-    if (back > thresholdM) { pops++; if (back > maxBack) maxBack = back }
+    if (back > thresholdM) { pops++; events.push({ t: b.t, backM: back }); if (back > maxBack) maxBack = back }
   }
-  return { pops, maxBackM: maxBack }
+  return { pops, maxBackM: maxBack, events }
 }
 
 export function fmt(v, d = 1) { return v == null || !Number.isFinite(v) ? '-' : v.toFixed(d) }

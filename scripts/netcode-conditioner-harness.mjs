@@ -240,10 +240,10 @@ function instrumentPrediction(h, rec, seqKinds) {
   rec.horizonTicks = []
   rec.stepLeadTicks = []
   const step = pe._step.bind(pe)
-  pe._step = (input, seq, gn) => {
+  pe._step = (input, seq, gn, stored) => {
     rec.steps++
     if (rec.stepLeadTicks.length < 20000) rec.stepLeadTicks.push(pe._inputSeq - 1 - pe._lastAckedSeq)
-    return step(input, seq, gn)
+    return step(input, seq, gn, stored)
   }
   const sep = pe._separateFromPeers.bind(pe)
   pe._separateFromPeers = (dt, tps) => {
@@ -425,6 +425,7 @@ async function runOne(cond, predict, worldDef) {
   await new Promise(r => setTimeout(r, DURATION_MS + 1500))
   stopInput(); stopFrames()
   const elapsedS = (performance.now() - runStart) / 1000
+  const popScan = detectPops(localFrames)
   const mid = mover.client.playerId
   const trM = truth.get(mid)
   const intervals = []
@@ -448,9 +449,9 @@ async function runOne(cond, predict, worldDef) {
     routeSpan: localFrames.length ? [0, 1, 2].map(k => [Math.min(...localFrames.map(f => f.p[k])), Math.max(...localFrames.map(f => f.p[k]))]) : null,
     drawn: { renderOffsetM: summarize(renderOffset), jerkM: summarize(drawnJerk), jerkOver2cm: drawnJerk.filter(j => j > 0.02).length / Math.max(1, elapsedS) },
     mirror: (() => { const pe = mover.client._msgHandler.getPredEngine(); return pe?.collisionMirrorStats ? pe.collisionMirrorStats() : null })(),
-    serverInput: (() => { const p = server.playerManager.getPlayer(mid); return p ? { starves: p.inputStarves || 0, catchUps: p.inputCatchUps || 0, depth: p.inputBufferDepth ?? null, starvesPerS: (p.inputStarves || 0) / elapsedS } : null })(),
+    serverInput: (() => { const p = server.playerManager.getPlayer(mid); return p ? { starves: p.inputStarves || 0, catchUps: p.inputCatchUps || 0, gapsSkipped: p.inputGapsSkipped || 0, depth: p.inputBufferDepth ?? null, starvesPerS: (p.inputStarves || 0) / elapsedS } : null })(),
     inputRateAdjust: mover.client._inputRateAdjust,
-    localVisual: { ...detectPops(localFrames), popsPerMin: detectPops(localFrames).pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
+    localVisual: { pops: popScan.pops, maxBackM: popScan.maxBackM, popEvents: popScan.events.map(e => ({ t: e.t, backM: e.backM })), runStartMs: runStart, popsPerMin: popScan.pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
     remoteInterp: trM ? effectiveDelay(remoteFrames, trM) : null,
     interpolation: interpStats.length ? { targetDelayMs: summarize(interpStats.map(s => s.delayMs)), jitterMs: summarize(interpStats.map(s => s.jitterMs)), intervalMs: summarize(interpStats.map(s => s.intervalMs)), ahead: summarize(interpStats.map(s => s.ahead)), final: interpStats[interpStats.length - 1] } : null,
     remotePath: { afterServerMs: summarize(onsets.filter(o => o.remote != null && o.server != null).map(o => o.remote - o.server)) },
