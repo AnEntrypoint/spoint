@@ -196,7 +196,7 @@ export class AppRuntime {
   assertTrimeshBuildsClean() {
     const failures = this._trimeshBuildFailures
     if (failures.length === 0) return
-    throw colliderBuildError(`${failures.length} static trimesh collider build(s)`, failures[0])
+    throw colliderBuildError(`${failures.length} model collider build(s)`, failures[0])
   }
 
   spawnEntity(id, config = {}) {
@@ -438,6 +438,18 @@ export class AppRuntime {
     return true
   }
 
+  _recordColliderBuildFailure(entityId, entity, kind, err) {
+    console.error(`[AppRuntime] ${err.message}`)
+    this._trimeshBuildFailures.push(err)
+    entity.collider = null
+    entity._failedColliderType = kind
+    this._log('app_error', { label: `${kind}(${entity.model})`, message: err.message }, { sourceEntity: entityId })
+    this._deferOrRun(() => {
+      if (!this.entities.has(entityId)) return
+      this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: ${kind} build failed for ${entity.model}`, entityId, detail: err.message })
+    })
+  }
+
   _startTrimeshBuild(entityId, entity) {
     entity.collider = { type: 'trimesh', model: entity.model }
     const settled = this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0, entity.position || [0,0,0], entity.scale || [1,1,1], entity.rotation || [0,0,0,1])
@@ -447,15 +459,7 @@ export class AppRuntime {
       }) })
       .catch(e => {
         const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
-        console.error(`[AppRuntime] ${err.message}`)
-        this._trimeshBuildFailures.push(err)
-        entity.collider = null
-        entity._failedColliderType = 'trimesh'
-        this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })
-        this._deferOrRun(() => {
-          if (!this.entities.has(entityId)) return
-          this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${entity.model}`, entityId, detail: err.message })
-        })
+        this._recordColliderBuildFailure(entityId, entity, 'trimesh', err)
         throw err
       })
     this.trackTrimeshBuild(settled)
@@ -472,10 +476,7 @@ export class AppRuntime {
       this._admitEntityBody(entity, entityId, entity._bodyDef)
     }).catch(e => {
       const err = colliderBuildError(`convex collider for entity ${entityId} model ${entity.model}`, e)
-      console.error(`[AppRuntime] ${err.message}`)
-      entity.collider = null
-      entity._failedColliderType = 'convex'
-      this._log('app_error', { label: `convex(${entity.model})`, message: err.message }, { sourceEntity: entityId })
+      this._recordColliderBuildFailure(entityId, entity, 'convex', err)
       throw err
     })
     this.trackTrimeshBuild(built)
