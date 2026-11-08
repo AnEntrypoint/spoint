@@ -225,7 +225,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **PROVEN** PlanetFrame: tangentLocalToDir maps local tangent coordinates to a sphere direction — source `src/terrain/PlanetFrame.js`, proof `scripts/cluster-world-harness.mjs`
 - **PROVEN** PlanetFrame: waterlineLocalY gives the sea waterline in local Y — source `src/terrain/PlanetFrame.js`, proof `scripts/planet-multiplayer-harness.mjs`
 - **PROVEN** PlanetFrame: groundHeightLocal returns ground height at a local x,z (reference only, memo not asserted) — source `src/terrain/PlanetFrame.js`, proof `scripts/cluster-world-harness.mjs`
-- **UNPROVEN** PlanetFrame: guardedGroundHeight(where, heightFn) converts missing ground into NoGroundHeightError — source `src/terrain/PlanetFrame.js`, proof none
+- **PROVEN** PlanetFrame: guardedGroundHeight(where, heightFn) returns NO_GROUND_HEIGHT (value null) when the solve throws SurfaceSolveError, and rethrows any other error — source `src/terrain/PlanetFrame.js`, proof `scripts/planet-frame-ground-latch-witness.mjs`
 - **UNPROVEN** PlanetFrame: solveSurfaceY converges to SURFACE_SOLVE_TOLERANCE_M and throws SurfaceSolveError past its evaluation cap — source `src/terrain/PlanetFrame.js`, proof none
 - **UNPROVEN** PlanetFrame: elevationAtLocal returns |p| minus radius — source `src/terrain/PlanetFrame.js`, proof none
 - **UNPROVEN** PlanetFrame: raycastGroundLocal and sphereSurfaceLocalY ground queries — source `src/terrain/PlanetFrame.js`, proof none

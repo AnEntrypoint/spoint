@@ -278,7 +278,7 @@ if (hasWorkerPostMessage) {
       const workerPlayers = [..._ctx.playerManager.players.values()].map(p => ({ id: p.id, position: p.state && p.state.position ? [...p.state.position] : null }))
       const trunkStreamer = trs ? { liveCount: trs.liveCount, centers: trs.centers, rebuildCount: trs.rebuildCount } : null
       const frame = physics._planetFrame
-      const frameGround = frame ? guardedGroundHeight('debug collider probe chart height', (x, z) => frame.groundHeightLocal(x, z), null) : null
+      const frameGround = frame ? guardedGroundHeight('debug collider probe chart height', (x, z) => frame.groundHeightLocal(x, z)) : null
       const groundFrozen = typeof physics.groundFrozenAt === 'function' ? physics.groundFrozenAt : () => null
       const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frameGround ? frameGround(x, z) : null, groundFrozen: groundFrozen(x, z) }))
       self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, trunkStreamer, terrainFields, terrainBodyId: physics.getTerrainBodyId(), workerPlayers, rockIdCount: rockIds ? rockIds.size : null, heightProbe })

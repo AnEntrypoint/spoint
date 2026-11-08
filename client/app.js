@@ -3,7 +3,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { PhysicsNetworkClient, InputHandler, MSG, createInputStepper } from '/src/index.client.js'
 import { resolveNetcodeProfile } from '/src/netcode/NetcodeProfile.js'
-import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
+import { guardedGroundHeight, isNoGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
 import { runModelLoadGate, refuseModelLoad, shouldSendEnvironmentDone } from './core/modelLoadGate.js'
@@ -871,7 +871,7 @@ window.__debugDepthAt = function (px, py) {
     const firstWorldAuth = (firstWorld && floatingOrigin) ? floatingOrigin.toAuthoritative({ x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] }) : (firstWorld ? { x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] } : null)
     const camPosAuth = floatingOrigin ? floatingOrigin.toAuthoritative(camera.position) : camera.position
     const groundH = (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function' && firstWorldAuth)
-      ? guardedGroundHeight('app pick probe ground', (x, z) => window.__terrain.groundHeightLocal(x, z), null)(firstWorldAuth.x, firstWorldAuth.z)
+      ? guardedGroundHeight('app pick probe ground', (x, z) => window.__terrain.groundHeightLocal(x, z))(firstWorldAuth.x, firstWorldAuth.z)
       : null
     return {
       pixel: [x, y],
@@ -1220,6 +1220,8 @@ function _sanitizeConnectTarget(raw) {
 const _connectTarget = _sanitizeConnectTarget(_connectParam)
 const _netSimParam = _params.get('netsim')
 const _predictParam = _params.get('predict') !== '0'
+const _guardedPredictionGround = guardedGroundHeight('client prediction ground surface', (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : NaN)
+const predictionGroundSurface = (x, z) => { const h = _guardedPredictionGround(x, z); return isNoGroundHeight(h) ? NaN : h }
 let client; const _clientConfig = {
   url: _connectTarget
     ? `${_connectTarget.port === 443 ? 'wss:' : 'ws:'}//${_connectTarget.host}:${_connectTarget.port}/ws`
@@ -1227,7 +1229,7 @@ let client; const _clientConfig = {
   worldName: _worldDef ? _worldParam : null,
   netSim: _netSimParam || undefined,
   webTransport: _webTransportConfig,
-  predictionGroundSurface: guardedGroundHeight('client prediction ground surface', (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : null, NaN),
+  predictionGroundSurface,
   onConnect: () => connectionStatus.setState('connected'),
   onDisconnect: () => { const rs = client?.getReconnectState?.(); connectionStatus.setState(rs?.state || 'waiting', rs?.attempts || 0) },
   onStateUpdate: state => {

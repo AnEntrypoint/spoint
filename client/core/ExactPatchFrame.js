@@ -1,4 +1,4 @@
-import { NoGroundHeightError } from '../../src/terrain/PlanetFrame.js'
+import { NoGroundHeightError, isNoGroundHeight } from '../../src/terrain/PlanetFrame.js'
 import { isMeshSurfaceNoGround, renderMeshHeightAt } from '../../src/terrain/TerrainMeshSurface.js'
 
 const MESH_SOLVE_ITERS = 4
@@ -72,7 +72,7 @@ export function createExactPatchFrame(frame) {
       }
       if (typeof frame._patchHeightOrNull === 'function') {
         const y = frame._patchHeightOrNull(x, z)
-        if (y === null) { missing = true; throw new NoGroundHeightError(x, z) }
+        if (isNoGroundHeight(y)) { missing = true; throw new NoGroundHeightError(x, z) }
         return y
       }
       return frame.groundHeightLocal(x, z)

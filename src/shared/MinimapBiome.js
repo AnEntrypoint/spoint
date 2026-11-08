@@ -1,4 +1,4 @@
-import { elevationAtLocal, guardedGroundHeight } from '../terrain/PlanetFrame.js'
+import { elevationAtLocal, guardedGroundHeight, isNoGroundHeight } from '../terrain/PlanetFrame.js'
 
 const DEEP_OCEAN_BELOW_M = -200
 const BEACH_TOP_M = 8
@@ -32,8 +32,9 @@ const _guardedMinimapHeight = new WeakMap()
 
 export function sampleMinimapCell(frame, anchorField, x, z, out, yGuess) {
   let guarded = _guardedMinimapHeight.get(frame)
-  if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz, pg) => frame.groundHeightLocal(px, pz, pg), NaN); _guardedMinimapHeight.set(frame, guarded) }
-  const h = guarded(x, z, yGuess)
+  if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz, pg) => frame.groundHeightLocal(px, pz, pg)); _guardedMinimapHeight.set(frame, guarded) }
+  const sampled = guarded(x, z, yGuess)
+  const h = isNoGroundHeight(sampled) ? NaN : sampled
   out[4] = h
   if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return null }
   const dir = frame.localToDir(x, z, h)
