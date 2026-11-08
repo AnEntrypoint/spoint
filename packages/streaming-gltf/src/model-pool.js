@@ -1933,7 +1933,10 @@ export class ModelPool extends Emitter {
     if (!a) {
       a = new Asset(this, url);
       this._assets.set(url, a);
-      a.ready.then(() => this.emit('asset-ready', a)).catch((e) => this.emit('asset-error', { asset: a, error: e }));
+      a.ready.then(() => this.emit('asset-ready', a)).catch((e) => {
+        if (this._assets.get(url) === a) this._assets.delete(url);
+        this.emit('asset-error', { asset: a, error: e });
+      });
     }
     return a;
   }
