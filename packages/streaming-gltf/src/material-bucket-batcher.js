@@ -1,6 +1,22 @@
 import * as THREE from 'three';
 
 const COARSE_INDEX_STREAM = 1;
+const GEOMETRY_CAPACITY_MESSAGE = 'THREE.BatchedMesh: Reserved space request exceeds the maximum buffer size.';
+const INSTANCE_CAPACITY_MESSAGE = 'THREE.BatchedMesh: Maximum item count reached.';
+const CAPACITY_EXHAUSTED_CODE = 'material-bucket-capacity-exhausted';
+
+class MaterialBucketCapacityError extends Error {
+  constructor(resource, cause) {
+    super(`material bucket ${resource} capacity exhausted after one growth`, { cause });
+    this.name = 'MaterialBucketCapacityError';
+    this.code = CAPACITY_EXHAUSTED_CODE;
+    this.resource = resource;
+  }
+}
+
+function isCapacityError(e, message) {
+  return e instanceof Error && e.message === message;
+}
 
 function coarsestIndexRange(lod, ci, sourceIndexArray, lod0Count) {
   if (lod.stream !== 0 && lod.stream !== COARSE_INDEX_STREAM) {
@@ -130,24 +146,14 @@ export class MaterialBucketBatcher {
     if (gid == null) {
       const geo = this._buildCoarsestOrDiscard(b, bucketsBefore, cm);
       if (!geo) return -1;
-      try {
-        gid = b.mesh.addGeometry(geo);
-      } catch (e) {
-        b.mesh.setGeometrySize(this.maxVerts *= 2, this.maxIndex *= 2);
-        gid = b.mesh.addGeometry(geo);
-      }
+      gid = this._addGeometry(b, geo);
       b.geometryIds.set(sourceKey, gid);
     }
     const previousBucketKey = this._entityBucket.get(entity);
     if (previousBucketKey != null && previousBucketKey !== b.key) this.release(entity);
     let id = b.instances.get(entity);
     if (id == null) {
-      try {
-        id = b.mesh.addInstance(gid);
-      } catch (e) {
-        b.mesh.setInstanceCount(this.maxInstances *= 2);
-        id = b.mesh.addInstance(gid);
-      }
+      id = this._addInstance(b, gid);
       b.instances.set(entity, id);
       this._entityBucket.set(entity, b.key);
       this.stats.instanceCount++;
@@ -156,6 +162,37 @@ export class MaterialBucketBatcher {
       b.mesh.setGeometryIdAt(id, gid);
     }
     return id;
+  }
+
+  _addGeometry(b, geo) {
+    try {
+      return b.mesh.addGeometry(geo);
+    } catch (e) {
+      if (!isCapacityError(e, GEOMETRY_CAPACITY_MESSAGE)) throw e;
+      this.maxVerts *= 2;
+      this.maxIndex *= 2;
+      b.mesh.setGeometrySize(this.maxVerts, this.maxIndex);
+    }
+    try {
+      return b.mesh.addGeometry(geo);
+    } catch (retry) {
+      throw new MaterialBucketCapacityError('geometry', retry);
+    }
+  }
+
+  _addInstance(b, gid) {
+    try {
+      return b.mesh.addInstance(gid);
+    } catch (e) {
+      if (!isCapacityError(e, INSTANCE_CAPACITY_MESSAGE)) throw e;
+      this.maxInstances *= 2;
+      b.mesh.setInstanceCount(this.maxInstances);
+    }
+    try {
+      return b.mesh.addInstance(gid);
+    } catch (retry) {
+      throw new MaterialBucketCapacityError('instance', retry);
+    }
   }
 
   _buildCoarsestOrDiscard(b, bucketsBefore, cm) {
