@@ -551,9 +551,9 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **PROVEN** Unreliable message classification (isUnreliable) — source `src/protocol/MessageTypes.js`, proof `scripts/src-batch1-rules-witness.mjs` — **Verifier note:** Weak proof: the RESULT line in scripts/src-batch1-rules-witness.mjs (line 27) states that removing the unregistration guard in isUnreliable is not detectable by that witness; PROVEN kept by rule, coverage of the unknown-id path is partial
 - **UNPROVEN** Wire protocol version — source `src/protocol/MessageTypes.js`, proof none
 - **UNPROVEN** Disconnect reasons — source `src/protocol/MessageTypes.js`, proof none
-- **UNPROVEN** Input packet encode keeps newest records and reports drops — source `src/protocol/InputCodec.js`, proof none
-- **UNPROVEN** Input quantization clamp and wrap — source `src/protocol/InputCodec.js`, proof none
-- **UNPROVEN** Input packet decode — source `src/protocol/InputCodec.js`, proof none
+- **PROVEN** Input packet encode keeps newest records and reports drops — source `src/protocol/InputCodec.js`, proof `scripts/input-codec-encode-witness.mjs`
+- **PROVEN** Input quantization clamp and wrap — source `src/protocol/InputCodec.js`, proof `scripts/input-codec-quantize-witness.mjs`
+- **PROVEN** Input packet decode — source `src/protocol/InputCodec.js`, proof `scripts/input-codec-decode-witness.mjs`
 - **PROVEN** Msgpack pack, unpack and lazy packer (ensurePacked) — source `src/protocol/msgpack.js`, proof `scripts/verify-session.mjs`
 - **UNPROVEN** Wire structure hash and WIRE_STRUCTURES order — source `src/protocol/msgpack.js`, proof none
 - **UNPROVEN** Component schema validation and custom field codec — source `src/protocol/ComponentSchema.js`, proof none
