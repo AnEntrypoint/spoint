@@ -53,19 +53,19 @@ export class Stage {
   }
 
   relevanceRing(radius) {
-    return this.shape.ring(radius || this.spatial.relevanceRadius)
+    return this.shape.ring(radius ?? this.spatial.relevanceRadius)
   }
 
   getRelevantEntities(position, radius) {
-    return this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
+    return this.spatial.nearby(position, radius ?? this.spatial.relevanceRadius)
   }
 
   getRelevantEntitiesHorizontal(position, radius) {
-    return this.shape.horizontalQuery(this, position, radius || this.spatial.relevanceRadius)
+    return this.shape.horizontalQuery(this, position, radius ?? this.spatial.relevanceRadius)
   }
 
   getRelevantEntitiesForCell(position, radius) {
-    return this.shape.cellQuery(this, position, radius || this.spatial.relevanceRadius)
+    return this.shape.cellQuery(this, position, radius ?? this.spatial.relevanceRadius)
   }
 
 
