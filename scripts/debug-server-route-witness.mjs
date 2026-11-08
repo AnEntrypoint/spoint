@@ -1,0 +1,20 @@
+import { EventEmitter } from 'node:events';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const checks = [];
+const check = (name, ok, detail = '') => { checks.push({ name, ok }); console.log(`check ${name}: ${ok ? 'ok' : 'FAIL'}${detail ? ` (${detail})` : ''}`) };
+const finish = (label, pass) => { const failed = checks.filter((c) => !c.ok); console.log(failed.length === 0 ? `RESULT: PASS ${label}` : `RESULT: FAIL ${failed.length} check(s): ${failed.map((c) => c.name).join('; ')}`); process.exitCode = failed.length === 0 ? 0 : 1 };
+const mod = (rel) => import(pathToFileURL(path.join(ROOT, rel)).href);
+
+const { handleDebugServer } = await mod('src/sdk/ServerAPIRoutes.js');
+const ctx = { tickSystem: { currentTick: 7 }, tickRate: 60, playerManager: { getPlayerCount: () => 2 }, appRuntime: { entities: new Map() }, connections: { getAllStats: () => ({}) }, sessions: { getActiveCount: () => 1 }, config: {} };
+const makeRes = () => ({ statusCode: 0, body: '', writeHead(s) { this.statusCode = s }, end(b = '') { this.body += b } });
+const reqFrom = (remote) => ({ socket: { remoteAddress: remote }, headers: {} });
+const r1 = makeRes(); handleDebugServer(reqFrom('198.51.100.4'), r1, ctx);
+check('a non-loopback peer is refused', r1.statusCode === 403);
+const r2 = makeRes(); handleDebugServer(reqFrom('127.0.0.1'), r2, ctx);
+const j = r2.statusCode === 200 ? JSON.parse(r2.body) : null;
+check('a loopback peer gets the JSON debug view', r2.statusCode === 200 && j && j.tick === 7 && j.players === 2 && j.sessions === 1, `status=${r2.statusCode}`);
+finish('debug/server is loopback-only and reports tick, players and heap', true);

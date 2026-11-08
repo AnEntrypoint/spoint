@@ -1,0 +1,25 @@
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs';
+await installSpecifierHooks();
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const checks = [];
+const check = (name, ok, detail = '') => { checks.push({ name, ok }); console.log(`check ${name}: ${ok ? 'ok' : 'FAIL'}${detail ? ` (${detail})` : ''}`) };
+const finish = (label) => { const failed = checks.filter((c) => !c.ok); console.log(failed.length === 0 ? `RESULT: PASS ${label}` : `RESULT: FAIL ${failed.length} check(s): ${failed.map((c) => c.name).join('; ')}`); process.exitCode = failed.length === 0 ? 0 : 1 };
+const mod = (rel) => import(pathToFileURL(path.join(ROOT, rel)).href);
+
+const { loadBakedHeightField } = await mod('src/terrain/TerrainPhysics.js');
+const enc = (s) => new TextEncoder().encode(s);
+const src = (readBytes) => ({ readBytes, heightfieldCodec: async () => ({ decodeHeightfield: () => { throw new Error('unreached') } }), bakeCodeVersion: async () => null });
+const errOf = async (p) => { try { await p; return null } catch (e) { return e } };
+const e1 = await errOf(loadBakedHeightField('witness.json', 'hv', {}, {}, undefined));
+check('a missing baked source throws, it does not silently fall back', e1 && e1.code === 'baked-source-missing', String(e1 && e1.message).slice(0, 80));
+const absent = await loadBakedHeightField('witness.json', 'hv', {}, {}, src(async () => null));
+check('an absent artifact returns null (the documented CPU fallback)', absent === null);
+const e2 = await errOf(loadBakedHeightField('witness.json', 'hv', {}, {}, src(async () => enc('{nope'))));
+check('invalid JSON throws a [baked-heightfield] error', e2 && /^\[baked-heightfield\] witness\.json: not valid JSON/.test(e2.message), String(e2 && e2.message).slice(0, 100));
+const e3 = await errOf(loadBakedHeightField('witness.hf', 'hv', {}, {}, src(async () => new ArrayBuffer(3))));
+check('a truncated heightfield throws a [baked-heightfield] error', e3 && /^\[baked-heightfield\] witness\.hf: truncated/.test(e3.message), String(e3 && e3.message).slice(0, 100));
+const e4 = await errOf(loadBakedHeightField('witness.hf', 'hv', {}, {}, src(async () => new ArrayBuffer(16))));
+check('a heightfield with bad magic throws a [baked-heightfield] error', e4 && /^\[baked-heightfield\] witness\.hf: not a heightfield/.test(e4.message), String(e4 && e4.message).slice(0, 100));
+finish('baked heightfield loader fails loud on missing source, bad JSON, truncation and bad magic');
