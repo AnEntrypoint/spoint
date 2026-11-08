@@ -64,6 +64,7 @@ async function main() {
     sdkRoot: SDK_ROOT,
     projectRoot: existsSync(join(PROJECT, 'apps')) ? PROJECT : SDK_ROOT,
     portRange: [portRangeMin, portRangeMax],
+    ...(process.env.ROOM_HOST ? { host: process.env.ROOM_HOST } : {}),
   })
 
   const commandServer = createHttpServer(async (req, res) => {

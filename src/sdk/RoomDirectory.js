@@ -15,12 +15,27 @@ class RoomDirectoryError extends Error {
 
 const isPort = (value, min) => Number.isInteger(value) && value >= min && value <= MAX_PORT
 
+function parsePortRange(range) {
+  if (!Array.isArray(range) || range.length !== 2 || !isPort(range[0], 1) || !isPort(range[1], 1) || range[0] > range[1]) {
+    throw new RoomDirectoryError('room-port-range-invalid', `portRange must be [min, max] integers in 1..${MAX_PORT} with min <= max, got ${JSON.stringify(range)}`)
+  }
+  return [range[0], range[1]]
+}
+
+function parseHost(host) {
+  if (typeof host !== 'string' || host.length === 0) {
+    throw new RoomDirectoryError('room-host-invalid', `host must be a non-empty string, got ${typeof host} ${String(host)}`)
+  }
+  return host
+}
+
 export class RoomDirectory {
-  constructor({ sdkRoot = null, projectRoot = null, portRange = [19000, 19999] } = {}) {
+  constructor({ sdkRoot = null, projectRoot = null, portRange = [19000, 19999], host = '0.0.0.0' } = {}) {
     if (!sdkRoot) throw new Error('RoomDirectory requires { sdkRoot }')
     this.sdkRoot = sdkRoot
     this.projectRoot = projectRoot || sdkRoot
-    this.portRange = portRange
+    this.portRange = parsePortRange(portRange)
+    this.host = parseHost(host)
     this.rooms = new Map()
     this.testers = new Map()
     this._reservedPorts = new Set()
@@ -61,7 +76,7 @@ export class RoomDirectory {
       const { name: resolvedWorldName, path: worldPath, worldDef } = await this._locateWorld(worldName)
       const appsDirs = [resolve(this.projectRoot, 'apps')]
       const config = {
-        port, tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: this.sdkRoot,
+        port, host: this.host, tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: this.sdkRoot,
         gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,
         physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0,
         entityTickRate: worldDef.entityTickRate,
