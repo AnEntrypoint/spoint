@@ -24,12 +24,18 @@ Phase A changes are code, docs and tests written without running anything. Phase
 - Row 11 (rollback loop), row 12 (lockstep), row 18 (server authority per tick), row 34 (tick governor), row 35 (telemetry): the open items named in jayzee's rows are on jayzee's side (ports, a missing tick host, or spawn learnings absent from both repos). No spoint change.
 - Row 42 (lag compensation): the open item is that spoint's callers of `applyChartTransfer` are not wired in jayzee. Spoint's `LagCompensator.applyChartTransfer` (`src/netcode/LagCompensator.js`) is unchanged.
 
-## Held, not coded
+## Decisions pass: released holds and owner decisions
 
-- Row 7 (character controller): held by the owner.
-- Row 33 (world persistence): held by the owner. Spoint's restore compares the world name and never the fingerprint.
-- Row 44 (protocol codecs): held by the owner.
-- WebGL dot look (`client/core/PlayerLOD.js`, `client/core/PlayerLODTSL.js`): unchanged. Single dot 2.7 m to 1.96 m and largest 24.7 m to 5.9 m wait for the owner's decision.
+Each change below is listed with its file, its row or phase, and the witness that checks it. Phase B runs the witnesses and the gate, then pushes.
+
+| Item | Decision | Files | Witness |
+|---|---|---|---|
+| groundY replay base (owner item) | Kept as is. The base is not changed: the 15-run witness (`scripts/groundy-replay-witness.mjs`, final code) gave `RESULT: FAIL`, 68 of 98 mover replays over 1 cm, and none of the 68 had a `groundY` gap. The control gave `RESULT: PASS`, so the mechanism does produce growth when the base is mismatched, but that mismatch is not what produced the natural replays. Open: what causes the natural growth. | none | `node scripts/groundy-replay-witness.mjs` (FAIL recorded), `node scripts/groundy-replay-witness.mjs --control` (PASS recorded) |
+| Session TTL 0 (owner item) | Rejected at config time. `resolveSessionTtl` accepts an absent ttl (30 s default) or a positive finite number, and throws a `RangeError` for zero, negative, non-finite or non-number values. `server.js` passes `config.sessionTTL` through with no `||` fallback. | `src/connection/SessionStore.js` (`resolveSessionTtl`), `src/sdk/server.js`, `docs/netcode.md` ("Session TTL") | `node scripts/session-ttl-config-witness.mjs`, and the existing `node scripts/session-store-ttl-witness.mjs` (7 checks) |
+| Row 33, world persistence (released; a defect) | Restore compares the definition fingerprint as well as the name. The snapshot stores `definition` (`worldDefFingerprint` of the current definition) at save. Restore refuses an edited definition under the same name (`definition-mismatch`), refuses a snapshot without a fingerprint, and refuses when no current definition exists (`no-world-definition`). The name check stays. | `src/sdk/WorldPersistence.js` (`definitionFingerprintOf`, `buildWorldSnapshot`, `restoreWorldSnapshot`), `AGENTS.md` (world restore caveat) | `node scripts/world-persistence-fingerprint-witness.mjs` |
+| WebGL dot look (owner decision) | No constant changed. Reading `client/core/PlayerLOD.js`, the single dot's geometry is `dotSize` (1.4) and its instance scale is `dotSize`, applied once, which gives 1.96 m. The largest bucket is `dotSize` times its scale of `dotSize` times 3, which gives 5.88 m, about 5.9 m. So the requested values are what the current source already draws. The 2.7 m and 24.7 m figures are not produced by the current source, and the 24.7 m largest dot is the one the owner called an overdraw. Open: `scripts/crowd-dot-render-witness.mjs` expects a single dot 1.4 m wide, which disagrees with the 1.96 m the code draws. It is a browser witness and was not run here, so it needs a browser run to decide which side is wrong. | none (`client/core/PlayerLOD.js`, `client/core/PlayerLODTSL.js` unchanged) | `node scripts/crowd-dot-render-witness.mjs` (browser, not run; open) |
+| Row 7, character controller (released; not implementable here) | Not changed in spoint. The row says porting `CharacterManager` (a Jolt wrapper) is an owner decision and jayzee has no Jolt backend. Releasing the hold does not make that decision. | none | none (jayzee-side) |
+| Row 44, protocol codecs (released; jayzee-side) | Not changed in spoint. The row's open items are jayzee's msgpackr-backed wire and byte compatibility, not a spoint defect. | none | none (jayzee-side) |
 
 ## Docs index
 

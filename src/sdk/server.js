@@ -45,7 +45,7 @@ export async function createServerDeps(config, tickRate) {
   const playerManager = new PlayerManager(), networkState = new NetworkState(), lagCompensator = new LagCompensator(undefined, tickRate)
   const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, crouchHalfHeight: playerConfig.crouchHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({ heartbeatInterval: config.heartbeatInterval || 1000, heartbeatTimeout: config.heartbeatTimeout || 10000 })
-  const sessions = new SessionStore({ ttl: config.sessionTTL || 60000 })
+  const sessions = new SessionStore({ ttl: config.sessionTTL === undefined ? 60000 : config.sessionTTL })
   const inspector = new Inspector(), reloadManager = new ReloadManager()
   const resolvedSdkRoot = sdkRoot || join(dirname(fileURLToPath(import.meta.url)), '../..')
   const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot: resolvedSdkRoot, physicsRadius: config.physicsRadius || 0, physicsBodyBudget: config.physicsBodyBudget || 0, entityTickRate: config.entityTickRate, tickRate, lagCompensator })

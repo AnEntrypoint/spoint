@@ -6,9 +6,19 @@ function _randomHex16() {
   return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+const DEFAULT_SESSION_TTL_MS = 30000
+
+export function resolveSessionTtl(value) {
+  if (value === undefined) return DEFAULT_SESSION_TTL_MS
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`[SessionStore] ttl must be a positive finite number of milliseconds, got ${String(value)}`)
+  }
+  return value
+}
+
 export class SessionStore {
   constructor(options = {}) {
-    this.ttl = options.ttl || 30000
+    this.ttl = resolveSessionTtl(options.ttl)
     this.sessions = new Map()
     this.timers = new Map()
   }

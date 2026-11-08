@@ -84,7 +84,7 @@ Entities go through `resolveDeliveredIds` in `src/sdk/TickHandlerAOI.js`. The ri
 
 ## Session TTL
 
-`SessionStore` (`src/connection/SessionStore.js`) defaults to a 30 s TTL. The servers pass their own: `src/sdk/server.js` uses `config.sessionTTL || 60000` and `src/sdk/WorkerEntry.js` uses 60000, so a running server keeps a session for 60 s without a touch.
+`SessionStore` (`src/connection/SessionStore.js`) defaults to a 30 s TTL when `ttl` is absent. A `ttl` that is zero, negative, non-finite or not a number is refused at construction with a `RangeError`; it never falls back to the default. The servers pass their own: `src/sdk/server.js` uses `config.sessionTTL` (60 s when unset) and `src/sdk/WorkerEntry.js` uses 60000, so a running server keeps a session for 60 s without a touch.
 
 A touch is `create`, `update`, `rebindOwner`, `get` or `release`. `get` expires a session when `now - lastTouched > ttl`, so a session read exactly at the TTL is still live. The expiry timer is re-armed on each touch and removes the session at the TTL after the last touch. A pinned session has no timer and does not expire until it is released.
 

@@ -37,7 +37,11 @@ export function resolveWorldName(ctx) {
   return ctx.currentWorldDef?.name || ctx.worldName || envWorldName() || null
 }
 
-export function buildWorldSnapshot(appRuntime, physics, worldName) {
+export function definitionFingerprintOf(ctx) {
+  return ctx.currentWorldDef ? worldDefFingerprint(ctx.currentWorldDef) : null
+}
+
+export function buildWorldSnapshot(appRuntime, physics, worldName, definition = null) {
   const game = appRuntime.snapshotGameState({ includeStatic: true })
   const entities = []
   for (const [id, s] of game.entities) {
@@ -59,6 +63,7 @@ export function buildWorldSnapshot(appRuntime, physics, worldName) {
   return {
     version: WORLD_SNAPSHOT_FORMAT_VERSION,
     world: worldName || null,
+    definition,
     chart: physics?._planetFrame ? snapshotChart(physics._planetFrame) : null,
     tick: game.tick,
     elapsed: game.elapsed,
@@ -75,7 +80,7 @@ export async function saveWorldSnapshot(ctx) {
   if (!appRuntime || !storage) return false
   try {
     await yieldToEventLoop()
-    const snap = buildWorldSnapshot(appRuntime, physics, resolveWorldName(ctx))
+    const snap = buildWorldSnapshot(appRuntime, physics, resolveWorldName(ctx), definitionFingerprintOf(ctx))
     await storage.set('world-snapshot', snap)
     console.log(`[world-persistence] saved snapshot: tick=${snap.tick} entities=${snap.entities.length}`)
     return true
@@ -100,6 +105,15 @@ export async function restoreWorldSnapshot(ctx) {
   if (snap.world !== worldName && !legacyUnnamedMatch) {
     console.warn(`[world-persistence] snapshot world mismatch (saved="${snap.world}" current="${worldName}") -- discarding, booting clean`)
     return { restored: false, reason: 'world-mismatch' }
+  }
+  const definitionNow = definitionFingerprintOf(ctx)
+  if (definitionNow === null) {
+    console.warn('[world-persistence] no world definition to fingerprint -- discarding, booting clean')
+    return { restored: false, reason: 'no-world-definition' }
+  }
+  if (snap.definition !== definitionNow) {
+    console.warn(`[world-persistence] snapshot definition mismatch (saved="${snap.definition}" current="${definitionNow}") -- discarding, booting clean`)
+    return { restored: false, reason: 'definition-mismatch' }
   }
   const chartPass = chartPassFromSnapshot(snap, physics)
   const entities = new Map()
