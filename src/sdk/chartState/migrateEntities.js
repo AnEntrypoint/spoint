@@ -47,9 +47,16 @@ function createStaticTransformer(transfer) {
     p[1] = m3 * a + m4 * b + m5 * d + c1
     p[2] = m6 * a + m7 * b + m8 * d + c2
   }
+  function moveVector(v) {
+    const a = v[0], b = v[1], d = v[2]
+    v[0] = m0 * a + m1 * b + m2 * d
+    v[1] = m3 * a + m4 * b + m5 * d
+    v[2] = m6 * a + m7 * b + m8 * d
+  }
   return function transformStatic(entity) {
     movePoint(entity.position)
     if (entity._spawnPosition) movePoint(entity._spawnPosition)
+    if (entity.velocity) moveVector(entity.velocity)
     const r = rotationArrayOf(entity.rotation)
     const x = qw * r[0] + qx * r[3] + qy * r[2] - qz * r[1]
     const y = qw * r[1] - qx * r[2] + qy * r[3] + qz * r[0]
