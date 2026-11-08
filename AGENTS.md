@@ -191,6 +191,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Spawn release is gated by `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`): it holds while `terrainFieldMissingAt` reports the terrain field does not cover the spawn, capped at `SPAWN_HOLD_MAX_MS` (20 s).
 - A world def with `relocation:false` refuses every teleport (`src/sdk/Relocation.js` `createRelocationHandlers`, reply 'relocation disabled by this world'), so a relocation witness on that world fails because of the world def, not the code.
 - Spawn hold: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) releases only when `terrainFieldMissingAt` is false, which asks the streamer's `coversPosition`; the hold is capped at `SPAWN_HOLD_MAX_MS` (20 s).
+- `probeSpawnHoldGround` (`src/sdk/Relocation.js`) names one `SPAWN_HOLD_REASON` per groundless outcome, in this precedence: heightfield not landed, static colliders pending near, no raycast capability, ray missed ground. `scripts/spawn-hold-reason-witness.mjs` pins those reasons on the surface and rejoin paths and is manual, not in the gate. The support-hold probe in `src/apps/AppRuntime.js` is outside it, and still returns a bare null for the field-not-landed and ray-missed outcomes.
 - Singleplayer world snapshots live under one storage key, `world-snapshot` (`src/sdk/WorldPersistence.js`); `restoreWorldSnapshot` discards a snapshot whose `world` differs from `resolveWorldName(ctx)` (booting clean), and the singleplayer world name comes from `init({ worldName })` (`src/sdk/WorkerEntry.js` `init`).
 
 ## Fire
