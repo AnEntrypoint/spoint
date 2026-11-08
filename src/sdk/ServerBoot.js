@@ -66,7 +66,7 @@ function strictBundleEnv() {
 function assertBundleFreshness(states) {
   if (!strictBundleEnv()) return
   for (const state of states) {
-    if (!state.present || state.fresh) continue
+    if (state.fresh) continue
     const why = `[boot] FATAL: ${describeBundleState(state)} -- SPOINT_STRICT_BUNDLE refuses to boot rather than serve, or silently fall back from, an artifact that does not match the current sources`
     console.error(why)
     throw Object.assign(new Error(why), { spointStaleBundle: true, reason: state.reason })
