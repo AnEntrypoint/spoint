@@ -10,7 +10,7 @@ export class ReconciliationEngine {
     this.groundedTeleportThreshold = config.groundedTeleportThreshold ?? config.teleportThreshold ?? DEFAULT_TELEPORT_THRESHOLD_GROUNDED
     this.airborneTeleportThreshold = config.airborneTeleportThreshold ?? DEFAULT_TELEPORT_THRESHOLD_AIRBORNE
     this.errorOffset = [0, 0, 0]
-    this._lastDecayMs = 0
+    this._lastDecayMs = null
   }
 
   get teleportThreshold() { return this.groundedTeleportThreshold }
@@ -27,7 +27,7 @@ export class ReconciliationEngine {
 
   decay(nowMs) {
     const o = this.errorOffset
-    const dt = this._lastDecayMs ? Math.min(MAX_DECAY_STEP_S, Math.max(0, (nowMs - this._lastDecayMs) / 1000)) : 0
+    const dt = this._lastDecayMs !== null ? Math.min(MAX_DECAY_STEP_S, Math.max(0, (nowMs - this._lastDecayMs) / 1000)) : 0
     this._lastDecayMs = nowMs
     if (o[0] === 0 && o[1] === 0 && o[2] === 0) return o
     const keep = Math.exp(-dt / this.timeConstantS)

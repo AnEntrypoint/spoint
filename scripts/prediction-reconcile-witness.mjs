@@ -158,6 +158,14 @@ const inputs = makeInputs(TICKS + 400, 7)
 }
 
 {
+  const r = new ReconciliationEngine()
+  r.absorb(1, 0, 0, true)
+  r.decay(0)
+  r.decay(80)
+  check('an error offset decays from a clock reading of 0, which is a valid timestamp', Math.abs(r.errorOffset[0] - Math.exp(-1)) < 1e-9, `after 80 ms from t=0 ${r.errorOffset[0].toFixed(6)}, expected ${Math.exp(-1).toFixed(6)}`)
+}
+
+{
   const rng = seeded(11)
   const jumping = inputs.slice(0, 800).map(input => ({ ...input, jump: rng() < 0.12 }))
   const client = engine()
