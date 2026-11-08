@@ -111,6 +111,17 @@ function nodeModulesRealRoots(fpResolved, baseResolved) {
   return roots
 }
 
+function containedRealFile(fp, dir) {
+  const baseResolved = resolve(dir)
+  const fpResolved = resolve(fp)
+  if (!fpResolved.startsWith(baseResolved + sep)) return false
+  if (!existsSync(fp) || !statSync(fp).isFile()) return false
+  let realFp
+  try { realFp = realpathSync(fp) } catch { return false }
+  const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved)]
+  return allowedRoots.some((root) => realFp === root || realFp.startsWith(root + sep))
+}
+
 export function createStaticHandler(dirs, opts = {}) {
   const getWorldInfo = typeof opts.getWorldInfo === 'function' ? opts.getWorldInfo : null
   return async (req, res) => {
@@ -157,8 +168,7 @@ export function createStaticHandler(dirs, opts = {}) {
       if (!bakedRel.includes('..')) for (const { prefix, dir } of dirs) {
         if (!sourceUrl.startsWith(prefix)) continue
         const srcPath = join(dir, sourceUrl.slice(prefix.length))
-        if (!resolve(srcPath).startsWith(resolve(dir) + sep)) continue
-        if (!existsSync(srcPath) || !statSync(srcPath).isFile()) continue
+        if (!containedRealFile(srcPath, dir)) continue
         getProgressive(srcPath)
         const bakedFp = resolveBakedFile(srcPath, bakedRel)
         if (bakedFp) {
@@ -202,8 +212,7 @@ export function createStaticHandler(dirs, opts = {}) {
       if (m) for (const { prefix, dir } of dirs) {
         if (!sourceUrl.startsWith(prefix)) continue
         const srcPath = join(dir, sourceUrl.slice(prefix.length))
-        if (!resolve(srcPath).startsWith(resolve(dir) + sep)) continue
-        if (!existsSync(srcPath) || !statSync(srcPath).isFile()) continue
+        if (!containedRealFile(srcPath, dir)) continue
         getKtx2Extracted(srcPath)
         const ktx2Fp = resolveKtx2File(srcPath, m[1])
         if (ktx2Fp) {
@@ -233,14 +242,8 @@ export function createStaticHandler(dirs, opts = {}) {
       if (!url.startsWith(prefix)) continue
       const relative = url === prefix ? '/index.html' : url.slice(prefix.length)
       const fp = join(dir, relative)
-      const baseResolved = resolve(dir)
-      const fpResolved = resolve(fp)
-      if (fpResolved !== baseResolved && !fpResolved.startsWith(baseResolved + sep)) continue
+      if (!containedRealFile(fp, dir)) continue
       if (existsSync(fp) && statSync(fp).isFile()) {
-        let realFp
-        try { realFp = realpathSync(fp) } catch { continue }
-        const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved)]
-        if (!allowedRoots.some((root) => realFp === root || realFp.startsWith(root + sep))) continue
         const ext = extname(fp)
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
         applyFreshnessHeaders(headers, clientFreshness, workerFreshness)
@@ -310,7 +313,7 @@ export function createStaticHandler(dirs, opts = {}) {
         if (usedEncoding) headers['Content-Encoding'] = usedEncoding
         if (GZIP_EXTENSIONS.has(ext)) headers['Vary'] = 'Accept-Encoding'
         if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || isRevalidatable || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext)) {
-          headers['ETag'] = (isNodeModulesPath(fpResolved) || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext))
+          headers['ETag'] = (isNodeModulesPath(resolve(fp)) || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext))
             ? `"${contentHashETag(fp, raw, mtime)}"`
             : `"${mtime.toString(16)}"`
           const ifNoneMatch = req.headers['if-none-match']
