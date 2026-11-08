@@ -74,7 +74,7 @@ export class SpatialIndex {
 
   insert(id, position) {
     const px = position[0], py = position[1], pz = position[2]
-    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return
+    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) { this.remove(id); return }
     this._unlink(id)
     const point = [px, py, pz]
     this._entities.set(id, point)
