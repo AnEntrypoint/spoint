@@ -257,6 +257,7 @@ async function main() {
     ['expr-truncation-witness', 'scripts/expr-truncation-witness.mjs', (out) => `check: ${out}`],
     ['chart-wire-input-gating-witness', 'scripts/chart-wire-input-gating-witness.mjs', (out) => `check: ${out}`],
     ['chart-resync-reply-witness', 'scripts/chart-resync-reply-witness.mjs', (out) => `check: ${out}`],
+    ['chart-wire-stats-witness', 'scripts/chart-wire-stats-witness.mjs', (out) => `check: ${out}`],
     ['relocation-search-nodata-witness', 'scripts/relocation-search-nodata-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-decode-witness', 'scripts/input-codec-decode-witness.mjs', (out) => `check: ${out}`],
     ['lockstep-input-delay-witness', 'scripts/lockstep-input-delay-witness.mjs', (out) => `check: ${out}`],

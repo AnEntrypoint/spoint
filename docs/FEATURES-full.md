@@ -1041,7 +1041,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **PROVEN** Authoritative snapshot each tick: seq, tick, serverTime, players and entities in interest, chartEpoch; input acknowledged by a newer snapshot — source `src/sdk/TickHandler.js`, proof `scripts/verify-session.mjs`
 - **PROVEN** Chart re-anchor broadcast to clients across chart epoch switches (CHART_REANCHOR from, to, epoch, ackSeq) — source `src/sdk/chartWire.js`, proof `scripts/planet-multiplayer-harness.mjs`
 - **PROVEN** CHART_REANCHOR resync reply for a stale client epoch (ledger from-chart, or resync:true with current chart) — source `src/sdk/chartWire.js`, proof `scripts/chart-resync-reply-witness.mjs`
-- **UNPROVEN** Chart wire counters (rejectedFuture, rejectedExpired, rejectedTeleports, resyncServed, resyncExpired) via chartWireStatsOf — source `src/sdk/chartWire.js`, proof none
+- **PROVEN** Chart wire counters (rejectedFuture, rejectedExpired, rejectedTeleports, resyncServed, resyncExpired) via chartWireStatsOf — source `src/sdk/chartWire.js`, proof `scripts/chart-wire-stats-witness.mjs`
 - **UNPROVEN** Chart epoch ledger and migrators applied per re-anchor (players, entities, world anchors); a migrator throw stops the tick loop (stopOnFault) — source `src/sdk/chartState/index.js`, proof none
 - **UNPROVEN** Player, entity (with static placement budget) and world-anchor migrator modules — source `src/sdk/chartState/migrateEntities.js`, proof none
 - **PROVEN** Teleport (MSG.TELEPORT op to): place player at target, hold until grounded, reply TELEPORT_ACK; planet harness checks every teleport landed — source `src/sdk/Relocation.js`, proof `scripts/planet-multiplayer-harness.mjs`
