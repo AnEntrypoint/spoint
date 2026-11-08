@@ -1,6 +1,5 @@
-let _nextEntityId = 1
-
 export function createWorld() {
+  let _nextEntityId = 1
   const _entities = new Set()
   const _components = new Map()
   const _systems = []
