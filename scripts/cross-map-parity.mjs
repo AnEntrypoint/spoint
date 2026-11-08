@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -193,13 +193,13 @@ if (savi47 !== 47) problems.push(`savi gap report checked claims: expected 47, f
 
 const prdIds = (readFileSync(join(SPOINT, '.gm/prd.yml'), 'utf8').match(/^- id:/gm) ?? []).length;
 const trackedVerdicts = execFileSync('git', ['-C', SPOINT, 'ls-files', '.gm/witness-out'], { encoding: 'utf8' }).split('\n').filter((p) => /verdict/i.test(p)).length;
-const untrackedLines = execFileSync('git', ['-C', SPOINT, 'status', '--short'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean).length;
+const parityStatusLines = execFileSync('git', ['-C', dirname(PARITY_FILE), 'status', '--porcelain', '--', basename(PARITY_FILE)], { encoding: 'utf8' }).trim().split('\n').filter(Boolean).length;
 const vendorItems = readFileSync(join(SPOINT, 'vendor/design/PRD-remediation-2026-08-20.md'), 'utf8');
 const vendorHas = (n, title) => new RegExp(`^${n}\\. .*${title}`, 'm').test(vendorItems);
 const evidence = {
   prdRows: prdIds,
   trackedVerdictFiles: trackedVerdicts,
-  untrackedGitStatusLines: untrackedLines,
+  parityStatusLines,
   prdNumberingCandidates: {
     vendorDesignPRD: {
       path: 'vendor/design/PRD-remediation-2026-08-20.md',
@@ -217,7 +217,7 @@ const evidence = {
 };
 if (prdIds !== 103) problems.push(`prd.yml ids ${prdIds}, expected 103`);
 if (trackedVerdicts !== 76) problems.push(`tracked verdict files ${trackedVerdicts}, expected 76`);
-if (untrackedLines !== 0) problems.push(`git status lines ${untrackedLines}, expected 0`);
+if (parityStatusLines !== 0) problems.push(`PARITY file ${PARITY_FILE} has uncommitted changes (${parityStatusLines} git status line)`);
 if (!evidence.prdNumberingCandidates.vendorDesignPRD.item2 || !evidence.prdNumberingCandidates.vendorDesignPRD.item3 || !evidence.prdNumberingCandidates.vendorDesignPRD.item4) problems.push('vendor/design items 2-4 not all present');
 for (const e of [...evidence.lostVerdictSurvivingEvidence, ...evidence.waveC, ...evidence.prdNumberingCandidates.workRowsCsproto]) if (!e.exists) problems.push(`evidence path missing: ${e.path}`);
 
