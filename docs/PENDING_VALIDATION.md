@@ -37,6 +37,22 @@ Each change below is listed with its file, its row or phase, and the witness tha
 | Row 7, character controller (released; not implementable here) | Not changed in spoint. The row says porting `CharacterManager` (a Jolt wrapper) is an owner decision and jayzee has no Jolt backend. Releasing the hold does not make that decision. | none | none (jayzee-side) |
 | Row 44, protocol codecs (released; jayzee-side) | Not changed in spoint. The row's open items are jayzee's msgpackr-backed wire and byte compatibility, not a spoint defect. | none | none (jayzee-side) |
 
+## Phase B results for the decisions pass
+
+Run on commit `02dab97` (the decisions pass) with the final code. Exit codes are the process exit codes; the RESULT lines are the witnesses' own.
+
+- `node scripts/session-ttl-config-witness.mjs`: `12/12 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/session-store-ttl-witness.mjs`: `7/7 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/world-persistence-fingerprint-witness.mjs`: `10/10 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/prediction-reconcile-witness.mjs`: `22/22 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/snapshot-lod-tiers-witness.mjs`: `9/9 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/resolve-delivered-ids-witness.mjs`: `10/10 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/corridor-budget-witness.mjs`: `8/8 checks passed`, `RESULT: PASS`, exit 0.
+- `node scripts/chart-reanchor-wire-harness.mjs`: exit 0, prints its `RESULT_JSON` block (no `RESULT:` line of its own).
+- `node scripts/groundy-replay-witness.mjs` (15 runs, final code, run before this pass): `RESULT: FAIL`, exit 1, 68 of 98 mover replays over 1 cm in 15 of 15 runs, none with a `groundY` gap. Its control `--control`: `RESULT: PASS`, exit 0, 42 of 66 replays carrying the injected gap over 1 cm.
+- `node scripts/crowd-dot-render-witness.mjs`: not run. It needs a headful browser, and it is the witness the dot-look open item depends on.
+- `npm run check`: exit 0, 135 `RESULT: PASS`, 0 `RESULT: FAIL`.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.
