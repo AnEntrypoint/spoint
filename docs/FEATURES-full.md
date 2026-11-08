@@ -1037,7 +1037,7 @@ Notes marked **Verifier note** are corrections or partial-coverage caveats that 
 - **UNPROVEN** Nostr challenge-response admission: NOSTR_AUTH_CHALLENGE, NIP-98 kind 27235 signature check, 15 s timeout — source `src/sdk/NostrAuthServer.js`, proof none
 - **UNPROVEN** Socket editor auth: AUTH_EDITOR compared timing-safely to EDITOR_TOKEN; editor message types refused for non-editors — source `src/sdk/ServerHandlers.js`, proof none
 - **PROVEN** Client input ingest: rate limit, schema decode, ack-sequence, queued per player; malformed or legacy payloads answered PROTOCOL_MISMATCH and closed — source `src/sdk/ServerHandlers.js`, proof `scripts/verify-session.mjs`
-- **UNPROVEN** Chart-epoch gating of input packets: stale input re-expressed, future epoch dropped, counters kept — source `src/sdk/chartWire.js`, proof none
+- **PROVEN** Chart-epoch gating of input packets: stale input re-expressed, future epoch dropped, counters kept — source `src/sdk/chartWire.js`, proof `scripts/chart-wire-input-gating-witness.mjs`
 - **PROVEN** Authoritative snapshot each tick: seq, tick, serverTime, players and entities in interest, chartEpoch; input acknowledged by a newer snapshot — source `src/sdk/TickHandler.js`, proof `scripts/verify-session.mjs`
 - **PROVEN** Chart re-anchor broadcast to clients across chart epoch switches (CHART_REANCHOR from, to, epoch, ackSeq) — source `src/sdk/chartWire.js`, proof `scripts/planet-multiplayer-harness.mjs`
 - **UNPROVEN** CHART_REANCHOR resync reply for a stale client epoch (ledger from-chart, or resync:true with current chart) — source `src/sdk/chartWire.js`, proof none
