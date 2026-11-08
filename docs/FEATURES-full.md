@@ -1,0 +1,1118 @@
+# spoint feature list
+
+Every feature the spoint verifier inventory found, one line each, with its implementation path, its proof path and its status. This is the reference for jayzee's IDEAL.md: jayzee's IDEAL.md should cite these rows by feature name and proof path. The committed 176-row table at docs/FEATURES.md is a separate, earlier view and is not superseded by this file.
+
+Generated from a read-only inventory at HEAD on 2026-11-08. Each row was produced by one agent per source area and then checked by a second agent that ran `git ls-files` and `git grep` on every path it kept.
+
+## Status
+
+- **PROVEN**: a tracked witness under `scripts/` names the feature's symbol or string AND prints a `RESULT:` line. This means the feature is exercised by a witness. It does not mean every branch of the feature is covered; rows the verifier narrowed are marked with a note.
+- **UNPROVEN**: no tracked witness references the feature. The feature exists in code but nothing in the repo asserts it.
+- **HELD**: an owner decision not yet made. No row carries this status.
+
+Totals: 1067 features, 223 PROVEN, 844 UNPROVEN.
+
+Notes marked **Verifier note** are corrections or partial-coverage caveats that the verifier attached to a row.
+
+## packages/streaming-gltf and packages/ecs
+
+- **UNPROVEN** ECS entity lifecycle: createEntity takes an auto or explicit numeric id and advances the id counter; destroyEntity removes the entity from every component store — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS component store: addComponent refuses a missing entity; getComponent, hasComponent and removeComponent operate per entity and name — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS enumeration: entities(), entitiesWith(name), componentNames(), entityCount getter — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS tags: addTag, removeTag, hasTag, entitiesWithTag as boolean-true components — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS prefab instancing: createPrefab builds an entity from components, tags and child specs, with per-component shallow overrides — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS system registry: registerSystem orders systems by priority, update(dt) runs them, and the returned handle unregisters — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS world destruction: destroy() sets a destroyed flag, createEntity and createPrefab throw once destroyed, and update becomes a no-op — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS snapshot and restore of entity ids and component maps as plain objects — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS change version counter (version getter) bumped by entity and component mutations, used as the query cache key — source `packages/ecs/src/world.js`, proof none
+- **UNPROVEN** ECS query filters: has (all), hasAny (at least one) and not (none) component names — source `packages/ecs/src/query.js`, proof none
+- **UNPROVEN** ECS query cache: refresh, changed, count and get reuse a result list until the world version moves — source `packages/ecs/src/query.js`, proof none
+- **UNPROVEN** ECS query iteration: Symbol.iterator, entries() yielding component payloads, and forEach(fn) — source `packages/ecs/src/query.js`, proof none
+- **UNPROVEN** ECS package surface: root export and ./world, ./query and wildcard subpath exports, consumed through the @spoint/ecs import map — source `packages/ecs/package.json`, proof none
+- **UNPROVEN** streaming-gltf root exports: ModelPool, ensureSharedKtx2Loader, ClusterLodMesh, attachClusterLod, buildClusterLod, buildClusterLodExtra, parseClusterLod, CLUSTER_LOD_EXTRA_KEY — source `packages/streaming-gltf/index.js`, proof none
+- **UNPROVEN** streaming-gltf subpath exports (model-pool, draco-loader, cluster-lod-mesh, meshlet-codec, occlusion-query-tier, webgpu-hiz-tier, octahedral-impostor-ez, octahedral-impostor-display-tsl, bake) with the bake subpath consumed by src/static/ProgressiveBake.js — source `packages/streaming-gltf/package.json`, proof none
+- **UNPROVEN** EP_cluster_lod bake: spatially coherent meshlets (<=128 triangles) with UV-aware LOD hierarchy via simplifyWithAttributes and LockBorder — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Bake output contract: primitive.indices holds LOD0, coarse LOD indices live in a sidecar accessor named by extras, and stock viewers render the full mesh — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Bake encoding: EXT_meshopt_compression FILTER write (lossless, no reorder) — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Bake encoding: dedup-only transforms — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Bake encoding: removal of KHR_draco_mesh_compression — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Skinned and morph-target primitives bake to discrete mesh LOD siblings (ratios 0.4 and 0.15) declared in EP_progressive_lod — source `packages/streaming-gltf/tools/bake-cluster.mjs`, proof none
+- **UNPROVEN** Corpus bake: walks the assets manifest, bakes each source to a cluster GLB and writes manifest.cluster.json — source `packages/streaming-gltf/tools/bake-cluster-corpus.mjs`, proof none
+- **UNPROVEN** Spatial tile split: splits a large GLB into an X/Z tile grid, cluster-bakes each tile and writes a tiles.json index — source `packages/streaming-gltf/tools/spatial-split.mjs`, proof none
+- **UNPROVEN** EP_progressive_lod conformance validator: extracts GLB JSON and runs a structural check — source `packages/streaming-gltf/tools/validate-extension.mjs`, proof none
+- **UNPROVEN** Cluster codec: buildClusterLod, buildClusterLodExtra, parseClusterLod, lod0OnlyClusterLodExtras, CLUSTER_LOD_VERSION (2) and CLUSTER_LOD_EXTRA_KEY — source `packages/streaming-gltf/src/meshlet-codec.js`, proof none
+- **UNPROVEN** Input validation at the codec and runtime boundary (parseClusterLod, attachClusterLod, spawn, bakeCluster) with clearer errors for malformed GLB responses — source `packages/streaming-gltf/src/meshlet-codec.js`, proof none
+- **UNPROVEN** Degenerate triangle handling: triangleArea, dropDegenerateTriangles, collapseDegenerateTriangles and collapseFanTriangles — source `packages/streaming-gltf/src/degenerate-triangles.js`, proof none
+- **UNPROVEN** Triangle-cap grid decimation: gridDecimate over attributes and applyGridDecimate on a geometry — source `packages/streaming-gltf/src/grid-decimate.js`, proof none
+- **UNPROVEN** Per-cluster runtime mesh: ClusterLodMesh frustum-culls clusters by bounding sphere, picks LOD by projected size with hysteresis, and draws geometry groups (one drawElements per group) with a LOD0 fallback group — source `packages/streaming-gltf/src/cluster-lod-mesh.js`, proof none
+- **UNPROVEN** attachClusterLod: binds parsed cluster extras and a coarse index array to a geometry, with optional world matrices — source `packages/streaming-gltf/src/cluster-lod-mesh.js`, proof none
+- **UNPROVEN** ModelPool: spawn, update, setTarget (timed interpolation to a position), and idempotent dispose for entities and assets — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** Cluster entities bypass the discrete LOD machinery and self-drive their LOD from the camera in onBeforeRender — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** FPS controller: targetFps (default 50) scales the LOD distance (_lodDistanceScale) and sets per-frame drain budgets for impostor baking and cluster builds — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** Shared KTX2 loader: ensureSharedKtx2Loader installs one KTX2Loader per renderer for KHR_texture_basisu transcoding — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** Device-tier KTX2 mip cap: maxTexDimForDeviceTier, capKtx2Levels and applyKtx2DeviceTierCap — source `packages/streaming-gltf/src/ktx2-mip-cap.js`, proof none
+- **UNPROVEN** Device-tier anisotropy cap (_capAnisotropyByDeviceTier) applied to pooled textures — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** Draco decode without WASM or CDN through the vendored draco.js port — source `packages/streaming-gltf/src/draco-loader.js`, proof none
+- **UNPROVEN** Off-thread LOD worker: geometry-only GLTF decode in a module worker, with bare specifier remap through the page importmap — source `packages/streaming-gltf/src/lod-worker.js`, proof none
+- **UNPROVEN** Deferred load queue (DeferredLoadQueue) for throttled asset loads — source `packages/streaming-gltf/src/deferred-load-queue.js`, proof none
+- **UNPROVEN** LOD unload manager (LodUnloadManager) releasing unused LOD levels — source `packages/streaming-gltf/src/lod-unload-manager.js`, proof none
+- **UNPROVEN** Cached frustum planes (CachedFrustumPlanes) for per-frame culling reuse — source `packages/streaming-gltf/src/frustum-cache.js`, proof none
+- **UNPROVEN** WebGL2 occlusion query tier (OcclusionQueryTier): entity-level ANY_SAMPLES_PASSED_CONSERVATIVE queries, one frame latency, fail-open verdicts, opt-in useOcclusionQuery — source `packages/streaming-gltf/src/occlusion-query-tier.js`, proof none
+- **UNPROVEN** WebGPU per-cluster GPU frustum and HiZ occlusion cull (WebGpuHizTier, CULL_LOD_WGSL) emitting indirect draws, with indirect attach refused on compact meshes — source `packages/streaming-gltf/src/webgpu-hiz-tier.js`, proof none
+- **UNPROVEN** HZB pyramid build: reduce-with-max mip chain, single-sample and MSAA seed shaders — source `packages/streaming-gltf/src/webgpu-hiz-shaders.js`, proof none
+- **UNPROVEN** WebGPU entity-level occlusion: runQueries builds the pyramid and isOccluded reads the last verdict (ENTITY_HZB_WGSL) — source `packages/streaming-gltf/src/webgpu-hiz-tier.js`, proof none
+- **UNPROVEN** Scoped WebGPU pipeline validation: createPipelineScoped and WebGPUPipelineError (reasonCode webgpu-pipeline-invalid) refuse an invalid pipeline — source `packages/streaming-gltf/src/webgpu-hiz-tier.js`, proof none
+- **UNPROVEN** BatchedMesh far tier collapsing many distinct models into one draw (BatchedFarTier, opt-in useBatchedFarTier) — source `packages/streaming-gltf/src/batched-far-tier.js`, proof none
+- **UNPROVEN** Far-tier TSL material with texture lerp (makeBatchedFarTierMaterialTSL) — source `packages/streaming-gltf/src/batched-far-tier-tsl.js`, proof none
+- **UNPROVEN** Global material pool (GLSL path): GlobalMaterialPool dedupes materials across assets — source `packages/streaming-gltf/src/material-pool.js`, proof none
+- **UNPROVEN** Global material pool (TSL path): GlobalMaterialPoolTSL selected when the renderer is WebGPU — source `packages/streaming-gltf/src/material-poolTSL.js`, proof none
+- **UNPROVEN** Material bucket batching by render signature (MaterialBucketBatcher, renderSignature) — source `packages/streaming-gltf/src/material-bucket-batcher.js`, proof none
+- **UNPROVEN** Cluster mesh merge by material (mergeClusterMeshesByMaterial) — source `packages/streaming-gltf/src/cluster-material-merge.js`, proof none
+- **UNPROVEN** Material convergence reporting (materialConvergenceReport, stampMaterialBucketKeys, corpusMaterialConvergence) — source `packages/streaming-gltf/src/material-convergence.js`, proof none
+- **UNPROVEN** Trivial material variant collapse (collapseTrivialMaterialVariants) — source `packages/streaming-gltf/src/material-convergence.js`, proof none
+- **UNPROVEN** Low-tier material swap: shouldSwapMaterials, shouldStripNormalMaps and applyLowTierMaterials — source `packages/streaming-gltf/src/material-tier-swap.js`, proof none
+- **UNPROVEN** Texture array atlas: buildTextureArray, buildArrayMaterial, tagGeometryLayer and isArrayAtlasCandidate — source `packages/streaming-gltf/src/texture-array-atlas.js`, proof none
+- **UNPROVEN** TSL texture array material (buildArrayMaterialTSL) — source `packages/streaming-gltf/src/texture-array-atlasTSL.js`, proof none
+- **UNPROVEN** Instanced slots per asset mesh (InstancedSlot, Emitter, _patchInstancedSlotMaterial) — source `packages/streaming-gltf/src/model-pool-instanced-slot.js`, proof none
+- **UNPROVEN** GPU instanced-slot frustum cull in TSL (createInstancedSlotCullTSL, applyInstancedSlotCullPositionNode, syncInstancedSlotCullBounds) — source `packages/streaming-gltf/src/instanced-slot-cull-tsl.js`, proof none
+- **UNPROVEN** Octahedral impostor final LOD: on-the-fly atlas render, incremental cell budget and capped asset count (OctahedralImpostorEzTier, opt-in useImpostorFinalLod) — source `packages/streaming-gltf/src/octahedral-impostor-ez-tier.js`, proof none
+- **UNPROVEN** Octahedral atlas primitives: createAtlasRenderTarget, renderAtlasCells, createTextureAtlas, createOctahedralImpostorMaterial, octaGridToDir and hemiOctaGridToDir — source `packages/streaming-gltf/src/octahedral-impostor-ez.js`, proof none
+- **UNPROVEN** Lit octahedral impostor display material in TSL (blends the three nearest captured views) — source `packages/streaming-gltf/src/octahedral-impostor-display-tsl.js`, proof none
+- **UNPROVEN** Impostor capture material in TSL (makeImpostorCaptureMaterialTSL) for the atlas render pass — source `packages/streaming-gltf/src/octahedral-impostor-display-tsl.js`, proof none
+- **UNPROVEN** Dithered mesh-to-impostor crossfade (impostorFade, impostorFadeBandPx) — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** VRM avatars: VRMLoaderPlugin registration, independent VRM re-parse per driven entity with at most 4 concurrent parses, and deepDispose on entity dispose — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** Skinned discrete LOD sibling swap: runtime applies sibling geometry onto the root skeleton from EP_progressive_lod — source `packages/streaming-gltf/src/model-pool.js`, proof none
+- **UNPROVEN** TSL vertex colour node material (createVertexColorNodeMaterial) — source `packages/streaming-gltf/src/model-poolTSL.js`, proof none
+
+## src/behaviours and src/shared/fire and src/fluid and src/vegetation and src/effects and src/pathfinding and src/procgen
+
+- **PROVEN** defineCombat refuses invalid spec fields (define-spec-invalid-field) at the boundary — source `src/behaviours/combat.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **UNPROVEN** defineCombat shooter loop: spawn points, health, ammo and reload, respawn invulnerability, powerups, lag-compensated hit path — source `src/behaviours/combat.js`, proof none — **Verifier note:** Row bundles at least six separate features; it should be split. Stays UNPROVEN with proofPath empty, which matches the evidence (only define-spec-coverage-witness.mjs touches defineCombat, for spec refusal).
+- **UNPROVEN** readHealth and DEFAULT_COMBAT / UNKNOWN_HEALTH health-state reader — source `src/behaviours/combat.js`, proof none
+- **PROVEN** defineHealth health component schema and spec refusal — source `src/behaviours/health.js`, proof `scripts/define-spec-boundary-witness.mjs` — **Verifier note:** Row bundles the health component schema with spec refusal, and HEALTH_SCHEMA has its own UNPROVEN row. Should be split. PROVEN status holds for the refusal half (define-spec-boundary-witness.mjs RESULT: PASS).
+- **UNPROVEN** HEALTH_SCHEMA component schema — source `src/behaviours/health.js`, proof none
+- **PROVEN** defineWeapon refuses unknown keys, NaN damage, zero range and non-numeric headshotMultiplier; accepts an empty spec — source `src/behaviours/weapon.js`, proof `scripts/define-spec-boundary-witness.mjs`
+- **PROVEN** definePickup requires onCollect and refuses a spec without it — source `src/behaviours/pickup.js`, proof `scripts/define-spec-boundary-witness.mjs`
+- **PROVEN** defineTeams validates the teams array and scoreLimit, accepts null scoreLimit, refuses unknown keys — source `src/behaviours/teams.js`, proof `scripts/define-spec-boundary-witness.mjs`
+- **UNPROVEN** COLORBLIND_SAFE_PALETTE team colour palette — source `src/behaviours/teams.js`, proof none
+- **PROVEN** defineBuoyancy validates halfHeight and floatFactor and refuses invalid fields — source `src/behaviours/buoyancy.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **PROVEN** defineCheckpoint validates nested checkpoints[].radius at the boundary (negative, zero, non-finite, wrong-type, null refuse by code) — source `src/behaviours/checkpoint.js`, proof `scripts/checkpoint-nested-radius-witness.mjs`
+- **PROVEN** definePath open and closed 3-point paths, within and beyond cutoffs, wrap-around indices, handle members, coded refusals — source `src/behaviours/path.js`, proof `scripts/path-handle-witness.mjs`
+- **PROVEN** parseDefineSpec, assertDefineSpecKeys and DEFINE_SPEC_SCHEMAS: shared spec boundary that refuses unknown, hidden and symbol keys by code for every ctx.define* factory — source `src/behaviours/specBoundary.js`, proof `scripts/define-spec-shape-witness.mjs`
+- **PROVEN** assertDefineNumber and DEFINE_SPEC_KEYS: numeric bounds check and per-factory key table covering every factory — source `src/behaviours/specBoundary.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **UNPROVEN** defineSteering: steering with arrive radius, separation, terrain clamp and nav-cost weighting (navCostAt) — source `src/behaviours/steering.js`, proof none
+- **UNPROVEN** defineGameFSM: declarative xstate-5 game-state machine with guards, after timers, send and can, and build-time spec refusal (GameFSMError) — source `src/behaviours/game-fsm.js`, proof none
+- **UNPROVEN** defineGameMode: lobby, warmup, rounds and end-of-game skeleton — source `src/behaviours/gamemode.js`, proof none
+- **UNPROVEN** defineShrinkingZone: phased shrinking play zone with phase-change callbacks — source `src/behaviours/shrinking-zone.js`, proof none
+- **UNPROVEN** createBuffStack: clamped stacking buffs — source `src/behaviours/buffs.js`, proof none
+- **UNPROVEN** definePlayerInventory: item stacks and percent-based drop on death — source `src/behaviours/inventory.js`, proof none
+- **UNPROVEN** defineCameraRig: orbit, chase, firstPerson, cutscene and custom camera layers — source `src/behaviours/cameraRig.js`, proof none
+- **UNPROVEN** createDestructible with validateDestructibleSpec, resolveDebrisImpulsePattern and jitter: breakable props and debris impulses — source `src/behaviours/destructible.js`, proof none
+- **UNPROVEN** createSoftbodyCloth: Rapier-backed softbody cloth — source `src/behaviours/softbody.js`, proof none
+- **UNPROVEN** createFluidBody: 2D SPH fluid body bound to an entity (seed, emit, boundary, re-anchor transfer) — source `src/behaviours/fluid.js`, proof none
+- **UNPROVEN** createFluid3DBody: 3D SPH fluid body — source `src/behaviours/fluid3d.js`, proof none
+- **PROVEN** createTriggerVolume: enter and exit events, linked-state writes, re-arm suppression, coded refusals — source `src/behaviours/triggerVolume.js`, proof `scripts/trigger-volume-witness.mjs`
+- **PROVEN** stepProjectile and sweepProjectileGravity: gravity per substep, substep ray sweeps, coded refusals — source `src/behaviours/projectileGravity.js`, proof `scripts/projectile-gravity-witness.mjs`
+- **UNPROVEN** sweepProjectile: non-gravity swept projectile against a raycast — source `src/behaviours/projectile.js`, proof none
+- **PROVEN** createSplineRegistry: open and closed Catmull-Rom splines, arc-length framing, segment and multi-spline projection, rotation frames, coded refusals — source `src/behaviours/spline.js`, proof `scripts/spline-witness.mjs`
+- **PROVEN** settleTrade and createTradeBook: two-sided trade settles atomically only after both acceptances, never mutates inputs, refuses by code — source `src/behaviours/trade.js`, proof `scripts/two-sided-trade-witness.mjs`
+- **PROVEN** createDecisionRuntime: per-entity cadence, no-players gate, ask failure, duplicate and cap refusals, named callbacks — source `src/behaviours/decisionRuntime.js`, proof `scripts/decision-runtime-witness.mjs`
+- **UNPROVEN** createDecisionPipe, validateQuestions, normalizeAnswers and sampleAnswer: question validation, answer normalisation and weighted answer sampling — source `src/behaviours/decisionPipe.js`, proof none
+- **PROVEN** parseVibe: parses a vibe pattern against a sample manifest, swing, bpm and beat refusals by code — source `src/behaviours/vibe.js`, proof `scripts/vibe-pattern-witness.mjs`
+- **PROVEN** eventsBetween: the event list for a beat window from a parsed pattern — source `src/behaviours/vibe.js`, proof `scripts/vibe-event-list-witness.mjs`
+- **PROVEN** ctx.vibe: stores the parsed pattern on the entity custom block and refuses an unknown sample while keeping the previous pattern — source `src/behaviours/vibe.js`, proof `scripts/ctx-vibe-witness.mjs` — **Verifier note:** sourcePath is src/behaviours/vibe.js, but the witness (scripts/ctx-vibe-witness.mjs:6) checks AppContext.prototype.vibe, so the ctx wiring lives in src/apps/AppContext.js. The proof is valid; the sourcePath should name the file that defines the ctx method, or the row should cite both.
+- **PROVEN** createVoxelPart: voxel grid set and get, fill, hollow walls, sphere clipping, palette, coded refusals — source `src/behaviours/voxels.js`, proof `scripts/voxels-witness.mjs`
+- **PROVEN** restore(record): RLE voxel record round trip — source `src/behaviours/voxels.js`, proof `scripts/voxels-witness.mjs` — **Verifier note:** Row duplicates the createVoxelPart row's proof. scripts/voxels-witness.mjs does exercise restore (lines 125-126, 136, 143) and prints RESULT: PASS with 'RLE round trip' (line 213). PROVEN holds; the row is distinct from the createVoxelPart row, so no split is needed.
+- **UNPROVEN** createFireGameplay: burning damage ticks, smoke depth, ray and sight blocking for fire — source `src/behaviours/fireGameplay.js`, proof none
+- **UNPROVEN** createFireWeather: weather reading contract (rain and snow, dry-other, no-weather, unreadable-weather) — source `src/behaviours/fireWeather.js`, proof none
+- **UNPROVEN** createFirebreakFuel: firebreak fuel classes from road, river and water; refused when a sampler is missing — source `src/behaviours/fireTerrain.js`, proof none
+- **UNPROVEN** resolveFireSpec and DEFAULT_FIRE, DEFAULT_FIRE_CLASSES, DEFAULT_FIRE_GAMEPLAY, DEFAULT_FIRE_WEATHER: fire spec defaults and validation — source `src/behaviours/fireSpec.js`, proof none
+- **UNPROVEN** defineFire lifecycle: ignite, igniteArea, extinguish, explode, setWind, setRain, setMoisture, stateAt, stageMap, sightBlocked — source `src/behaviours/fire.js`, proof none — **Verifier note:** Row bundles many methods into one feature. Still UNPROVEN, correctly. Note that scripts/lib/verify-doc-claims.mjs matches defineFire only as a doc-claim check.
+- **UNPROVEN** defineFire multiplayer applyRemote: keyframe adopt, checksum comparison, resync requests, authority and mirror roles — source `src/behaviours/fire.js`, proof none
+- **UNPROVEN** fireKernel: integer-only hash-seeded fire spread (burnCell, wind-weighted neighbours, scars, regrowth, extinguish, ignite) — source `src/shared/fire/fireKernel.js`, proof none — **Verifier note:** burnCell is an inner function of createFireKernel in src/shared/fire/fireKernel.js (line 732), not an export. The symbol grep therefore matches only internal use. The row is UNPROVEN and the sourcePath is correct.
+- **UNPROVEN** fireKernel snapshot, restore and checksum with undo-delta rewind — source `src/shared/fire/fireKernel.js`, proof none
+- **UNPROVEN** fireTimeline: keyframe adopt, submit, rewind-and-resimulate, checksum against authority — source `src/shared/fire/fireTimeline.js`, proof none
+- **UNPROVEN** fireKeyframe: encode and decode a fire snapshot with base64 transport; a tampered keyframe is rejected at decode — source `src/shared/fire/fireKeyframe.js`, proof none
+- **UNPROVEN** validateFireSnapshot: snapshot array-length and scar-count checks that refuse a short restore — source `src/shared/fire/fireKeyframe.js`, proof none
+- **UNPROVEN** fireWire: encode and decode fire event rows with bounded radii, sequence range and per-message row cap — source `src/shared/fire/fireWire.js`, proof none
+- **UNPROVEN** createFireLattice: placement cell lattice with cellOfDir, cellOfPlacementId and eight neighbour directions — source `src/shared/fire/fireLattice.js`, proof none
+- **UNPROVEN** createFireStageMap and burnMaskWindow: per-face burn-state tiles for rendering — source `src/shared/fire/fireStageMap.js`, proof none
+- **UNPROVEN** rayOpticalDepth and sampledOpticalDepth: smoke optical depth along a ray through the fire lattice — source `src/shared/fire/fireQueries.js`, proof none
+- **UNPROVEN** createWindField: base wind plus hash-seeded gust, clamped per axis — source `src/shared/fire/fireWind.js`, proof none
+- **UNPROVEN** ctx.navCostAt: fire-based nav cost (burning 8, charred 2) for pathing and steering — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** createFluid 2D SPH solver (WASM): addParticle, step, density, pressure readback — source `src/fluid/SPHSolver.js`, proof none — **Verifier note:** Row names createFluid, which is not exported from src/fluid/SPHSolver.js. That file exports class SPHSolver. The name in the row should be corrected to SPHSolver. Status UNPROVEN holds: no scripts/ hit for SPHSolver.
+- **UNPROVEN** 3D SPH solver (WASM): addParticle, step, density, pressure readback — source `src/fluid/SPHSolver3D.js`, proof none
+- **PROVEN** createCrownLayout: crown card layout clears the head, inherits crown normal, mixes size and tilt, refuses by code; CROWN_SHAPES — source `src/vegetation/crownCards.js`, proof `scripts/crown-card-layout-witness.mjs`
+- **PROVEN** createLeafSprayTexture: leaf spray alpha texture reaches coverage target, is deterministic, refuses by code; LEAF_SPECIES — source `src/vegetation/leafSprayTexture.js`, proof `scripts/leaf-spray-texture-witness.mjs`
+- **UNPROVEN** createDamageEffects: hit screen shake and hit sound with toggles — source `src/effects/DamageEffects.js`, proof none
+- **UNPROVEN** parseFxProgram: validated JSON particle program (populations, seed, velocity, accelerate) with coded FxProgramError refusals — source `src/effects/fxProgram.js`, proof none
+- **UNPROVEN** createFxSimulation: deterministic particle simulation (hash emit, integrate, drag, snapshot) — source `src/effects/fxProgram.js`, proof none
+- **UNPROVEN** NavmeshQuery: findPath and locate over a baked navmesh with corridor search and funnel path — source `src/pathfinding/NavmeshQuery.js`, proof none
+- **UNPROVEN** ChartNavmeshQuery: cross-chart navmesh query through chart transfers — source `src/pathfinding/ChartNavmeshQuery.js`, proof none
+- **UNPROVEN** bakeNavmesh: Recast solo navmesh bake from triangle soup with agent defaults and polygon JSON output — source `src/pathfinding/RecastIntegration.js`, proof none — **Verifier note:** scripts/bake-navmesh.mjs calls bakeNavmesh (line 59) but prints no RESULT: line; its only output is Wrote and failure lines (lines 58-66). Status UNPROVEN holds. Adding a RESULT-printing witness would make this row provable.
+- **UNPROVEN** ringTurning: polygon ring winding helper used by the navmesh bake — source `src/pathfinding/RecastIntegration.js`, proof none
+- **PROVEN** findPathWithStatus: ok, partial and unreachable status, nearest-reachable cutoff, coded failures — source `src/pathfinding/findPathStatus.js`, proof `scripts/find-path-status-witness.mjs`
+- **PROVEN** findCostCorridor: cost-weighted corridor that detours around burning cells, with budget, ignore, unreachable and array-node cases and coded refusals — source `src/pathfinding/costCorridor.js`, proof `scripts/nav-cost-witness.mjs`
+- **UNPROVEN** expandLSystem, interpretTurtle, generateLSystemTree and PRESETS: L-system expansion and turtle geometry — source `src/procgen/LSystem.js`, proof none
+- **UNPROVEN** createNoise2D and createFbm2D: seeded 2D noise and fractal Brownian motion — source `src/procgen/NoiseTerrain.js`, proof none
+- **UNPROVEN** generateHeightfield: procedural noise heightfield generator — source `src/procgen/NoiseTerrain.js`, proof none
+- **UNPROVEN** procgen createHeightSampler: heightfield sampler from NoiseTerrain.js — source `src/procgen/NoiseTerrain.js`, proof none
+- **UNPROVEN** paintTexture: procedural RGBA texture painting from a paint callback with fbm noise input — source `src/procgen/TextureScript.js`, proof none
+- **UNPROVEN** runWFC, runWFCWithRetries and rulesFromSockets: wave function collapse grid layout with retries — source `src/procgen/WFC.js`, proof none
+
+## src/physics, src/spatial, src/stage, src/storage, src/transport, src/connection, src/interaction, src/editor, src/debug
+
+- **PROVEN** World enforces configured Jolt body, body-pair and contact limits (joltLimits) and asserts live bodies stay under maxBodies — source `src/physics/World.js`, proof `scripts/cluster-world-harness.mjs` — **Verifier note:** Row bundles two features. scripts/cluster-world-harness.mjs proves only the body limit (expect at :407, n <= maxBodies). Nothing in scripts/ references a body-pair limit or the contact-constraint limit ('contact constraint limit' has zero hits), so the PROVEN status overstates the row. Split or narrow the row.
+- **PROVEN** World reports the fixed wasm heap (wasmHeapBytes) and checks every cluster world fits and no world drains it — source `src/physics/World.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** World.terrainHeightAt returns ground height at (x,z) used as the terrain oracle for multiplayer ground checks — source `src/physics/World.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **PROVEN** Connected players are registered as physics characters (World.characters count matches census clients) — source `src/physics/CharacterManager.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** CharacterManager character controller (ground normal, wall planes, crouch, velocity and position read/write, snapshot and restore) — source `src/physics/CharacterManager.js`, proof none
+- **UNPROVEN** Body recreation when motion type changes: setBodyMotionType returns a new body id or false, recreateBodyWithMotionType refuses constrained or mesh-shaped bodies — source `src/physics/World.js`, proof none
+- **UNPROVEN** Pooled dynamic body parking and revival (removeBody parks into _bodyPool, _revivePooledBody resets on reuse) — source `src/physics/World.js`, proof none
+- **UNPROVEN** Deferred body add/remove queue (enqueueAdd, enqueueRemove, drainBodyQueue) — source `src/physics/World.js`, proof none
+- **UNPROVEN** Body-limit refusal: _addBody throws when resident bodies reach maxBodies instead of accepting an invalid Jolt body id — source `src/physics/World.js`, proof none
+- **UNPROVEN** Contact-constraint refusal: step throws when live manifolds exceed maxContactConstraints — source `src/physics/World.js`, proof none
+- **UNPROVEN** Body and character state snapshot and restore (snapshotBodies/restoreBodies, snapshotCharacters/restoreCharacters) for rollback — source `src/physics/World.js`, proof none
+- **UNPROVEN** Exact physics state recorder (createStateRecorder, saveExactState, restoreExactState, destroyStateRecorder) — source `src/physics/World.js`, proof none
+- **UNPROVEN** Heightfield collider creation from samples (addHeightField) — source `src/physics/World.js`, proof none
+- **UNPROVEN** Static tile index for static colliders (enableStaticTiles, createStaticTileIndex, STATIC_TILE_M 16 m with margin) — source `src/physics/StaticTileIndex.js`, proof none
+- **UNPROVEN** Dormant statics store (createDormantStatics, World.dormantStatics) — source `src/physics/DormantStatics.js`, proof none
+- **UNPROVEN** Chart-frame creation guard (setChartFrameGuard, creation-frame capture for bodies) — source `src/physics/World.js`, proof none
+- **UNPROVEN** Character chart transfer on re-anchor (CharacterManager.applyChartTransfer) — source `src/physics/CharacterManager.js`, proof none
+- **UNPROVEN** Convex, mesh and trimesh shape building with shape cache (buildConvexShape, buildMeshShape, buildTrimeshShape) — source `src/physics/ShapeBuilder.js`, proof none
+- **UNPROVEN** GLB mesh extraction and node transform composition (GLBLoader, GLBMath) — source `src/physics/GLBLoader.js`, proof none
+- **UNPROVEN** Draco mesh decompression (getDracoDecoder, decompressDracoMesh) — source `src/physics/DracoDecompressor.js`, proof none
+- **UNPROVEN** Meshopt mesh decompression (getMeshoptDecoder, extractMeshWithMeshopt) — source `src/physics/MeshoptDecompressor.js`, proof none
+- **UNPROVEN** Jolt limit resolution and reservation arithmetic with JoltLimitsError refusals (resolveJoltLimits, joltReservationBytes) — source `src/physics/joltLimits.js`, proof none
+- **UNPROVEN** Constraint limit builders (swingTwistLimits, hingeLimits) with ConstraintLimitError refusals — source `src/physics/constraintLimits.js`, proof none
+- **PROVEN** Declarative joint map: handles with anchors, targets and limits, set and remove constraint callbacks, refusal by code (createJointMap, JOINT_TYPES) — source `src/physics/jointMap.js`, proof `scripts/joint-map-witness.mjs`
+- **PROVEN** Hinge pivot transform about an arbitrary point, hinge angle bounds and rider release momentum (pivotTransform, hingeAngle, riderReleaseVelocity) — source `src/physics/pivotTransform.js`, proof `scripts/pivot-riders-witness.mjs`
+- **PROVEN** Conveyor surface velocity in body frame with angular tangential term and slip report (beltVelocity, surfaceVelocityAt) — source `src/physics/surfaceVelocity.js`, proof `scripts/surface-velocity-witness.mjs`
+- **UNPROVEN** Flight model forces and quaternion rotation (flightForces, rotateByQuat) — source `src/physics/FlightModel.js`, proof none
+- **UNPROVEN** Vehicle physics install on the physics world (installVehiclePhysics; tyre curves, suspension springs, differentials) — source `src/physics/VehiclePhysics.js`, proof none
+- **UNPROVEN** SpatialIndex grid insert, update, remove and queries (nearby, nearbyCylinder, nearest, has, getPosition) — source `src/spatial/Octree.js`, proof none
+- **UNPROVEN** Move tolerance skip: update() returns early for moves under MOVE_TOLERANCE_SQ and leaves the mutations counter unchanged — source `src/spatial/Octree.js`, proof none
+- **UNPROVEN** Viewer starvation tracking for spatial entities (markSeen, collectStarved, pruneIdleKeys, clearStarvationKey) — source `src/spatial/Octree.js`, proof none
+- **UNPROVEN** Stage entity registry and relevance queries (addEntity, removeEntity, getRelevantEntities, getRelevantEntitiesHorizontal, getRelevantEntitiesForCell, relevanceRing) — source `src/stage/Stage.js`, proof none
+- **UNPROVEN** StageLoader loadFromDefinition with per-stage config resolution and StageConfigError reasonCode refusals — source `src/stage/StageLoader.js`, proof none
+- **UNPROVEN** Stage shape registry with band-overlap refusal (registerStageShape, resolveStageShape, stageShape) — source `src/stage/stageShapes.js`, proof none
+- **UNPROVEN** Planet radius resolution for flat and cluster stages (planetRadiusMeters, flatPlanetRadius, clusterPlanetRadius) — source `src/stage/planetRadius.js`, proof none
+- **UNPROVEN** IndexedDB storage adapter (get, set, delete, list, has) with open timeout — source `src/storage/IDBAdapter.js`, proof none
+- **UNPROVEN** Filesystem storage adapter under a base directory (FSAdapter, key-to-path mapping, ensureDir) — source `src/storage/FSAdapter.js`, proof none
+- **UNPROVEN** StorageAdapter abstract contract (get, set, delete, list, has throw not implemented) — source `src/storage/StorageAdapter.js`, proof none
+- **UNPROVEN** TransportWrapper send contract: send answers SEND_ACCEPTED or SEND_REJECTED, anything else raises SendContractError — source `src/transport/TransportWrapper.js`, proof none
+- **UNPROVEN** WorkerTransport and PeerTransport post the wire only through postFn and accept Uint8Array or ArrayBuffer only — source `src/transport/WorkerTransport.js`, proof none
+- **UNPROVEN** NetworkSimTransport latency, jitter and loss profiles with range validation and named presets (NETWORK_SIM_PRESETS) — source `src/transport/NetworkSimTransport.js`, proof none
+- **UNPROVEN** TransformRing shared-memory transform ring: writer slot assignment and reader cut-consistent reads with layout validation (assertRingLayout) — source `src/transport/TransformRing.js`, proof none
+- **UNPROVEN** WebSocket client and server transports (WebSocketTransport, WebSocketClientTransport) — source `src/transport/WebSocketTransport.js`, proof none
+- **UNPROVEN** WebTransport client and server transports with support probe and URL derivation (WebTransportServer, WebTransportClientTransport, isWebTransportSupported, deriveWebTransportUrl) — source `src/transport/WebTransportServer.js`, proof none
+- **UNPROVEN** Wireweave room transport and client (createWireweaveClient, getRoomFromHash, send-refused error event) — source `src/transport/WireweaveTransport.js`, proof none
+- **UNPROVEN** ConnectionManager client registry with heartbeat timeout, disconnect events, send, sendNow, broadcast and flush — source `src/connection/ConnectionManager.js`, proof none
+- **PROVEN** Coalesced frames behind the 0xff sentinel with uint32 LE length records (frameCoalesced framing, decoded by the client) — source `src/connection/ConnectionManager.js`, proof `scripts/verify-session.mjs` — **Verifier note:** scripts/verify-session.mjs re-implements splitCoalesced and decodeFrame locally and never references frameCoalesced (src/connection/ConnectionManager.js:10). It proves the wire format, not the source function. Kept PROVEN only on the COALESCE_SENTINEL string match; the witness does not show the sentinel branch is exercised by the live session.
+- **UNPROVEN** SessionStore token sessions with TTL expiry, pin and release, owner rebinding and prototype-pollution key guard — source `src/connection/SessionStore.js`, proof none
+- **UNPROVEN** Branded PlayerOwner tokens (mintPlayerOwner, playerIdOf, isPlayerOwner, UNBOUND_OWNER) refusing non-integer owner ids — source `src/connection/playerOwner.js`, proof none
+- **PROVEN** Press router: nearest camera-facing target within distance and angle limits, with refusal codes (routePress) — source `src/interaction/pressRouter.js`, proof `scripts/press-router-witness.mjs`
+- **PROVEN** Event router: channel subscribe and unsubscribe, emit with recipient routing, onPress hooks (createEventRouter) — source `src/interaction/pressRouter.js`, proof `scripts/press-router-witness.mjs`
+- **UNPROVEN** Inspector debug message channel for message types 100 to 199 with a 1000-message cap per client — source `src/debug/Inspector.js`, proof none
+- **UNPROVEN** EvalDoor evalInRealm: async evaluation in a realm with depth-capped plain serialization of the result — source `src/debug/EvalDoor.js`, proof none
+- **UNPROVEN** CliDebugger structured console logging for spawn, hit, death, state, perf, physics and error events — source `src/debug/CliDebugger.js`, proof none
+- **UNPROVEN** PrefabLibrary: prefab listing and loading from a base directory (createPrefabLibrary) — source `src/editor/PrefabLibrary.js`, proof none
+
+## src/terrain and src/shared
+
+- **PROVEN** PlanetFrame: createPlanetFrame builds the planet frame for a surface chart — source `src/terrain/PlanetFrame.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **PROVEN** PlanetFrame: anchorBasis gives the tangent basis at the chart anchor — source `src/terrain/PlanetFrame.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** PlanetFrame: tangentLocalToDir maps local tangent coordinates to a sphere direction — source `src/terrain/PlanetFrame.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** PlanetFrame: waterlineLocalY gives the sea waterline in local Y — source `src/terrain/PlanetFrame.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **PROVEN** PlanetFrame: groundHeightLocal returns ground height at a local x,z (reference only, memo not asserted) — source `src/terrain/PlanetFrame.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** PlanetFrame: guardedGroundHeight(where, heightFn) converts missing ground into NoGroundHeightError — source `src/terrain/PlanetFrame.js`, proof none
+- **UNPROVEN** PlanetFrame: solveSurfaceY converges to SURFACE_SOLVE_TOLERANCE_M and throws SurfaceSolveError past its evaluation cap — source `src/terrain/PlanetFrame.js`, proof none
+- **UNPROVEN** PlanetFrame: elevationAtLocal returns |p| minus radius — source `src/terrain/PlanetFrame.js`, proof none
+- **UNPROVEN** PlanetFrame: raycastGroundLocal and sphereSurfaceLocalY ground queries — source `src/terrain/PlanetFrame.js`, proof none
+- **UNPROVEN** PlanetFrame: groundMemoStats and surfaceSolveStats expose memo and solve counters — source `src/terrain/PlanetFrame.js`, proof none
+- **UNPROVEN** PlanetFrame: isSurfaceRootWithin and sphereDropBelowTangent surface-root tests — source `src/terrain/PlanetFrame.js`, proof none
+- **PROVEN** PlacementChart: chunkKeyAtLocal maps a local point to its placement chunk key — source `src/terrain/PlacementChart.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **PROVEN** PlacementChart: latticeFor builds the height lattice for a chart — source `src/terrain/PlacementChart.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **PROVEN** PlacementChart: surfaceAlongDir solves the surface height along a direction — source `src/terrain/PlacementChart.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **PROVEN** PlacementChart: radialSlopeAt radial slope used by placement gates (string reference in doc-claim checker) — source `src/terrain/PlacementChart.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **UNPROVEN** PlacementChart: allocation-free tangentFrameInto, radialSlopeInto and quatMulF32Into forms — source `src/terrain/PlacementChart.js`, proof none
+- **UNPROVEN** PlacementChart: tangentFrame, tangentToLocal, chunkBoundsLocal, ringAroundLocal and climateAt helpers — source `src/terrain/PlacementChart.js`, proof none
+- **UNPROVEN** PlacementLattice: createPlacementLattice and cubeFaceOf — source `src/terrain/PlacementLattice.js`, proof none
+- **PROVEN** CubeSphereCells: pickFace and worldToFaceLocal map a world point to cube face and face-local coordinates — source `src/terrain/CubeSphereCells.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** CubeSphereCells: neighborCells, resolveCell, packCellKey and verifyCubeSphereAdjacency — source `src/terrain/CubeSphereCells.js`, proof none
+- **PROVEN** ClimateCache: createCachedAnchorField caches the anchor climate field per sector — source `src/terrain/ClimateCache.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** ColliderStreamer: createColliderStreamer streams collider rings around connected players — source `src/terrain/ColliderStreamer.js`, proof none
+- **PROVEN** ColliderStreamer: classifyRings grades collider rings for farthest-first eviction (string reference in doc-claim checker) — source `src/terrain/ColliderStreamer.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **PROVEN** BiomeOverride: createBiomeOverride builds the biome override field — source `src/terrain/BiomeOverride.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** BiomeOverride: loadBiomeOverride, BIOME_NAMES and BIOME_PRESETS biome preset loading — source `src/terrain/BiomeOverride.js`, proof none
+- **UNPROVEN** BakedSourceAdapter: browserBakedSource and nodeBakedSource load baked terrain sources — source `src/terrain/BakedSourceAdapter.js`, proof none
+- **UNPROVEN** brushStroke: replayStrokes, heightStrokeReplay and biomeStrokeReplay replay terrain paint strokes — source `src/terrain/brushStroke.js`, proof none
+- **UNPROVEN** brushStroke: heightStrokeIsLoadable, biomeStrokeIsLoadable and STROKE_KINDS stroke validation — source `src/terrain/brushStroke.js`, proof none
+- **UNPROVEN** brushResult: brushApplied and brushPrecondition brush result gating — source `src/terrain/brushResult.js`, proof none
+- **UNPROVEN** CavePatches: createSphericalCave, marchCaveSurface and subtractCaveFromHeightfield cave carving on the heightfield — source `src/terrain/CavePatches.js`, proof none
+- **UNPROVEN** CavePatches: sdfSphere, sdfCylinder, sdfTorus, unionSDF signed-distance primitives — source `src/terrain/CavePatches.js`, proof none
+- **UNPROVEN** CaveSDF: createCaveVolume, polygonizeCaveSDF and createCaveCarveLayer cave volume meshing and carve layer — source `src/terrain/CaveSDF.js`, proof none
+- **UNPROVEN** ChartLocalPoint: seaLevelXZOfDir, seaLevelDirOf and reanchoredSeaLevelXZ sea-level chart coordinates — source `src/terrain/ChartLocalPoint.js`, proof none
+- **UNPROVEN** ChartReanchorService: createChartReanchorService terrain-side chart re-anchor service — source `src/terrain/ChartReanchorService.js`, proof none
+- **UNPROVEN** ChartReanchorTerrain: createTerrainReanchor re-anchors terrain state on chart change — source `src/terrain/ChartReanchorTerrain.js`, proof none
+- **UNPROVEN** ContactOcclusionField: contactOcclusionField, createContactField and rock/tree contact stamps — source `src/terrain/ContactOcclusionField.js`, proof none
+- **UNPROVEN** ContactOcclusionField: contactFieldLoadChunk, contactFieldUnloadChunk and contactFieldRecentre chunked contact-field residency — source `src/terrain/ContactOcclusionField.js`, proof none
+- **PROVEN** DecorationLayers: decorateCells and acceptsCell place decoration items on accepted cells — source `src/terrain/DecorationLayers.js`, proof `scripts/decoration-layers-witness.mjs`
+- **PROVEN** DecorationLayers: parseDecorationDef refuses malformed decoration items with DecorationConfigError — source `src/terrain/DecorationLayers.js`, proof `scripts/decoration-item-fields-witness.mjs`
+- **UNPROVEN** FieldLattice: createFieldLattice keeps a height lattice that follows chart tilt, with LATTICE_FOLLOW_TILT_DEG and LATTICE_RESET_FORCED_TILT_DEG thresholds — source `src/terrain/FieldLattice.js`, proof none
+- **UNPROVEN** FieldLattice: tiltDegBetween and RESET_SURFACE_STEP_BOUND_M reset bound — source `src/terrain/FieldLattice.js`, proof none
+- **UNPROVEN** FieldLayers: createFieldLayers named terrain field layer stack — source `src/terrain/FieldLayers.js`, proof none
+- **PROVEN** fieldPaint: createFieldPaint paint-document field store — source `src/terrain/fieldPaint.js`, proof `scripts/field-paint-persist-witness.mjs`
+- **PROVEN** fieldPaint: createHostFieldPaint host-side field paint instance passed to terrain streaming — source `src/terrain/fieldPaint.js`, proof `scripts/appcontext-field-paint-witness.mjs`
+- **PROVEN** fieldPaint: FIELD_LAYER_NAMES and TERRAIN_FIELD_NAMES declared field names — source `src/terrain/fieldPaint.js`, proof `scripts/terrain-field-paint-witness.mjs`
+- **PROVEN** fieldPaint: naturalMaskAt reads the natural mask under paint — source `src/terrain/fieldPaint.js`, proof `scripts/natural-mask-consumer-witness.mjs`
+- **PROVEN** fieldPaint: NATURAL_MASK_FIELD and PAINTED_HEIGHT_FIELD field identifiers used by terrain wiring — source `src/terrain/fieldPaint.js`, proof `scripts/field-paint-terrain-wiring-witness.mjs`
+- **PROVEN** fieldPaint: wrapHeightWithFieldPaint composes paint over the terrain height function — source `src/terrain/fieldPaint.js`, proof `scripts/field-paint-terrain-wiring-witness.mjs`
+- **UNPROVEN** GrassDecal: createGrassDecal and loadGrassDecal grass decal field — source `src/terrain/GrassDecal.js`, proof none
+- **PROVEN** GrassPlacement: placementsForGrassChunk emits grass placements for a chunk — source `src/terrain/GrassPlacement.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **PROVEN** GrassPlacement: GRASS_FOOT_READS foot-read count for a blade height — source `src/terrain/GrassPlacement.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** GrassPlacement: GRASS_DENSITY law with grassDensity, grassKeepFractionAt and grassBladeEdgeM — source `src/terrain/GrassPlacement.js`, proof none
+- **UNPROVEN** GrassPlacement: createGrassChunkCursor incremental chunk cursor — source `src/terrain/GrassPlacement.js`, proof none
+- **UNPROVEN** GrassPlacementLod: createGrassChunkLod and grassBladeReachM grass chunk level-of-detail — source `src/terrain/GrassPlacementLod.js`, proof none
+- **UNPROVEN** HeightDelta: createHeightDelta and loadHeightDelta height-delta edit layer — source `src/terrain/HeightDelta.js`, proof none
+- **PROVEN** HeightfieldStreamer: sampleTerrainGridChunked samples the terrain grid in chunks — source `src/terrain/HeightfieldStreamer.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **UNPROVEN** HeightfieldStreamer: createTerrainStreamer streams terrain tiles with HEIGHTFIELD_REFUSALS refusal codes — source `src/terrain/HeightfieldStreamer.js`, proof none
+- **PROVEN** LatticeSurface: loadLatticeSurface loads the lattice surface for shared placement and mesh — source `src/terrain/LatticeSurface.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **UNPROVEN** LatticeSurface: createBakedHeightField, bakedTerrainMismatch, bakedEpochOf and bakedHashVersionOf baked-field mismatch checks — source `src/terrain/LatticeSurface.js`, proof none
+- **PROVEN** ModelExclusionField: createModelExclusionField removes placed-model footprints (ordinary and interior) from rock, vegetation and grass placement — source `src/terrain/ModelExclusionField.js`, proof `scripts/rock-model-exclusion-witness.mjs`
+- **PROVEN** NearFieldLattice: createNearFieldLattice near-field height lattice around the player — source `src/terrain/NearFieldLattice.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **UNPROVEN** PaintedWeights: paintedWeightsFor and paintedSlopeOf painted surface weights — source `src/terrain/PaintedWeights.js`, proof none
+- **UNPROVEN** ProceduralGeometry: buildProceduralGeometry, validateProgram and seededStream procedural mesh builder — source `src/terrain/ProceduralGeometry.js`, proof none
+- **UNPROVEN** RockPhysics: createRockColliderStreamer, createRockColliderVariants and rockBodyQuat rock collider bodies — source `src/terrain/RockPhysics.js`, proof none
+- **PROVEN** RockPlacement: placementsForRockChunk emits rock placements for a chunk, excluding placed-model footprints — source `src/terrain/RockPlacement.js`, proof `scripts/rock-model-exclusion-witness.mjs`
+- **UNPROVEN** RockPlacement: rockDensity, rockScaleLevel and rockSquashLevel scale and squash tables — source `src/terrain/RockPlacement.js`, proof none
+- **UNPROVEN** RockShapes: generateRockHullData, makeRockSDF and marchRockSurface rock shape generation — source `src/terrain/RockShapes.js`, proof none
+- **UNPROVEN** RockTriTableShared: TRI_TABLE marching-cubes triangle table — source `src/terrain/RockTriTableShared.js`, proof none
+- **UNPROVEN** ScriptMeshCache: createScriptMeshCache and scriptMeshKey script mesh cache with keyed refusal — source `src/terrain/ScriptMeshCache.js`, proof none
+- **UNPROVEN** SplineCarve: carveSpline, sampleSpline, isCarved and createSplineCarveLayer spline terrain carving — source `src/terrain/SplineCarve.js`, proof none
+- **UNPROVEN** SplineCarve: createCarvedClimateFilter climate filter over carved spline areas — source `src/terrain/SplineCarve.js`, proof none
+- **UNPROVEN** StructureStamp: defineStructureTemplate, structureTemplate and stampStructures structure stamping onto terrain — source `src/terrain/StructureStamp.js`, proof none
+- **UNPROVEN** TerrainErosion: hydraulicErode and thermalErode erosion passes — source `src/terrain/TerrainErosion.js`, proof none
+- **PROVEN** TerrainMarks: compileTerrainMarks compiles terrain mark definitions — source `src/terrain/TerrainMarks.js`, proof `scripts/terrain-mark-kinds-witness.mjs`
+- **PROVEN** TerrainMarks: TERRAIN_MARK_KINDS fixed kind set with TerrainMarkError refusals — source `src/terrain/TerrainMarks.js`, proof `scripts/terrain-mark-kinds-witness.mjs`
+- **PROVEN** TerrainMarks: wrapHeightWithMarks composes marks over the height function for terrain readers — source `src/terrain/TerrainMarks.js`, proof `scripts/terrain-marks-readers-witness.mjs`
+- **PROVEN** TerrainMeshSurface: createTerrainMeshSurface drawn-mesh height mirror for near-field reads — source `src/terrain/TerrainMeshSurface.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **UNPROVEN** TerrainMeshSurface: renderMeshHeightAt, isMeshSurfaceNoGround and MESH_SURFACE_NO_GROUND no-ground sentinel — source `src/terrain/TerrainMeshSurface.js`, proof none
+- **PROVEN** TerrainPhysics: setupTerrainStreaming wires terrain streaming with a host field paint — source `src/terrain/TerrainPhysics.js`, proof `scripts/appcontext-field-paint-witness.mjs`
+- **UNPROVEN** TerrainPhysics: stopTerrainStreaming tears down terrain streaming — source `src/terrain/TerrainPhysics.js`, proof none
+- **UNPROVEN** TerrainPhysics: loadBakedHeightField, BakedSourceMissingError and bakedFieldError fail-loud baked heightfield loading — source `src/terrain/TerrainPhysics.js`, proof none
+- **UNPROVEN** TerrainPhysics: createAirborneGroundReuse airborne ground-height reuse with release hysteresis — source `src/terrain/TerrainPhysics.js`, proof none
+- **UNPROVEN** TerrainPhysics: loadPlanetSampler and planetSamplerOptsOf planet sampler construction — source `src/terrain/TerrainPhysics.js`, proof none
+- **UNPROVEN** VegPhysics: createTrunkColliderStreamer, trunkShapeKey and trunkScaleBucket tree trunk colliders — source `src/terrain/VegPhysics.js`, proof none
+- **PROVEN** VegPlacement: placementsForChunk emits vegetation placements for a chunk — source `src/terrain/VegPlacement.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **PROVEN** VegPlacement: createPlacementCell and placementCellAt vegetation placement cell lookup — source `src/terrain/VegPlacement.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **PROVEN** VegPlacement: surfaceOfCell resolves the surface under a vegetation cell — source `src/terrain/VegPlacement.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **PROVEN** VegPlacement: classify vegetation class gate (generic symbol, word match only) — source `src/terrain/VegPlacement.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** VegPlacement: speciesFor, leanQuat, renderedSoilWeight and seaNoise species and lean rules — source `src/terrain/VegPlacement.js`, proof none
+- **PROVEN** groundDetailReach: resolveGroundDetailReach resolves ground detail reach per device class and graphics tier — source `src/terrain/groundDetailReach.js`, proof `scripts/ground-detail-reach-witness.mjs`
+- **UNPROVEN** loopYield: yieldToLoop cooperative loop yield — source `src/terrain/loopYield.js`, proof none
+- **PROVEN** paintStore: persistPaintDocument and restorePaintDocument persist terrain paint across server restart — source `src/terrain/paintStore.js`, proof `scripts/server-restart-loadworld-witness.mjs`
+- **PROVEN** paintStore: PAINT_STORE_KEY storage key for the paint document — source `src/terrain/paintStore.js`, proof `scripts/terrain-paint-restart-witness.mjs`
+- **PROVEN** scriptedTerrain: createScriptedTerrain builds terrain from a script definition — source `src/terrain/scriptedTerrain.js`, proof `scripts/scripted-terrain-witness.mjs`
+- **PROVEN** scriptedTerrain: ScriptedTerrainError refusal for an invalid scripted terrain — source `src/terrain/scriptedTerrain.js`, proof `scripts/scripted-terrain-witness.mjs`
+- **PROVEN** waterLevel: createWaterLevel composes sea, painted, lake and pond water levels as the max — source `src/terrain/waterLevel.js`, proof `scripts/water-level-witness.mjs`
+- **PROVEN** ballistics: solveShot and elevation solve a lead shot for array and object points — source `src/shared/ballistics.js`, proof `scripts/ballistics-lead-witness.mjs`
+- **UNPROVEN** bookmarks: listBookmarks bookmark listing — source `src/shared/bookmarks.js`, proof none
+- **UNPROVEN** cacheCodeVersions: COLLISION_GRID, SNAPSHOT_ENCODE and SNAPSHOT_ENTITY_ENC code-version constants feeding bake pins — source `src/shared/cacheCodeVersions.js`, proof none
+- **UNPROVEN** canonicalJSON: canonicalJSON deterministic key-ordered serialisation — source `src/shared/canonicalJSON.js`, proof none
+- **UNPROVEN** characterStep: predictCharacterStep, verticalVelocity and ground-follow and wall reach constants — source `src/shared/characterStep.js`, proof none
+- **PROVEN** chartAnchor: chartAnchorKeyOfDir keys a direction to its chart anchor — source `src/shared/chartAnchor.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **PROVEN** chartAnchor: createChartAnchorLattice and snapshotChart build the anchor lattice and snapshot a chart — source `src/shared/chartAnchor.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** chartAnchor: chartAnchorForDir, chartAnchorAngleDeg, chartNeedsReanchor, reanchorChartFor and CHART_REANCHOR_ANGLE_DEG re-anchor decisions — source `src/shared/chartAnchor.js`, proof none
+- **UNPROVEN** chartEpochLedger: createChartEpochLedger records chart epochs — source `src/shared/chartEpochLedger.js`, proof none
+- **UNPROVEN** chartReanchorPolicy: chartAnchorDecision with ChartAnchorDecisionError and PlayersStraddlePlanetError refusals — source `src/shared/chartReanchorPolicy.js`, proof none
+- **UNPROVEN** chartReexpress: createReexpressPass, reexpressYawQuat and reexpressLook change-of-basis yaw re-expression — source `src/shared/chartReexpress.js`, proof none
+- **PROVEN** chartTransfer: createChartTransfer transfers chart state between servers — source `src/shared/chartTransfer.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** chartWireCodec: encodeChart and decodeChart chart wire codec with CHART_WIRE_BYTES — source `src/shared/chartWireCodec.js`, proof none
+- **UNPROVEN** clusterAssignment: createClusterAssigner with ClusterAssignerConfigError and CLUSTER_JOIN/STAY hysteresis factors — source `src/shared/clusterAssignment.js`, proof none
+- **PROVEN** clusterConfig: resolveClusterConfig resolves and validates cluster configuration at load — source `src/shared/clusterConfig.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** clusterConfig: ClusterConfigError refusal codes for an invalid cluster config — source `src/shared/clusterConfig.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **PROVEN** clusterConfig: JOLT_WASM_HEAP_BYTES and CLUSTER_DEFAULT_HZ fixed Jolt heap and default tick constants — source `src/shared/clusterConfig.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **PROVEN** colliderLattice: colliderLatticeOf resolves the collider lattice spacing and extent — source `src/shared/colliderLattice.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **PROVEN** colliderLattice: sourceSpacingOfBake derives lattice spacing from a bake — source `src/shared/colliderLattice.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **PROVEN** easing: easing and EASING_NAMES easing law table with refusals — source `src/shared/easing.js`, proof `scripts/easing-tween-witness.mjs`
+- **PROVEN** tween: createTween interpolation tween driven by easing — source `src/shared/tween.js`, proof `scripts/easing-tween-witness.mjs`
+- **UNPROVEN** equipment: equipResolve and equipNameOf equipment resolution with EQUIP_RESOLVE and EQUIP_NAME refusal codes — source `src/shared/equipment.js`, proof none
+- **UNPROVEN** fnv1a: fnv1aString, fnv1aBytes and step functions 32-bit FNV-1a hashing — source `src/shared/fnv1a.js`, proof none
+- **UNPROVEN** groundNormalWire: packGroundNormal and unpackGroundNormal ground normal wire packing — source `src/shared/groundNormalWire.js`, proof none
+- **UNPROVEN** inputDepthWire: inputDepthFromWire, hasInputDepth and NO_INPUT_DEPTH input depth wire — source `src/shared/inputDepthWire.js`, proof none
+- **UNPROVEN** wallPlaneWire: packWallPlanes and unpackWallPlanes wall plane wire packing — source `src/shared/wallPlaneWire.js`, proof none
+- **UNPROVEN** materialSlots: parseMaterialSlots material slot parsing — source `src/shared/materialSlots.js`, proof none
+- **PROVEN** modelLoadErrors: createModelErrorHandler routes three.js loader errors to coded model-load errors — source `src/shared/modelLoadErrors.js`, proof `scripts/three-loader-error-witness.mjs`
+- **PROVEN** modelLoadErrors: loadPlacedModelRecords and recordModelLoadError record placed-model load failures — source `src/shared/modelLoadErrors.js`, proof `scripts/placed-model-load-witness.mjs`
+- **PROVEN** modelLoadErrors: loadPrefabRecords loads prefab records and refuses coded prefab load failures — source `src/shared/modelLoadErrors.js`, proof `scripts/prefab-load-witness.mjs`
+- **PROVEN** modelLoadErrors: refuseModelLoad and takeModelLoadErrors refuse a model load and drain its coded errors — source `src/shared/modelLoadErrors.js`, proof `scripts/entity-loader-refusal-witness.mjs`
+- **PROVEN** modelLoadErrors: shouldSendEnvironmentDone withholds MODELS_DONE when a model fails — source `src/shared/modelLoadErrors.js`, proof `scripts/failed-entity-no-env-done-witness.mjs`
+- **PROVEN** modelLoadErrors: modelLoadRefusal coded refusal for a model load gate — source `src/shared/modelLoadErrors.js`, proof `scripts/model-load-gate-witness.mjs`
+- **PROVEN** movement: DEFAULT_MOVEMENT default movement parameters — source `src/shared/movement.js`, proof `scripts/world-movement-parse-witness.mjs`
+- **UNPROVEN** movement: applyMovement movement step application — source `src/shared/movement.js`, proof none
+- **PROVEN** quat: fromAxisAngle, multiply, conjugate, normalize and rotate quaternion law — source `src/shared/quat.js`, proof `scripts/quat-witness.mjs`
+- **PROVEN** relevanceRadius: resolveRelevanceRadius and DEFAULT_RELEVANCE_RADIUS_M relevance radius resolution — source `src/shared/relevanceRadius.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **PROVEN** relocation: angleFromAnchorDeg measures angle from the chart anchor for a relocation target — source `src/shared/relocation.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** relocation: dirToLocalXZ maps a direction to chart-local XZ for a relocation target — source `src/shared/relocation.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** relocation: latLonToDir, dirToLatLon, parseDir3 and resolveTarget target parsing and resolution — source `src/shared/relocation.js`, proof none
+- **UNPROVEN** SpawnSurface: columnSurfaces and spawnSurfaceY spawn surface sampling — source `src/shared/SpawnSurface.js`, proof none
+- **PROVEN** terrainConfig: terrainCarvesOf returns carves only on the non-legacy hash backend — source `src/shared/terrainConfig.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **PROVEN** terrainConfig: terrainHashVersionOf reads the terrain hash version — source `src/shared/terrainConfig.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** terrainConfig: parseTerrainConfig, resolveTerrainConfig, parseTerrainHashOverride and assertTerrainHashVersion config parsing and refusal — source `src/shared/terrainConfig.js`, proof none
+- **UNPROVEN** terrainConfig: minimapDescriptor, minimapBakeParams, terrainBakeKey and withTerrainSeed bake descriptors — source `src/shared/terrainConfig.js`, proof none
+- **PROVEN** vec3: normalize, angleTo, clampLength, lerp and reflect vector law — source `src/shared/vec3.js`, proof `scripts/vec3-witness.mjs`
+- **UNPROVEN** vecGuard: nonNeg, num, vec, vec3, vec4 and vecOK NaN-poison guards for external transforms — source `src/shared/vecGuard.js`, proof none
+- **PROVEN** water: waterFresnel, waterTransmittance and waterMedium optics helpers — source `src/shared/water.js`, proof `scripts/water-helpers-witness.mjs`
+- **PROVEN** water: waterCausticsAt, waterFoamCoverage, waterRippleSlope and waterRayBoxDistance surface helpers — source `src/shared/water.js`, proof `scripts/water-helpers-witness.mjs`
+- **UNPROVEN** worldDefaults: DEFAULT_* world defaults and worldGravity, worldTickRate, worldSpawnPoints, worldPlayerModel and worldMobileButtons resolvers — source `src/shared/worldDefaults.js`, proof none
+- **UNPROVEN** worldName: isWorldName, defaultWorldNameOf and worldFileCandidates world name and file resolution — source `src/shared/worldName.js`, proof none
+- **PROVEN** worldPresets: expandWorldPresets expands world presets into a world definition — source `src/shared/worldPresets.js`, proof `scripts/nearfield-lod-lattice-witness.mjs`
+- **PROVEN** worldResolve: parseWorld, assertWorld and validateMovement refuse malformed worlds with WorldResolveError codes — source `src/shared/worldResolve.js`, proof `scripts/world-movement-parse-witness.mjs`
+- **UNPROVEN** MinimapBiome: biomeColor, reliefShade, sampleMinimapCell and shadeHeightGrid minimap biome shading — source `src/shared/MinimapBiome.js`, proof none
+
+## src/apps and src/stdlib-apps and src/presets and src/game
+
+- **PROVEN** ctx.define* factories (23) refuse an unknown spec key with reasonCode define-spec-unknown-key — source `src/apps/AppContext.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **PROVEN** Shared define* boundary refuses typo keys, invalid present values and missing fields for weapon, pickup, health and teams — source `src/apps/AppContext.js`, proof `scripts/define-spec-boundary-witness.mjs`
+- **PROVEN** define* spec objects refuse symbol, hidden and inherited keys in both the key list and the typed boundary — source `src/apps/AppContext.js`, proof `scripts/define-spec-shape-witness.mjs`
+- **PROVEN** ctx.defineBuoyancy and ctx.defineCombat refuse invalid present values (halfHeight, floatFactor, powerupRespawnMs) by code — source `src/apps/AppContext.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **PROVEN** ctx.defineCheckpoint validates nested checkpoints[].radius at the boundary — source `src/apps/AppContext.js`, proof `scripts/checkpoint-nested-radius-witness.mjs`
+- **PROVEN** ctx.definePath open and closed paths, within/beyond cutoffs, wrap-around indices, handle members and coded refusals — source `src/apps/AppContext.js`, proof `scripts/path-handle-witness.mjs`
+- **UNPROVEN** ctx.defineFire (default off, wired through AppContext) — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineGameFSM, ctx.defineGameMode and ctx.defineBuffStack runtime behaviour — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineShrinkingZone runtime behaviour — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineSteering and ctx.defineCameraRig runtime behaviour — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineDestructible, ctx.defineSoftbody and ctx.defineFluid runtime behaviour — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.definePlayerInventory runtime behaviour — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineHealth, ctx.defineTeams, ctx.defineWeapon and ctx.definePickup runtime behaviour — source `src/apps/AppContext.js`, proof none — **Verifier note:** Only spec-boundary witnesses reference these factories (define-spec-boundary-witness.mjs, define-spec-shape-witness.mjs); the runtime behaviour is unwitnessed. Left UNPROVEN as inventoried.
+- **PROVEN** ctx.ragdoll validates the spec, writes the plan to the entity custom block and refuses an unknown bone with unknown-bone — source `src/apps/AppContext.js`, proof `scripts/ctx-ragdoll-witness.mjs`
+- **PROVEN** ctx.vibe validates a pattern against sample names, stores it on the entity custom block and refuses unknown samples — source `src/apps/AppContext.js`, proof `scripts/ctx-vibe-witness.mjs`
+- **PROVEN** ctx.createTween, ctx.easing and ctx.easingNames (easing laws, coded refusals, tween advances by dt and completes once) — source `src/apps/AppContext.js`, proof `scripts/easing-tween-witness.mjs`
+- **PROVEN** ctx.terrain.startStreaming passes a host field paint to setupTerrainStreaming and applies terrain.fieldPaint cell size and chunk cells — source `src/apps/AppContext.js`, proof `scripts/appcontext-field-paint-witness.mjs`
+- **UNPROVEN** ctx.createAnimationSystem factory — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.navmesh loads the baked navmesh JSON and returns a NavmeshQuery — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.raycast, ctx.canSee and ctx.navCostAt — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.terrainHeightAt, ctx.terrainKindAt, ctx.seaLevelAt and ctx.seaLevel — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.time.after, ctx.time.every, ctx.time.tick, ctx.time.deltaTime and ctx.time.elapsed — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.world spawn, spawnChild, destroy, attach, detach, reparent, query and nearby — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.world physics verbs (weld, joint, removeConstraint, setMotionType, isAtRest, applyImpulse, setVelocity, setBodyActive, setPosition) — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.players getAll, getById, getNearest, send, broadcast, broadcastNearby, setPosition, setMovementOverride, setLifecycle, playAnimation and attachEntity — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.players.onPlayerContact, nearestOtherPlayer and ctx.onPlayerProximity — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.players seats: defineSeats, mountInSeat, dismount, handoffSeat, seatOf and seatsOf — source `src/apps/AppSeats.js`, proof none
+- **UNPROVEN** ctx.config merges the entity custom block minus engine-reserved underscore keys, and onConfigChange fires on change — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.state get and set, and the entity custom setter that refuses non-object values — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.onShutdown registers a once-only shutdown hook that cancels on unhook — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.network broadcast and sendTo, plus ctx.lagCompensator access — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.combat hitscan API (COMBAT_API with readHealth and recordHit) — source `src/apps/AppGameplay.js`, proof none
+- **UNPROVEN** ctx.spawnGeometry footprintBlockers, spawnSurfaceY and capsule helpers — source `src/apps/AppGameplay.js`, proof none
+- **UNPROVEN** ctx.pickSpawnPoint and ctx.fallFloorY spawn selection and fall floor — source `src/apps/AppGameplay.js`, proof none
+- **UNPROVEN** ctx.persisted, ctx.leaderboard and ctx.achievements gameplay stores — source `src/apps/AppGameplay.js`, proof none
+- **UNPROVEN** ctx.accountState and AccountState per-account keyed state with accountIdOf — source `src/apps/AccountState.js`, proof none
+- **UNPROVEN** ctx.llm jobs (createLlmJobs with the runtime provider) — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.bus scoped event bus, ctx.eventLog, ctx.storage, ctx.files and ctx.debug — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.senderOf reads the sender stamped on a message — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.interactable and AppPhysics parseInteractable and reifyInteractable — source `src/apps/AppPhysics.js`, proof none
+- **UNPROVEN** ctx.physics API (addColliderFromConfig, bakeCollider, setBodyType, changeBodyType, liveBodyIdOf) — source `src/apps/AppPhysics.js`, proof none
+- **UNPROVEN** Trimesh or convex collider build failure propagates as ColliderBuildError and never degrades to a box — source `src/apps/AppPhysics.js`, proof none
+- **UNPROVEN** ctx.entity proxy (position, rotation, scale and velocity setters validated as vec3 or vec4, custom, destroy) — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** Chart re-anchor blocking and chart-aware API wrapping (_chartAware, _blockChartReanchor, _teardownChildren) — source `src/apps/AppContext.js`, proof none
+- **UNPROVEN** ctx.defineQuestSystem, ctx.defineStatsSystem and ctx.defineProgression factories — source `src/game/QuestSystem.js`, proof none
+- **PROVEN** AppLoader.loadAll keeps loaded and failed apps and records refusals with a reasonCode naming the app and pattern — source `src/apps/AppLoader.js`, proof `scripts/app-loader-refusal-witness.mjs`
+- **UNPROVEN** AppRuntime entity lifecycle: spawnEntity, destroyEntity, attachApp, detachApp and reparent — source `src/apps/AppRuntime.js`, proof none
+- **UNPROVEN** Hot reload rebuilds the update and collision lists through HotReloadQueue — source `src/apps/HotReloadQueue.js`, proof none
+- **UNPROVEN** AppRuntimePhysics body budget and physics LOD both skip vehicle-owned entities — source `src/apps/AppRuntimePhysics.js`, proof none
+- **UNPROVEN** AppRuntime terrain spawn hold warns and holds a player until a heightfield covers its position, then releases to the kill plane — source `src/apps/AppRuntime.js`, proof none
+- **UNPROVEN** Per-tick app update driver (AppRuntimeTick), static-motion capture (captureTransform) and runtime state (AppRuntimeState) — source `src/apps/AppRuntimeTick.js`, proof none
+- **UNPROVEN** AppBehaviours validateBehaviourSpec refuses unknown behaviour names and non-object configs — source `src/apps/AppBehaviours.js`, proof none
+- **PROVEN** Per-player surface selector runtime: maps labels, hides on null, suppresses rapid swaps and releases held fingers — source `src/apps/SurfaceSelectorRuntime.js`, proof `scripts/touch-selector-channels-witness.mjs`
+- **UNPROVEN** Ragdoll plan builder (buildRagdollPlan, RagdollSpecError) used by ctx.ragdoll — source `src/apps/Ragdoll.js`, proof none — **Verifier note:** proofPath scripts/ctx-ragdoll-witness.mjs contains neither buildRagdollPlan nor RagdollSpecError (git grep -F returns no hits in scripts); it reaches the builder only through ctx.ragdoll (src/apps/Ragdoll.js:63). Downgraded to UNPROVEN with proofPath empty. The ctx.ragdoll row above keeps PROVEN.
+- **UNPROVEN** ComponentPool pooled component allocation — source `src/apps/ComponentPool.js`, proof none
+- **UNPROVEN** EventBus scoped per-entity event bus — source `src/apps/EventBus.js`, proof none
+- **UNPROVEN** EcsEntityMap entity id to ECS entity mapping — source `src/apps/EcsEntityMap.js`, proof none
+- **UNPROVEN** CustomVersion installCustomVersion entity custom-block versioning — source `src/apps/CustomVersion.js`, proof none
+- **UNPROVEN** Progression spec (defineProgression in src/apps/Progression.js) — source `src/apps/Progression.js`, proof none
+- **UNPROVEN** App import rewriting: localSpecifiers, rewriteLocalSpecifiers and engine aliases (ENGINE_ALIASES, engineAliasUrls) — source `src/apps/appImports.js`, proof none
+- **UNPROVEN** Apps manifest: resolveAllAppNames, worldAppNames, buildAppsManifest, appsManifestFingerprint and ensureAppsManifestFresh — source `src/apps/appsManifest.js`, proof none
+- **PROVEN** playerId parsePlayerId and tryParsePlayerId normalise integer and string player ids to one key — source `src/game/playerId.js`, proof `scripts/src-batch1-rules-witness.mjs`
+- **UNPROVEN** ProgressionSystem createProgressionSystem and getStatScaling with linear, exponential and quadratic curves — source `src/game/ProgressionSystem.js`, proof none
+- **UNPROVEN** AbilityTree createAbilityTree with definitionRefusal validation and HOTKEY_MAP hotkeys — source `src/game/AbilityTree.js`, proof none
+- **UNPROVEN** StatsSystem defineStatsSystem stat tracking — source `src/game/StatsSystem.js`, proof none
+- **UNPROVEN** EventChainManager event chains and per-owner inventory counts — source `src/game/EventChainManager.js`, proof none
+- **PROVEN** tps preset movement tuning parses to finite positive numbers and every key is a declared movement field — source `src/presets/tps.js`, proof `scripts/world-movement-parse-witness.mjs`
+- **UNPROVEN** tps preset non-movement blocks (tickRate 64, entityTickRate 15, player, camera, animation, equipment, mobile input buttons) — source `src/presets/tps.js`, proof none
+- **UNPROVEN** planet preset (terrain config with radius 63600, anchorDir, trustedApps terrain, single terrain entity) — source `src/presets/planet.js`, proof none
+- **UNPROVEN** rts preset (tickRate 30, lockstep netcode with 2 peers) — source `src/presets/rts.js`, proof none
+- **UNPROVEN** platformer preset (placeableApps list of six app names) — source `src/presets/platformer.js`, proof none
+- **UNPROVEN** arena preset generator (floor box and optional four walls with tint) — source `src/presets/arena.js`, proof none
+- **PROVEN** stdlib app box-static (static box collider) — source `src/stdlib-apps/box-static/index.js`, proof `scripts/verify-app.mjs`
+- **PROVEN** stdlib app spawn-point (player spawn marker) — source `src/stdlib-apps/spawn-point/index.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** stdlib app box-dynamic (dynamic box) — source `src/stdlib-apps/box-dynamic/index.js`, proof none
+- **UNPROVEN** stdlib app box-buoyant (buoyant box via ctx.defineBuoyancy) — source `src/stdlib-apps/box-buoyant/index.js`, proof none
+- **UNPROVEN** stdlib app button (interactable touch button) — source `src/stdlib-apps/button/index.js`, proof none
+- **UNPROVEN** stdlib app capture-zone (capture progress and decay in a zone) — source `src/stdlib-apps/capture-zone/index.js`, proof none
+- **UNPROVEN** stdlib app checkpoint-marker (checkpoint marker entity) — source `src/stdlib-apps/checkpoint-marker/index.js`, proof none
+- **UNPROVEN** stdlib app destructible-box (destructible box via ctx.defineDestructible) — source `src/stdlib-apps/destructible-box/index.js`, proof none
+- **UNPROVEN** stdlib app destructible-debris (debris entity) — source `src/stdlib-apps/destructible-debris/index.js`, proof none
+- **UNPROVEN** stdlib app door (kinematic hinged leaf, leafAngle timing curve) — source `src/stdlib-apps/door/index.js`, proof none
+- **UNPROVEN** stdlib app fluid-source (2D fluid source via ctx.defineFluid) — source `src/stdlib-apps/fluid-source/index.js`, proof none
+- **UNPROVEN** stdlib app fluid3d-source (3D SPH fluid volume publishing a particle cloud) — source `src/stdlib-apps/fluid3d-source/index.js`, proof none
+- **UNPROVEN** stdlib app moving-platform (kinematic ping-pong platform over a period) — source `src/stdlib-apps/moving-platform/index.js`, proof none
+- **UNPROVEN** stdlib app pickup (collectible via ctx.definePickup) — source `src/stdlib-apps/pickup/index.js`, proof none
+- **UNPROVEN** stdlib app placed-model (placed model with terrainHeightAt grounding) — source `src/stdlib-apps/placed-model/index.js`, proof none
+- **UNPROVEN** stdlib app playtest-bot (scripted playtest bot using canSee, definePath, defineSteering and raycast) — source `src/stdlib-apps/playtest-bot/index.js`, proof none
+- **UNPROVEN** stdlib app prop-dynamic (dynamic prop entity) — source `src/stdlib-apps/prop-dynamic/index.js`, proof none
+- **UNPROVEN** stdlib app prop-static (static prop entity) — source `src/stdlib-apps/prop-static/index.js`, proof none
+- **UNPROVEN** stdlib app respawn-zone (respawn checkpoint via ctx.defineCheckpoint) — source `src/stdlib-apps/respawn-zone/index.js`, proof none
+- **UNPROVEN** stdlib app shrinking-zone-ring (ring visual for a shrinking zone) — source `src/stdlib-apps/shrinking-zone-ring/index.js`, proof none
+- **UNPROVEN** stdlib app shrinking-zone (shrinking zone via ctx.defineShrinkingZone) — source `src/stdlib-apps/shrinking-zone/index.js`, proof none
+- **UNPROVEN** stdlib app softbody-cloth (softbody cloth via ctx.defineSoftbody) — source `src/stdlib-apps/softbody-cloth/index.js`, proof none
+- **UNPROVEN** stdlib app tank (interactable drivable tank) — source `src/stdlib-apps/tank/index.js`, proof none
+- **UNPROVEN** stdlib app terrain (editor terrain tools) — source `src/stdlib-apps/terrain/index.js`, proof none — **Verifier note:** src/stdlib-apps/terrain/index.js calls ctx.getTerrainConfig, ctx.rebuildTerrain, ctx.reseedTerrain, ctx.pickGround, ctx.sculptTerrain and ctx.paintBiome, but none of these is defined in src/apps/AppContext.js (git grep over src finds only the app's guarded calls, and the streamer-side repaintBiome in src/sdk/EditorHandlers.js). Each call is behind an if (ctx.X) guard, so the tools silently no-op. No witness exists.
+- **UNPROVEN** stdlib app tower (cylinder tower collider with player-near event) — source `src/stdlib-apps/tower/index.js`, proof none
+- **UNPROVEN** stdlib app trigger-volume (invisible trigger firing a channel event via ctx.definePickup) — source `src/stdlib-apps/trigger-volume/index.js`, proof none
+- **UNPROVEN** stdlib app vehicle (drivable vehicle via ctx.interactable) — source `src/stdlib-apps/vehicle/index.js`, proof none
+- **UNPROVEN** stdlib app waypoint (waypoint marker entity) — source `src/stdlib-apps/waypoint/index.js`, proof none
+- **UNPROVEN** stdlib app weapon-spawn (weapon spawn marker with _weaponSpawn custom flags) — source `src/stdlib-apps/weapon-spawn/index.js`, proof none
+
+## edge/ and bin/
+
+- **UNPROVEN** Edge Worker fetch() routes a WebSocket upgrade to the SpointGameRoom Durable Object and proxies every other request to STATIC_ORIGIN — source `edge/cf-do/spoint-do.js`, proof none
+- **UNPROVEN** Upgrade detection is case-insensitive on the Upgrade header; a non-WebSocket request to the Durable Object answers 426 expected websocket upgrade — source `edge/cf-do/accept-request.js`, proof none
+- **UNPROVEN** Room key for a WebSocket connection comes from the room query param, then SPOINT_ROOM_KEY, then the default probe-room — source `edge/cf-do/accept-request.js`, proof none
+- **UNPROVEN** Durable Object binding name is overridable with SPOINT_ROOM_BINDING, and a missing binding answers 503 — source `edge/cf-do/accept-request.js`, proof none
+- **UNPROVEN** Non-WebSocket requests with no STATIC_ORIGIN configured answer 502 — source `edge/cf-do/accept-request.js`, proof none
+- **UNPROVEN** Proxy forwards path and query to STATIC_ORIGIN and returns the origin status unchanged — source `edge/cf-do/spoint-do.js`, proof none
+- **UNPROVEN** Proxy sets x-spoint-edge-proxy:1 on origin requests so StaticHandler skips Early Hints for that request only — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** SpointGameRoom Durable Object lazily initialises Jolt and the WorkerEntry game core once, then hands each WebSocketPair server socket to ctx.onClientConnect and returns 101 — source `edge/cf-do/spoint-do.js`, proof none
+- **UNPROVEN** Jolt WASM is bound as a CompiledWasm module and instantiated through instantiateWasm so workerd needs no runtime WebAssembly.instantiate from raw bytes — source `edge/cf-do/jolt-edge-init.js`, proof none
+- **UNPROVEN** Wrangler config: SPOINT_GAME_ROOM DO binding (class SpointGameRoom, sqlite migration v1), STATIC_ORIGIN var, CompiledWasm rule for **/*.wasm — source `edge/cf-do/wrangler-do.toml`, proof none
+- **UNPROVEN** Live WebSocket probe drives authoritative player movement through the DO and asserts the position moved more than 0.05 m — source `edge/cf-do/do-client-probe.mjs`, proof none
+- **UNPROVEN** spoint-create-app scaffolds apps/<name>/index.js from simple, physics, interactive, spawner or fsm-game and refuses an existing app dir or unknown template — source `bin/create-app.js`, proof none
+- **UNPROVEN** Template registry getTemplateContent serves the five app templates (simple, physics, interactive, spawner, fsm-game) — source `bin/templates.js`, proof none
+- **UNPROVEN** create-spoint-game scaffolds a project from sandbox, arena-fps, battle-royale or deathrun, validates the project name, and removes the partial directory on failure — source `bin/create-project.js`, proof none
+- **UNPROVEN** Project scaffold substitutes __PROJECT_NAME__ and __SPOINT_VERSION__ into package.json, README and .gitignore templates — source `bin/project-template/package.json.template`, proof none
+- **UNPROVEN** Marketplace registry read API: GET /health, GET /index, GET /search (q and tag filters), GET /manifest/<name> (404 when absent) — source `bin/marketplace-registry.js`, proof none
+- **UNPROVEN** Marketplace registry publish: POST /manifest validates the manifest, requires a strictly greater semver than the stored version (409 otherwise), and saves atomically via tmp file, fsync and rename — source `bin/marketplace-registry.js`, proof none
+- **UNPROVEN** Marketplace registry refuses to start on a corrupt or non-array DATA_FILE instead of starting empty — source `bin/marketplace-registry.js`, proof none
+- **UNPROVEN** spoint marketplace-install fetches a manifest, validates it with validateManifest, downloads the bundle, and writes files only inside the target app directory — source `bin/marketplace-install.js`, proof none
+- **UNPROVEN** Marketplace install path-escape guard (bundleDestination) rejects bundle keys that resolve outside the install directory — source `bin/marketplace-install.js`, proof none
+- **UNPROVEN** room-orchestrator-boot serves the RoomOrchestrator HTTP control API on ROUTER_PORT (default 3400): POST and DELETE /rooms, POST and DELETE /workers/register and /workers/<i>, GET /workers, /route/<id>, /status, /crash-stats, /elastic-stats — source `bin/room-orchestrator-boot.js`, proof none
+- **UNPROVEN** Room orchestrator crash auto-restart and elastic scaling are env-configured (ROOM_RESTART_ON_CRASH, ROOM_MAX_RESTARTS, ROOM_RESTART_WINDOW_MS, ROOM_ELASTIC_SCALING and its thresholds and cooldowns) — source `bin/room-orchestrator-boot.js`, proof none
+- **UNPROVEN** room-worker-boot starts a command server, registers with the orchestrator (POST /workers/register), serves POST and DELETE /rooms, GET /status and POST /shutdown, and deregisters on SIGINT or SIGTERM — source `bin/room-worker-boot.js`, proof none
+- **UNPROVEN** router-boot starts a RegionRouter with (2r+1)^2 region workers from worldDef.shardGrid, overridable by SHARD_GRID_RADIUS, SHARD_CELL_SIZE and SHARD_GHOST_MARGIN — source `bin/router-boot.js`, proof none
+- **UNPROVEN** Bin daemons refuse to boot when node_modules is not linked (assertNodeModulesLinked from src/sdk/server.js) — source `src/sdk/server.js`, proof none
+- **UNPROVEN** package.json bin map exposes spoint, spoint-create-app, create-spoint-game, spoint-router and related CLI entrypoints — source `package.json`, proof none
+- **UNPROVEN** GLB KTX2 transcoding resolves the shipped bin/ktx (bin/ktx.exe on Windows, bin/ktx elsewhere, then /usr/bin/ktx and /usr/local/bin/ktx) — source `src/static/GLBKtx2.js`, proof none
+
+## src/netcode, src/protocol, src/client, src/sharding, src/static, src/animation
+
+- **UNPROVEN** Lockstep game loop refuses inputDelayTicks above INPUT_RETAIN_TICKS — source `src/netcode/LockstepGameLoop.js`, proof none — **Verifier note:** No scripts/ reference to INPUT_RETAIN_TICKS (0 files); UNPROVEN confirmed
+- **UNPROVEN** Lockstep game loop factory — source `src/netcode/LockstepGameLoop.js`, proof none
+- **UNPROVEN** Lockstep tick system — source `src/netcode/LockstepTickSystem.js`, proof none
+- **UNPROVEN** Lockstep input transport — source `src/netcode/LockstepInputTransport.js`, proof none
+- **UNPROVEN** Rollback game loop stalls past maxRollbackTicks — source `src/netcode/RollbackGameLoop.js`, proof none — **Verifier note:** proofPath scripts/peer-profile-harness.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **UNPROVEN** Rollback loop — source `src/netcode/RollbackLoop.js`, proof none
+- **UNPROVEN** Rollback input transport — source `src/netcode/RollbackInputTransport.js`, proof none
+- **PROVEN** Tick system and tick-drop counter — source `src/netcode/TickSystem.js`, proof `scripts/tick-drop-counter-witness.mjs`
+- **UNPROVEN** Tick system base — source `src/netcode/TickSystemBase.js`, proof none
+- **PROVEN** Lockstep checksum fold and body checksum — source `src/netcode/LockstepChecksum.js`, proof `scripts/netcode-wire-pbt.mjs`
+- **UNPROVEN** Desync detection — source `src/netcode/DesyncDetector.js`, proof none
+- **UNPROVEN** Consensus voter for desync — source `src/netcode/ConsensusVoter.js`, proof none
+- **UNPROVEN** Cheat ejection — source `src/netcode/CheatEjection.js`, proof none
+- **UNPROVEN** Input guard rate limit — source `src/netcode/InputGuard.js`, proof none
+- **UNPROVEN** Input guard payload sanitize — source `src/netcode/InputGuard.js`, proof none
+- **UNPROVEN** Input guard movement envelope — source `src/netcode/InputGuard.js`, proof none
+- **PROVEN** Lag compensation with clamped rewind — source `src/netcode/LagCompensator.js`, proof `scripts/lag-overflow-witness.mjs`
+- **UNPROVEN** Rewind spatial index with duplicate player id refusal — source `src/netcode/RewindSpatialIndex.js`, proof none — **Verifier note:** Inventory cites scripts/rewind-spatial-index-witness.mjs, which is not tracked (git ls-files empty); proof remains empty, status UNPROVEN
+- **PROVEN** Hitscan fire request resolution — source `src/netcode/Hitscan.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** Hitscan ray versus capsule — source `src/netcode/Hitscan.js`, proof none
+- **UNPROVEN** Outlier detector — source `src/netcode/OutlierDetector.js`, proof none
+- **UNPROVEN** Replay recorder — source `src/netcode/ReplayRecorder.js`, proof none — **Verifier note:** proofPath scripts/replay-record-and-play.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **UNPROVEN** Replay player — source `src/netcode/ReplayPlayer.js`, proof none — **Verifier note:** proofPath scripts/replay-record-and-play.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **UNPROVEN** Replay file encode and decode (SPOINTREPLAY) — source `src/netcode/ReplayFile.js`, proof none — **Verifier note:** proofPath scripts/replay-record-and-play.mjs has zero RESULT lines and no encodeReplay symbol; proofPath cleared to empty, status UNPROVEN
+- **UNPROVEN** Event log — source `src/netcode/EventLog.js`, proof none
+- **PROVEN** Snapshot encoder with per-recipient self block and tombstones — source `src/netcode/SnapshotEncoder.js`, proof `scripts/planet-multiplayer-harness.mjs` — **Verifier note:** Weak proof: SnapshotEncoder appears once in scripts/planet-multiplayer-harness.mjs (likely an import), so the per-recipient self block and tombstone behaviour are not confirmed by name; PROVEN kept by the symbol-plus-RESULT rule
+- **PROVEN** Player LOD tiers (full and reduced) — source `src/netcode/SnapshotEncoder.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **PROVEN** Binary snapshot records (full and reduced pose) — source `src/netcode/SnapshotBinFormat.js`, proof `scripts/netcode-wire-pbt.mjs`
+- **UNPROVEN** Snapshot packer — source `src/netcode/SnapshotPacker.js`, proof none
+- **UNPROVEN** Teleport hold — source `src/netcode/TeleportHold.js`, proof none
+- **UNPROVEN** Peer simulation session — source `src/netcode/PeerSimSession.js`, proof none — **Verifier note:** proofPath scripts/peer-profile-harness.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **UNPROVEN** Peer loop factories and simulated profiles — source `src/netcode/peerLoops.js`, proof none
+- **UNPROVEN** Netcode profiles (resolveNetcodeProfile) — source `src/netcode/NetcodeProfile.js`, proof none
+- **PROVEN** Control frame codec (lockstep, rollback and consensus prefixes) — source `src/netcode/controlFrame.js`, proof `scripts/netcode-wire-pbt.mjs`
+- **UNPROVEN** Worker bridge proxy — source `src/netcode/WorkerBridgeProxy.js`, proof none
+- **UNPROVEN** Player-to-player collision push — source `src/netcode/CollisionSystem.js`, proof none
+- **UNPROVEN** Collision tile streamer — source `src/netcode/CollisionTileStreamer.js`, proof none
+- **PROVEN** Player manager — source `src/netcode/PlayerManager.js`, proof `scripts/src-batch3-rules-witness.mjs` — **Verifier note:** Weak proof: the symbol PlayerManager appears only as a non-RESULT reference in scripts/src-batch3-rules-witness.mjs, and its RESULT line (line 18) asserts ackSequenceOf and addInput behaviour; PROVEN kept by rule but the witness does not test PlayerManager directly
+- **UNPROVEN** Physics integration — source `src/netcode/PhysicsIntegration.js`, proof none
+- **UNPROVEN** Network state — source `src/netcode/NetworkState.js`, proof none
+- **PROVEN** Message type table and name lookup (msgName, isRegisteredMessage) — source `src/protocol/MessageTypes.js`, proof `scripts/src-batch1-rules-witness.mjs`
+- **PROVEN** Unreliable message classification (isUnreliable) — source `src/protocol/MessageTypes.js`, proof `scripts/src-batch1-rules-witness.mjs` — **Verifier note:** Weak proof: the RESULT line in scripts/src-batch1-rules-witness.mjs (line 27) states that removing the unregistration guard in isUnreliable is not detectable by that witness; PROVEN kept by rule, coverage of the unknown-id path is partial
+- **UNPROVEN** Wire protocol version — source `src/protocol/MessageTypes.js`, proof none
+- **UNPROVEN** Disconnect reasons — source `src/protocol/MessageTypes.js`, proof none
+- **UNPROVEN** Input packet encode keeps newest records and reports drops — source `src/protocol/InputCodec.js`, proof none
+- **UNPROVEN** Input quantization clamp and wrap — source `src/protocol/InputCodec.js`, proof none
+- **UNPROVEN** Input packet decode — source `src/protocol/InputCodec.js`, proof none
+- **PROVEN** Msgpack pack, unpack and lazy packer (ensurePacked) — source `src/protocol/msgpack.js`, proof `scripts/verify-session.mjs`
+- **UNPROVEN** Wire structure hash and WIRE_STRUCTURES order — source `src/protocol/msgpack.js`, proof none
+- **UNPROVEN** Component schema validation and custom field codec — source `src/protocol/ComponentSchema.js`, proof none
+- **UNPROVEN** Cursor event stream with reconnect backoff — source `src/protocol/CursorEventStream.js`, proof none
+- **PROVEN** Event emitter with unsubscribe — source `src/protocol/EventEmitter.js`, proof `scripts/tick-drop-counter-witness.mjs`
+- **UNPROVEN** Base client prediction lead bound (MAX_PREDICTION_LEAD_STEPS) — source `src/client/BaseClient.js`, proof none
+- **PROVEN** Coalesced frame split (splitCoalesced) — source `src/client/BaseClient.js`, proof `scripts/verify-session.mjs`
+- **UNPROVEN** Transport connect rejects with TransportConnectError — source `src/client/PhysicsNetworkClient.js`, proof none
+- **PROVEN** Physics network client connection — source `src/client/PhysicsNetworkClient.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** Reconnect manager — source `src/client/ReconnectManager.js`, proof none
+- **UNPROVEN** Transport migration trigger — source `src/client/TransportMigrationTrigger.js`, proof none
+- **UNPROVEN** Clock sync — source `src/client/ClockSync.js`, proof none
+- **UNPROVEN** Chart epoch sync with held-snapshot resync request — source `src/client/ChartEpochSync.js`, proof none
+- **UNPROVEN** Client prediction engine — source `src/client/PredictionEngine.js`, proof none
+- **UNPROVEN** Prediction blocked-direction suppression (wedgeNormal) — source `src/client/PredictionEngine.js`, proof none
+- **UNPROVEN** Reconciliation engine — source `src/client/ReconciliationEngine.js`, proof none
+- **UNPROVEN** Snapshot timeline interpolation — source `src/client/SnapshotTimeline.js`, proof none
+- **UNPROVEN** Snapshot processor — source `src/client/SnapshotProcessor.js`, proof none
+- **UNPROVEN** Quaternion slerp — source `src/client/interpolation.js`, proof none
+- **UNPROVEN** Player and entity record reexpression — source `src/client/reexpressRecords.js`, proof none
+- **UNPROVEN** Prediction chart step normal and motion reexpression — source `src/client/PredictionChart.js`, proof none
+- **UNPROVEN** Step trail — source `src/client/StepTrail.js`, proof none
+- **UNPROVEN** Collision mirror — source `src/client/CollisionMirror.js`, proof none
+- **UNPROVEN** Input handler and keybind conflict detection — source `src/client/InputHandler.js`, proof none
+- **UNPROVEN** Input action compile (keyboard and touch) — source `src/client/InputActions.js`, proof none
+- **UNPROVEN** Input stepper — source `src/client/InputStepper.js`, proof none
+- **PROVEN** Touch surface resolver — source `src/client/touchSurfaces.js`, proof `scripts/touch-surface-resolver-witness.mjs`
+- **UNPROVEN** Audio mixer and defineAudio — source `src/client/AudioMixer.js`, proof none
+- **UNPROVEN** Client message handler — source `src/client/MessageHandler.js`, proof none
+- **PROVEN** Cluster manager — source `src/sharding/ClusterManager.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** Cluster runtime — source `src/sharding/ClusterRuntime.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** Cluster world capacity refusal (ClusterWorldCapacityError) — source `src/sharding/ClusterWorldHost.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** Cluster coordinator — source `src/sharding/ClusterCoordinator.js`, proof none
+- **PROVEN** Player handoff export — source `src/sharding/ClusterHandoff.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** Cluster chart-local spawn — source `src/sharding/ClusterServerWorld.js`, proof `scripts/cluster-world-harness.mjs`
+- **UNPROVEN** Region grid ids and ghost-margin bounds — source `src/sharding/RegionGrid.js`, proof none
+- **UNPROVEN** Region IPC transport — source `src/sharding/RegionIPCTransport.js`, proof none
+- **UNPROVEN** Region router and handoff — source `src/sharding/RegionRouter.js`, proof none
+- **UNPROVEN** Sharding refusal table — source `src/sharding/ShardingRefusal.js`, proof none
+- **UNPROVEN** Region worker entry — source `src/sharding/RegionWorkerEntry.js`, proof none
+- **UNPROVEN** GLB transform cache — source `src/static/GLBTransformer.js`, proof none
+- **UNPROVEN** Draco strip and Meshopt compression — source `src/static/GLBDraco.js`, proof none
+- **UNPROVEN** KTX2 conversion and apply — source `src/static/GLBKtx2.js`, proof none
+- **UNPROVEN** VRM0 and VRMC passthrough — source `src/static/GLBVrmPassthrough.js`, proof none
+- **UNPROVEN** KTX2 image extraction and cache — source `src/static/KTX2Extract.js`, proof none
+- **UNPROVEN** Progressive bake and contained-path check — source `src/static/ProgressiveBake.js`, proof none
+- **UNPROVEN** Fetch manifest — source `src/static/FetchManifest.js`, proof none
+- **UNPROVEN** Bake code version pins — source `src/static/BakeCodeVersion.js`, proof none — **Verifier note:** proofPath scripts/check-cache-keys.mjs has zero RESULT lines; proofPath cleared to empty, status UNPROVEN
+- **PROVEN** Animation system — source `src/animation/AnimationSystem.js`, proof `scripts/animation-ragdoll-plan-witness.mjs`
+- **UNPROVEN** Animation controller — source `src/animation/AnimationController.js`, proof none
+- **UNPROVEN** Blend trees and animation blender — source `src/animation/BlendTree.js`, proof none
+- **UNPROVEN** Two-bone IK, foot IK and IK rig — source `src/animation/IKSolver.js`, proof none
+- **UNPROVEN** Procedural skeleton and skinned body — source `src/animation/ProceduralSkeleton.js`, proof none
+- **PROVEN** Ragdoll pose — source `src/animation/RagdollPose.js`, proof `scripts/animation-ragdoll-real-skeleton-witness.mjs`
+- **PROVEN** Ragdoll activation parse and plan check — source `src/animation/ragdollActivation.js`, proof `scripts/ragdoll-activation-witness.mjs`
+- **PROVEN** Ragdoll activation apply — source `src/animation/ragdollActivation.js`, proof `scripts/character-animator-ragdoll-witness.mjs`
+- **UNPROVEN** Shape key driver — source `src/animation/ShapeKeys.js`, proof none
+- **UNPROVEN** Spring bones — source `src/animation/SpringBones.js`, proof none
+- **UNPROVEN** Skeleton utilities — source `src/animation/SkeletonUtils.js`, proof none
+
+## client/xr, client/editor, client/landing, and top-level client/*.js
+
+- **PROVEN** XR teleport arc: parabolic aim from the controller, ground-hit marker placed on the surface it hits, no target when no surface — source `client/xr/XRWidgets.js`, proof `scripts/xr-teleport-ground-witness.mjs`
+- **PROVEN** Teleport ground probe excludes controller, grip, hand and reticle objects via userData.xrPointer (set by addPointerObject) — source `client/xr/XRSystem.js`, proof `scripts/xr-pointer-ground-witness.mjs`
+- **PROVEN** XR arc runs in the frame section before renderGraph.run and reads the matrices the previous render left — source `client/app.js`, proof `scripts/xr-arc-frame-order-witness.mjs`
+- **PROVEN** Teleport ground BVH trees built at initTeleport for ground meshes at or above ARC_BOUNDS_TREE_MIN_TRIANGLES (2000) — source `client/xr/XRWidgets.js`, proof `scripts/xr-teleport-warm-witness.mjs`
+- **PROVEN** Teleport arc steady-state p95 under a Node CPU budget (not a browser frame); kept out of scripts/check.mjs — source `client/xr/XRWidgets.js`, proof `scripts/xr-arc-cost-witness.mjs`
+- **UNPROVEN** Snap-turn angle cycling (30 degree default) from the settings button — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** Smooth-turn speed cycling from the settings button — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** Teleport enable toggle in the VR settings panel (teleportEnabled), set by the shoot button — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** VR settings panel toggled from input with latched button edges (handleSettingsInput, settingsVisible) — source `client/xr/XRWidgets.js`, proof none
+- **UNPROVEN** Teleport fade-out and fade-in screen quad with delay phase (updateFade) and move/settle timings — source `client/xr/XRWidgets.js`, proof none
+- **UNPROVEN** Comfort vignette shown while the player is moving in VR (updateVignette, vignetteEnabled setting) — source `client/xr/XRWidgets.js`, proof none
+- **UNPROVEN** Wrist HUD on the hand showing HP, ammo or RELOAD, refreshed on WRIST_UI_INTERVAL_S — source `client/xr/XRWidgets.js`, proof none
+- **UNPROVEN** Controller and hand model objects, grips, and throttled controller visibility (XRControllerModelFactory, XRHandModelFactory) — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** Aim source selection between hand pinch and controller ray (readAimPointer, aimHandIndex) — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** XR session start: fixed foveation level 0.5 and deferred rebase of the XR origin onto the local player eye height after 100 ms — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** XR session entry: immersive-vr button added when supported (initVRButton via isXRSessionSupported) — source `client/xr/xrSessionSupport.js`, proof none
+- **UNPROVEN** AR session with hit-test placement reticle (XRControls.createReticle, hitTestSource, createXRButton) — source `client/xr/XRControls.js`, proof none
+- **UNPROVEN** AR presentation hold: hides scene background and canvas while AR runs, restores them on session end — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** Straight pointer ray line for XR aiming (createRayLine, STRAIGHT_RAY_VERTICES) — source `client/xr/XRRayLine.js`, proof none
+- **UNPROVEN** XR per-frame dt clamp (0.001 to 0.1 s) and player eye-height offset for the VR origin (eyeHeightOf, syncVRPosition) — source `client/xr/XRSystem.js`, proof none
+- **UNPROVEN** Editor edit panel shell with menus and gizmo mode/space/pivot callbacks (createEditPanel) — source `client/editor/EditorShell.js`, proof none
+- **UNPROVEN** Editor core: entity selection, drag and gizmo edits committed through onCommitEdit (createEditor) — source `client/editor/editor.js`, proof none
+- **UNPROVEN** Gizmo build exports used by the editor (EditorGizmoBuild) — source `client/editor/EditorGizmoBuild.js`, proof none
+- **UNPROVEN** Scene hierarchy tree: select, focus, delete, duplicate, rename, reparent, lock and hidden toggles, save selection as prefab — source `client/editor/SceneHierarchy.js`, proof none
+- **UNPROVEN** Entity inspector: destroy, edit code, rename for the selected entity — source `client/editor/EditorInspector.js`, proof none
+- **UNPROVEN** Property editing widgets: draggable numeric fields, vec3 fields and property fields (dragNumberVNode, v3, propField) — source `client/editor/EditPanelDOM.js`, proof none
+- **UNPROVEN** Editor toasts with history and confirm dialogs (showToast, showConfirm, getToastHistory) — source `client/editor/EditPanelDOM.js`, proof none
+- **UNPROVEN** Undo and redo edit history with server push (createEditHistory) — source `client/editor/EditHistory.js`, proof none
+- **UNPROVEN** Persistent edit history per world across reloads (createPersistentHistory) — source `client/editor/PersistentHistory.js`, proof none
+- **UNPROVEN** Editor world autosave (EditorAutosave) — source `client/editor/EditorAutosave.js`, proof none
+- **UNPROVEN** Layer registry for locking and hiding entities (createLayerRegistry) — source `client/editor/LayerRegistry.js`, proof none
+- **UNPROVEN** App browser grouped by category, with place, save, create and prefab actions (createEditorApps, getAppCategory) — source `client/editor/EditorApps.js`, proof none
+- **UNPROVEN** Prefab panel: save, instantiate and delete prefabs (createPrefabPanel) — source `client/editor/PrefabPanel.js`, proof none
+- **UNPROVEN** Procedural generator panel with placement planning and batch placement (runGenerator, planPlacement, createProcgenPanel) — source `client/editor/ProcgenPanel.js`, proof none
+- **UNPROVEN** World validator lint with out-of-bounds radius and spawn app name checks (lintWorld) — source `client/editor/WorldValidator.js`, proof none
+- **UNPROVEN** Waypoint path overlay drawn from entity waypoints (collectWaypointPathPoints, createWaypointPathOverlay) — source `client/editor/WaypointPath.js`, proof none
+- **UNPROVEN** Agent edit staging: stages agent source edits for review before save (createAgentEditStaging) — source `client/editor/AgentEditStaging.js`, proof none
+- **UNPROVEN** Filesystem browser for app sources: list, get source, save, mkdir, delete, rename (createEditorFsBrowse) — source `client/editor/EditorFsBrowse.js`, proof none
+- **UNPROVEN** Event chain panel (createEventChainPanel) — source `client/editor/EventChainPanel.js`, proof none
+- **UNPROVEN** Hook flow viewer (createHookFlowViewer) — source `client/editor/HookFlowViewer.js`, proof none
+- **UNPROVEN** Render graph viewer (createRenderGraphViewer) — source `client/editor/RenderGraphViewer.js`, proof none
+- **UNPROVEN** Freddie chat panel (createFreddieChatPanel) — source `client/editor/FreddieChatPanel.js`, proof none
+- **UNPROVEN** P2P room panel (createP2PRoomPanel) — source `client/editor/P2PRoomPanel.js`, proof none
+- **UNPROVEN** Editor performance overlay (PerfOverlay) — source `client/editor/PerfOverlay.js`, proof none
+- **UNPROVEN** Live preview of the edited world (createLivePreview) — source `client/editor/LivePreview.js`, proof none
+- **UNPROVEN** Presence of other editors in the same world (createEditorPresence) — source `client/editor/EditorPresence.js`, proof none
+- **UNPROVEN** Editor API bridge over client entity meshes and selection (createEditorAPI) — source `client/editor/EditorAPI.js`, proof none
+- **UNPROVEN** Editor event log with query (createEditorEventLog) — source `client/editor/EditorEventLog.js`, proof none
+- **UNPROVEN** Editor window manager: draggable windows, persisted geometry, prompts and channel prompt (createWindowController, renderWindow, promptText, promptChannel, confirmWindow) — source `client/editor/wm/WindowController.js`, proof none
+- **UNPROVEN** Asset manifest fetch from the external asset host (ASSET_HOST, fetchAssetManifest) — source `client/editor/AssetManifest.js`, proof none
+- **UNPROVEN** Generated SDK typings for the editor Monaco from the AppContext import closure, digest-checked — source `client/editor/sdk-typings.generated.d.ts`, proof none
+- **UNPROVEN** Hand-curated Monaco SDK typings (client/editor/sdk-typings.d.ts) — source `client/editor/sdk-typings.d.ts`, proof none
+- **UNPROVEN** Editor shell host page (client/editor/thebird-host.html) with pinned game-editor-kit CDN import — source `client/editor/thebird-host.html`, proof none
+- **UNPROVEN** Landing page renders sections from content JSON via the content-url meta and debug marker window.__debug.landing — source `client/landing/index.html`, proof none
+- **UNPROVEN** Landing hero and CTA content (hero.json, cta.json) — source `client/landing/content/hero.json`, proof none
+- **UNPROVEN** Landing features and architecture content (features.json, architecture.json) — source `client/landing/content/features.json`, proof none
+- **UNPROVEN** Landing combined section manifest (content/manifest.json, array of section objects) — source `client/landing/content/manifest.json`, proof none
+- **PROVEN** Failed first-entity model load does not send ENVIRONMENT_DONE, while a successful load still does — source `client/app.js`, proof `scripts/failed-entity-no-env-done-witness.mjs`
+- **PROVEN** Model load gate refuses coded failures, withholds MODELS_DONE, and app.js and EntityLoader no longer swallow failures — source `client/app.js`, proof `scripts/model-load-gate-witness.mjs`
+- **PROVEN** Singleplayer MODELS_DONE waits for the deferred prefetch and stays held on prefetch failure — source `client/app.js`, proof `scripts/singleplayer-model-gate-witness.mjs`
+- **PROVEN** EntityLoader records and propagates the coded model-load refusal to the first-entity handler — source `client/EntityLoader.js`, proof `scripts/entity-loader-refusal-witness.mjs`
+- **PROVEN** BrowserServer worker and module load refusals carry reasonCode, message, filename and lineno — source `client/BrowserServer.js`, proof `scripts/browser-server-worker-error-witness.mjs`
+- **PROVEN** THREE LoadingManager failures produce a coded refusal in the modelLoadErrors registry (wired in client/core/SceneSetup.js) — source `client/core/SceneSetup.js`, proof `scripts/three-loader-error-witness.mjs`
+- **UNPROVEN** Top-level LoadingManager class (EventTarget) for the client loader — source `client/LoadingManager.js`, proof none
+- **UNPROVEN** App HUD renders app UI each frame through webjsx applyDiff, removing DOM children not in the vdom (renderAppUI) — source `client/AppModuleSystem.js`, proof none
+- **UNPROVEN** App module system: load app modules, route keyboard, input, frame and event dispatch (createAppModuleSystem) — source `client/AppModuleSystem.js`, proof none
+- **UNPROVEN** World-to-screen projection helper for HUD placement (worldToScreen) — source `client/AppModuleSystem.js`, proof none
+- **UNPROVEN** Anchored HUD plates placed from an anchor offset string (placeAnchoredPlates, parseAnchorOffset) — source `client/hudAnchor.js`, proof none
+- **UNPROVEN** Minimap HUD grid carry and origin when the player moves (minimapCarryShift, minimapCarryGrid, minimapGridOrigin) — source `client/hud/MinimapHUD.js`, proof none
+- **UNPROVEN** Minimap placement scanner and glyph classes (createPlacementScanner, GLYPH_* constants) — source `client/hud/MinimapPlacements.js`, proof none
+- **UNPROVEN** Minimap chunk glyph and footprint painting (paintChunkGlyphs, paintFootprints) and model footprints (createModelFootprints) — source `client/hud/MinimapGlyphs.js`, proof none
+- **UNPROVEN** Chat HUD, quick-message wheel and emote wheel (createChatHUD, createChatQuickWheel, createEmoteWheel) — source `client/hud/Chat.js`, proof none
+- **UNPROVEN** Pause menu, settings menu and mobile controls (createPauseMenu, createSettingsMenu, createMobileControlsUI) — source `client/hud/PauseMenu.js`, proof none
+- **UNPROVEN** Voice indicator HUD (createVoiceIndicator) — source `client/hud/VoiceIndicator.js`, proof none
+- **UNPROVEN** Loading screen and lobby screens (createLoadingScreen, createLobby) — source `client/hud/createLoadingScreen.js`, proof none
+- **UNPROVEN** Boot failure overlay shown when boot fails (BootFailureOverlay) — source `client/BootFailureOverlay.js`, proof none
+- **UNPROVEN** Peer host UI and room-code entry (createPeerHostUI, createRoomCodeUI) — source `client/hud/PeerHostUI.js`, proof none
+- **UNPROVEN** Render debug panel with governor status and cause lines (createRenderDebugPanel, governorStatusLine, governorCauseLine) — source `client/hud/RenderDebugPanel.js`, proof none
+- **UNPROVEN** Mesh debug panel (createMeshDebugPanel) — source `client/hud/MeshDebugPanel.js`, proof none
+- **UNPROVEN** HUD stats publish, read and clear channel (publishHudStat, readHudStats, clearHudStat) — source `client/hud/HudStats.js`, proof none
+- **UNPROVEN** Dev dashboard (createDevDashboard) — source `client/ui/DevDashboard.js`, proof none
+- **UNPROVEN** Network inspector (createNetworkInspector) — source `client/ui/NetworkInspector.js`, proof none
+- **UNPROVEN** Dev HMR runtime for the client (HmrRuntime) — source `client/dev/HmrRuntime.js`, proof none
+- **UNPROVEN** HMR decision logic: boundaries, live ancestors, nothing-live, class detection (hmr-decide) — source `client/dev/hmr-decide.js`, proof none
+- **UNPROVEN** Self-accepting hot swap in client modules (__spointHmr.accept for hud/MinimapHUD.js and hud/Chat.js; FacialMappings acceptSelf) — source `client/app.js`, proof none
+- **UNPROVEN** Service worker registration of /service-worker.js from app.js — source `client/service-worker.js`, proof none
+- **UNPROVEN** Warmup gate: app.js animate returns at once while window.__warmupInFlight is set — source `client/app.js`, proof none
+- **UNPROVEN** Scenery build adoption: _buildWorldScenery returns the in-flight _sceneryBuildPromise so boot adopts a running build — source `client/app.js`, proof none
+- **UNPROVEN** Input bucket reporting on window.__app (sentInput, sentInputCount) used to confirm keyboard input reached the game — source `client/app.js`, proof none
+- **UNPROVEN** Foliage and rock layer skip flags ?veg=none, ?nograss, ?norocks — source `client/app.js`, proof none — **Verifier note:** The only tracked hit is scripts/lib/verify-doc-claims.mjs, a documentation claim checker. No witness asserts that the flags skip their layers.
+- **UNPROVEN** Off-screen canvas worker rendering capability reporting (__offscreenCanvasWorkerRenderingSupported and detail) — source `client/app.js`, proof none
+- **UNPROVEN** Off-screen render worker (OffscreenRenderWorker.js) — source `client/workers/OffscreenRenderWorker.js`, proof none
+- **UNPROVEN** Kit wiring error reporting on window.__kitWiringError — source `client/app.js`, proof none
+- **UNPROVEN** Shadow cost probe arm via window.__shadowCostProbeArm — source `client/app.js`, proof none
+- **UNPROVEN** URL-driven join modes (?connect, ?multiplayer, ?singleplayer, ?host, ?wwjoin) in app.js — source `client/app.js`, proof none
+- **UNPROVEN** Host migration: claim host via relay, wait for an existing host, install host announcer (HostMigration.js) — source `client/HostMigration.js`, proof none
+- **UNPROVEN** Snapshot relay host and joiner (installSnapshotRelayHost, installSnapshotRelayJoiner) — source `client/SnapshotRelay.js`, proof none
+- **UNPROVEN** Peer roster formation and per-peer frame delay (formPeerRoster, peerFrameDelay) — source `client/PeerRoster.js`, proof none
+- **UNPROVEN** Server browser list (createServerBrowser) — source `client/ServerBrowser.js`, proof none
+- **UNPROVEN** Wireweave bridge and join client (createWireweaveBridge, WireweaveJoinClient) — source `client/WireweaveBridge.js`, proof none
+- **UNPROVEN** Player manager for client players (createPlayerManager) — source `client/PlayerManager.js`, proof none
+- **UNPROVEN** Entity loader mesh build path (EntityLoaderMeshBuild, createEntityLoader) — source `client/EntityLoaderMeshBuild.js`, proof none
+- **UNPROVEN** Model cache with IndexedDB store, soft and hard caps, revalidation and cache stats (ModelCache.js) — source `client/ModelCache.js`, proof none
+- **UNPROVEN** Model pool adapter and progressive URL selection (createModelPool, progressiveUrl) — source `client/ModelPoolAdapter.js`, proof none
+- **UNPROVEN** GLB patching before load (patchGLB) — source `client/GLBPatch.js`, proof none
+- **UNPROVEN** IndexedDB key-value store helper (IndexedDBStore.js) — source `client/IndexedDBStore.js`, proof none
+- **UNPROVEN** Animation clip cache in IndexedDB (warmClipStore, getCachedClips, cacheClips, hasCachedClips) — source `client/AnimationClipCache.js`, proof none
+- **UNPROVEN** Animation library loader with preload and VRM-version aware load (loadAnimationLibrary, preloadAnimationLibrary) — source `client/AnimationLibrary.js`, proof none
+- **UNPROVEN** Animation state machine with fade time and weapon aim poses (createAnimationStateMachine, WEAPON_AIM_POSES) — source `client/AnimationStateMachine.js`, proof none
+- **UNPROVEN** Mixamo and VRM0 bone remap of animation clips (remapMixamoClip, buildVRM0NormalizedRemap, detectBoneNameMap) — source `client/AnimationUtils.js`, proof none
+- **UNPROVEN** Player animator for GLB and player models (createPlayerAnimator, createGLBAnimator) — source `client/PlayerAnimator.js`, proof none
+- **UNPROVEN** Facial mapping for VRM v0 and v1 expressions, visemes and eyes (detectVRMVersion, mapVisemes, mapEmotionsV0, mapEmotionsV1, mapEyes) — source `client/FacialMappings.js`, proof none
+- **UNPROVEN** Facial player and ARKit name set (createFacialPlayer, initFacialSystem, ARKIT_NAMES) — source `client/facial-animation.js`, proof none
+
+## apps/
+
+- **PROVEN** Shipped app modules satisfy the node-checked authoring contract (optional server/client hooks, no low-level collider or manual teardown) — source `scripts/lib/app-contract.mjs`, proof `scripts/check-app-contract.mjs`
+- **PROVEN** Contract linter refuses each violation fixture (low-level collider, manual teardown, nested helper, editor update, render) and accepts a compliant app — source `scripts/lib/app-contract.mjs`, proof `scripts/app-contract-witness.mjs`
+- **PROVEN** Every shipped ctx.define* spec call in apps/ and src/stdlib-apps uses only known keys, and typo keys are refused by code — source `src/apps/AppContext.js`, proof `scripts/define-spec-coverage-witness.mjs`
+- **UNPROVEN** App imports resolve: apps/ never imports client/*, every import resolves, every world app has a module, every asset literal exists — source `src/apps/appImports.js`, proof none — **Verifier note:** proofPath scripts/check-app-imports.mjs prints no RESULT line (0 hits for RESULT:), so proofPath cleared to empty and status stays UNPROVEN
+- **PROVEN** AppLoader.loadAll keeps loaded and failed apps apart and reports refusals with a reasonCode naming the app and pattern — source `src/apps/AppLoader.js`, proof `scripts/app-loader-refusal-witness.mjs`
+- **UNPROVEN** Project apps/ shadows the engine's bundled app of the same name (flat-file and folder forms discovered, project dir first) — source `src/apps/AppLoader.js`, proof none
+- **UNPROVEN** Declarative world with no app code: players.behaviours.combat config drives a deathmatch (apps/world/arena-combat.js) — source `apps/world/arena-combat.js`, proof none — **Verifier note:** Confirmed 0 hits for players.behaviours and AppBehaviours in scripts; UNPROVEN with empty proofPath is correct
+- **PROVEN** Agent demo apps (agent-simple, agent-physics, agent-interactive, agent-spawner, agent-fsm) boot in a real browser, stream their entity, and raise no app-attributable errors — source `apps/agent-simple-demo/index.js`, proof `scripts/verify-app.mjs`
+- **PROVEN** agent-fsm-demo: game state machine with phases waiting, countdown, active, roundEnd, done — source `apps/agent-fsm-demo/index.js`, proof `scripts/verify-app.mjs` — **Verifier note:** PROVEN covers only boot via scripts/verify-app.mjs; no witness asserts the phase names or transitions. Status kept PROVEN under the symbol-plus-RESULT rule, but the feature statement exceeds the proof
+- **PROVEN** agent-spawner-demo: spawns and despawns entities on a timer — source `apps/agent-spawner-demo/index.js`, proof `scripts/verify-app.mjs` — **Verifier note:** PROVEN covers only boot-and-stream via scripts/verify-app.mjs; the spawn and despawn timer is not asserted. Status kept PROVEN under the symbol-plus-RESULT rule, but the feature statement exceeds the proof
+- **UNPROVEN** Shipped default world is tps-game (apps/world/index.js re-exports it as defaultWorld) — source `apps/world/index.js`, proof none
+- **UNPROVEN** World def parse at one boundary: parseWorldDef refuses unknown fields and wrong kinds with WorldDefParseError codes — source `apps/world/_shared/worldDefParse.js`, proof none
+- **UNPROVEN** Shipped worlds declare clusters disabled, and the world-def parser refuses clusters enabled without a planet radius — source `apps/world/_shared/worldDefParse.js`, proof none
+- **PROVEN** tps-game world module loads through loadWorldModule and seeds a cluster-world harness base (planetRadius 0, presets tps+planet, port 3002) — source `apps/world/tps-game.js`, proof `scripts/cluster-world-harness.mjs`
+- **PROVEN** tps-game baked heightfield apps/world/tps-game.hf backs collider and placement for the shipped world — source `apps/world/tps-game.js`, proof `scripts/shared-lattice-surface-witness.mjs` — **Verifier note:** PROVEN is overstated: scripts/shared-lattice-surface-witness.mjs references tps-game.hf only in a SOURCES console.log line (line 292) and RESULT PASS at line 295 does not assert that the collider reads the baked file. Status kept PROVEN under the symbol-plus-RESULT rule
+- **UNPROVEN** tps-game world timeOfDay and weather are server-authoritative (600 s day, rain cycle 240 s at 50%) — source `apps/world/tps-game.js`, proof none — **Verifier note:** Values confirmed at apps/world/tps-game.js:6-7 (serverAuthoritative true, dayLengthSec 600, periodSec 240, rainFraction 0.5); no scripts/ witness references serverAuthoritative
+- **UNPROVEN** tps-game world vegetation and rock set (15 species, colliders, treeline 4000, rockMaxInstances 12000) is declared in the TERRAIN const — source `apps/world/tps-game.js`, proof none — **Verifier note:** Evidence claim of 0 hits is wrong for rockMaxInstances: scripts/cluster-world-harness.mjs:75 sets rockMaxInstances to 0 on a harness copy and asserts nothing about the shipped 12000. Values are present in apps/world/tps-game.js lines 9-12 (15 species, treeline 4000, rockMaxInstances 12000). Status stays UNPROVEN
+- **PROVEN** e2e-ci-arena fixture world: two clients connect, each predicts its own position, and no uncaught page error on either — source `apps/world/_fixtures/e2e-ci-arena.js`, proof `scripts/e2e-ci.mjs`
+- **UNPROVEN** replay-witness-arena fixture drives replay record and play — source `apps/world/_fixtures/replay-witness-arena.js`, proof none — **Verifier note:** proofPath scripts/replay-record-and-play.mjs has 0 RESULT lines; proofPath cleared to empty
+- **UNPROVEN** playtest-heatmap-harness fixture world feeds the playtest heatmap run — source `apps/world/_fixtures/playtest-heatmap-harness.js`, proof none — **Verifier note:** proofPath scripts/playtest-heatmap-run.mjs has 0 RESULT lines; proofPath cleared to empty
+- **UNPROVEN** Sillos terrain fixture worlds (terrain-only, terrain-veg, terrain-rocks-only, terrain-trees-only, isolated) built from apps/world/_shared/sillos-terrain.js — source `apps/world/_shared/sillos-terrain.js`, proof none
+- **UNPROVEN** sandbox world: empty start, SANDBOX_APP env spawns one named app at [0,1,3] — source `apps/world/sandbox.js`, proof none
+- **UNPROVEN** empty world: arena preset only (floor and default avatar) — source `apps/world/empty.js`, proof none
+- **UNPROVEN** construct world: trustedApps matrix-construct-room and tps-game, terrain disabled, matrix room at origin — source `apps/world/construct.js`, proof none
+- **UNPROVEN** tutorial world: checkpoint course (3 markers), button tutorial.finish, respawn-zone, no terrain — source `apps/world/tutorial.js`, proof none
+- **PROVEN** tutorial-rpg world movement block (maxSpeed 5, jumpImpulse 5) parses as a shipped world def — source `apps/world/tutorial-rpg.js`, proof `scripts/world-movement-parse-witness.mjs`
+- **UNPROVEN** deathrun world: deathrun_kosova map placed-model (trimesh, interior), checkpoints 0 and 1, minY -50 reset — source `apps/world/deathrun.js`, proof none
+- **PROVEN** apps/maps GLB set (16 map files) is counted by cross-map parity — source `apps/maps`, proof `scripts/cross-map-parity.mjs`
+- **UNPROVEN** lockstep-rts world: lockstep netcode (inputDelayTicks 3, stallTicks 300, maxCatchUpTicks 4) with 24 rts-unit entities in two squads — source `apps/world/lockstep-rts.js`, proof none — **Verifier note:** proofPath scripts/lockstep-cheat-harness.mjs has 0 RESULT lines and no symbol match for lockstep-rts; proofPath cleared to empty
+- **UNPROVEN** fire-duel world: rollback netcode with 2 peers and the fire-duel app — source `apps/world/fire-duel.js`, proof none
+- **UNPROVEN** rollback-duel world: two dynamic crates under rollback netcode (peer profile default world) — source `apps/world/rollback-duel.js`, proof none — **Verifier note:** proofPath scripts/peer-profile-harness.mjs has 0 RESULT lines; it only loads the world by name; proofPath cleared to empty
+- **UNPROVEN** tps-game server: ctx.defineCombat with powerups (damage x2, speed x1.5, rapid x2, 20 s, 15 s respawn) and a scoreboard — source `apps/tps-game/server-app.js`, proof none
+- **UNPROVEN** tps-game optional fire layer: ctx.defineFire(FIRE_SPEC) when config.fire.enabled, shot blocking and ignition from world hits (world default off) — source `apps/tps-game/shared.js`, proof none
+- **UNPROVEN** tps-game emotes: 8 named emotes, one per 800 ms per player, played through players.playAnimation — source `apps/tps-game/server-app.js`, proof none
+- **UNPROVEN** tps-game respawn clearance: pickClearSpawnPose rejects spawns with intruding or void footprint blockers or players within 25 m — source `apps/tps-game/respawn-clearance.js`, proof none
+- **UNPROVEN** tps-game predicted hit: client-side predictHit returns headshot or body against the rayVsCapsule hitbox to drive the hit marker — source `apps/tps-game/shared.js`, proof none
+- **UNPROVEN** tps-game client HUD overlay: crosshair recoil, hit and headshot markers, kill and streak text, damage numbers, spawn shield, low-HP vignette — source `apps/tps-game/client-app.js`, proof none
+- **UNPROVEN** tps-game client shooting: 100 ms fire gate, ammo and reload with reload_start and reload_complete, tracer, knockback prediction — source `apps/tps-game/client-app.js`, proof none
+- **UNPROVEN** tutorial app: four guided steps (WASD, sprint, jump, interact) advance on checkpoint-marker radius; tutorial.finish bus event completes it — source `apps/tutorial/index.js`, proof none
+- **UNPROVEN** tutorial-rpg quest suite: defineQuestSystem, defineStatsSystem and definePlayerInventory wired on TUTORIAL_BUS — source `apps/tutorial-rpg/index.js`, proof none
+- **UNPROVEN** rpg-tutorial app: XP and level-up (player.levelup event), abilities, quest completion (quest.completed), mini-boss spawn — source `apps/rpg-tutorial/index.js`, proof none
+- **UNPROVEN** tutorial-rpg-kit defineTutorialFoe: shared foe factory used by the tutorial enemies — source `apps/_lib/tutorial-rpg-kit.js`, proof none
+- **UNPROVEN** Tutorial quest entities (tutorial-rat kills, tutorial-herb collects, tutorial-npc talks, tutorial-marker reach, tutorial-boss wakes) emit TUTORIAL_BUS events, and tutorial-rpg-world retires and respawns them — source `apps/tutorial-rpg-world/index.js`, proof none
+- **UNPROVEN** deathrun app: server-authoritative checkpoint run timer and persistent per-map leaderboard — source `apps/deathrun/index.js`, proof none
+- **UNPROVEN** lockstep-rts controller: squads, hold-E rally, click attack-move, deterministic tick sim under the lockstep profile — source `apps/lockstep-rts/index.js`, proof none
+- **UNPROVEN** rts-unit visual body whose position the lockstep controller owns each tick — source `apps/rts-unit/index.js`, proof none
+- **UNPROVEN** fire-duel server app: ctx.defineFire(FIRE_SPEC) bound to the fire-duel world — source `apps/fire-duel.js`, proof none
+- **PROVEN** character-animator: reads state._ragdoll each tick, applies a new plan once per change, refuses a malformed plan with a reason code — source `apps/character-animator/index.js`, proof `scripts/character-animator-ragdoll-witness.mjs`
+- **UNPROVEN** character-controller app: spring-damped camera, WASD, coyote-time jump buffer, physics capsule, animation state — source `apps/character-controller/index.js`, proof none
+- **UNPROVEN** npc-navigator follows navmesh paths from ctx.navmesh or a fixed patrol route, surfacing navmeshError — source `apps/npc-navigator/index.js`, proof none
+- **UNPROVEN** Navmesh bake writes apps/world/<world>.navmesh.json from trimesh entities (refuses a world with no trimesh source or zero walkable polygons) — source `scripts/bake-navmesh.mjs`, proof none — **Verifier note:** proofPath scripts/bake-navmesh.mjs has 0 RESULT lines; the only navmesh.json hit is the bake script itself; proofPath cleared to empty
+- **UNPROVEN** npc.js wandering NPC with spawn-anchored random wander targets and speed and radius config — source `apps/npc.js`, proof none
+- **UNPROVEN** combat-bot empty-server backfill: seeks and shoots the nearest visible player via defineHealth, defineSteering and defineWeapon — source `apps/combat-bot/index.js`, proof none
+- **UNPROVEN** goblin, mini-boss and final-boss enemies (player-targeting AI, boss-attack bus event) — source `apps/final-boss/index.js`, proof none
+- **UNPROVEN** collectible, gold-coin and item-pickup: walking into them grants a server-validated inventory item or fires a value event — source `apps/item-pickup/index.js`, proof none
+- **UNPROVEN** hit-feedback: screen shake and sound on hits via backend broadcast — source `apps/hit-feedback/index.js`, proof none
+- **UNPROVEN** ecs-demo: tags and queries over @spoint/ecs entities — source `apps/ecs-demo/index.js`, proof none
+- **UNPROVEN** fsm-arena: ctx.defineGameMode match FSM with phases, reporting match_phase to the client — source `apps/fsm-arena/index.js`, proof none
+- **UNPROVEN** editor-apps, editor-events, editor-hierarchy and editor-inspector: trusted-only editor panels via ctx.editor (mountPanel, placeApp, requestEvents, fields) — source `apps/editor-inspector/index.js`, proof none
+- **UNPROVEN** unmanaged-ball-test: dynamic ball that drifts with the chart re-anchor (onChartReanchor hook) — source `apps/unmanaged-ball-test/index.js`, proof none
+- **UNPROVEN** matrix-construct-room: construct-world room plane (planeSize, planeThickness) for trusted-app construct world — source `apps/matrix-construct-room/index.js`, proof none
+- **UNPROVEN** example-progression: melee, heavy and spin attack progression example — source `apps/example-progression/index.js`, proof none
+- **UNPROVEN** apps/_lib squash-stretch: impact squash and stretch scale (computeSquashStretchScale, createSquashStretch) — source `apps/_lib/squash-stretch.js`, proof none
+- **UNPROVEN** apps/_lib inventory-registry and item-definitions: shared inventory pools and item definitions — source `apps/_lib/inventory-registry.js`, proof none
+- **UNPROVEN** apps/_lib dataset-viz: createDatasetViz chart helper for app panels — source `apps/_lib/dataset-viz.js`, proof none
+- **UNPROVEN** Create a starter app from a template (npx spoint create-app --template ...) — source `bin/templates.js`, proof none
+- **PROVEN** Declared apps and world defs under apps/ are inventoried for cross-map parity (worlds-config family, world count excluding index.js) — source `apps/world/tps-game.js`, proof `scripts/cross-map-parity.mjs` — **Verifier note:** sourcePath apps/world/tps-game.js is data, not the implementation; the inventory logic lives in scripts/cross-map-parity.mjs (countFiles at lines 186-187, RESULT at 266). sourcePath kept as given
+
+## client/core
+
+- **UNPROVEN** Bloom post-process node graph and install — source `client/core/Bloom.js`, proof none
+- **UNPROVEN** Bloom WebGPU pass — source `client/core/BloomWebGPU.js`, proof none
+- **UNPROVEN** Cache revalidation sweep (shared singleton) — source `client/core/CacheRevalidationSweep.js`, proof none
+- **UNPROVEN** Cascade shadow split selection and blend — source `client/core/CascadeShadowSelect.js`, proof none
+- **UNPROVEN** Cascade shadow split selection (TSL) — source `client/core/CascadeShadowSelectTSL.js`, proof none
+- **UNPROVEN** Cave mesh construction — source `client/core/CaveMeshes.js`, proof none
+- **UNPROVEN** Client state machine (xstate) and TOGGLE_EDITOR send — source `client/core/ClientMachine.js`, proof none — **Verifier note:** Evidence cites scripts/frame-time-gate.mjs:407, a best-effort send with no assertion and no RESULT on that path; not a proof.
+- **UNPROVEN** Collider debug overlay — source `client/core/ColliderDebug.js`, proof none
+- **UNPROVEN** Connection status indicator — source `client/core/ConnectionStatus.js`, proof none
+- **UNPROVEN** Instanced and batched mesh cull freeze (setInstancedCullAuto, setBatchedMeshCullAuto) — source `client/core/CullFreeze.js`, proof none
+- **UNPROVEN** Culling hub across instanced and LOD meshes — source `client/core/CullingHub.js`, proof none
+- **UNPROVEN** Decal system — source `client/core/DecalSystem.js`, proof none
+- **UNPROVEN** Dev tools integration install — source `client/core/DevToolsIntegration.js`, proof none
+- **UNPROVEN** Editor kit (editorKit) — source `client/core/EditorKit.js`, proof none
+- **UNPROVEN** Client error telemetry — source `client/core/ErrorTelemetry.js`, proof none
+- **PROVEN** Exact patch frame for grass seam cards — source `client/core/ExactPatchFrame.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** Facial expression codes (EXPR_*) — source `client/core/ExpressionCodes.js`, proof none
+- **UNPROVEN** FSR1 upscaling pass and install — source `client/core/FSR1.js`, proof none
+- **UNPROVEN** FSR1 WebGPU pass — source `client/core/FSR1WebGPU.js`, proof none
+- **UNPROVEN** Floating origin rebase (camera at origin, scene shifted by -delta) — source `client/core/FloatingOrigin.js`, proof none
+- **UNPROVEN** Fluid surface marching squares mesh — source `client/core/FluidSurface.js`, proof none
+- **UNPROVEN** Frame metrics: perf tracker, vsync monitor, DPR controller — source `client/core/FrameMetrics.js`, proof none
+- **UNPROVEN** Grass placement and mesh (createGrass) — source `client/core/Grass.js`, proof none
+- **UNPROVEN** Grass clump alpha texture and clump geometry — source `client/core/GrassClump.js`, proof none
+- **UNPROVEN** Grass material constants and vertex stage (MAX_BENDERS, MAX_DECALS, tint and cutoff) — source `client/core/GrassMaterial.js`, proof none
+- **UNPROVEN** Grass material TSL mirror (makeGrassMaterialTSL, syncGrassMaterialTSL) — source `client/core/GrassTSL.js`, proof none
+- **PROVEN** Grass wind field lattice (cells, extent, bands, snap, reach, drop margin) — source `client/core/GrassWindField.js`, proof `scripts/grass-wind-field-seam-witness.mjs` — **Verifier note:** Evidence cited constants GRASS_WIND_FIELD_BANDS, GRASS_WIND_FIELD_SNAP_M and GRASS_WIND_FIELD_REACH_M, which have 0 hits in scripts/. The proof holds only because scripts/grass-wind-field-seam-witness.mjs imports client/core/GrassWindField.js and calls createGrassWindField; status stays PROVEN on that symbol. The row's constants are not individually asserted.
+- **UNPROVEN** Ground node grid — source `client/core/GroundNodeGrid.js`, proof none
+- **UNPROVEN** Ground sample commit and no-ground sentinel — source `client/core/GroundSample.js`, proof none
+- **PROVEN** Loading state machine: model failure guard — source `client/core/LoadingMachine.js`, proof `scripts/force-ready-model-failure-witness.mjs`
+- **UNPROVEN** Mapspinner WebGPU feasibility probe — source `client/core/MapspinnerWebGPUFeasibility.js`, proof none
+- **UNPROVEN** Mesh debug overlay — source `client/core/MeshDebug.js`, proof none
+- **UNPROVEN** Mobile touch controls and device detection — source `client/core/MobileControls.js`, proof none
+- **UNPROVEN** Multi-viewport rendering — source `client/core/MultiViewport.js`, proof none
+- **UNPROVEN** Occlusion policy — source `client/core/OcclusionPolicy.js`, proof none
+- **UNPROVEN** Occlusion query budget — source `client/core/OcclusionQueryBudget.js`, proof none
+- **UNPROVEN** Overdraw probe — source `client/core/OverdrawProbe.js`, proof none
+- **UNPROVEN** Performance profiler — source `client/core/PerformanceProfiler.js`, proof none
+- **PROVEN** Placement ring for grass seam cards — source `client/core/PlacementRing.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** Placement scheduler and scenery shader warm-up — source `client/core/PlacementScheduler.js`, proof none
+- **UNPROVEN** Player LOD tiers (full, reduced, dot) and full-count cap — source `client/core/PlayerLOD.js`, proof none — **Verifier note:** Proof downgraded to UNPROVEN. scripts/planet-multiplayer-harness.mjs imports PLAYER_LOD_FULL_COUNT from src/netcode/SnapshotEncoder.js, not from client/core/PlayerLOD.js; the harness never references client/core/PlayerLOD.js. The same-named constant is tested in the server encoder path, not the client tier classifier.
+- **UNPROVEN** Player LOD dot material TSL — source `client/core/PlayerLODTSL.js`, proof none
+- **UNPROVEN** Player vertex animation texture crowd renderer and debug — source `client/core/PlayerVAT.js`, proof none
+- **UNPROVEN** Player VAT bake (bakeVAT, bakeVATMultiClip) — source `client/core/PlayerVATBake.js`, proof none
+- **UNPROVEN** Player VAT material TSL — source `client/core/PlayerVATTSL.js`, proof none
+- **PROVEN** Post-FX look parse, apply and passes (PostFxLookError) — source `client/core/PostFxLook.js`, proof `scripts/postfx-look-witness.mjs`
+- **UNPROVEN** Preview reload — source `client/core/PreviewReload.js`, proof none
+- **PROVEN** Program readiness: pending pipeline count — source `client/core/ProgramReadiness.js`, proof `scripts/program-readiness-render-witness.mjs`
+- **UNPROVEN** Quality governor frame-budget stepping — source `client/core/QualityGovernor.js`, proof none
+- **UNPROVEN** Quality presets — source `client/core/QualityPresets.js`, proof none — **Verifier note:** Proof downgraded to UNPROVEN. QualityPresets and installQualityPresets are not referenced as symbols by verify-doc-claims.mjs; the hits are client/core/QualityPresets.js path strings in doc-claim tables. installQualityPresets has 0 hits.
+- **UNPROVEN** Quality tier choice (resolveQualityTier, QualityTierError) — source `client/core/QualityTierChoice.js`, proof none
+- **UNPROVEN** Relocation client drive — source `client/core/Relocation.js`, proof none
+- **UNPROVEN** Relocation bookmark search (searchBookmark) with NaN behaviour — source `client/core/RelocationSearch.js`, proof none — **Verifier note:** The owner hold on NaN behaviour is not recorded in AGENTS.md or any docs (git grep for RelocationSearch and NaN found nothing), so the row is UNPROVEN, not HELD, per the HELD rule. The owner hold needs a doc line before it can be marked HELD.
+- **UNPROVEN** Relocation settle wait (whenSettled) — source `client/core/RelocationSettle.js`, proof none
+- **UNPROVEN** Render controls registry and install (RenderControls, installRenderControls) — source `client/core/RenderControls.js`, proof none
+- **PROVEN** Render graph (createRenderGraph) — source `client/core/RenderGraph.js`, proof `scripts/postfx-graph-structure-witness.mjs`
+- **UNPROVEN** Render section node builders (buildRenderSectionNodes) — source `client/core/RenderGraph.nodes.js`, proof none
+- **UNPROVEN** Replay buffer and scene-graph capture — source `client/core/ReplayBuffer.js`, proof none
+- **PROVEN** Rocks placement and mesh (createRocks) with model exclusion — source `client/core/Rocks.js`, proof `scripts/rock-model-exclusion-witness.mjs`
+- **UNPROVEN** Rock texture and material TSL — source `client/core/RocksTSL.js`, proof none
+- **UNPROVEN** Runtime stats and draw-call audit — source `client/core/RuntimeStats.js`, proof none
+- **UNPROVEN** SSAO pass and install — source `client/core/SSAO.js`, proof none
+- **UNPROVEN** SSAO WebGPU pass — source `client/core/SSAOWebGPU.js`, proof none
+- **UNPROVEN** SSR pass and install — source `client/core/SSR.js`, proof none
+- **UNPROVEN** SSR WebGPU pass — source `client/core/SSRWebGPU.js`, proof none
+- **UNPROVEN** Scene graph (createSceneGraph) — source `client/core/SceneGraph.js`, proof none — **Verifier note:** scripts/netcode-conditioner-harness.mjs imports createSceneGraph from client/core/SceneGraph.js, but the script prints no RESULT line, so it is not a proof; row stays UNPROVEN.
+- **UNPROVEN** Scene occlusion (createSceneOcclusion, queriedThisFrame) — source `client/core/SceneOcclusion.js`, proof none
+- **UNPROVEN** Scene setup, renderer probes and sea-level and skeleton-upload hooks — source `client/core/SceneSetup.js`, proof none — **Verifier note:** scripts/three-loader-error-witness.mjs reads client/core/SceneSetup.js as text for a LoadingManager check; it does not reference createScene, probeWebGL2 or probeOffscreenCanvasWorkerRendering. Row stays UNPROVEN; the evidence's cross-map-parity.mjs hit is a path table, not a witness.
+- **UNPROVEN** Sculpt overlay — source `client/core/SculptOverlay.js`, proof none
+- **UNPROVEN** Shadow cost probe (installShadowCostProbe, getShadowCostProbe) — source `client/core/ShadowCostProbe.js`, proof none
+- **UNPROVEN** Shadow caster layer — source `client/core/ShadowLayers.js`, proof none — **Verifier note:** scripts/.veg-lod-stream-control.mjs imports SHADOW_CASTER_ONLY_LAYER but prints no RESULT line; not a proof.
+- **UNPROVEN** Shadow pipeline (createShadowPipeline, requestShadowRedraw, caster tracker) — source `client/core/ShadowPipeline.js`, proof none
+- **UNPROVEN** Spectator camera mode — source `client/core/SpectatorMode.js`, proof none
+- **UNPROVEN** Static instance store — source `client/core/StaticInstanceStore.js`, proof none
+- **UNPROVEN** Streaming scheduler (scoreRequest, shared scheduler) — source `client/core/StreamingScheduler.js`, proof none — **Verifier note:** The only reference is src/static/FetchManifest.js, which locates the file on disk; no scripts/ witness exercises the scheduler.
+- **UNPROVEN** Terrain backdrop (createTerrainBackdrop) and planet module prewarm — source `client/core/TerrainBackdrop.js`, proof none
+- **UNPROVEN** Terrain occlusion — source `client/core/TerrainOcclusion.js`, proof none
+- **UNPROVEN** Three VDRS controller and WebGPU unsupported refusal — source `client/core/ThreeVdrs.js`, proof none
+- **UNPROVEN** Tile extent commit — source `client/core/TileExtent.js`, proof none
+- **UNPROVEN** Time of day — source `client/core/TimeOfDay.js`, proof none
+- **UNPROVEN** Touch draft from key bindings — source `client/core/TouchDraft.js`, proof none
+- **UNPROVEN** Touch surface spec parse (TouchSurfaceSpecError) — source `client/core/TouchSurfaceSpec.js`, proof none
+- **UNPROVEN** Transform lerp batch and player transform — source `client/core/TransformLerp.js`, proof none
+- **UNPROVEN** Tree texture budget (halvingsFor, parseTreeTextureMaxPx) — source `client/core/TreeTextureBudget.js`, proof none
+- **UNPROVEN** Underwater tint (GLSL path) — source `client/core/UnderwaterTint.js`, proof none
+- **UNPROVEN** Underwater tint (TSL path) — source `client/core/UnderwaterTintTSL.js`, proof none
+- **UNPROVEN** Vegetation impostor tier and shared impostor atlas — source `client/core/VegImpostorTier.js`, proof none
+- **PROVEN** Vegetation build (createVegetation) with model exclusion — source `client/core/Vegetation.js`, proof `scripts/rock-model-exclusion-witness.mjs`
+- **UNPROVEN** Vegetation terrain ambient TSL uniforms — source `client/core/VegetationAmbientTSL.js`, proof none
+- **UNPROVEN** Vegetation build helpers: tree texture halving and leaf cap refusals — source `client/core/VegetationBuild.js`, proof none
+- **UNPROVEN** Vegetation wind TSL — source `client/core/VegetationTSL.js`, proof none
+- **UNPROVEN** Weather system (createWeather) — source `client/core/Weather.js`, proof none
+- **UNPROVEN** Weather GPU field geometry and seed attributes — source `client/core/WeatherGpu.js`, proof none
+- **UNPROVEN** Weather materials (rain, splash, snow) — source `client/core/WeatherMaterials.js`, proof none
+- **UNPROVEN** Weather materials TSL — source `client/core/WeatherMaterialsTSL.js`, proof none
+- **UNPROVEN** WebGPU culling hub integration and vegetation scale A/B — source `client/core/WebGPUCullingHubIntegration.js`, proof none
+- **UNPROVEN** WebGPU compute culling probe and frustum planes — source `client/core/WebGPUCullingProbe.js`, proof none
+- **UNPROVEN** WebGPU instancing (support check, slot range uploader, streaming instancer) — source `client/core/WebGPUInstancing.js`, proof none
+- **UNPROVEN** WebGPU LOD instancer (createWebGPULodInstancer, LOD_REEVAL_MOVE_M) — source `client/core/WebGPULodInstancer.js`, proof none — **Verifier note:** scripts/.veg-lod-mismatch-probe.mjs and scripts/.veg-lod-path-probe.mjs import client/core/WebGPULodInstancer.js but print no RESULT line; they are probes, not witnesses.
+- **UNPROVEN** Wetness tint (installWetnessTint, setWetness) — source `client/core/WetnessTint.js`, proof none
+- **UNPROVEN** Wetness tint TSL and specular contribution — source `client/core/WetnessTintTSL.js`, proof none
+- **UNPROVEN** Worker render message protocol (WORKER_MESSAGE, refusal codes, frame live bound gates) — source `client/core/WorkerRenderProtocol.js`, proof none
+- **UNPROVEN** Worker renderer runtime state and frame window classification — source `client/core/WorkerRenderer.js`, proof none
+- **UNPROVEN** World panels (WorldPanelError, createWorldPanels) — source `client/core/WorldPanels.js`, proof none
+- **UNPROVEN** Camera controller (createCameraController) — source `client/core/camera.js`, proof none
+- **UNPROVEN** Debug log — source `client/core/debug-log.js`, proof none
+- **UNPROVEN** Draw order bands (WATER, ROCKS, GRASS, FOLIAGE, WEATHER) — source `client/core/drawBands.js`, proof none
+- **UNPROVEN** HUD-free frame capture — source `client/core/frameCapture.js`, proof none
+- **UNPROVEN** Key bindings (createKeyBindings, KeyBindingError, default bindings) — source `client/core/keybindings.js`, proof none
+- **UNPROVEN** Macrotask yield — source `client/core/macrotaskYield.js`, proof none — **Verifier note:** Proof downgraded to UNPROVEN. The one verify-doc-claims.mjs hit is stale-claim prose text, not a reference to the exported macrotaskYield, and no witness imports client/core/macrotaskYield.js.
+- **PROVEN** Model load gate (prefetchModel, runModelLoadGate) — source `client/core/modelLoadGate.js`, proof `scripts/model-load-gate-witness.mjs`
+- **UNPROVEN** Client strings table (STRINGS) — source `client/core/strings.js`, proof none
+
+## packages/mapspinner
+
+- **PROVEN** Heightfield binary codec decode (rejects bad magic and truncation) — source `packages/mapspinner/src/heightfield-codec.js`, proof `scripts/nearfield-lod-lattice-witness.mjs` — **Verifier note:** PROVEN shows decodeHeightfield is referenced with RESULT; the bad-magic and truncation refusals themselves are not separately asserted in the grep evidence
+- **UNPROVEN** Heightfield binary codec encode for baked .hf artifacts — source `packages/mapspinner/src/heightfield-codec.js`, proof none — **Verifier note:** proof scripts/bake-heightfield.mjs contains encodeHeightfield but prints no RESULT line; proofPath cleared to empty, status UNPROVEN
+- **PROVEN** CPU height sampler createHeightSampler (parity source for the GLSL height graph) — source `packages/mapspinner/src/height-cpu.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **UNPROVEN** GLSL-to-JS height transpile producing src/height-gen.js (generated, never hand-edited) — source `packages/mapspinner/src/height-gen.js`, proof none
+- **PROVEN** Single-source terrain defaults (TERRAIN_DEFAULTS) — source `packages/mapspinner/src/terrain-defaults.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **UNPROVEN** Terrain carves applied to the CPU height sampler — source `packages/mapspinner/src/tsl/height-spec.js`, proof none — **Verifier note:** none of MAX_TERRAIN_CARVES, carveChord2, defineHeightSpec occur in scripts/; shared-lattice-surface-witness.mjs only passes carves indirectly; proofPath cleared
+- **UNPROVEN** Height hash-version backends (float v1 and integer v2) selected per world — source `packages/mapspinner/src/tsl/height-spec.js`, proof none — **Verifier note:** none of HASH_VERSION_FLOAT, HASH_VERSION_INTEGER, assertHashVersion occur in scripts/; indirect exercise only; proofPath cleared. Row also bundles two backends (v1 and v2) that a split would separate
+- **UNPROVEN** Continental bias height term (CONTINENTAL_BIAS_AMP = 50) — source `packages/mapspinner/src/tsl/height-spec.js`, proof none
+- **UNPROVEN** Anchor field climate and elevation modulation (createAnchorField) — source `packages/mapspinner/src/anchor-field.js`, proof none — **Verifier note:** scripts/circumnavigate.mjs prints no RESULT line; proofPath cleared
+- **UNPROVEN** Anchor field band detail overlay — source `packages/mapspinner/src/anchor-field-bands.js`, proof none
+- **UNPROVEN** HPF lattice build and face or pool samplers (hpfLattice, hpfFaceSampler, hpfPoolSampler) — source `packages/mapspinner/src/hpf-lattice.js`, proof none
+- **UNPROVEN** CPU vs GPU ground-height parity gate — source `packages/mapspinner/src/gl-render.js`, proof none — **Verifier note:** scripts/height-parity.mjs exits 1 on FAIL and prints JSON with no RESULT line; proofPath cleared
+- **PROVEN** Cube-sphere quadtree LOD selection per camera altitude — source `packages/mapspinner/src/quadtree.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **PROVEN** Ground-per-face-metre LOD metric (groundPerFaceMetre) — source `packages/mapspinner/src/quadtree.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** Local-to-deformed sphere mapping (localToDeformed) — source `packages/mapspinner/src/quadtree.js`, proof none
+- **PROVEN** LOD config resolution and application (LOD_STEP, lodDistFactor, resolveLodConfig, applyLodConfig) — source `packages/mapspinner/src/lod-config.js`, proof `scripts/shared-lattice-surface-witness.mjs`
+- **PROVEN** Cube-face selection and face-local projection (pickFace, worldToFaceLocal) — source `packages/mapspinner/src/planet-orchestrator-cull.js`, proof `scripts/grass-seam-card-witness.mjs`
+- **UNPROVEN** Frustum quad culling (quadOutsideFrustum, extractFrustumPlanes) — source `packages/mapspinner/src/planet-orchestrator-cull.js`, proof none
+- **UNPROVEN** Per-frame planet orchestration and renderer entry (initMapspinnerPlanet, splitFactor) — source `packages/mapspinner/src/planet-orchestrator.js`, proof none
+- **UNPROVEN** Patch grid geometry with outer skirt ring (buildGridGeometry) — source `packages/mapspinner/src/patch-grid-geometry.js`, proof none
+- **UNPROVEN** Zero-to-one depth perspective matrix (perspectiveZeroToOne) — source `packages/mapspinner/src/patch-grid-geometry.js`, proof none
+- **UNPROVEN** Patch baker height patches and thermal erosion (createPatchBaker, applyThermalErosion) — source `packages/mapspinner/src/patch-baker.js`, proof none
+- **UNPROVEN** Remote patch baker over a worker (createRemotePatchBaker) — source `packages/mapspinner/src/patch-baker-remote.js`, proof none
+- **UNPROVEN** Module worker job runner with timeout (runModuleWorkerJob) — source `packages/mapspinner/src/worker-job.js`, proof none
+- **UNPROVEN** Planet radius default and resolver (PLANET_RADIUS_M, resolvePlanetRadiusM) — source `packages/mapspinner/src/planet-radius.js`, proof none
+- **UNPROVEN** GPU pool and wetness parameter resolution (resolvePoolParams, resolveWetness) — source `packages/mapspinner/src/pool-params.js`, proof none
+- **UNPROVEN** Geomorph parent-grid snap across LOD levels (parentGridPosition) — source `packages/mapspinner/src/tsl/geomorph-snap-tsl.js`, proof none
+- **UNPROVEN** Transmittance LUT bake and verify (bakeTransmittanceLUT, verifyLUT) — source `packages/mapspinner/src/atmosphere-transmittance-lut.js`, proof none — **Verifier note:** scripts/tsl-parity/build.mjs names the atmosphere-lut path and prints no RESULT line; proofPath cleared
+- **UNPROVEN** Scattering LUT bake and verify (bakeScatteringLUT, verifyScatteringLUT) — source `packages/mapspinner/src/atmosphere-scattering-lut.js`, proof none
+- **UNPROVEN** Off-thread atmosphere LUT bake job (bakeAtmosphereLUTs, startLutBakeWorker) — source `packages/mapspinner/src/atmosphere-lut-job.js`, proof none
+- **UNPROVEN** WebGPU atmosphere LUT texture upload and readback — source `packages/mapspinner/src/webgpu/atmosphere-lut-compute.js`, proof none
+- **PROVEN** TSL sky radiance march (createSkyTSL, marchRadiance) — source `packages/mapspinner/src/tsl/sky-tsl.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on scripts/lib/verify-doc-claims.mjs (RESULT at line 724), a doc-text checker that names the symbol; it does not exercise the radiance march
+- **UNPROVEN** WebGPU sky renderer (SkyRenderer, SKY_WGSL) — source `packages/mapspinner/src/webgpu/sky-render.js`, proof none
+- **PROVEN** Aerial-perspective gating in terrain lighting (apRad, apGate) — source `packages/mapspinner/src/tsl/terrain-lighting-tsl.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs, which names apRad only in 'not a fact' entries; the gate is not exercised
+- **UNPROVEN** Legacy terrain lighting path (createLegacyTerrainLighting) — source `packages/mapspinner/src/tsl/terrain-lighting-tsl.js`, proof none
+- **UNPROVEN** Day/night ambient and terrain grade (terrainGrade, terrainDayShade, terrainSkyIrradiance) — source `packages/mapspinner/src/tsl/terrain-ambient-shared.js`, proof none
+- **UNPROVEN** WebGL2 terrain renderer entry (initMapspinnerRender, createRenderer) — source `packages/mapspinner/src/gl-render.js`, proof none — **Verifier note:** packages/mapspinner/scripts/verify.mjs drives planet.html and prints JSON with a pass flag, no RESULT line; proofPath cleared
+- **UNPROVEN** Live GPU ground-height readback (sampleGroundM, sampleGroundMSync) — source `packages/mapspinner/src/gl-render.js`, proof none — **Verifier note:** scripts/bake-heightfield.mjs and scripts/lib/gpu-eval.mjs print no RESULT line; proofPath cleared
+- **PROVEN** Terrain shader discards confined to the _WATERPASS_ block (keeps early-Z) — source `packages/mapspinner/src/shaders/terrain.glsl`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs doc-text matching; the discard placement is not rendered or compiled
+- **PROVEN** Fast-path render flags __vsCheap, __fsCheap and __halfResWater — source `packages/mapspinner/src/gl-render.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs doc-text matching; bundles three flags that share one proof
+- **UNPROVEN** TSL planet material and mesh entry (initMapspinnerPlanetTSL) — source `packages/mapspinner/src/tsl/planet-tsl.js`, proof none
+- **PROVEN** Render order: terrain after opaque occluders, water before other transparents — source `packages/mapspinner/src/tsl/planet-tsl.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs doc-text matching; render order is not exercised. Row also bundles two render orders
+- **UNPROVEN** Water TSL with sea-level fragment discard (LAND_ABOVE_SEA_DISCARD_M) — source `packages/mapspinner/src/tsl/water-tsl.js`, proof none
+- **UNPROVEN** Sea wave height field (seaHeight, seaHeightLF, seaHeightMean) — source `packages/mapspinner/src/sea-waves.js`, proof none
+- **PROVEN** Far-distance splat fade (texFarFade) — source `packages/mapspinner/src/tsl/surface-splat-tsl.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs doc-text matching only
+- **UNPROVEN** Terrain albedo and climate splat blend (terrainAlbedoClimate, surfaceSplat) — source `packages/mapspinner/src/tsl/surface-splat-tsl.js`, proof none
+- **UNPROVEN** Splat weights per hash version (createSplatWeights) — source `packages/mapspinner/src/splat-weights.js`, proof none
+- **UNPROVEN** Surface texture set decode and sRGB linearisation (decodeSurfaceTextureSet, delin8) — source `packages/mapspinner/src/surface-texture-decode.js`, proof none
+- **UNPROVEN** Contact occlusion field (syncContactOcclusion, contactOcclusionFactor) — source `packages/mapspinner/src/tsl/contact-occlusion-tsl.js`, proof none
+- **UNPROVEN** Display-referred transfer (sceneLinearToDisplayReferred) — source `packages/mapspinner/src/tsl/display-referred-tsl.js`, proof none
+- **UNPROVEN** Sculpt override TSL (createSculptOverrideTSL, SCULPT_RES) — source `packages/mapspinner/src/tsl/sculpt-tsl.js`, proof none
+- **UNPROVEN** Height probe TSL and probe directions (createHeightProbeTSL, heightProbeDirs) — source `packages/mapspinner/src/tsl/height-probe-tsl.js`, proof none
+- **PROVEN** Demo tuning-panel registry entries (elevEdgeInset) are live overlays, not boot-time writers — source `packages/mapspinner/src/terrain-gen-controls.js`, proof `scripts/lib/verify-doc-claims.mjs`
+- **PROVEN** VDRS render-scale gate (__vdrsScale read only when window.__vdrs === true) — source `packages/mapspinner/src/gl-render.js`, proof `scripts/lib/verify-doc-claims.mjs` — **Verifier note:** PROVEN rests on verify-doc-claims.mjs doc-text matching only
+- **UNPROVEN** VDRS upscale and composite passes (BilinearUpscale, Fsr1Upscale EASU/RCAS, DepthWriteback) — source `packages/mapspinner/src/webgpu/vdrs-composite.js`, proof none
+- **UNPROVEN** WebGPU terrain height compute (createTerrainHeightPipeline, computeTerrainHeights) — source `packages/mapspinner/src/webgpu/terrain-height-compute.js`, proof none
+- **UNPROVEN** WebGPU composeHeight compute (createTerrainComposeHeightPipeline, computeTerrainComposeHeights) — source `packages/mapspinner/src/webgpu/terrain-composeheight-compute.js`, proof none
+- **UNPROVEN** WebGPU height-tile bake to texture (THC_BAKE_RES = 130, bakeHeightTileTexture) — source `packages/mapspinner/src/webgpu/height-bake-compute.js`, proof none
+- **UNPROVEN** WebGPU ground probe compute (GroundProbe, createGroundProbe) — source `packages/mapspinner/src/webgpu/ground-probe-compute.js`, proof none
+- **UNPROVEN** WebGPU patch grid renderer (PatchGridRenderer, buildInstanceData) — source `packages/mapspinner/src/webgpu/patch-grid-render.js`, proof none
+- **UNPROVEN** WebGPU water renderer and occlusion probe (WaterRenderer, WaterOcclusionProbe) — source `packages/mapspinner/src/webgpu/water-render.js`, proof none
+- **UNPROVEN** WebGPU planet entry and capability detection (initMapspinnerPlanetWebGPU, supportsPlanetWebGPU) — source `packages/mapspinner/src/webgpu/planet-orchestrator-webgpu.js`, proof none
+- **UNPROVEN** WebGPU pipeline cache (MapspinnerPipelineCache, createPipelineCache) — source `packages/mapspinner/src/webgpu/pipeline-cache.js`, proof none
+- **UNPROVEN** SDK entry point exports (createRenderer, createPlanet, VERSION) — source `packages/mapspinner/src/index.js`, proof none — **Verifier note:** scripts/cross-map-parity.mjs prints RESULT but lists packages/mapspinner/src/index.js only as a parity path; createPlanet occurs in no scripts/ file; proofPath cleared
+- **UNPROVEN** Relative-import resolution across mapspinner src — source `packages/mapspinner/src/index.js`, proof none — **Verifier note:** scripts/check-relative-imports.mjs runs as a check step and prints no RESULT line; proofPath cleared
+- **UNPROVEN** Three.js export-name resolution for mapspinner TSL modules — source `packages/mapspinner/src/tsl/planet-tsl.js`, proof none — **Verifier note:** scripts/check-tsl-imports.mjs runs as a check step and prints no RESULT line; proofPath cleared
+- **UNPROVEN** Bake code-version closure for the heightfield codec and shipped .hf artifacts — source `packages/mapspinner/src/heightfield-codec.js`, proof none — **Verifier note:** scripts/check-cache-keys.mjs prints [check-cache-keys] lines and exits by code, no RESULT line; proofPath cleared
+- **UNPROVEN** Headless heightmap CLI (lab.mjs heightmap, PNG and stats) — source `packages/mapspinner/scripts/lab.mjs`, proof none — **Verifier note:** packages/mapspinner/scripts/lab.mjs has zero RESULT lines; proofPath cleared
+- **UNPROVEN** GPU backend selection guard (backend-guard, backend-ab divergence verdict) — source `packages/mapspinner/scripts/backend-guard.mjs`, proof none — **Verifier note:** packages/mapspinner/scripts/backend-guard.mjs and backend-ab.mjs have zero RESULT lines; proofPath cleared
+- **UNPROVEN** Performance gate for the terrain renderer (perf-gate.mjs) — source `packages/mapspinner/scripts/perf-gate.mjs`, proof none — **Verifier note:** packages/mapspinner/scripts/perf-gate.mjs has zero RESULT lines; proofPath cleared
+- **UNPROVEN** Elevation A/B comparison script (ab-elevation.mjs) — source `packages/mapspinner/scripts/ab-elevation.mjs`, proof none — **Verifier note:** packages/mapspinner/scripts/ab-elevation.mjs has zero RESULT lines; proofPath cleared
+- **UNPROVEN** Dev server with COOP/COEP headers and /diag and /cmd channel (server.js) — source `packages/mapspinner/server.js`, proof none
+- **UNPROVEN** In-page diagnostics probes window.__diag (planet.html) used by browser witnesses — source `packages/mapspinner/planet.html`, proof none
+
+## src/sdk
+
+- **PROVEN** createServer composes physics, tick loop, connections, storage, handlers and returns the server API — source `src/sdk/server.js`, proof `scripts/verify-session.mjs`
+- **PROVEN** boot(): locate world, load world module, refresh apps manifest, create server, loadWorld, start, presence, graceful shutdown — source `src/sdk/ServerBoot.js`, proof `scripts/e2e-ci.mjs`
+- **UNPROVEN** Boot refuses when node_modules is not linked for the checkout (spointNodeModulesMissing) — source `src/sdk/ServerBoot.js`, proof none
+- **UNPROVEN** SPOINT_STRICT_BUNDLE makes boot refuse a stale or absent client/worker bundle instead of falling back — source `src/sdk/ServerBoot.js`, proof none
+- **PROVEN** Client root selection: serve prebuilt bundle when fresh, else raw ESM client/, with X-Spoint-Client-Root and -Fresh/-Reason headers — source `src/sdk/ServerBoot.js`, proof `scripts/bundle-freshness-witness.mjs`
+- **PROVEN** A stale client or worker bundle is never served; edited input with preserved mtime and replaced artifact are detected as stale — source `src/sdk/bundleFreshness.js`, proof `scripts/bundle-freshness-witness.mjs`
+- **UNPROVEN** Bundle input hashing, stamp files and describeBundleState for client and worker artifacts — source `src/sdk/bundleFreshness.js`, proof none
+- **PROVEN** Static handler serves /app.js with X-Spoint-Entry-Sha256 equal to the served body sha and status 200 — source `src/sdk/StaticHandler.js`, proof `scripts/bundle-freshness-witness.mjs`
+- **UNPROVEN** COOP same-origin and COEP require-corp sent on every static response — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** Static path containment: resolved path and realpath must stay under the served directory — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** Conditional GET: ETag and 304 Not Modified for JS, HTML, CSS, hashed assets and transformed GLB — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** Range requests (206 Content-Range, Accept-Ranges) for GLB, VRM, GLTF, WASM and KTX2 — source `src/sdk/StaticCache.js`, proof none
+- **UNPROVEN** Precompressed brotli and gzip variants cached on disk with stamped entries and corruption refusals (CACHE_REFUSAL) — source `src/sdk/StaticCache.js`, proof none
+- **UNPROVEN** Byte-budgeted LRU (256 MB) for raw file and transformed-asset caches — source `src/sdk/StaticCache.js`, proof none
+- **UNPROVEN** Progressive bake route and KTX2 route answering 404 baking or extracting until ready — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** GET /__fetch-manifest.json (503 until world loaded) and GET /runtime-config.json (ICE servers) — source `src/sdk/StaticHandler.js`, proof none
+- **UNPROVEN** HTML responses send 103 Early Hints preload links from the fetch manifest (top 12 entries) — source `src/sdk/StaticHandler.js`, proof none
+- **PROVEN** GET /__identity returns server identity (pid, head sha, sdk root, mapspinner and streaming-gltf realpaths) — source `src/sdk/ServerIdentity.js`, proof `scripts/perf-run.mjs`
+- **UNPROVEN** Boot-time identity log line (logServerIdentity) naming pid, sha, root and package realpaths — source `src/sdk/ServerIdentity.js`, proof none
+- **UNPROVEN** Agent route gate: non-loopback peer without SPOINT_AGENT_TOKEN gets 403 agent-token-required — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **UNPROVEN** Agent route token check: x-agent-token mismatch answered 403 agent-token-mismatch — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **UNPROVEN** Boot bind refusal: non-loopback SPOINT_HOST without SPOINT_AGENT_TOKEN refused (agent-token-required-for-bind) — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **PROVEN** GET /agent/apps lists registered apps and GET /agent/entities lists live entities with chartEpoch — source `src/sdk/AgentAuthoringAPI.js`, proof `scripts/verify-app.mjs` — **Verifier note:** scripts/verify-app.mjs:77-82 asserts app and entity ids only; no chartEpoch assertion appears in the witness. The chartEpoch part of the row is unproven.
+- **UNPROVEN** POST /agent/create-app, /agent/write-app and GET /agent/read-app author app source under apps/ — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **UNPROVEN** POST /agent/place-entity and POST /agent/destroy-entity change live entities — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **UNPROVEN** POST /agent/save-world writes apps/world/<name>.js from live entities with chart-rebased positions — source `src/sdk/AgentAuthoringAPI.js`, proof none
+- **UNPROVEN** POST /upload-model streams multipart GLB, GLTF or VRM uploads (50 MB cap, GLB magic sniff, EDITOR_TOKEN gate when set) — source `src/sdk/UploadHandler.js`, proof none
+- **UNPROVEN** POST /debug-log: loopback or EDITOR_TOKEN, token bucket (20 burst, 5/s) and 256 KB cap — source `src/sdk/ServerAPIRoutes.js`, proof none
+- **UNPROVEN** POST /client-error: rate-limited (burst 5, 0.2/s), 16 KB cap, logs kind, message, stack and deviceTier — source `src/sdk/ServerAPIRoutes.js`, proof none
+- **UNPROVEN** GET /debug/server loopback-only JSON (tick, players, heap, boot timing) — source `src/sdk/ServerAPIRoutes.js`, proof none
+- **UNPROVEN** GET /metrics loopback-only Prometheus text — source `src/sdk/ServerAPIRoutes.js`, proof none
+- **PROVEN** Prometheus exposition renderer: tick, players, heap, snapshot-bytes histogram, tick-phase histograms, GC counter, per-room gauges — source `src/sdk/Metrics.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** GET /benchmark public JSON with Access-Control-Allow-Origin star (tick stats, world counts, build sha) — source `src/sdk/PublicBenchmark.js`, proof none
+- **UNPROVEN** POST /freddie/viz: validates viz.place, viz.update, viz.remove and viz.clear; EDITOR_TOKEN gate; viz.dataset and viz.camera answer unhandled kind — source `src/sdk/ServerAPIRoutes.js`, proof none
+- **UNPROVEN** Freddie viz message validation and layouts (grid, scatter, tree, graph, spiral) via computeLayout — source `src/sdk/FreddieBridge.js`, proof none
+- **UNPROVEN** Admission peek: first socket message classified as MIGRATE, NOSTR auth response or new join; silent socket joins after a grace of 50 ms scaled by dilation, capped at 1500 ms — source `src/sdk/ServerHandlers.js`, proof none
+- **UNPROVEN** Probe sockets (?probe=1) are marked probeOnly, idle-closed and never join as players — source `src/sdk/ServerAPI.js`, proof none
+- **PROVEN** New-player join: HANDSHAKE_ACK with playerId, sessionToken and tickRate, then world def, app modules, initial snapshot containing the joined player — source `src/sdk/ServerHandlers.js`, proof `scripts/verify-session.mjs`
+- **UNPROVEN** Room capacity refusal: DISCONNECT_REASON ROOM_FULL with maxPlayers when the room is full — source `src/sdk/ServerHandlers.js`, proof none
+- **UNPROVEN** Session reconnect by token: RECONNECT answered with RECONNECT_ACK and STATE_RECOVERY; unresolvable session gets INVALID_SESSION and is closed — source `src/sdk/ServerHandlers.js`, proof none
+- **UNPROVEN** Migration admission: MIGRATE re-attaches a player from a migration snapshot and answers MIGRATE_ACK — source `src/sdk/ServerHandlers.js`, proof none
+- **UNPROVEN** Nostr challenge-response admission: NOSTR_AUTH_CHALLENGE, NIP-98 kind 27235 signature check, 15 s timeout — source `src/sdk/NostrAuthServer.js`, proof none
+- **UNPROVEN** Socket editor auth: AUTH_EDITOR compared timing-safely to EDITOR_TOKEN; editor message types refused for non-editors — source `src/sdk/ServerHandlers.js`, proof none
+- **PROVEN** Client input ingest: rate limit, schema decode, ack-sequence, queued per player; malformed or legacy payloads answered PROTOCOL_MISMATCH and closed — source `src/sdk/ServerHandlers.js`, proof `scripts/verify-session.mjs`
+- **UNPROVEN** Chart-epoch gating of input packets: stale input re-expressed, future epoch dropped, counters kept — source `src/sdk/chartWire.js`, proof none
+- **PROVEN** Authoritative snapshot each tick: seq, tick, serverTime, players and entities in interest, chartEpoch; input acknowledged by a newer snapshot — source `src/sdk/TickHandler.js`, proof `scripts/verify-session.mjs`
+- **PROVEN** Chart re-anchor broadcast to clients across chart epoch switches (CHART_REANCHOR from, to, epoch, ackSeq) — source `src/sdk/chartWire.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** CHART_REANCHOR resync reply for a stale client epoch (ledger from-chart, or resync:true with current chart) — source `src/sdk/chartWire.js`, proof none
+- **UNPROVEN** Chart wire counters (rejectedFuture, rejectedExpired, rejectedTeleports, resyncServed, resyncExpired) via chartWireStatsOf — source `src/sdk/chartWire.js`, proof none
+- **UNPROVEN** Chart epoch ledger and migrators applied per re-anchor (players, entities, world anchors); a migrator throw stops the tick loop (stopOnFault) — source `src/sdk/chartState/index.js`, proof none
+- **UNPROVEN** Player, entity (with static placement budget) and world-anchor migrator modules — source `src/sdk/chartState/migrateEntities.js`, proof none
+- **PROVEN** Teleport (MSG.TELEPORT op to): place player at target, hold until grounded, reply TELEPORT_ACK; planet harness checks every teleport landed — source `src/sdk/Relocation.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** Teleport refusals by reply: stale chart epoch, world relocation:false, peer-simulated session — source `src/sdk/Relocation.js`, proof none
+- **UNPROVEN** Relocation probe op: ground probe at x and z returning hit, y and terrainY — source `src/sdk/Relocation.js`, proof none
+- **UNPROVEN** Spawn hold until grounded, capped at SPAWN_HOLD_MAX_MS (20 s), with coded reasons (SPAWN_HOLD_REASON) — source `src/sdk/Relocation.js`, proof none
+- **UNPROVEN** Input catch-up: one input per tick, extra steps while buffer exceeds 8 (max 3 per tick), bounded by step budget and sequence gaps — source `src/sdk/TickHandler.js`, proof none
+- **UNPROVEN** Adaptive snapshot rate: halves or scales 0.75 when snapshot cost EMA exceeds 35% or 15% of tick budget; snapshot stall detection — source `src/sdk/TickHandler.js`, proof none
+- **UNPROVEN** Relevance AOI (ring relevance, horizontal AOI when planetRadius is 0), priority entity budget and bandwidth trimming — source `src/sdk/TickHandlerAOI.js`, proof none
+- **UNPROVEN** AOI cell-base cache keyed by code epoch (installAoiCodeEpoch, setAoiCellBaseEpoch) — source `src/sdk/TickHandlerAOI.js`, proof none
+- **PROVEN** Tick-drop reporting: scheduler backlog beyond 4 ticks counted as droppedMs and delivered as tick-drop on the server API emitter — source `src/sdk/ServerAPI.js`, proof `scripts/tick-drop-counter-witness.mjs`
+- **UNPROVEN** Tick dilation broadcast (TICK_DILATION factor) on each dilation change — source `src/sdk/server.js`, proof none
+- **UNPROVEN** Server-authoritative time of day: TIME_OF_DAY_SYNC broadcast every broadcastIntervalSec, seeded from persisted t — source `src/sdk/ServerTimeOfDay.js`, proof none
+- **UNPROVEN** Server-authoritative weather: WEATHER_SYNC broadcast on interval — source `src/sdk/ServerWeather.js`, proof none
+- **UNPROVEN** Lag-compensation history window taken from world netcode.maxRewindMs at loadWorld — source `src/sdk/ServerAPI.js`, proof none
+- **PROVEN** World load through ServerAPI.loadWorld: assertWorld, presets, terrain streaming setup, minimap descriptor, placed models and snapshot restore — source `src/sdk/ServerAPI.js`, proof `scripts/server-restart-loadworld-witness.mjs`
+- **PROVEN** Terrain field-paint and marks survive a server restart (paintStore restore and persist) — source `src/sdk/ServerAPI.js`, proof `scripts/server-restart-loadworld-witness.mjs`
+- **PROVEN** World locate and load: WORLD stem validation, default world index, not-found refusal, world module load with cache-busting — source `src/sdk/WorldLocator.js`, proof `scripts/planet-multiplayer-harness.mjs`
+- **UNPROVEN** Saved world snapshot save and restore under one world-snapshot key, format version 1, discard on world-name mismatch — source `src/sdk/WorldPersistence.js`, proof none
+- **UNPROVEN** Unnamed-world identity fingerprint (worldDefFingerprint over canonical JSON) — source `src/sdk/WorldPersistence.js`, proof none
+- **UNPROVEN** Snapshot flush on shutdown (5 s cap, then stop) and periodic auto-save — source `src/sdk/ServerBoot.js`, proof none
+- **UNPROVEN** Placed-model records persisted to data/placed-models.json (500 ms debounce, temp-file rename) — source `src/sdk/server.js`, proof none
+- **PROVEN** Saved placed-model load: malformed JSON refused with model-load-failed, missing file tolerated — source `src/sdk/ServerAPI.js`, proof `scripts/placed-model-load-witness.mjs`
+- **PROVEN** Editor prefab disk load throws a coded refusal instead of logging and continuing — source `src/sdk/EditorHandlers.js`, proof `scripts/prefab-load-witness.mjs`
+- **PROVEN** Editor terrain build keeps one host field-paint instance across rebuilds — source `src/sdk/EditorHandlers.js`, proof `scripts/editor-field-paint-witness.mjs`
+- **PROVEN** Worker terrain setup passes a host field-paint instance into the terrain config — source `src/sdk/WorkerEntry.js`, proof `scripts/worker-field-paint-witness.mjs`
+- **PROVEN** WorkerEntry is a browser module worker with no bare specifiers outside the import-map closure — source `src/sdk/WorkerEntry.js`, proof `scripts/worker-entry-bare-specifier-witness.mjs`
+- **PROVEN** WorkerBoot turns a module-load failure into a coded BOOT_ERROR carrying message, stack, filename and lineno — source `src/sdk/WorkerBoot.js`, proof `scripts/browser-server-worker-error-witness.mjs`
+- **UNPROVEN** WorkerEntry init: validates world stem, injects time-of-day seed, respawns saved placed models, applies migration snapshot rejoin, optional peer-sim session — source `src/sdk/WorkerEntry.js`, proof none
+- **UNPROVEN** Worker hot-reload messages: HMR_APP app reload, HMR_TICK_HANDLER tick swap, HMR_RESULT ack — source `src/sdk/WorkerEntry.js`, proof none
+- **UNPROVEN** Worker debug collider queries (DEBUG_COLLIDER_QUERY, DEBUG_COLLIDER_RAYS) and SAVE_NOW snapshot — source `src/sdk/WorkerEntry.js`, proof none
+- **UNPROVEN** Worker transform ring buffer shared to the main thread (TRANSFORM_RING) — source `src/sdk/WorkerEntry.js`, proof none
+- **UNPROVEN** RoomDirectory: create, stop and reset named rooms on a port range, duplicate-id refusal, tester join and leave, status — source `src/sdk/RoomDirectory.js`, proof none
+- **UNPROVEN** RoomOrchestrator: forks room worker processes, weighted placement, crash restart with rate limit, elastic scale up and down — source `src/sdk/RoomOrchestrator.js`, proof none
+- **UNPROVEN** RoomProcessWorker IPC protocol: INIT, CREATE_ROOM, STOP_ROOM, GET_STATUS, SHUTDOWN — source `src/sdk/RoomProcessWorker.js`, proof none
+- **UNPROVEN** Room pick for join: requested room, rejected list, world filter, pickRoom override and scoreRoom ranking — source `src/sdk/RoomPick.js`, proof none
+- **UNPROVEN** Room placement scoring weights (players, entities, tick ms, dilation penalty) — source `src/sdk/RoomOrchestratorHttp.js`, proof none
+- **UNPROVEN** Orchestrator HTTP router: /workers/register, /workers, /status, /pick, /route/:id, /crash-stats — source `src/sdk/RoomOrchestratorHttp.js`, proof none
+- **PROVEN** Room routing helpers: firstOpenRoom, mostFullWithSpace, nextRoomName, parseRoomPickRequest with coded refusals — source `src/sdk/RoomRouting.js`, proof `scripts/room-routing-witness.mjs`
+- **UNPROVEN** Room health snapshot: tick p50, p95, max over a window, over-budget ratio, Jolt body and heap headroom (no production caller) — source `src/sdk/RoomHealth.js`, proof none
+- **UNPROVEN** Room log ring buffer with cursors, level filter and coded refusals (no production caller) — source `src/sdk/RoomLog.js`, proof none
+- **UNPROVEN** Party and solo instance rooms: acquire, release for ephemeral lifetime, sweep, list (no production caller) — source `src/sdk/PlaceInstances.js`, proof none
+- **UNPROVEN** Per-room Prometheus gauges (spoint_room_tick, players, entities, uptime) fed by RoomDirectory status — source `src/sdk/Metrics.js`, proof none
+- **UNPROVEN** Editor socket message table (~40 types) behind editor auth — source `src/sdk/EditorHandlers.js`, proof none
+- **UNPROVEN** Agent edit proposals: propose, list, approve and reject app-source edits (AGENT_EDIT_PROPOSE, LIST, APPROVE, REJECT) — source `src/sdk/AgentEditServer.js`, proof none
+- **UNPROVEN** Edit operation log queried since a cursor (EDIT_OP_LOG_SINCE) — source `src/sdk/EditOpLog.js`, proof none
+- **UNPROVEN** Prefab save, place and group (SAVE_PREFAB, PLACE_PREFAB, GROUP_ENTITIES) through PrefabSpawner — source `src/sdk/PrefabSpawner.js`, proof none
+- **UNPROVEN** Editor fs tree operations with path sanitisation (LIST_FS_TREE, MKDIR, DELETE_FILE, RENAME_FILE, sanitizeFsError) — source `src/sdk/EditorHandlersSerialize.js`, proof none
+- **UNPROVEN** Editor serialization of world, entities and world source (serializeWorld, serializeEntity, serializeWorldSource) — source `src/sdk/EditorHandlersSerialize.js`, proof none
+- **UNPROVEN** Scene object import from an external scene (mapScene) (no production caller) — source `src/sdk/SceneImport.js`, proof none
+- **UNPROVEN** Tiled map import (importTiledMap) (no production caller) — source `src/sdk/TiledImport.js`, proof none
+- **UNPROVEN** Sprite-sheet atlas layout with coded AtlasSpecError (atlasLayout) (no production caller) — source `src/sdk/TextureAtlas.js`, proof none
+- **UNPROVEN** Dev HMR server: fs watch of client, src, apps, packages and types; module graph classification; SSE hello and updates; restart on server-module change — source `src/sdk/DevHmr.js`, proof none
+- **UNPROVEN** Dev HMR enable gate: off when SPOINT_NO_WATCH, NODE_ENV production or SPOINT_HMR=0 — source `src/sdk/DevHmr.js`, proof none
+- **PROVEN** Module hot swap: every src module defining a _hotSwap function self-accepts through globalThis.__spointHmr.acceptSelf (scan of at least 80 modules) — source `src/sdk/Relocation.js`, proof `scripts/hot-swap-accept-witness.mjs`
+- **UNPROVEN** Dev app and behaviour module versioning via a Node resolve hook (registerAppModuleVersioning) — source `src/sdk/DevAppModuleVersions.js`, proof none
+- **UNPROVEN** Dev HMR module graph and import-map resolution (readImportMap, resolveSpecifier, urlToFile) — source `src/sdk/DevHmrGraph.js`, proof none
+- **UNPROVEN** Reload manager: per-module xstate watch, debounce, reload; module disabled after two failures — source `src/sdk/ReloadManager.js`, proof none
+- **UNPROVEN** Reload handlers swap class instances in place while keeping state keys (swapInstance) — source `src/sdk/ReloadHandlers.js`, proof none
+- **UNPROVEN** Cron expression parser (5 fields, lists, ranges, steps) and due-job detection (dueCrons) (no production caller) — source `src/sdk/cronSchedule.js`, proof none
+- **UNPROVEN** LLM job manager: bounded conversation history, prompt limits, cancel, coded reasons — source `src/sdk/llmJobs.js`, proof none
+- **UNPROVEN** Scatter spec parsing and deterministic sampling (parseScatterSpec, sampleScatter) (no production caller) — source `src/sdk/scatterSpec.js`, proof none
+- **UNPROVEN** App manifest validation for marketplace install (SPDX list, tags, editor prop types) — source `src/sdk/AppManifest.js`, proof none
+- **UNPROVEN** Chase camera controller with default distance, height, aim and recentre rates (no production caller) — source `src/sdk/ChaseCamera.js`, proof none
+- **UNPROVEN** Scaffold: copy the apps template into the project and install the spoint skill — source `src/sdk/scaffold.js`, proof none
+- **UNPROVEN** Shared event envelope: emitEnvelope and validateEnvelope (no production caller) — source `src/sdk/SharedEventEnvelope.js`, proof none
+- **UNPROVEN** App event sender stamping: non-enumerable frozen sender id and fromClient flag, read by senderOf — source `src/sdk/appEventSender.js`, proof none
+- **UNPROVEN** Timing-safe token comparison (timingSafeTokenEqual) used for EDITOR_TOKEN checks — source `src/sdk/authCompare.js`, proof none
+- **PROVEN** SES sandbox preflight: ordered import, lockdown, Compartment presence and hardened-intrinsics check; fails closed with reasonCodes; tolerates an already-locked-down runtime — source `src/sdk/SESCompartmentEvaluator.js`, proof `scripts/check-ses-preflight.mjs`
+- **UNPROVEN** SandboxUnavailableError thrown by evaluate() when SES is unavailable, so untrusted apps never run without SES — source `src/sdk/SESCompartmentEvaluator.js`, proof none
+- **UNPROVEN** SES evaluator source blocklist and CPU step budget endowment — source `src/sdk/SESCompartmentEvaluator.js`, proof none
+- **UNPROVEN** Minimap bake: stale detection against code version and terrain parameters, bake-if-missing, on-demand bake — source `src/sdk/MinimapBake.js`, proof none
+- **UNPROVEN** Server presence: Nostr NIP-78 heartbeat (online, heartbeat, offline) with stable identity in data/nostr-identity.json — source `src/sdk/ServerPresence.js`, proof none
+- **UNPROVEN** Client trimesh data acceptance: TRIMESH_DATA validated (finite, indices in range, at most 300000 vertices and 200000 triangles) with a 500 ms per-entity cooldown — source `src/sdk/ServerHandlers.js`, proof none
