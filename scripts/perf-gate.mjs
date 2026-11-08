@@ -161,6 +161,7 @@ async function measureRealTickBudget() {
   console.log('[perf-gate] booting real server (WORLD=tps-game) ...')
   process.env.WORLD = process.env.WORLD || 'tps-game'
   process.env.PORT = process.env.PORT || '3097'
+  process.env.SPOINT_HOST = '127.0.0.1'
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
   const tickSystem = server.tickSystem

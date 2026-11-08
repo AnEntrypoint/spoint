@@ -51,6 +51,7 @@ async function main() {
   process.env.PORT = String(PORT)
   process.env.SPOINT_SKIP_PREWARM = '1'
   process.env.SPOINT_NO_WATCH = '1'
+  process.env.SPOINT_HOST = '127.0.0.1'
   console.log(`[e2e-ci] booting real server on port ${PORT} (world=e2e-ci-arena, prewarm+watchers skipped)...`)
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()

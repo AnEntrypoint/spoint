@@ -14,7 +14,7 @@ let child = null, restartRequested = false, stopping = false, watchGapStart = 0
 
 function spawnServer() {
   restartRequested = false
-  const env = { ...process.env, SPOINT_DEV: '1', SPOINT_SUPERVISED: '1', SPOINT_HMR_SINCE: String(watchGapStart || '') }
+  const env = { ...process.env, SPOINT_HOST: '127.0.0.1', SPOINT_DEV: '1', SPOINT_SUPERVISED: '1', SPOINT_HMR_SINCE: String(watchGapStart || '') }
   child = fork(SERVER, process.argv.slice(2), { env, stdio: 'inherit' })
   let restartAt = 0
   child.on('message', msg => { if (msg?.type === 'spoint-restart') { restartRequested = true; restartAt = msg.at || Date.now() } })

@@ -90,6 +90,7 @@ async function main() {
   process.env.PORT = PORT
   process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
   process.env.SPOINT_NO_WATCH = '1'
+  process.env.SPOINT_HOST = '127.0.0.1'
 
   console.log(`[vs-ladder] booting real server on port ${PORT} (world=${process.env.WORLD}) ...`)
   rebuildIfRequested('vs-ladder')

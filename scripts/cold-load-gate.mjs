@@ -51,6 +51,7 @@ async function measureRealColdLoadMs() {
   process.env.PORT = PORT
   process.env.SPOINT_SKIP_PREWARM = '1'
   process.env.SPOINT_NO_WATCH = '1'
+  process.env.SPOINT_HOST = '127.0.0.1'
 
   console.log(`[cold-load-gate] booting real server on port ${PORT} (world=e2e-ci-arena, prewarm+watchers skipped) ...`)
   rebuildIfRequested('cold-load-gate')
