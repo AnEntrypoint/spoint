@@ -260,6 +260,7 @@ async function main() {
     ['chart-wire-stats-witness', 'scripts/chart-wire-stats-witness.mjs', (out) => `check: ${out}`],
     ['transport-connect-error-witness', 'scripts/transport-connect-error-witness.mjs', (out) => `check: ${out}`],
     ['ses-evaluator-witness', 'scripts/ses-evaluator-witness.mjs', (out) => `check: ${out}`],
+    ['sandbox-unavailable-witness', 'scripts/sandbox-unavailable-witness.mjs', (out) => `check: ${out}`],
     ['relocation-search-nodata-witness', 'scripts/relocation-search-nodata-witness.mjs', (out) => `check: ${out}`],
     ['input-codec-decode-witness', 'scripts/input-codec-decode-witness.mjs', (out) => `check: ${out}`],
     ['lockstep-input-delay-witness', 'scripts/lockstep-input-delay-witness.mjs', (out) => `check: ${out}`],
