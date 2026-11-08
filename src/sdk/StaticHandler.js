@@ -100,6 +100,17 @@ const ALT_SVC_VALUE = computeAltSvc()
 const COOP_VALUE = 'same-origin'
 const COEP_VALUE = 'require-corp'
 
+function nodeModulesRealRoots(fpResolved, baseResolved) {
+  const roots = []
+  let at = baseResolved
+  for (const segment of fpResolved.slice(baseResolved.length + 1).split(sep).slice(0, -1)) {
+    at = join(at, segment)
+    if (segment !== 'node_modules') continue
+    try { roots.push(realpathSync(at)) } catch { continue }
+  }
+  return roots
+}
+
 export function createStaticHandler(dirs, opts = {}) {
   const getWorldInfo = typeof opts.getWorldInfo === 'function' ? opts.getWorldInfo : null
   return async (req, res) => {
@@ -226,10 +237,10 @@ export function createStaticHandler(dirs, opts = {}) {
       const fpResolved = resolve(fp)
       if (fpResolved !== baseResolved && !fpResolved.startsWith(baseResolved + sep)) continue
       if (existsSync(fp) && statSync(fp).isFile()) {
-        const isNodeModulesLink = fpResolved.includes(sep + 'node_modules' + sep)
         let realFp
         try { realFp = realpathSync(fp) } catch { continue }
-        if (!isNodeModulesLink && realFp !== baseResolved && !realFp.startsWith(baseResolved + sep)) continue
+        const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved)]
+        if (!allowedRoots.some((root) => realFp === root || realFp.startsWith(root + sep))) continue
         const ext = extname(fp)
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
         applyFreshnessHeaders(headers, clientFreshness, workerFreshness)
