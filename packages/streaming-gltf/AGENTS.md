@@ -75,6 +75,7 @@ no-op for cluster entities; the per-cluster LOD self-drives off the camera).
 A failed LOD load is reported, never replaced by a coarser LOD. `Asset.ensureMeshLod` rethrows
 (it logs `[asset] LOD mesh <key> failed to load`), the entity keeps the mesh it already has, the
 failure is emitted as a `lod-error` event on the entity, and the failed LOD is not cached.
+A failed background warm load (`ModelPool._drainLodWarm`) calls the callback each waiting entity passed to `_enqueueLodWarm`, which clears its `_lodWantIdx`; without that, the entity skips `_applyLod` while the flag matches and waits on a load that already failed. `scripts/model-pool-lod-warm-failure-witness.mjs` pins it.
 
 `src/occlusion-query-tier.js` `OcclusionQueryTier`
 (opt-in via `new ModelPool({..., useOcclusionQuery: true})`) adds entity-level

@@ -663,7 +663,7 @@ class Entity extends Emitter {
         geo = cachedGeo;
       } else {
         tm._lodWantIdx = wantIdx;
-        this.pool._enqueueLodWarm(this.asset, tm.meshDescIdx, wantIdx, this._currentDistance);
+        this.pool._enqueueLodWarm(this.asset, tm.meshDescIdx, wantIdx, this._currentDistance, () => { if (tm._lodWantIdx === wantIdx) tm._lodWantIdx = -1; });
         const droppingToCheaper = wantIdx < tm.currentLod;
         const haveRenderable = tm.mesh && tm.mesh.geometry && tm.mesh.geometry.attributes.position;
         if (droppingToCheaper || !haveRenderable) {
@@ -1602,7 +1602,7 @@ export class ModelPool extends Emitter {
     return geo;
   }
 
-  _enqueueLodWarm(asset, meshDescIdx, lodIdx, dist) {
+  _enqueueLodWarm(asset, meshDescIdx, lodIdx, dist, onFailed) {
     const desc = asset.meshLodDescs[meshDescIdx];
     if (!desc) return;
     const t = desc.lods[lodIdx];
@@ -1610,8 +1610,8 @@ export class ModelPool extends Emitter {
     const key = `${asset.url}#${desc.meshIndex}:${desc.primIndex}:${lodIdx}`;
     if (asset.geoCache.has(`${desc.meshIndex}:${desc.primIndex}:${lodIdx}`)) return;
     const ex = this._lodWarmQueue.get(key);
-    if (ex) { if (dist < ex.dist) ex.dist = dist; return; }
-    this._lodWarmQueue.set(key, { asset, meshDescIdx, lodIdx, dist });
+    if (ex) { if (dist < ex.dist) ex.dist = dist; if (onFailed) ex.onFailed.push(onFailed); return; }
+    this._lodWarmQueue.set(key, { asset, meshDescIdx, lodIdx, dist, onFailed: onFailed ? [onFailed] : [] });
   }
 
   setTarget(entity, x, y, z, durationMs = 300, nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now())) {
@@ -1735,8 +1735,10 @@ export class ModelPool extends Emitter {
       this._lodWarmQueue.delete(bestKey);
       this._lodWarmInFlight++;
       Promise.resolve(item.asset.ensureMeshLod(item.meshDescIdx, item.lodIdx))
-        .then((geo) => { if (geo && !geo.__gpuWarmed) this._gpuWarmPending.push(geo); })
-        .catch(() => {})
+        .then((geo) => {
+          if (!geo) for (const notify of item.onFailed) notify();
+          else if (!geo.__gpuWarmed) this._gpuWarmPending.push(geo);
+        }, () => { for (const notify of item.onFailed) notify(); })
         .finally(() => { this._lodWarmInFlight--; });
     }
   }
