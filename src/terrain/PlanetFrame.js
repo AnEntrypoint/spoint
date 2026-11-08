@@ -1,7 +1,6 @@
 export let DEFAULT_PATCH_MAX_LEVEL = 11
 
 export let SURFACE_SOLVE_TOLERANCE_M = 1e-4
-const _reportedSolveFailures = new Set()
 const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
 const _solveStats = { solves: 0, evaluations: 0 }
 const _memoStats = { hits: 0, misses: 0, evictions: 0, epochStale: 0, cellCollisions: 0 }
@@ -95,11 +94,12 @@ export function isSurfaceRootWithin(residualM, toleranceM) {
 }
 
 export function guardedGroundHeight(where, heightFn) {
+  let reported = false
   return (x, z, ...rest) => {
     try { return heightFn(x, z, ...rest) } catch (e) {
       if (!(e instanceof SurfaceSolveError)) throw e
-      if (!_reportedSolveFailures.has(where)) {
-        _reportedSolveFailures.add(where)
+      if (!reported) {
+        reported = true
         console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, ${groundFailureCause(e)}; the result is NO_GROUND_HEIGHT`)
       }
       return NO_GROUND_HEIGHT
