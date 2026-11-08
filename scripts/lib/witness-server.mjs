@@ -190,7 +190,7 @@ export async function spawnStandaloneServer(opts = {}) {
     args = [],
   } = opts
   if (!Number.isInteger(port) || port <= 0) throw new Error(`spawnStandaloneServer: port must be a positive integer, got ${port}`)
-  const childEnv = { ...process.env, PORT: String(port), ...env }
+  const childEnv = { SPOINT_HOST: '127.0.0.1', ...process.env, PORT: String(port), ...env }
   const proc = spawn(process.execPath, [STANDALONE_SERVER_ENTRY, ...args], {
     cwd,
     env: childEnv,
