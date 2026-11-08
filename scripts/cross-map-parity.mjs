@@ -61,7 +61,6 @@ const GAPS = [
   { id: 'CHARTEST-est-s1-3', kind: 'PRD-REAL', family: 'terrain', paths: ['src/terrain/PlanetFrame.js'], keywords: ['CHARTEST', 'installGroundSource'] },
   { id: 'WADLER-relocation-probegroundy-m2-s1', kind: 'PRD-REAL', family: 'sdkServer', paths: ['src/sdk/Relocation.js'], keywords: ['probeGroundY'] },
   { id: 'GAP-bundle-freshness', kind: 'NON-PRD-REAL', family: 'tooling-gate', paths: ['package.json'], keywords: ['bundle-freshness'] },
-  { id: 'GAP-fire-kernel-witness', kind: 'NON-PRD-REAL', family: 'fire', paths: ['src/shared/fire/fireKernel.js'], keywords: ['fire kernel'] },
   { id: 'GAP-MSG-DELTA_UPDATE', kind: 'NON-PRD-REAL', family: 'protocol', paths: ['src/protocol/MessageTypes.js'], keywords: ['DELTA_UPDATE'] },
   { id: 'GAP-trimesh-failure-propagation', kind: 'NON-PRD-REAL', family: 'appsRuntime', paths: ['src/apps/AppRuntime.js'], keywords: ['trimesh'] },
   { id: 'GAP-port-3002-shared', kind: 'NON-PRD-REAL', family: 'worlds-config', paths: ['apps/world/tps-game.js'], keywords: ['3002'] },
