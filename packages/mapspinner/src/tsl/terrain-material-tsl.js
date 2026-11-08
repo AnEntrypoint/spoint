@@ -14,13 +14,6 @@ import { createSculptOverrideTSL } from './sculpt-tsl.js'
 import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
 import { ATM_BOTTOM as ATM_BOTTOM_KM } from '../atmosphere-transmittance-lut.js'
 
-// The stencil offsets are exactly one grid step, so the +u tap is the position the vertex at
-// grid.x+1 already occupies. The stencil is therefore chosen by the TAP COUNT and nothing else:
-// at fdTaps 5 the -u/-v taps overwrite the centre and the difference is CENTRAL; at fdTaps 3 they
-// never run, wMU/wMV still hold the centre tap assigned at i=0, and the same cross product is a
-// FORWARD difference. One loop, one call site, no branch -- the four offset evaluations a central
-// stencil spends on the tangents become two. The height tap (i=0) is untouched either way, so
-// vTerrH and every height the mesh, the collider and placement read are bit-identical.
 export const FD_TAPS = 3
 const QUARTER_PI = 0.7853981634
 const WET_DARKEN = 0.65
@@ -230,9 +223,6 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   material.outputNode = Fn(() => select(u.fsCheap.greaterThan(0.5), vec4(fsDbg, 1.0), lighting.gradeOutput(output)))()
   material.metalness = 0.0
   material.fog = false
-  // The patch grid's outward direction is its BACK-facing winding: culling front faces leaves the
-  // ground the camera sees, and culling back faces removes it (measured per frame band in
-  // scripts/terrain-side-overdraw-ab-witness.mjs, pinned by terrain-side-single-witness.mjs).
   material.side = THREE.BackSide
   return { material, uniforms: u, lighting, spec, makeHeightSpec, faceU, faceV, faceC, sculpt }
 }
