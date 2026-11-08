@@ -29,10 +29,6 @@ export class WebGPUPipelineError extends Error {
   }
 }
 
-// WebGPU does NOT throw when a descriptor is bad or a shader fails to compile: it
-// hands back an INVALID pipeline object whose every dispatch writes nothing, which
-// reads as a threshold-tuning bug rather than a build failure. A validation error
-// scope around the creation is the only way to learn the truth.
 export function createPipelineScoped(device, kind, desc) {
   const label = (desc && desc.label) || kind;
   const scoped = typeof device.pushErrorScope === 'function' && typeof device.popErrorScope === 'function';
@@ -62,8 +58,6 @@ function compileShaderModule(device, label, code) {
 }
 
 export class WebGpuHizTier {
-  // Identity label, not a knob: `constructor.name` is gone from a minified bundle, so a
-  // caller that has to prove which tier is installed has nothing else to read.
   kind = 'webgpu-hiz';
   constructor(renderer, opts = {}) {
     this.renderer = renderer;
@@ -98,25 +92,14 @@ export class WebGpuHizTier {
     this._boxScratch = new Float32Array(64);
     this._boxScratchFilled = 0;
     this._attachRefused = new WeakSet();
-    // Per-candidate verdict bookkeeping, the WebGPU half of what OcclusionQueryTier keeps
-    // in `_records`: how many verdicts have landed for a candidate, and what the last one
-    // said. Both are candidate-keyed, never mesh-keyed.
     this._resolveCount = new WeakMap();
     this._lastVerdict = new WeakMap();
-    // Rotation cursor for the discovery sweep. The population is stable and far larger
-    // than a frame's budget, so a cursor covers it at a uniform rate.
-    this._rrCursor = 0;
-    // Undefined means "no slice in force", which is what ModelPool gets and what this
-    // tier has always done. A finite number is the frame's slice; zero is the caller's
-    // "the camera has not moved" gate.
+    this._rotationCursor = 0;
     this.maxQueriesPerFrame = opts.maxQueriesPerFrame;
     this.stats = { levels: 0, queried: 0, occluded: 0, supported: false, drawsWritten: 0, skippedNoPyramid: 0, lodSlotOverflow: 0, pipelinesValidated: 0, pipelineRefusals: 0, entityTested: 0, entityOccluded: 0, entityReadbacks: 0, pyramidsBuilt: 0, indirectAttached: 0, indirectAttachRefused: 0, readbackStarved: 0, sliceSize: 0, reverify: 0, discovered: 0 };
   }
 
   supported() {
-    // Once a pipeline has been refused this tier is dead: dispatching on an invalid
-    // pipeline writes zero indirect draws, which is indistinguishable from "everything
-    // was culled", so `false` here is the refusal, not a probe that failed.
     if (this._pipelineError) { this.stats.supported = false; return false; }
     const r = this.renderer;
     if (!r || !r.isWebGPURenderer) return false;
@@ -126,8 +109,6 @@ export class WebGpuHizTier {
     if (!device || typeof device.createComputePipeline !== 'function') return false;
     this._device = device;
     this.stats.supported = true;
-    // Build at the first probe rather than at the first dispatch, so a shader that
-    // does not compile is known before anything is asked to draw.
     this._ensurePipelines();
     this._ensureEntityPipeline();
     this._ensureMsaaSeedPipeline();
@@ -140,9 +121,6 @@ export class WebGpuHizTier {
     throw this._pipelineError;
   }
 
-  // Awaitable form of `_ensurePipelines`: resolves once every pipeline is known
-  // valid, throws WebGPUPipelineError on the first one that is not. Callers that
-  // build the tier at init await this and never install a dead tier.
   async ensurePipelinesValidated() {
     if (!this._device) throw new WebGPUPipelineError('device', 'no WebGPU device; supported() was never true');
     this._ensurePipelines();
@@ -153,9 +131,6 @@ export class WebGpuHizTier {
     return this.stats.pipelinesValidated;
   }
 
-  // The entity verdict pipeline is validated apart from the four cluster pipelines:
-  // `pipelinesValidated` is the count scripts/webgpu-pipeline-validation-refusal-witness.mjs
-  // pins at 4, and a refusal here has to kill the tier just as loudly.
   _ensureEntityPipeline() {
     if (!this._device || this._entityPipelineInit) return;
     const built = createPipelineScoped(this._device, 'compute', {
@@ -179,9 +154,6 @@ export class WebGpuHizTier {
     });
   }
 
-  // The MSAA seed is the same refusal story again: `texture_depth_multisampled_2d`
-  // is a different binding type, so it needs its own pipeline, and the app that
-  // renders 4x MSAA is exactly the app this cull has to work in.
   _ensureMsaaSeedPipeline() {
     if (!this._device || this._msaaSeedInit) return;
     const built = createPipelineScoped(this._device, 'compute', {
@@ -256,16 +228,28 @@ export class WebGpuHizTier {
     return { messages: info.messages.map((m) => ({ type: m.type, message: m.message, line: m.lineNum, col: m.linePos })), supported: true };
   }
 
+  _releaseHzbMips() {
+    for (const mip of this._hzbMips) if (mip.params) mip.params.destroy();
+    this._hzbMips.length = 0;
+  }
+
+  _createReduceParams(src, dst) {
+    const buf = this._device.createBuffer({
+      size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, mappedAtCreation: true,
+    });
+    new Uint32Array(buf.getMappedRange()).set([src.w, src.h, dst.w, dst.h]);
+    buf.unmap();
+    return buf;
+  }
+
   _ensureHzbTextures(width, height) {
     const device = this._device;
     width = Math.max(1, width | 0);
     height = Math.max(1, height | 0);
     if (this._hzbW === width && this._hzbH === height && this._hzbMips.length) return this._hzbMips.length;
     if (this._hzbTex) { this._hzbTex.destroy(); this._hzbTex = null; this._hzbView = null; }
-    this._hzbMips.length = 0;
+    this._releaseHzbMips();
     this._hzbW = width; this._hzbH = height;
-    // WebGPU derives mip sizes as max(1, w >> level), so the CPU chain must use the
-    // same floor rule or `_hzbLevels` stops matching the texture it indexes.
     const dims = [];
     let w = width, h = height;
     for (;;) {
@@ -275,8 +259,6 @@ export class WebGpuHizTier {
       h = Math.max(1, h >> 1);
     }
     const levels = dims.length;
-    // One texture, one mip chain. The cull samples an arbitrary level with
-    // textureLoad, which a per-level (mipLevelCount 1) view cannot serve.
     this._hzbTex = device.createTexture({
       label: 'hzb-pyramid',
       size: { width, height },
@@ -296,12 +278,6 @@ export class WebGpuHizTier {
     return this._hzbLevels;
   }
 
-  // HZB_SEED_WGSL binds `texture_depth_2d`, so a colour attachment is not
-  // substitutable and `ctx.res.sceneDepth` (a RenderGraph dependency TAG) carries no
-  // texture. The scene renders into the frame buffer target whenever tone mapping or
-  // the output colour-space conversion needs one -- which is the default -- so the
-  // canvas depth attachment is empty while the picture is correct. The depth to read
-  // is the depth of the target `render()` actually drew the scene into.
   _sceneTarget() {
     const r = this.renderer;
     if (typeof r.getRenderTarget === 'function') {
@@ -316,8 +292,6 @@ export class WebGpuHizTier {
       const ort = r.getOutputRenderTarget();
       if (ort) return ort;
     }
-    // No intermediate: the scene went straight to the canvas, whose own depth
-    // attachment is the depth to read.
     return typeof r.getCanvasTarget === 'function' ? r.getCanvasTarget() : null;
   }
 
@@ -326,27 +300,15 @@ export class WebGpuHizTier {
     if (!r || !r.isWebGPURenderer) return null;
     const backend = r.backend;
     if (!backend || backend.isWebGPUBackend !== true) return null;
-    // Reversed depth inverts near/far, so `minZ > farthest` would cull the nearest
-    // object and keep the farthest one.
     if (r.reversedDepthBuffer === true) return null;
     const rt = this._sceneTarget();
     if (!rt || rt.depthBuffer === false) return null;
-    // three keeps a render target's depth texture in its own texture bookkeeping, not
-    // on the RenderTarget: `RenderTarget.depthTexture` stays null for the internal
-    // frame buffer target even though it has a depth buffer.
     const book = r._textures;
     const data = book && typeof book.get === 'function' ? book.get(rt) : null;
     const dt = (data && data.depthTexture) || rt.depthTexture || null;
     if (!dt || typeof backend.get !== 'function') return null;
     const tex = backend.get(dt).texture;
-    // No texture yet means no frame has been rendered into this target, so there is
-    // no depth to read. An unwritten depth texture is a legal `texture_depth_2d`
-    // that reads all zeros, and an all-zero pyramid reports every entity occluded.
     if (!tex || typeof tex.createView !== 'function') return null;
-    // The count has to come off the texture: the renderer's `currentSamples` and the
-    // target actually holding the scene depth disagree (the frame buffer target keeps
-    // its own sample count), and binding a multisampled texture as `texture_depth_2d`
-    // is a per-frame validation error, not a one-off.
     this._depthSamples = tex.sampleCount > 1 ? tex.sampleCount : 1;
     if (this._depthTex !== tex) {
       this._depthTex = tex;
@@ -355,15 +317,12 @@ export class WebGpuHizTier {
     return this._depthView;
   }
 
-  // The pyramid is the occluder source for every verdict this tier returns, so the
-  // tier builds it itself at the top of the frame it is asked to cull. Leaving that
-  // to a caller is what made `buildHzb` dead code.
   _syncPyramid() {
     const view = this._sceneDepthView();
     if (!view) { this.stats.skippedNoPyramid++; return false; }
     const sz = this.renderer.getDrawingBufferSize(_size);
-    const w = Math.max(1, Math.round(sz && sz.x ? sz.x : 0));
-    const h = Math.max(1, Math.round(sz && sz.y ? sz.y : 0));
+    const w = Math.round(sz && sz.x ? sz.x : 0);
+    const h = Math.round(sz && sz.y ? sz.y : 0);
     if (!w || !h) { this.stats.skippedNoPyramid++; return false; }
     const ok = this.buildHzb(view, w, h, this._depthSamples);
     if (ok) this.stats.pyramidsBuilt++;
@@ -402,17 +361,13 @@ export class WebGpuHizTier {
     for (let i = 1; i < levels; i++) {
       const src = this._hzbMips[i - 1];
       const dst = this._hzbMips[i];
-      const paramsBuf = device.createBuffer({
-        size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, mappedAtCreation: true,
-      });
-      new Uint32Array(paramsBuf.getMappedRange()).set([src.w, src.h, dst.w, dst.h]);
-      paramsBuf.unmap();
+      if (!dst.params) dst.params = this._createReduceParams(src, dst);
       const bg = device.createBindGroup({
         layout: this._reducePipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: src.view },
           { binding: 1, resource: dst.view },
-          { binding: 2, resource: { buffer: paramsBuf } },
+          { binding: 2, resource: { buffer: dst.params } },
         ],
       });
       const pass = encoder.beginComputePass({ label: `hzb-reduce-${i}` });
@@ -447,8 +402,6 @@ export class WebGpuHizTier {
     for (const c of clusterSet.clusters) if (c.lods.length > MAX_LOD_SLOTS) overflow++;
     if (overflow) this.stats.lodSlotOverflow = overflow;
 
-    // +1 slot: the cull can emit one more draw than there are clusters when no
-    // cluster survives and it falls back to the whole LOD0, like the CPU does.
     const indirectBuf = device.createBuffer({
       size: (n + 1) * INDIRECT_STRIDE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
@@ -459,8 +412,6 @@ export class WebGpuHizTier {
     const visibleBuf = device.createBuffer({
       size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    // Last LOD index per cluster, owned by the CPU cull and re-uploaded every
-    // dispatch: a GPU-side copy of that hysteresis state would drift.
     const lodStateBuf = device.createBuffer({
       size: Math.max(1, n) * 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -505,9 +456,6 @@ export class WebGpuHizTier {
     mesh.updateWorldMatrix(true, false);
     _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
 
-    // Every input below mirrors ClusterLodMesh._cameraState / _pickLod. The cull is
-    // only allowed to differ by the occlusion term, so screen height, tanHalf,
-    // hysteresis and thresholds must be the CPU's, not local defaults.
     const screenHeight = opts.screenHeight || _drawingBufferHeight(this.renderer) || mesh._screenHeight || 1080;
     const tanHalf = camera.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) : 1;
     const hyst = opts.hysteresis != null ? opts.hysteresis : (mesh._hyst != null ? mesh._hyst : 0.15);
@@ -533,7 +481,6 @@ export class WebGpuHizTier {
     fp[46] = this._hzbW || 1;
     fp[47] = this._hzbH || 1;
     fpU32[48] = thresholdCount;
-    // The CPU skips the frustum test for these meshes too, so the GPU must as well.
     fpU32[49] = mesh._spointNoClusterCull ? 1 : 0;
     fpU32[50] = rec.lod0Count;
     fpU32[51] = 0;
@@ -577,8 +524,6 @@ export class WebGpuHizTier {
     pass.setPipeline(this._cullPipeline);
     pass.setBindGroup(0, bg);
     pass.dispatchWorkgroups(Math.ceil(rec.n / CULL_WORKGROUP_SIZE), 1, 1);
-    // Second dispatch in the SAME pass: it observes main's final draw count and
-    // reproduces ClusterLodMesh._render's "no cluster survived" full-LOD0 group.
     const fbBg = device.createBindGroup({
       layout: this._fallbackPipeline.getBindGroupLayout(0),
       entries: [
@@ -615,8 +560,6 @@ export class WebGpuHizTier {
     return count;
   }
 
-  // Entities expose their cluster meshes as children of `entity.root`; there is no
-  // `_clusterLodMesh` field anywhere, so looking only there found nothing.
   _clusterMeshesOf(entity) {
     if (!entity) return null;
     if (entity.clusterSet) return [entity];
@@ -634,12 +577,6 @@ export class WebGpuHizTier {
     return found.length ? found : null;
   }
 
-  // Indirect draws are only consumable on a mesh whose index buffer still holds the
-  // full LOD0+coarse layout the cull offsets into. A compact ClusterLodMesh rewrites
-  // `geometry.index` down to `_drawCapacity` entries every frame, so a coarse-LOD
-  // `firstIndex` of `lod0Count + offset` reads past the end of it; attaching there
-  // would draw garbage, so the mesh is refused instead and the frame keeps the CPU
-  // cull's groups.
   attachIndirect(mesh) {
     if (!mesh || !mesh.clusterSet || !mesh.geometry) return null;
     const existing = this._meshBuffers.get(mesh);
@@ -654,10 +591,6 @@ export class WebGpuHizTier {
     if (!rec || !rec.n) return null;
     const attr = this.buildIndirectAttribute(mesh);
     if (!attr) return null;
-    // three issues one `drawIndexedIndirect` per entry here, per render item, so the
-    // offsets are byte-spaced by INDIRECT_STRIDE_BYTES and cover n+1 slots: the cull
-    // can emit one draw more than there are clusters when nothing survives and it
-    // falls back to the whole LOD0.
     const offsets = new Array(rec.n + 1);
     for (let i = 0; i <= rec.n; i++) offsets[i] = i * INDIRECT_STRIDE_BYTES;
     mesh.geometry.setIndirect(attr, offsets);
@@ -753,8 +686,6 @@ export class WebGpuHizTier {
     }
 
     const staging = this._takeStaging(verdictBytes);
-    // Every staging buffer in flight means this frame gets no verdicts, and a frame
-    // with no verdicts is indistinguishable from a frame that tested nothing.
     if (!staging) { this.stats.readbackStarved++; return; }
 
     _m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -795,9 +726,6 @@ export class WebGpuHizTier {
       staging.busy = false;
       let occ = 0;
       for (let i = 0; i < arr.length; i++) if (arr[i] === 1) occ++;
-      // A verdict lands for every candidate of the dispatch, so this is where each one's
-      // resolved count advances and where the sweep learns which candidates are being
-      // hidden. Both are what make the next slice's correctness classes meaningful.
       for (const c of slots.keys()) {
         this._resolveCount.set(c, (this._resolveCount.get(c) || 0) + 1);
         const slot = slots.get(c);
@@ -809,36 +737,14 @@ export class WebGpuHizTier {
     }).catch(() => { staging.busy = false; });
   }
 
-  // How many verdicts have landed for this candidate -- the same question
-  // OcclusionQueryTier.getResolveCount answers, and the only thing the caller's policy
-  // can tell a fresh verdict from a repeated one with.
   getResolveCount(candidate) {
     return candidate ? (this._resolveCount.get(candidate) || 0) : 0;
   }
 
-  // What the last verdict said, kept per candidate so the sweep can still tell "this is
-  // being hidden right now" for a candidate the previous dispatch did not include. The
-  // snapshot alone cannot: it only holds the candidates of one dispatch.
   _wasOccluded(candidate) {
     return this._lastVerdict.get(candidate) === true;
   }
 
-  // The frame's slice of a population far larger than one dispatch should carry.
-  //
-  // Three classes, and the order between them is correctness, not tuning:
-  //  1. re-verification -- a candidate the last verdict called occluded is one a consumer
-  //     is currently hiding. Dropping it from the slice leaves it with a verdict the
-  //     policy will eventually fail open, which is exactly the pop the one-frame floor
-  //     exists to prevent. Re-verifying is not budget work, so it is never sliced.
-  //  2. discovery -- a candidate with no verdict yet has nothing to be stale, and until
-  //     it has one the tier cannot say anything about it at all.
-  //  3. rotation over everything else, at a rate the caller's budget sets.
-  //
-  // The order is deliberately NOT by instance count. Measured on tps-game, hiding every
-  // grass cell at once costs 0 draw calls while hiding every rock cell costs 112, and a
-  // grass cell carries ~7830 instances against a rock cell's ~0.2 -- so an
-  // instance-weighted order spends the budget on the one subsystem that cannot move a
-  // draw. Rotation makes no bet about which candidate carries the cost.
   _selectFrameSlice(candidates) {
     const limit = this.maxQueriesPerFrame;
     if (!Number.isFinite(limit)) return candidates;
@@ -861,11 +767,9 @@ export class WebGpuHizTier {
     return out;
   }
 
-  // A rotating window, so a population larger than the budget is still covered at a
-  // uniform rate instead of the same candidates being tested every frame.
   _takeRotating(candidates, room, out) {
     const n = candidates.length;
-    let idx = this._rrCursor % n;
+    let idx = this._rotationCursor % n;
     let taken = 0;
     for (let examined = 0; examined < n && taken < room; examined++, idx = (idx + 1) % n) {
       const c = candidates[idx];
@@ -873,7 +777,7 @@ export class WebGpuHizTier {
       out.push(c);
       taken++;
     }
-    this._rrCursor = idx;
+    this._rotationCursor = idx;
     this.stats.discovered = taken;
     return out;
   }
@@ -900,9 +804,6 @@ export class WebGpuHizTier {
     }
   }
 
-  // Fail-open: an entity with no resolved verdict yet stays visible, and a verdict is
-  // always the previous frame's, so a disappearing occluder costs one frame of
-  // lateness rather than a permanently hidden entity.
   isOccluded(entity) {
     if (!entity) return false;
     const snap = this._verdictSnapshot;
@@ -912,10 +813,6 @@ export class WebGpuHizTier {
     return snap.arr[slot] === 1;
   }
 
-  // Candidate-scoped, not mesh-scoped: this is what `SceneOcclusion` calls when a
-  // subsystem's candidate set drops a cell, and a cell is a `{root, key}` proxy with no
-  // cluster mesh behind it. Forgetting it means the next slice must re-discover it, and
-  // `isOccluded` fails open in the meantime, which is the visible direction.
   release(candidate) {
     if (!candidate) return;
     if (this._meshBuffers.has(candidate)) { this.unregisterClusterMesh(candidate); return; }
@@ -942,7 +839,7 @@ export class WebGpuHizTier {
     this._resolveCount = new WeakMap();
     this._lastVerdict = new WeakMap();
     this._verdictSnapshot = null;
-    this._hzbMips.length = 0;
+    this._releaseHzbMips();
     for (const mesh of Array.from(this._meshBuffers.keys())) this.unregisterClusterMesh(mesh);
     this._pipelinesReady = false;
     this._pyramidReady = false;
