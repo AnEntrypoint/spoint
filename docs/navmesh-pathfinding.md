@@ -114,6 +114,10 @@ found path is logged as `npc-navigator: path <from> -> <to>: N waypoints ...`; a
 unreachable target is logged as a warning and the NPC stays put. Editor props: `speed`,
 `stoppingDistance` (steering arrive radius), `avoidanceRadius` (raycast side-step distance).
 
+## Corridor search budget
+
+`findCostCorridor` (`src/pathfinding/costCorridor.js`) takes a `budget` that defaults to `Infinity`, so an unbounded search is the default. A finite budget must be a non-negative number, or the call is refused as `INVALID_INPUT`. If the goal is not reached and some relaxation exceeded the budget, the search returns `{ ok: false, reasonCode: 'budget-exhausted', points: [], truncated: true, expanded }`. It returns no partial path.
+
 ## Troubleshooting
 
 - **`navmesh not baked for world "<name>"`**: run `npm run bake-navmesh -- --world=<name>`.

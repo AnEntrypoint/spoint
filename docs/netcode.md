@@ -72,6 +72,22 @@ The simulation must be a pure function of the initial world and the per-tick inp
 - Iterate in a fixed order. Sort players by id (ids are assigned in sorted roster order), and never iterate a Map or Set whose insertion order depends on message arrival.
 - Each tick's input is fed explicitly through `simulateTick(tick, dt, players, inputsByPlayerId)`. There is no queue and no starve hold.
 
+## Snapshot detail and delivery
+
+Player records in a snapshot depend on distance from the viewer (`classifyPlayerTiers` and `filterEncodedPlayersTiered` in `src/netcode/SnapshotEncoder.js`):
+
+- The 30 nearest players (`PLAYER_LOD_FULL_COUNT`) get full detail at any distance.
+- The remaining players within 120 m (`PLAYER_LOD_REDUCED2`, 120 squared) get a reduced pose every `reducedTickMod` ticks. `reducedTickMod` is `round(snapshotHz / PLAYER_LOD_REDUCED_HZ)` with `PLAYER_LOD_REDUCED_HZ` of 5, so the reduced pose is sent at about 5 Hz (`src/sdk/TickHandler.js`).
+- Players beyond 120 m get no pose. They appear only as crowd dots (`buildCrowdDots`).
+
+Entities go through `resolveDeliveredIds` in `src/sdk/TickHandlerAOI.js`. The ring-relevant ids are always delivered. An unmanaged dynamic id is delivered when its position is unknown, or when it lies within the relevance radius of one of the gate points of its cell's viewers. With fewer than three gate points, every unmanaged id is delivered.
+
+## Session TTL
+
+`SessionStore` (`src/connection/SessionStore.js`) defaults to a 30 s TTL. The servers pass their own: `src/sdk/server.js` uses `config.sessionTTL || 60000` and `src/sdk/WorkerEntry.js` uses 60000, so a running server keeps a session for 60 s without a touch.
+
+A touch is `create`, `update`, `rebindOwner`, `get` or `release`. `get` expires a session when `now - lastTouched > ttl`, so a session read exactly at the TTL is still live. The expiry timer is re-armed on each touch and removes the session at the TTL after the last touch. A pinned session has no timer and does not expire until it is released.
+
 ## Measuring
 
 - `node scripts/netcode-conditioner-harness.mjs`: authoritative matrix, covering prediction, interpolation, hit rate, bandwidth and ticks. Options: `--cond=L/J/loss;...`, `--channel=ws|udp`, `--bots=N`, `--tick=64`, `--precise`, `--world=arena|wall|wall-end|corner|stairs|<apps/world name>`, `--wallHints=off` (A/B the wall-plane hints), `--snapHz=N` (pin the snapshot rate), `--snapAdaptive=off` (A/B the adaptive pacing), `--at=x,y,z` (place the mover) with `--hold=forward[,left,right,back,jump,sprint]` (drive one fixed input for the whole run instead of the scripted route).
