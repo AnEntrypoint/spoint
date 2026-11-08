@@ -187,8 +187,18 @@ function placeAll(heightLattice) {
   return { lists, cellYs, ms, solves: solveCalls, stats: surface.stats() }
 }
 
-const before = placeAll(null)
-const after = placeAll(baked)
+const PLACE_PASSES = 5
+function timedPlace(heightLattice) {
+  placeAll(heightLattice)
+  let best = null
+  for (let i = 0; i < PLACE_PASSES; i++) {
+    const r = placeAll(heightLattice)
+    if (best === null || r.ms < best.ms) best = r
+  }
+  return best
+}
+const before = timedPlace(null)
+const after = timedPlace(baked)
 console.log(`--- placing ${chunks.length} grass chunk(s) = ${chunks.length * cellsPerChunk} cells, BEFORE (mirror re-solves the sampler) vs AFTER (mirror reads the collider's lattice)`)
 for (const [label, r] of [['before', before], ['after', after]]) {
   const blades = r.lists.reduce((a, l) => a + (l ? l.length : 0), 0)
