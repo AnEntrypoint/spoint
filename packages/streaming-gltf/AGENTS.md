@@ -72,6 +72,10 @@ geometry once, and each spawned `Entity` renders a `ClusterLodMesh` — bypassin
 the discrete-LOD machinery entirely (`trackedMeshes` stays empty; `_update` is a
 no-op for cluster entities; the per-cluster LOD self-drives off the camera).
 
+A failed LOD load is reported, never replaced by a coarser LOD. `Asset.ensureMeshLod` rethrows
+(it logs `[asset] LOD mesh <key> failed to load`), the entity keeps the mesh it already has, the
+failure is emitted as a `lod-error` event on the entity, and the failed LOD is not cached.
+
 `src/occlusion-query-tier.js` `OcclusionQueryTier`
 (opt-in via `new ModelPool({..., useOcclusionQuery: true})`) adds entity-level
 "cull each other" culling on top of per-cluster frustum culling: WebGL2 native
@@ -100,7 +104,9 @@ wraps every creation in `device.pushErrorScope('validation')`/`popErrorScope()`
 and `_settlePipelines` raises `WebGPUPipelineError` (`reasonCode:
 webgpu-pipeline-invalid`) instead of letting a dispatch happen, after which
 `supported()` answers false so the tier is never used with a dead pipeline.
-Await `ensurePipelinesValidated()` at init to refuse before the first frame.
+Await `ensurePipelinesValidated()` at init to refuse before the first frame. A validation error
+settles on a microtask, so a tier installed without that await would dispatch one frame on an
+unvalidated pipeline and report every entity visible; `ModelPool` awaits it before installing.
 `scripts/webgpu-pipeline-validation-refusal-witness.mjs` pins it, including the
 mutation that removes the scope. So the cull reads the CPU's own inputs
 (screen height from the drawing buffer, `tanHalf` from the camera fov, hysteresis

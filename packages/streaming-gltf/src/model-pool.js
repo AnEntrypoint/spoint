@@ -364,11 +364,8 @@ class Asset {
         }
         return geo;
       } catch (e) {
-        console.warn(`[asset] LOD mesh ${key} failed to load (${e.message}), using previous LOD`);
-        if (lodIdx > 0) {
-          return await this.ensureMeshLod(meshDescIdx, lodIdx - 1);
-        }
-        return null;
+        console.warn(`[asset] LOD mesh ${key} failed to load (${e.message})`);
+        throw e;
       }
     });
   }
@@ -670,7 +667,10 @@ class Entity extends Emitter {
         const droppingToCheaper = wantIdx < tm.currentLod;
         const haveRenderable = tm.mesh && tm.mesh.geometry && tm.mesh.geometry.attributes.position;
         if (droppingToCheaper || !haveRenderable) {
-          geo = await this.asset.ensureMeshLod(tm.meshDescIdx, wantIdx);
+          geo = await this.asset.ensureMeshLod(tm.meshDescIdx, wantIdx).catch((e) => {
+            tm._lodWantIdx = -1;
+            throw e;
+          });
           if (this._disposed || !geo) return;
           tm._lodWantIdx = -1;
         } else {
@@ -988,7 +988,9 @@ class Entity extends Emitter {
               tm._pendingLodTarget = -1;
               tm._lodPending = true;
               const px = screenPx;
-              this._applyLod(tm, targetIdx, px).finally(() => { tm._lodPending = false; });
+              this._applyLod(tm, targetIdx, px)
+                .catch((error) => this.emit('lod-error', { entity: this, meshDescIdx: tm.meshDescIdx, lod: targetIdx, error }))
+                .finally(() => { tm._lodPending = false; });
             }
           } else if (targetIdx === tm.currentLod) {
             tm._lodWantIdx = -1;
@@ -1809,9 +1811,10 @@ export class ModelPool extends Emitter {
     const candidates = this._occlusionCandidates;
     const n = candidates ? candidates.length : 0;
     this._occlusionCandidateCount = n;
-    // The gate is a cost heuristic, but a silent return made "the cull never ran"
-    // and "the cull ran and found nothing" the same observation, so count it.
-    if (!candidates || n < this._occlusionMinCandidates) { this._occlusionSkippedBelowMin++; return; }
+    if (!candidates || n < this._occlusionMinCandidates) {
+      this._occlusionSkippedBelowMin++;
+      return;
+    }
     tier.runQueries(this.camera, candidates);
   }
 
@@ -1824,10 +1827,6 @@ export class ModelPool extends Emitter {
         if (!this._useOcclusionQuery || this._occlusionTier) return;
         const gpuTier = new WebGpuHizTier(this.renderer, { minCandidates: this._occlusionMinCandidates });
         if (!gpuTier.supported()) return;
-        // A WebGPU validation error settles on a microtask, so a tier installed
-        // without awaiting this would dispatch one frame on an invalid pipeline and
-        // report every entity visible. On refusal this throws, and the catch below
-        // leaves `_occlusionTier` null rather than installing a dead tier.
         await gpuTier.ensurePipelinesValidated();
         if (!this._useOcclusionQuery || this._occlusionTier) return;
         this._occlusionTier = gpuTier;
@@ -2345,8 +2344,6 @@ export class ModelPool extends Emitter {
       if (this._lodUnloadManager) stats.unloadManager = this._lodUnloadManager.getStats();
       if (this._occlusionTier) stats.occlusion = this._occlusionTier.stats;
     }
-    // Reported every call: a cull that never ran is a number a caller can see,
-    // not a branch nobody can reach from outside.
     stats.occlusionCandidates = this._occlusionCandidateCount || 0;
     stats.occlusionSkippedBelowMin = this._occlusionSkippedBelowMin || 0;
     return stats;
@@ -2454,7 +2451,8 @@ export class ModelPool extends Emitter {
       else this._pending.push(task);
     });
     this._loadQueue.set(key, p);
-    p.finally(() => this._loadQueue.delete(key));
+    const release = () => this._loadQueue.delete(key);
+    p.then(release, release);
     return p;
   }
   async _runTask(task) {
