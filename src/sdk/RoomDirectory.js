@@ -3,6 +3,18 @@ import { resolve } from 'node:path'
 import { locateWorld, loadWorldModule } from './WorldLocator.js'
 import { worldTickRate } from '../shared/worldDefaults.js'
 
+const MAX_PORT = 65535
+
+class RoomDirectoryError extends Error {
+  constructor(reasonCode, message) {
+    super(`RoomDirectory: ${message}`)
+    this.name = 'RoomDirectoryError'
+    this.reasonCode = reasonCode
+  }
+}
+
+const isPort = (value, min) => Number.isInteger(value) && value >= min && value <= MAX_PORT
+
 export class RoomDirectory {
   constructor({ sdkRoot = null, projectRoot = null, portRange = [19000, 19999] } = {}) {
     if (!sdkRoot) throw new Error('RoomDirectory requires { sdkRoot }')
@@ -30,11 +42,21 @@ export class RoomDirectory {
     throw new Error(`RoomDirectory: port range [${min},${max}] exhausted (${this.rooms.size} room(s) already hosted)`)
   }
 
+  _resolvePort(requested) {
+    if (requested == null) return this._nextFreePort()
+    if (!isPort(requested, 0)) throw new RoomDirectoryError('room-port-invalid', `port must be an integer in 0..${MAX_PORT} (0 asks the OS for a free port), got ${typeof requested} ${String(requested)}`)
+    if (requested === 0) return 0
+    for (const r of this.rooms.values()) {
+      if (r.port === requested) throw new RoomDirectoryError('room-port-in-use', `port ${requested} is already hosted by room "${r.roomId}"`)
+    }
+    if (this._reservedPorts.has(requested)) throw new RoomDirectoryError('room-port-in-use', `port ${requested} already reserved by an in-flight createRoom() call`)
+    return requested
+  }
+
   async createRoom(roomId, worldName, opts = {}) {
     if (this.rooms.has(roomId)) throw new Error(`RoomDirectory: roomId "${roomId}" already exists -- stop it first or choose a different id`)
-    const port = opts.port ?? this._nextFreePort()
-    if (this._reservedPorts.has(port)) throw new Error(`RoomDirectory: port ${port} already reserved by an in-flight createRoom() call`)
-    this._reservedPorts.add(port)
+    const port = this._resolvePort(opts.port)
+    if (port !== 0) this._reservedPorts.add(port)
     try {
       const { name: resolvedWorldName, path: worldPath, worldDef } = await this._locateWorld(worldName)
       const appsDirs = [resolve(this.projectRoot, 'apps')]

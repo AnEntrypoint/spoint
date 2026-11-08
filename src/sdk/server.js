@@ -126,7 +126,7 @@ export function wireServerHandlers(ctx) {
 export async function createServer(config = {}) {
   if (isDevHmrEnabled()) registerAppModuleVersioning(config.appsDirs)
   await installAoiCodeEpoch()
-  const port = config.port || 3000, tickRate = config.tickRate || DEFAULT_TICK_RATE_HZ
+  const port = config.port ?? 3000, tickRate = config.tickRate || DEFAULT_TICK_RATE_HZ
   const movement = config.movement || {}, staticDirs = config.staticDirs || []
   const deps = await createServerDeps(config, tickRate)
   const ctx = {
@@ -194,6 +194,11 @@ export async function createServer(config = {}) {
     console.log(`[tick-dilation] factor=${factor}`)
   })
   const api = createServerAPI(ctx)
+  const startListening = api.start
+  api.start = async () => {
+    const info = await startListening()
+    return { ...info, port: ctx.httpServer?.address()?.port ?? info.port }
+  }
   if (typeof globalThis.__DEBUG__ === 'undefined') globalThis.__DEBUG__ = {}
   globalThis.__DEBUG__.server = api
   return api
