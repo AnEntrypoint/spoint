@@ -52,7 +52,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## PRD rows and witness binding
 
 - A PRD row id is a claim until `prd_list {"id":...}` resolves it. Row ids collide across sibling sessions, so a `prd-add` can overwrite another lane's row.
-- `prd_resolve` needs a `witness_dispatch_id` in THIS project's `.gm/exec-spool/.dispatch-ledger.json`, or all four of `witness_exit_code`, `witness_output_sha256`, `witness_output_path` (RELATIVE to the root), `witness_ts`.
+- `prd_resolve` needs a `witness_dispatch_id` in THIS project's `.gm/pool/pool.log`, or all four of `witness_exit_code`, `witness_output_sha256`, `witness_output_path` (RELATIVE to the root), `witness_ts`.
 - `.gm/prd.yml` has a concurrent-lane lost update: an `ok:true` `prd-add` can later answer "prd id not found". Re-add the id, then resolve. `git_finalize` is refused (`prd_foreign_rows`) while other sessions own rows.
 - `prd.rs` reports `not_rerunnable` when a row's witness cites no existing `scripts/*.mjs|.js|.cjs`: a REPORT, not a regression.
 - A truncated witness is a fabricated witness: never `.slice()` a log line you quote a number, flag or path from.
