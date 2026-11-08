@@ -3,7 +3,6 @@ import { bakeTransmittanceLUT, LUT_WIDTH, LUT_HEIGHT } from './atmosphere-transm
 import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } from './atmosphere-scattering-lut.js';
 import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-decode.js';
 import { startLutBakeWorker } from './atmosphere-lut-job.js';
-
 import { TU, M4 } from './gl-render-mat4.js';
 import { seaHeightMean } from './sea-waves.js';
 import { resolvePoolParams } from './pool-params.js';
@@ -21,6 +20,7 @@ const DIST_SORT_MAX_BUCKET = DIST_SORT_BUCKETS - 1
 const WATER_HIDDEN_AFTER_EMPTY_QUERIES = 2
 const WATER_PROBE_MIN_RELIABLE_ALT_M = 5.0
 const WATER_WINDING_FLIP_ALT_M = 5.0
+const parseTileW = (v) => { if (v == null) return 25; if (Number.isInteger(v) && v > 0) return v; const err = new RangeError(`mapspinner: opts.tileW must be a positive integer, got ${v}`); err.code = 'mapspinner-tile-w-invalid'; throw err }
 function _startSurfaceDecodeWorker() {
   try {
     if (typeof Worker === 'undefined') return null
@@ -41,7 +41,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     throw new TypeError(`mapspinner: opts.gridMeshSize must be an integer >= 2, got ${opts.gridMeshSize}`);
   }
   const R = resolvePlanetRadiusM(opts, 'mapspinner');
-  const TILE_W = opts.tileW || 25;
+  const TILE_W = parseTileW(opts.tileW);
   const GRID = opts.gridMeshSize || TD.gridMeshSize;
   if (typeof window !== 'undefined') window.__glGrid = GRID;
   const BORDER = 2;
@@ -657,7 +657,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
 
   async function loadSurfaceTextures() {
-    if (!_sharedSurfaceTexDecode) _sharedSurfaceTexDecode = _decodeSurfaceTextures();
+    if (!_sharedSurfaceTexDecode) _sharedSurfaceTexDecode = _decodeSurfaceTextures().catch((e) => { _sharedSurfaceTexDecode = null; throw e });
     const { albAll, nrmAll, meanL, rockMean, matCount, sz } = await _sharedSurfaceTexDecode;
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
     async function mkArray(data, internal) {
