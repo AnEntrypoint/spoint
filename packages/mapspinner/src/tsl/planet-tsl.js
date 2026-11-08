@@ -28,6 +28,15 @@ const TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS = 10
 const WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS = -1
 const SURFACE_DECODE_TIMEOUT_MS = 60000
 const QUAD_CACHE_MIN_FORWARD_DOT = 0.99999
+const HPF_WORKER_FAILED = 'HPF_WORKER_FAILED'
+
+export class HpfWorkerError extends Error {
+  constructor() {
+    super('mapspinner tsl planet: the HPF bake worker returned no texels')
+    this.name = 'HpfWorkerError'
+    this.code = HPF_WORKER_FAILED
+  }
+}
 
 function nearFarForCam(R, camDist, alt, surfElev) {
   const altAboveTerrain = Math.max(0.001, alt - R * (surfElev || 0))
@@ -85,6 +94,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   performance.mark('boot:backdrop:workers-started')
   const hpfFromWorker = hpfJob ? await hpfJob : null
   performance.mark('boot:backdrop:hpf-worker-' + (hpfFromWorker ? 'done' : 'failed'))
+  if (hpfJob && !hpfFromWorker) throw new HpfWorkerError()
   const hpfData = hpfFromWorker || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   performance.mark('boot:backdrop:hpf-ready')
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
@@ -147,22 +157,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
 
   const qt = new Quadtree(R)
   const cull = { planes: new Float64Array(24), ex: 0, ey: 0, ez: 0, ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0, cx: 0, cy: 0, cz: 0, R, maxElev: R * CULL_ELEV_FRAC }
-  // The near-field lattice, supplied by the host: it names the spacing the near band must be drawn
-  // at and plans the tiles that replace whole quadtree leaves with it. It lives outside this package
-  // because the spacing is the collider's, which only the host knows.
   const near = (opts.nearLattice && typeof opts.nearLattice.plan === 'function') ? opts.nearLattice : null
-  // The floor is set PER FACE, because the near band is drawn on ONE face -- the one the player is
-  // standing on -- and the floor exists to bound the step at THAT band's rim. On the five faces the
-  // player is not on, the camera's own face-local position is the projection of the player onto a face
-  // they are tens of kilometres away from: at the tps-game anchor three of those projections are the
-  // face's own corner. A floor there refines ground no rim abuts, and it measured as 45% of every leaf
-  // the floor added.
   let lastNear = null
 
   function writeQuads(camWorldPos, camTarget, fovy, camUp, aspect, viewportH, surfElev, lod) {
     const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
-    // surfElev is the ground elevation at the camera as a fraction of R, so this is the camera's
-    // height above the ground it stands on -- the only altitude the near field is about.
     const groundClearanceM = Math.max(camDist - R - surfElev * R, 0)
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
@@ -189,20 +188,9 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       }
       u.morphAim.array[face].set(al ? al[0] : 0, al ? al[1] : 0, al ? 1 : 0)
       const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
-      // The band is PLAYER-CENTRED, so a leaf is either WHOLLY inside it and dropped, or it straddles
-      // the rim, is kept, and every tile inside it is suppressed. That is what keeps the near band
-      // free of both a hole (a dropped leaf nothing fills) and a doubled surface (a kept leaf the
-      // band also draws), at every quality tier.
       let drop = null, tiles = null
       if (face === nearFace && near && lc && Number.isFinite(lc[0]) && Number.isFinite(lc[1])) {
-        // The band's cost is bounded by the payload it joins: it never spends more instances than the
-        // leaves this face already draws, so the near band can at most double the terrain's instances
-        // and at worst the collider's field is covered only part way -- reported, never silent.
         const nearBudget = leaves.length
-        // spacingM and extentM are metres of GROUND, but the band is laid out in face-local metres,
-        // and the cube-sphere map is not conformal: one face-local metre is 0.698 m of ground at the
-        // tps-game spawn and drifts with position on the face. Measured from the map's own projection
-        // (two nearby face-local points through localToDeformed), never assumed.
         const p = near.plan(leaves, [lc[0], lc[1]], GRID_SIZE, nearBudget, groundPerFaceMetre(lc[0], lc[1], R, near.requestedHalfExtentM))
         lastNear = { tiles: p.tileCount, dropped: p.coveredLeafCount, stepM: p.stepM, tileM: p.tileM, tilesPerAxis: p.tilesPerAxis, budget: nearBudget, coveredHalfExtentM: p.coveredHalfExtentM, coveredHalfExtentGroundM: p.coveredHalfExtentGroundM, requestedHalfExtentM: p.requestedHalfExtentM, shortfallGroundM: p.shortfallM, groundPerFaceMetre: p.groundPerFaceMetre, straddling: p.straddlingLeafCount, suppressed: p.suppressedTiles, refused: p.refused || null }
         if (p.tiles.length) { drop = new Set(p.drop); tiles = p.tiles }
@@ -226,9 +214,6 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
           const o = patch.offsets.array
           const b = n * 4
           if (o[b] !== t.ox || o[b + 1] !== t.oy || o[b + 2] !== t.l || o[b + 3] !== 0 || patch.faces.array[n] !== face) quadPayloadChanged = true
-          // Level 0 disables the geomorph for these: the lattice's neighbours are its own tiles at
-          // the same spacing, and a tile edge that morphed toward a coarser parent would open the
-          // seam the skirt is there to close.
           o[b] = t.ox; o[b + 1] = t.oy; o[b + 2] = t.l; o[b + 3] = 0
           patch.faces.array[n] = face
           n++
@@ -267,11 +252,6 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const moveTol = Math.min(250.0, Math.max(1.0, (camDist - R) * 0.00005))
     const fl = Math.hypot(camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]) || 1
     const fx = (camTarget[0] - camWorldPos[0]) / fl, fyv = (camTarget[1] - camWorldPos[1]) / fl, fz = (camTarget[2] - camWorldPos[2]) / fl
-    // The LOD config decides WHICH quads exist, so it is an input to this cache exactly as the pose and
-    // the viewport are: a tier the quality governor sheds to while the player stands still has to reach
-    // writeQuads on the next frame, or the shed is a no-op until the player happens to move past
-    // moveTol. Measured: with the LOD config out of the key, a still camera reports the PREVIOUS
-    // tier's payload (scripts/nearfield-surface-density-witness.mjs, still vs forced-refresh columns).
     const lod = resolveLodConfig(opts, fy)
     const nearLeafM = (near && Number.isFinite(near.maxLeafM) && near.maxLeafM > 0) ? near.maxLeafM : 0
     const unchanged = c.res && c.fovy === fy && c.w === w && c.h === h
@@ -325,7 +305,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.wetness.value = resolveWetness()
     if (water) water.update({ camWorldPos, camDist, R, sunDir: sunDir || DEFAULT_SUN_DIR, time, ocean: typeof window !== 'undefined' ? window.__cam : null })
     lastFar = nf.far
-    return { quadCount: res.quadCount, waterQuadCount: res.waterQuadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: lastNear, nearQuads: lastNear ? lastNear.tiles : 0, nearStepM: lastNear ? lastNear.stepM : 0, nearRefused: lastNear ? lastNear.refused : null, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
+    return { quadCount: res.quadCount, waterQuadCount: res.waterQuadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, nearPlan: lastNear, nearQuads: lastNear ? lastNear.tiles : 0, nearStepM: lastNear ? lastNear.stepM : 0, nearRefused: lastNear ? lastNear.refused : null, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
   }
 
   function dispose() {
