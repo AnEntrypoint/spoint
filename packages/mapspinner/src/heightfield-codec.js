@@ -39,14 +39,22 @@ export function encodeHeightfield(a) {
   return buf
 }
 
+export class HeightfieldCodecError extends Error {
+  constructor(code, message) { super(message); this.name = 'HeightfieldCodecError'; this.code = code; }
+}
+
 export function decodeHeightfield(buf) {
-  if (!buf || buf.byteLength < 8) return null
+  if (buf == null) throw new HeightfieldCodecError('heightfield-missing', 'decodeHeightfield: no buffer was given')
+  if (buf.byteLength < 8) throw new HeightfieldCodecError('heightfield-short', `decodeHeightfield: ${buf.byteLength} byte(s) is shorter than the 8-byte prefix`)
   const dv = new DataView(buf)
-  if (dv.getUint32(0, true) !== MAGIC) return null
+  if (dv.getUint32(0, true) !== MAGIC) throw new HeightfieldCodecError('heightfield-bad-magic', 'decodeHeightfield: buffer does not start with the heightfield magic')
   const hlen = dv.getUint32(4, true)
+  if (8 + hlen > buf.byteLength) throw new HeightfieldCodecError('heightfield-truncated', `decodeHeightfield: header of ${hlen} byte(s) runs past the ${buf.byteLength}-byte buffer`)
   const header = JSON.parse(_utf8Decode(new Uint8Array(buf, 8, hlen)))
   const { N, sectors } = header
   const gridS = sectors.gridS, bits = _assertBits(sectors.bits || 8), nSec = gridS * gridS
+  const requiredBytes = 8 + hlen + 8 * nSec + (bits === 16 ? 2 : 1) * N * N
+  if (buf.byteLength < requiredBytes) throw new HeightfieldCodecError('heightfield-truncated', `decodeHeightfield: ${buf.byteLength} byte(s) is short of the ${requiredBytes} the header describes`)
   let off = 8 + hlen
   const sectorMin = new Float32Array(buf, off, nSec); off += 4 * nSec
   const sectorMax = new Float32Array(buf, off, nSec); off += 4 * nSec

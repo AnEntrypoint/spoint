@@ -15,10 +15,22 @@ export const HEIGHT_UNIFORM_DEFAULTS = {
   uDetailFbmOcts: 3,
 }
 
+export class HeightSamplerError extends Error {
+  constructor(code, message) { super(message); this.name = 'HeightSamplerError'; this.code = code; }
+}
+
+function reliefScaleOf(v, radius) {
+  if (v == null) return radius / RELIEF_DESIGN_RADIUS_M
+  if (typeof v !== 'number' || !Number.isFinite(v)) {
+    throw new HeightSamplerError('height-cpu-bad-relief-scale', `createHeightSampler: reliefScale must be a finite number, got ${typeof v} ${String(v)}`)
+  }
+  return v
+}
+
 export function createHeightSampler(opts = {}) {
   if (opts.sculpt) throw new TypeError('createHeightSampler: the CPU height mirror cannot evaluate a sculpt override (it is a GPU texture fetch), so a sampler built with one would silently disagree with the rendered ground -- plumb the sculpt field through the spec instead of passing it here')
   const radius = opts.radius || 6360
-  const reliefScale = opts.reliefScale != null ? opts.reliefScale : radius / RELIEF_DESIGN_RADIUS_M
+  const reliefScale = reliefScaleOf(opts.reliefScale, radius)
   const hpfTexRes = opts.hpfTexRes || 128
   const BAKE_MAX_LEVEL = Math.round(Math.log2(hpfTexRes))
   const af = opts.anchorField || createAnchorField({ seed: opts.seed })
@@ -51,10 +63,6 @@ export function createHeightSampler(opts = {}) {
   const H = makeHeight(U, hpfSample)
   const hpfFace = (face) => _faceBuf[face] || _bakeFace(face)
   const specParams = { hpfRes: RES, landBias: U.uLandBias, beachShelfM: U.uBeachShelfM, reliefScale: 0 }
-  // The v1 float hash is only reproducible at the precision the GPU runs it in: its lattice
-  // coordinates are integers (so both precisions hold them exactly) but fract(p*0.1031) does not,
-  // and the domain warp turns that difference into metres of ground. The v2 integer hash is bit
-  // exact in either precision, so it keeps the exact f64 path the shipped bakes were computed on.
   const precision = opts.precision ?? (hashVersion === HASH_VERSION_FLOAT ? 'f32' : 'f64')
   const compile = (carves) => compileHeightSpec({ hashVersion, carves, precision, params: specParams, hpfFace, hpfRes: RES }).composeHeight
   const requestedCarves = opts.carves || []

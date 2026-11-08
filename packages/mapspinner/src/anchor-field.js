@@ -11,9 +11,23 @@ const FACES_AROUND_SPHERE = 4.0;
 const childKey  = (k, q) => k * 4 + q;
 const parentKey = (k) => Math.floor(k / 4);
 const hat = (t) => { t = t < 0 ? -t : t; return t >= 1 ? 0 : 1 - t; };
+const DEFAULT_SEED = 1337;
+const INT32_MIN = -2147483648, INT32_MAX = 2147483647;
+
+export class AnchorFieldError extends Error {
+  constructor(code, message) { super(message); this.name = 'AnchorFieldError'; this.code = code; }
+}
+
+function resolveSeed(s) {
+  if (s == null) return DEFAULT_SEED;
+  if (!Number.isInteger(s) || s < INT32_MIN || s > INT32_MAX) {
+    throw new AnchorFieldError('anchor-field-bad-seed', `createAnchorField: seed must be an integer in the int32 range, got ${String(s)}`);
+  }
+  return s;
+}
 
 export function createAnchorField(opts = {}) {
-  const seed = (opts.seed | 0) || 1337;
+  const seed = resolveSeed(opts.seed);
 
   const bands = BANDS.map((B) => ({
     baseLevel: B.level, bn: 1 << B.level,
@@ -171,11 +185,29 @@ export function createAnchorField(opts = {}) {
         nodes: Array.from(b.nodes, ([k, arr]) => [k, Array.from(arr)]) })),
     });
   }
+  function v2BandEntries(o) {
+    const count = Array.isArray(o.bands) ? o.bands.length : 'no';
+    if (count !== bands.length) {
+      throw new AnchorFieldError('anchor-field-partial-load', `anchor-field load: version 2 carries ${count} band(s), this build has ${bands.length}`);
+    }
+    return o.bands.map((ob, b) => {
+      if (!ob || ob.baseLevel !== BANDS[b].level || !Array.isArray(ob.nodes)) {
+        throw new AnchorFieldError('anchor-field-partial-load', `anchor-field load: band ${b} is missing its level or nodes`);
+      }
+      for (const e of ob.nodes) {
+        if (!Array.isArray(e) || !Number.isInteger(e[0]) || !Array.isArray(e[1]) || e[1].length !== K) {
+          throw new AnchorFieldError('anchor-field-partial-load', `anchor-field load: band ${b} has a malformed node entry`);
+        }
+      }
+      return ob.nodes;
+    });
+  }
   function load(json) {
     const o = typeof json === 'string' ? JSON.parse(json) : json;
-    if (!o) return false;
+    if (!o) throw new AnchorFieldError('anchor-field-unreadable', 'anchor-field load: no field data to read');
     if (o.version === 2) {
-      for (let b = 0; b < bands.length && b < o.bands.length; b++) rebuildBand(b, o.bands[b].nodes);
+      const entries = v2BandEntries(o);
+      entries.forEach((nodes, b) => rebuildBand(b, nodes));
       return true;
     }
     if (o.version === 1) {
@@ -189,7 +221,7 @@ export function createAnchorField(opts = {}) {
       }
       return true;
     }
-    return false;
+    throw new AnchorFieldError('anchor-field-unknown-version', `anchor-field load: unknown version ${String(o.version)}`);
   }
 
   function nodeParams(bandIdx, face, tx, ty) {
