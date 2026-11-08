@@ -14,6 +14,20 @@ const SPLAT_DESIGN_RADIUS_M = PLANET_RADIUS_M
 const RIDGE_ALBEDO_OCTAVES = [[75.0, 1.0], [375.0, 0.6]]
 export const splatOctaveCollapse = uniform(1)
 
+const leverUniform = (name, fallback) => {
+  let stored = fallback
+  const node = uniform(fallback)
+  Object.defineProperty(node, 'value', {
+    get: () => (typeof window !== 'undefined' && Number.isFinite(window[name]) ? window[name] : stored),
+    set: (v) => { stored = v },
+    enumerable: true,
+    configurable: true,
+  })
+  return node
+}
+export const splatMix = leverUniform('__texMix', TD.texMix)
+export const splatWarp = leverUniform('__texWarp', TD.texWarp)
+
 const byLayer = (lay, v) => select(lay.lessThan(0.5), v[0], select(lay.lessThan(1.5), v[1], select(lay.lessThan(2.5), v[2], v[3])))
 
 export function terrainAlbedoClimate({ snoise3, h, rockSlope, temp, nwp, pxWorld, reliefScale, bcRock }) {
@@ -102,7 +116,7 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
   const [lA, wA, lB, wB] = top2
 
   const texTileM = R.div(SPLAT_DESIGN_RADIUS_M).mul(TEX_TILE_BASE_M)
-  const wt = worldRel.add(u.texCamFrac).div(texTileM).add(texWarp.mul(TD.texWarp))
+  const wt = worldRel.add(u.texCamFrac).div(texTileM).add(texWarp.mul(splatWarp))
   const tw0 = pow(abs(n), vec3(TD.triSharp))
   const tw = tw0.div(tw0.x.add(tw0.y).add(tw0.z).add(1e-4))
   const bAB = clamp(wA.div(max(wA.add(wB), 1e-4)), 0.0, 1.0)
@@ -139,7 +153,7 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
   const albedo = vec3(biomeC).toVar()
   const texDn = vec3(0.0).toVar()
   const pool = float(u.poolCover).toVar()
-  const k = texFarFade.mul(TD.texMix).mul(u.surfReady)
+  const k = texFarFade.mul(splatMix).mul(u.surfReady)
   If(u.surfReady.greaterThan(0.5).and(texFarFade.greaterThan(0.001)), () => {
     const A = layerSample(lA)
     const detail = A.detail.toVar(), matColor = A.matColor.toVar(), texNrm = A.nrm.toVar(), poolTex = A.pool.toVar()

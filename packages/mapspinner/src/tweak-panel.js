@@ -31,7 +31,7 @@ const GROUPS = [
     ['texSat',        'Texture saturation',    0,   2,    0.05, 1.0],
     ['texBright',     'Texture brightness',    0.2, 1.5,  0.02, 1.0],
     ['biomeTint',     'Biome tint / texture',  0,   1,    0.02, 0.62],
-    ['texWarp',       'Anti-repeat warp',      0,   0.6,  0.02, 1.0],
+    ['texWarp',       'Anti-repeat warp',      0,   1,    0.02, 1.0],
     ['texTile',       'Texture tile size (m)', 100, 10000,100,  2400.0],
     ['xSoft',         'Crossover fade width',  0,   0.5,  0.02, 0.26],
     ['xFinger',       'Crossover fingering',   0,   5,    0.1,  0.2],
