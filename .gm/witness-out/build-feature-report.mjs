@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 
 const SOURCE = '/config/.claude/projects/-workspace-spoint/438a05ef-b51a-46d5-9bc3-1491ca557cb0/tool-results/by2vpn00c.txt'
-const OUT = '/workspace/spoint/.gm/witness-out/savi-spawn-feature-gap.md'
+const OUT = '/workspace/spoint/.gm/witness-out/spawn-feature-gap.md'
 const units = JSON.parse(readFileSync(SOURCE, 'utf8'))
 const IMPLEMENTED = [
   "Named easing catalogue",
