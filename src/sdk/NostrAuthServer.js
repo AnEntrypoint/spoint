@@ -67,13 +67,14 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
 
     try {
       const NostrTools = await import('nostr-tools')
+      const content = payload?.content === undefined ? challenge : payload.content
       const event = {
         id,
         pubkey,
         created_at: payload?.created_at || 0,
         kind: payload?.kind || NIP98_HTTP_AUTH_KIND,
         tags: payload?.tags || [],
-        content: challenge,
+        content,
         sig,
       }
 
