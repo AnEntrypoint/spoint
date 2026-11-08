@@ -276,7 +276,7 @@ async function main() {
       const { stdout } = await execFileAsync(process.execPath, [file])
       for (const line of stdout.split('\n')) if (line.trim()) console.log(fmt(line))
     } catch (e) {
-      console.error(`check: ${label}:`, (e.stderr || e.message || '').toString().trim())
+      console.error(`check: ${label}:`, [e.stdout, e.stderr, e.message].filter(Boolean).join('\n').trim())
       process.exit(1)
     }
   }
