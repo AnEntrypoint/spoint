@@ -13,7 +13,7 @@ import { assertHashVersion, HASH_VERSION_FLOAT } from './height-spec.js'
 import { createHeightProbeTSL } from './height-probe-tsl.js'
 import { createSkyTSL, releaseBackgroundNegativeClamp } from './sky-tsl.js'
 import { bakeAtmosphereLUTs } from '../atmosphere-lut-job.js'
-import { runModuleWorkerJob } from '../worker-job.js'
+import { runModuleWorkerJob, reportWorkerJobFallback } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
 import { SCULPT_RES } from './sculpt-tsl.js'
 import { createWaterTSL } from './water-tsl.js'
@@ -92,9 +92,9 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const lutJob = bakeAtmosphereLUTs()
   const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
   performance.mark('boot:backdrop:workers-started')
-  const hpfFromWorker = hpfJob ? await hpfJob : null
+  let hpfRejected = false; const hpfFromWorker = hpfJob ? await hpfJob.catch((err) => { reportWorkerJobFallback(err, 'HPF bake worker'); hpfRejected = true; return null }) : null
   performance.mark('boot:backdrop:hpf-worker-' + (hpfFromWorker ? 'done' : 'failed'))
-  if (hpfJob && !hpfFromWorker) throw new HpfWorkerError()
+  if (hpfJob && !hpfFromWorker && !hpfRejected) throw new HpfWorkerError()
   const hpfData = hpfFromWorker || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   performance.mark('boot:backdrop:hpf-ready')
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
@@ -141,7 +141,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const surfaceState = { ready: false, error: null, disposed: false }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
     const decodeJob = runModuleWorkerJob(new URL('../surface-texture-worker.js', import.meta.url), { baseUrl: opts.surfaceTexturesBaseUrl }, (d) => (d.albAll && d.nrmAll ? d : null), SURFACE_DECODE_TIMEOUT_MS)
-    Promise.resolve(decodeJob).then((set) => set || decodeSurfaceTextureSet(opts.surfaceTexturesBaseUrl)).then((set) => {
+    Promise.resolve(decodeJob).catch((err) => { reportWorkerJobFallback(err, 'surface texture worker'); return null }).then((set) => set || decodeSurfaceTextureSet(opts.surfaceTexturesBaseUrl)).then((set) => {
       if (surfaceState.disposed) return
       const tex = makeSurfaceTextures(set)
       u.surfAlb.value.dispose()

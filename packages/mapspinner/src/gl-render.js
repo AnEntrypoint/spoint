@@ -2,7 +2,7 @@ import { RELIEF_DESIGN_RADIUS_M, TERRAIN_DEFAULTS as TD } from './terrain-defaul
 import { bakeTransmittanceLUT, LUT_WIDTH, LUT_HEIGHT } from './atmosphere-transmittance-lut.js';
 import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } from './atmosphere-scattering-lut.js';
 import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-decode.js';
-import { startLutBakeWorker } from './atmosphere-lut-job.js';
+import { startLutBakeWorker, awaitLutBakeWorker } from './atmosphere-lut-job.js';
 import { TU, M4 } from './gl-render-mat4.js';
 import { seaHeightMean } from './sea-waves.js';
 import { resolvePoolParams } from './pool-params.js';
@@ -562,7 +562,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     return _scatTex;
   }
   if (_lutJob) {
-    const r = await _lutJob;
+    const r = await awaitLutBakeWorker(_lutJob);
     if (r) {
       if (!_sharedRawTransLUT) _sharedRawTransLUT = r.trans;
       if (!_sharedRawScatLUT) _sharedRawScatLUT = r.scat;

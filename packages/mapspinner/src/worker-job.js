@@ -8,6 +8,11 @@ export class WorkerJobError extends Error {
   }
 }
 
+export function reportWorkerJobFallback(err, label) {
+  if (!(err instanceof WorkerJobError)) throw err
+  console.warn(`[mapspinner] ${label} failed, running the in-page fallback: ${err.code}: ${err.message}`)
+}
+
 export function runModuleWorkerJob(url, message, accept, timeoutMs = DEFAULT_WORKER_JOB_TIMEOUT_MS) {
   try {
     if (typeof Worker === 'undefined') return null
