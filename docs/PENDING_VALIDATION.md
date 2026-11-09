@@ -2,7 +2,6 @@
 
 Phase A changes are code, docs and tests written without running anything. Phase B runs each witness below, then the gate. Nothing here has been pushed unless the commit column says so.
 
-
 Commit hashes in this file were rewritten to the current `origin/main` history (owner-approved rewrite that removed the old author email). Old hashes are replaced by the new commit with the same subject: 0197ebf to 7bb9e43, 096e298 to bae3c98, 54229e9 to a540e75, 8e44515 to 8a201ff, b66a1b5 to fa478a3, fa25370 to 715ab77.
 ## Coded in Phase A
 
@@ -421,3 +420,27 @@ Build: `npm run build:bundles` wrote `dist/client` (`[bundle-client] stamped dis
 `npm run check`: the first run failed on `RESULT: FAIL docs/index.html is not the generator output`, because the ledger edit changed `docs/*.md`. Fixed by `node scripts/generate-docs-site.js` and confirmed by `RESULT: PASS docs/index.html equals the output of scripts/generate-docs-site.js for the current sources`. The full re-run result is in the commit message and the report.
 
 Status: Decision 1 refuted, reverted. Decision 2 implemented; the gate FAILS with the cause above. Open: the 32 no-starve divergences and the 29 contact replays.
+
+## Phase B (run 2): starvedSteps roll-forward measured; the no-starve divergences classified
+
+Runs: `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s), the server probe, and `npm run check`. Logs are in `/tmp/phaseB/` and are not tracked.
+
+Gate on the starvedSteps roll-forward (commits `7094a66`, `50ac47a`): `totals: runs 15/15 replays 491 replays over 1 cm residual 64 (in peer contact 26 of 26 contact replays; with a groundY gap 0) in 15 run(s) max residual 1.1821 m injected replays 0 (over limit 0) runs with local pops 15 max pops/min 185.87 pops 761 matched 329 in peer contact 15 mirror spikes 5`
+`RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 64 of 491 replays across 15 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 5 of 15 run(s); 15 requested, 15 run(s) with local pops`
+
+Before the roll-forward (commit `cb76210`): 66 of 499 over 1 cm, max residual 1.2887 m. The change moves the count by 2 replays, which is within run-to-run noise. The roll-forward does not change the outcome, for a reason in the code: the replay base is the server state at the snapshot tick, which already holds every starved step taken before that tick (`PredictionEngine._rebaseAndReplay`). The count only tells the client how many of those steps lie after the acked input, so the roll-forward reproduces a state the base already has. The steps the replay cannot know are the ones taken after the snapshot, and no ack can carry them.
+
+The 64 over-limit replays, classified with the new `ackKeyCalls` probe (traces `/tmp/groundy-replay-nUDHXP/over-limit-traces.json`, counted by `/tmp/phaseB/classify.cjs`, not committed):
+- 35 explained: a starved tick in the trace before the first divergence.
+- 7 explained: a starved tick under the acked key after the snapshot (`ackKeyCalls` 2 or more), so it lies outside the trace.
+- 22 unexplained. At the first divergence step the client's per-input displacement differs from the server's by 0.050 to 0.101 m, the full size of the divergence. The dt there is nominal (1/60 s). 21 of the 22 are peer-contact replays.
+
+Cause of the 22 (hypothesis, not confirmed): a peer push is applied on one side and not the other, or at a different input, for one step. The push is applied on the client by `_pushForSequence(seq)` from the ack's `pushWindow` and on the server by `advancePushQueue`. Next probe: in the hook, record for each divergence key the server's applied push (`advancePushQueue` return value, keyed by the consumed sequence) and the client's `_pushForSequence(seq)`. If the two disagree at that key, the cause is the push index alignment; if they agree, the cause is in the physics step itself.
+
+Server probe (`/tmp/popdiag/srvspike.mjs` over three `nstick2.mjs` logs from `netcode-conditioner-harness.mjs --cond=120/40/6 --predict=on --world=peers --duration=20000`): `/tmp/phaseB/A-srv-1.json server spikes: 0`, `A-srv-2.json server spikes: 0`, `A-srv-3.json server spikes: 0`.
+
+Build: `npm run build:bundles` exit 0 (`[bundle-client] stamped dist/client/app.bundlehash.json af9b7573dcd1bd85`, `[bundle-worker] stamped dist/src/sdk/WorkerEntry.bundlehash.json 956ef418379e7d87`).
+
+`npm run check`: the first run (commit `50ac47a`) failed at `check-cache-keys`: `SNAPSHOT_ENTITY_ENC_CODE_VERSION: src/shared/cacheCodeVersions.js pins '298eb66d3d2f' but its producing source hashes to '989b5adb57af'`. `SnapshotEncoder.js` is in that closure, so the pin moved to `989b5adb57af` in commit `245da93`. `node scripts/check-cache-keys.mjs` then reported `8 bake transforms declare their whole import closure` and exit 0. The following run failed only at `docs/index.html is not the generator output`, fixed here by regenerating the page.
+
+Status: the gate still FAILS (64 of 491 over 1 cm). The starved-steps roll-forward is in place, is witnessed by the prediction-reconcile witness (22/22), and does not move the gate. The residual over 1 cm is 13 percent of replays, and the cause is open for 22 of the 64 (peer push, next probe above).
