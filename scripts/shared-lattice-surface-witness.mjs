@@ -210,7 +210,8 @@ expect('BEFORE: no vertex came from the lattice', before.stats.latticeVertexHits
 expect('AFTER: every mirror vertex came from the lattice', after.stats.latticeVertexHits, (v) => Number.isInteger(v) && v > 0)
 expect('AFTER: no mirror vertex needed the sampler', after.stats.latticeVertexMisses, (v) => v === 0)
 expect('AFTER: the sampler was never called', after.solves, (v) => v === 0)
-expect('AFTER is no slower than BEFORE', r6(after.ms / before.ms), (v) => finite(v) && v <= 1.05)
+expect('AFTER makes no more sampler calls than BEFORE (counted, not timed)', after.solves, (v) => finite(v) && v <= before.solves)
+console.log(`  wall-clock AFTER/BEFORE = ${r6(after.ms / before.ms)} (printed, not gated: a wall-clock ratio on a shared host varies by more than its margin)`)
 
 const bladeDy = [], cellDy = []
 let bladeCountMismatch = 0

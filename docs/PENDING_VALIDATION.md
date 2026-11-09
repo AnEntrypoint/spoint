@@ -762,3 +762,16 @@ Measured:
 - A second failure remains: 5 mirror one-tick spikes of 0.8-2.5 mm across 4 of 15 runs. These are the collision-mirror class that appeared in earlier runs (run 7: 5 spikes across 3 runs), not a replay residual. They are not addressed in this pass.
 
 Status: the starved-tick mismatch is removed at source; the gate FAILS on underpowered (0 of 100 correction replays) and on 5 mirror spikes. Residual value for the gate's own measure: none measured (0 correction replays); the prediction error at every ack is at most 0.0070 m.
+
+## Phase A (run 10): the lattice witness gates on counted sampler calls, not on a wall-clock ratio
+
+The flake: `scripts/shared-lattice-surface-witness.mjs` gated `AFTER is no slower than BEFORE` on `after.ms / before.ms <= 1.05`, where both values are best-of-5 `process.hrtime` wall times of grass placement. One run measured 1.056 and failed the check; three reruns measured below 1.05 and passed. A wall-clock ratio on a shared host varies by more than its 5 % margin, so the gate was not deterministic.
+
+| area | change | file | witness |
+|---|---|---|---|
+| gate | Replaces the wall-clock gate with a counted one: `AFTER makes no more sampler calls than BEFORE (counted, not timed)`, `after.solves <= before.solves`. `before.solves` counts sampler calls in the BEFORE pass, `after.solves` in the AFTER pass; both are exact counts, so the check does not depend on the host. | `scripts/shared-lattice-surface-witness.mjs` | `npm run check` (Phase B) |
+| report | The AFTER/BEFORE wall-clock ratio is still printed, marked as not gated. | `scripts/shared-lattice-surface-witness.mjs` | printed in Phase B |
+
+Not changed in this pass: the placement code, the lattice, the other checks. The other timing check in the witness (`one lattice sample is at least 10x cheaper than the chart-local solve`) is a timing ratio too; its margin is measured in Phase B and recorded in `docs/netcode.md`, not changed.
+
+Status: Phase A is committed locally. The flake is measured in Phase B (three `npm run check` exit codes, and the ratio values).
