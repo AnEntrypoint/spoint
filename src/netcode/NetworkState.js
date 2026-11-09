@@ -27,7 +27,7 @@ export class NetworkState {
       inputBuffer: 0,
       groundNormal: null,
       wallNormals: null,
-      collisionPush: null,
+      pushWindow: null,
       lastUpdate: Date.now()
     })
   }
@@ -70,7 +70,7 @@ export class NetworkState {
     if (!pool) pool = this._snapPool = new Map()
     for (const p of this.players.values()) {
       let s = pool.get(p.id)
-      if (!s) { s = { id: p.id, position: null, rotation: null, velocity: null, onGround: false, health: 0, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: 0, groundNormal: null, wallNormals: null, collisionPush: null }; pool.set(p.id, s) }
+      if (!s) { s = { id: p.id, position: null, rotation: null, velocity: null, onGround: false, health: 0, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: 0, groundNormal: null, wallNormals: null, pushWindow: null }; pool.set(p.id, s) }
       s.id = p.id
       s.position = p.position
       s.rotation = p.rotation
@@ -86,7 +86,7 @@ export class NetworkState {
       s.inputBuffer = p.inputBuffer || 0
       s.groundNormal = p.groundNormal || null
       s.wallNormals = p.wallNormals || null
-      s.collisionPush = p.collisionPush || null
+      s.pushWindow = p.pushWindow || null
       players.push(s)
     }
     if (pool.size > players.length) { for (const id of pool.keys()) if (!this.players.has(id)) pool.delete(id) }
@@ -95,9 +95,9 @@ export class NetworkState {
     return out
   }
 
-  setCollisionPush(playerId, push) {
+  setPushWindow(playerId, window) {
     const player = this.players.get(playerId)
-    if (player) player.collisionPush = push || null
+    if (player) player.pushWindow = window
   }
 
   setTick(tick, timestamp = Date.now()) {

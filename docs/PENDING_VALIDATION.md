@@ -134,6 +134,26 @@ Not pushed. `origin/main` is `a033468`. The local commits `b4941c5` through `312
 - Why the count does not fall: the replay already used the exact push for the first tick after an ack (from the snapshot's peers, which are exact), so the self block only removes the quantization of the peer positions (1 cm wire units). The growth is a velocity error from an impulse that the prediction planned from older peer positions. The impulse is learned at the ack that replays it, so it is measured as growth. A position-only correction, or a rule where the impulse is in the ack the prediction already used, would change this; neither is taken here.
 - Not pushed. Phase B bar (under 1 cm in every run) not met.
 
+## Replay growth: Phase A changes (local, not pushed)
+
+Each change below is in the working tree and committed locally in Phase A. None is pushed. Every number is a groundy witness run (`scripts/groundy-replay-witness.mjs`, 15 runs, 1 cm bar) unless it says otherwise.
+
+- Tick-to-input mapping defect (cause). The server applied collision pushes per tick, while the client looked them up per input sequence (`seq - pushAckSeq`). A held tick advances the tick but not the sequence, so each push after a hold landed on the wrong input. Fix: the push schedule is a per-player FIFO of 16 entries in `src/netcode/CollisionSystem.js`. Pair pushes accumulate in `pendingPush` between a player's consumed inputs. Each consumed input enqueues `pendingPush` and pops the entry due now, applied after that input's step. The window published with the snapshot is the queue head, so window entry `k` is the push for input `ack + k`, whatever ticks were held.
+- Catch-up drain (cause). The first version advanced the queue once per tick, but catch-up consumes extra inputs in some ticks, so the lead of a planned push shrank below the client's prediction horizon. Moving the advance to per consumed input fixed it.
+- Idle physics accumulator (cause). `stepPlayerMovement` integrated the time accumulated over idle ticks into the first input after rest. Measured in one tick: ack 198 at velocity 0, then ack 199 at 14 m/s with a 0.4667 m step, twice the 0.2333 m a single input gives, and the client stepped 0.2333 m. Fix: each consumed input steps with its own `dt`, and the accumulator is removed from `src/sdk/TickHandler.js` (`playerAccumDt`, `PHYSICS_MAX_ACCUM_DT`, and the snapshot save/restore fields).
+- Client peer separation removed (`PredictionEngine.setPeers`, `_planPeerPush`, `setPlayerRadius`, the `_stepPush` total, and the `playerDefault` import in `MessageHandler.js`). The client no longer predicts pushes from latency-old peer positions. Pushes come only from the window the server publishes.
+- `scripts/peer-replay-witness.mjs` is deleted. Its subject, the client's recomputed peer separation, no longer exists, and the witness calls `setPeers`, which is removed. Its earlier PASS in this ledger refers to the removed design.
+- Self block field renamed from `collisionPush` to `pushWindow` (`SnapshotEncoder`, `SnapshotProcessor`, `NetworkState`, `PlayerManager`). The snapshot code pin `SNAPSHOT_ENTITY_ENC_CODE_VERSION` in `src/shared/cacheCodeVersions.js` is updated to match.
+
+Measured in this pass:
+
+- Commit `b66a1b5` (push planned on the next tick, keyed by tick): 100 of 133 replays over 1 cm.
+- Per-tick queue (first version of the sequence-keyed window): 4 of 27 replays over 1 cm, in 4 of 15 runs.
+- Per-consumed-input queue: 2 of 31 replays over 1 cm, in 2 of 15 runs (maximum growth 0.2176 m). Pops 0 in every run.
+- Per-consumed-input queue plus the idle accumulator removed: 6 of 23 replays over 1 cm, in 6 of 15 runs (maximum growth 0.2355 m). This is worse than the line above, so it is not yet confirmed as a fix. Phase B repeats the measurement before deciding.
+
+Open after Phase A: the remaining over-limit replays are not explained yet. The step-level join points at (a) a client step that moves 40 mm off its velocity while `wedged` is true, from the client's wedge heuristic (`_updateServerBlock`, `WEDGE_TRAVEL_MIN_M`), and (b) a 2 to 3 mm vertical step difference near the 1.4 m ledge. Neither is a fix yet.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.

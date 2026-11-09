@@ -4,7 +4,7 @@ import { pack } from '../protocol/msgpack.js'
 import { currentChartEpoch, createChartReanchorMessage } from './chartWire.js'
 import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
-import { applyPlayerCollisions, planPlayerCollisions } from '../netcode/CollisionSystem.js'
+import { advancePushQueue, planPlayerCollisions, pushWindowOf } from '../netcode/CollisionSystem.js'
 import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
@@ -22,7 +22,6 @@ const INPUT_STEP_BANK = 16
 const GAP_WAIT_MAX_TICKS = 4
 const MAX_CATCHUP_STEPS_PER_TICK = 3
 const PHYSICS_PLAYER_DIVISOR = 3
-const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
 const PLAYERS_PER_SNAP_GROUP = 50
 const SNAP_ENTITY_VISITS_PER_TICK = 24000
@@ -82,7 +81,7 @@ function takeNextInput(player, inputs) {
   player.hasSentInput = true
 }
 
-function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt) {
+function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts) {
   const { playerManager, physicsIntegration, applyMovement, movement } = deps
   const st = player.state
   const inp = player.lastInput || null
@@ -94,7 +93,7 @@ function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccu
     st.expr = inp.expr || 0
   }
   if (player.teleportHold && stepTeleportHold(player, physicsIntegration)) {
-    playerIdleCounts.delete(player.id); playerAccumDt.delete(player.id)
+    playerIdleCounts.delete(player.id)
     return
   }
   applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
@@ -104,40 +103,42 @@ function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccu
   const atRest = wishedVx * wishedVx + wishedVz * wishedVz < 1e-4
   const isIdle = !hasInput && st.onGround && atRest
   const idleCount = playerIdleCounts.get(player.id) || 0
-  if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); playerAccumDt.delete(player.id); return }
-  const accumDt = Math.min(PHYSICS_MAX_ACCUM_DT, (playerAccumDt.get(player.id) || 0) + dt)
+  if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); return }
   if (hasInput || !atRest || !st.onGround || (tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0) {
-    physicsIntegration.updatePlayerPhysics(player.id, st, accumDt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz; playerAccumDt.delete(player.id)
-  } else { playerAccumDt.set(player.id, accumDt) }
+    physicsIntegration.updatePlayerPhysics(player.id, st, dt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz
+  }
   playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
 }
 
-function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs = null) {
+function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explicitInputs = null) {
   const { playerManager } = deps
   for (const player of players) {
     const inputs = playerManager.getInputs(player.id)
     if (explicitInputs) {
       player.lastInput = explicitInputs.get(player.id) ?? null
-      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
       recordPlayerTick(player, deps, tick)
       continue
     }
     let holdForInput = false
-    if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0 }
+    let consumed = false
+    if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0; consumed = true }
     else if (player.hasSentInput) {
       player.inputStarves = (player.inputStarves || 0) + 1
       player.starvedTicks = (player.starvedTicks || 0) + 1
       holdForInput = player.starvedTicks <= deps.starveHoldTicks
       if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
     }
-    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
+    if (consumed) advancePushQueue(player, deps.physicsIntegration)
     accrueStepBudget(player, deps.tickMs, holdForInput ? 0 : 1)
     let extra = 0
     while (inputs.length > INPUT_BUFFER_CATCHUP_DEPTH && extra < MAX_CATCHUP_STEPS_PER_TICK && player.inputStepBudget >= 1 && !sequenceGapAhead(player, inputs)) {
       takeNextInput(player, inputs)
       player.inputStepBudget -= 1
       player.inputCatchUps = (player.inputCatchUps || 0) + 1
-      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
+      advancePushQueue(player, deps.physicsIntegration)
       extra++
     }
     player.inputBufferDepth = inputs.length
@@ -153,6 +154,7 @@ function recordPlayerTick(player, deps, tick) {
   }
   lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
   const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
+  networkState.setPushWindow(player.id, pushWindowOf(player))
   networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null, st.wallNormals || null)
   if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
 }
@@ -441,7 +443,7 @@ export function createTickHandler(deps) {
   const snapDeps = { getChartEpoch: () => currentChartEpoch(physics), connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps: new Map(), playerScratch, getPlayerScratch, getSnapshotHz: () => _lastSnapRate }
   let snapState = createSnapState()
   let forceKeyframe = false
-  const playerIdleCounts = new Map(), playerAccumDt = new Map()
+  const playerIdleCounts = new Map()
   const grid = new Map(), gridCells = new Map()
   const collisionTiles = createCollisionTileStreamer({ physics, physicsIntegration, connections, getNetcodeConfig: deps.getNetcodeConfig })
   let snapshotSeq = 0, profileLog = 0, profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0
@@ -505,11 +507,9 @@ export function createTickHandler(deps) {
   }
 
   function simulateTick(tick, dt, players, explicitInputs = null) {
-    processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs)
+    processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, explicitInputs)
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
-    applyPlayerCollisions(players, physicsIntegration)
     planPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt)
-    for (const p of players) networkState.setCollisionPush(p.id, p.collisionPush)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
     if (explicitInputs === null) stepChartReanchor(tick)
     physics.step(dt)
@@ -566,7 +566,7 @@ export function createTickHandler(deps) {
     if (tick % (tickRate * AUTO_SAVE_INTERVAL) === 0 && tick > 0) {
       try { deps.onAutoSave?.() } catch (_) {}
     }
-    for (const id of snapDeps.playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { snapDeps.playerEntityMaps.delete(id); playerIdleCounts.delete(id); playerAccumDt.delete(id); clearPlayerPriorityAccumulator(id); playerScratch.delete(id); snapState.playerLastTick.delete(id); snapState.playerCell.delete(id) } }
+    for (const id of snapDeps.playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { snapDeps.playerEntityMaps.delete(id); playerIdleCounts.delete(id); clearPlayerPriorityAccumulator(id); playerScratch.delete(id); snapState.playerLastTick.delete(id); snapState.playerCell.delete(id) } }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
     if (players.length > 0) {
@@ -585,8 +585,7 @@ export function createTickHandler(deps) {
       const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)
       profileSum=0; profileSumSnap=0; profileSumPhys=0; profileSumMv=0; profileCount=0
       let idleSkipped = 0; if (players.length > 0) for (const c of playerIdleCounts.values()) if (c >= 2) idleSkipped++
-      const physSkipped = players.length > 0 ? playerAccumDt.size : 0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} physSkip:${physSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
     }
   }
 
@@ -599,11 +598,10 @@ export function createTickHandler(deps) {
     sampleCount: profileCount,
   })
   onTick.simulateTick = simulateTick
-  onTick.snapshotSimState = () => ({ playerIdleCounts: new Map(playerIdleCounts), playerAccumDt: new Map(playerAccumDt) })
+  onTick.snapshotSimState = () => ({ playerIdleCounts: new Map(playerIdleCounts) })
   onTick.restoreSimState = (s) => {
     if (!s) return
     playerIdleCounts.clear(); for (const [k, v] of s.playerIdleCounts) playerIdleCounts.set(k, v)
-    playerAccumDt.clear(); for (const [k, v] of s.playerAccumDt) playerAccumDt.set(k, v)
   }
   onTick.serverWeather = serverWeather
   onTick.collisionTiles = collisionTiles

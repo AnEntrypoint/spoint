@@ -2,8 +2,6 @@ import { ReconciliationEngine } from './ReconciliationEngine.js'
 import { DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { predictCharacterStep } from '../shared/characterStep.js'
 import { createStepTrail } from './StepTrail.js'
-import { separationPush } from '../netcode/CollisionSystem.js'
-import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 import { reexpressMotionState, copyAckedEntry, saveStepNormal } from './PredictionChart.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
@@ -24,8 +22,6 @@ const WALL_MATCH_OFFSET_M = 0.05
 const WALL_FORGET_M = 6
 const WALL_EXTENT_BASE_M = 1
 const WALL_PASSED_M = 0.02
-const PEER_FRESH_WINDOW_S = 0.15
-const ZERO_VELOCITY = [0, 0, 0]
 const MOVE_STATE_KEYS =['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding', '_physCrouch', '_crouchDy']
 
 function isFiniteVec(v, len) {
@@ -37,7 +33,7 @@ function isValidPlayerSnapshot(p) {
 }
 
 function makeEntry() {
-  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {}, normal: [0, 1, 0], hasNormal: false, push: [0, 0, 0, 0] }
+  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {}, normal: [0, 1, 0], hasNormal: false }
 }
 
 class InputHistory {
@@ -76,13 +72,9 @@ function saveEntry(e, state) {
   for (const k of MOVE_STATE_KEYS) e.move[k] = state[k]
 }
 
-function saveEntryPush(e, push) {
-  e.push[0] = push[0]; e.push[1] = push[1]; e.push[2] = push[2]; e.push[3] = push[3]
-}
-
-function applyPushTotal(state, push) {
-  state.position[0] -= push[0]; state.position[2] -= push[1]
-  state.velocity[0] -= push[2]; state.velocity[2] -= push[3]
+function applyPush(state, push) {
+  state.position[0] += push[0]; state.position[2] += push[1]
+  state.velocity[0] += push[2]; state.velocity[2] += push[3]
 }
 
 export class PredictionEngine {
@@ -116,11 +108,6 @@ export class PredictionEngine {
     this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
-    this._peers = null
-    this._pushOut = [0, 0, 0, 0]
-    this._stepPush = [0, 0, 0, 0]
-    this._pendingPush = [0, 0, 0, 0]
-    this.separationDistM = PLAYER_DEFAULTS.capsuleRadius * 2
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -253,8 +240,8 @@ export class PredictionEngine {
     this._pendingKnockback = null
     this._clearHorizontalBlock()
     this.walls.length = 0
+    if (this.lastServerState) this.lastServerState.pushWindow = null
     this._teleportTick = tick ?? -1
-    this._pendingPush.fill(0)
     this._trail.reset()
   }
 
@@ -269,7 +256,6 @@ export class PredictionEngine {
     const e = this.inputHistory.pushSlot()
     e.sequence = seq; e.data = input
     saveEntry(e, this.localState)
-    saveEntryPush(e, this._stepPush)
     saveStepNormal(e, this.lastServerState?.groundNormal)
     return seq
   }
@@ -287,7 +273,7 @@ export class PredictionEngine {
     return this.inputHistory.length ? this.inputHistory.at(0).sequence : this._inputSeq
   }
 
-  _step(input, seq, groundNormal, storedPush = null) {
+  _step(input, seq, groundNormal) {
     const env = this._env
     env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = groundNormal || this.lastServerState?.groundNormal || null; env.walls = this.walls; env.wedgeNormal = this.wedgeNormal
     const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
@@ -296,38 +282,17 @@ export class PredictionEngine {
     env.collider = m && m.ready && m.covers(this.localState.position) ? m : null
     if (m && m.ready && !env.collider) m.noteUncovered()
     predictCharacterStep(this.localState, input, this.movement, dt, env)
-    const push = storedPush || this._pendingPush
-    applyPushTotal(this.localState, push)
-    const total = this._stepPush
-    total[0] = push[0]; total[1] = push[1]; total[2] = push[2]; total[3] = push[3]
-    this._planPeerPush(seq === undefined ? 1 : seq - this._lastAckedSeq)
+    const push = this._pushForSequence(seq)
+    if (push) applyPush(this.localState, push)
   }
 
-  _seedPendingPush(push) {
-    const pending = this._pendingPush
-    if (!push) { pending.fill(0); return }
-    pending[0] = push[0]; pending[1] = push[1]; pending[2] = push[2]; pending[3] = push[3]
+  _pushForSequence(seq) {
+    const server = this.lastServerState
+    const window = server?.pushWindow
+    if (!window) return null
+    const k = seq - server.pushAckSeq
+    return k >= 1 && k <= window.length ? window[k - 1] : null
   }
-
-  _planPeerPush(ticksPastSnapshot) {
-    const pending = this._pendingPush
-    pending.fill(0)
-    const peers = this._peers
-    const dt = (this.tickDuration * this.dilation) / 1000
-    const lead = Math.max(ticksPastSnapshot, 0) * dt
-    if (!peers || lead > PEER_FRESH_WINDOW_S) return
-    const p = this.localState.position, out = this._pushOut
-    for (const [pid, peer] of peers) {
-      if (pid === this.localPlayerId || !isFiniteVec(peer.position, 3)) continue
-      const q = peer.position, w = isFiniteVec(peer.velocity, 3) ? peer.velocity : ZERO_VELOCITY
-      if (!separationPush(q[0] + w[0] * lead - p[0], q[1] + w[1] * lead - p[1], q[2] + w[2] * lead - p[2], this.separationDistM, dt, out)) continue
-      pending[0] += out[0]; pending[1] += out[1]; pending[2] += out[2]; pending[3] += out[3]
-    }
-  }
-
-  setPeers(playerStates) { this._peers = playerStates || null }
-
-  setPlayerRadius(radius) { if (Number.isFinite(radius) && radius > 0) this.separationDistM = radius * 2 }
 
   predict(input) { this._step(input) }
 
@@ -387,7 +352,8 @@ export class PredictionEngine {
   _reconcile(serverPlayer) {
     const prevX = this.lastServerState.position[0], prevY = this.lastServerState.position[1], prevZ = this.lastServerState.position[2]
     this._copyState(serverPlayer, this.lastServerState)
-    this.lastServerState.collisionPush = serverPlayer.collisionPush ? serverPlayer.collisionPush.slice() : null
+    this.lastServerState.pushWindow = serverPlayer.pushWindow || null
+    this.lastServerState.pushAckSeq = serverPlayer.inputSequence ?? -1
     this._rememberWalls(serverPlayer)
     const sv = this.lastServerState
     const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
@@ -445,9 +411,7 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    this._seedPendingPush(server.collisionPush)
-    let first = true
-    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null, first ? null : e.push); first = false; saveEntry(e, ls); saveEntryPush(e, this._stepPush) }
+    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {
@@ -495,8 +459,7 @@ export class PredictionEngine {
     ls.onGround = base.onGround
     ls.groundY = base.onGround ? base.position[1] : (entry ? entry.groundY : NaN)
     if (entry) for (const k of MOVE_STATE_KEYS) ls[k] = entry.move[k]
-    this._planPeerPush(0)
-    for (const e of history) if (e.sequence > ackSeq) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls); saveEntryPush(e, this._stepPush); this.stats.chartReplayInputs++ }
+    for (const e of history) if (e.sequence > ackSeq) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls); this.stats.chartReplayInputs++ }
     const dx = ls.position[0] - beforeX, dy = ls.position[1] - beforeY, dz = ls.position[2] - beforeZ
     this.stats.chartReplayShiftM = Math.hypot(dx, dy, dz)
     this.reconciliationEngine.absorb(dx, dy, dz, ls.onGround)
@@ -511,6 +474,7 @@ export class PredictionEngine {
     this._clearHorizontalBlock()
     this.verticallyBlocked = false
     this.walls.length = 0
+    if (this.lastServerState) this.lastServerState.pushWindow = null
   }
 
   _preserveKnockbackVelocity(now) {

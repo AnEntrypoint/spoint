@@ -220,7 +220,8 @@ export class PlayerManager {
         inputSequence: p.inputSequence,
         lastClientSeq: p.lastClientSeq,
         ackSequence: p.ackSequence,
-        collisionPush: p.collisionPush ? [...p.collisionPush] : null,
+        pushQueue: p.pushQueue ? p.pushQueue.map(s => (s ? [...s] : null)) : null,
+        pendingPush: p.pendingPush ? [...p.pendingPush] : null,
         movementOverride: p.movementOverride ? JSON.parse(JSON.stringify(p.movementOverride)) : undefined
       })
     }
@@ -236,7 +237,8 @@ export class PlayerManager {
       player.inputSequence = s.inputSequence
       player.lastClientSeq = s.lastClientSeq
       player.ackSequence = s.ackSequence
-      player.collisionPush = s.collisionPush ? [...s.collisionPush] : null
+      player.pushQueue = s.pushQueue ? s.pushQueue.map(x => (x ? [...x] : null)) : null
+      player.pendingPush = s.pendingPush ? [...s.pendingPush] : null
       if (s.movementOverride) player.movementOverride = JSON.parse(JSON.stringify(s.movementOverride))
       else delete player.movementOverride
     }

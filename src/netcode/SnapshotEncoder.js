@@ -28,14 +28,14 @@ function encodePlayer(p) {
 }
 
 export function encodeSelfBlock(p) {
-  return p ? [p.inputSequence, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position), p.collisionPush || null] : undefined
+  return p ? [p.inputSequence, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position), p.pushWindow] : undefined
 }
 
 export function decodeSelfBlock(me, out) {
   out.inputSequence = me[0]; out.inputBuffer = inputDepthFromWire(me[1])
   out.groundNormal = unpackGroundNormal(me[2] || 0, out.groundNormal || [0, 1, 0])
   out.wallPlanes = unpackWallPlanes(me[3], out.wallPlanes || [])
-  out.collisionPush = me[4] || null
+  out.pushWindow = me[4] || null
   return out
 }
 

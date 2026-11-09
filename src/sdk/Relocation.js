@@ -1,6 +1,7 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { resolveTarget } from '../shared/relocation.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
+import { resetPushQueue } from '../netcode/CollisionSystem.js'
 import { spawnSurfaceY } from '../shared/SpawnSurface.js'
 import { currentChartEpoch, chartWireStatsOf } from './chartWire.js'
 import { stampSender } from './appEventSender.js'
@@ -192,7 +193,7 @@ function placePlayerAt(ctx, playerId, position) {
   st.velocity[0] = 0; st.velocity[1] = 0; st.velocity[2] = 0
   st.onGround = false
   st.swimming = false
-  player.collisionPush = null
+  resetPushQueue(player)
   physicsIntegration.setPlayerPosition(playerId, position)
   const charId = physicsIntegration.playerBodies.get(playerId)?.charId
   if (charId && physicsIntegration.physicsWorld) physicsIntegration.physicsWorld.setCharacterVelocity(charId, [0, 0, 0])
