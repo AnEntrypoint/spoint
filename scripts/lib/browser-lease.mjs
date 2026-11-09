@@ -186,6 +186,26 @@ function killRecorded(entries) {
   }
 }
 
+const PRCTL_SYSCALL = { x64: 157, arm64: 167 }
+const PR_SET_CHILD_SUBREAPER = 36
+const SUBREAPER_EXEC = 'syscall($ARGV[0], ' + PR_SET_CHILD_SUBREAPER + ', 1, 0, 0, 0) == 0 or die "subreaper: $!\n"; shift @ARGV; exec { $ARGV[0] } @ARGV or die "exec: $!\n";'
+let subreaperPerlFound = null
+
+function subreaperPerlAvailable() {
+  if (subreaperPerlFound === null) subreaperPerlFound = spawnSync('perl', ['-e', 'exit 0'], { stdio: 'ignore' }).status === 0
+  return subreaperPerlFound
+}
+
+export function leasedSpawnArgv(command, args) {
+  const nr = process.platform === 'linux' ? PRCTL_SYSCALL[process.arch] : undefined
+  if (nr === undefined) return { command, args }
+  if (!subreaperPerlAvailable()) {
+    process.stderr.write('browser-lease: perl not found, so the browser is not a child subreaper and setsid or setpgid orphans are not recorded\n')
+    return { command, args }
+  }
+  return { command: 'perl', args: ['-e', SUBREAPER_EXEC, '--', String(nr), command, ...args] }
+}
+
 export function sessionFingerprint({ args = [] } = {}) {
   return crypto.createHash('sha1')
     .update(JSON.stringify({ args: [...args].map(String).sort() }))
