@@ -3015,3 +3015,24 @@ Decisions (owner asked for each to be decided and recorded here):
 
 Phase B results (Linux, this host). `npm run build:bundles` exits 0 and changes no tracked file. `scripts/lease-ps-table-witness.mjs` exits 0 with `RESULT: PASS` (procps lstart parses, ppid matches, repeats). `scripts/lease-orphan-witness.mjs` exits 0 with `RESULT: PASS`. `scripts/lease-chromium-witness.mjs` exits 0 with `RESULT: PASS`: 10 recorded processes, all alive before close and none alive after. `scripts/lease-scan-cost-witness.mjs` exits 0 with `RESULT: PASS`: `browserTreeNow` p50 3.253 ms, p95 4.139 ms over 200 reads on a tree of 10 processes, with about 194 processes in /proc; `psProcessTable` p50 16.240 ms, p95 17.491 ms over 50 reads. On Linux the heartbeat's /proc scan therefore costs about 3 ms per 2 s, roughly 0.16% of one core at this process count. The Windows PowerShell cost is still unmeasured. `scripts/fail-path-probe.mjs` exits 0 with `RESULT: PASS`. `scripts/agents-md-facts-witness.mjs` exits 0 with `RESULT: PASS` (210 path, 185 symbol claims), and AGENTS.md is 29,993 bytes. The first `npm run check` exited 1 at docs-page-freshness-witness, because the Run 28 ledger changed after the last regeneration; it was fixed by regenerating `docs/index.html`. Windows reap item: still BLOCKED, no Windows host.
 
+## Run 29: group membership recorded at spawn, child orphaned between scans (Phase A, code and docs)
+
+Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | scripts/lib/browser-lease.mjs | the process tables carry `pgid` (Linux `/proc` field 5, the macOS `ps` pgid column, 0 on Windows). `browserTreeNow(rootPid, groupId)` adds every member of the group, including members whose launcher has already exited, and never records the lease's own pid. Before, a dead root returned an empty tree, so an orphan born between scans was missed. `refreshedTree` passes `browserPgid` | scripts/lease-group-orphan-witness.mjs, scripts/lease-ps-table-witness.mjs, scripts/lease-scan-cost-witness.mjs |
+| 2 | scripts/lib/cdp-browser.mjs | `launch` records `browserPgid` at spawn: the browser pid, which leads its own group because it is spawned detached; 0 on Windows | scripts/lease-chromium-witness.mjs |
+| 3 | scripts/lease-group-orphan-witness.mjs (new) | Linux only. A launcher spawns a child in its own group after 500 ms and exits at once. Checks: `browserPgid` is recorded at spawn; the child is orphaned and still in the launcher group after the launcher exits; a scan after the exit records the child; release stops it. This is the born-and-orphaned-between-scans case | itself |
+| 4 | scripts/lease-chromium-witness.mjs | check that `browserPgid` equals `browserPid` | itself |
+| 5 | scripts/lease-ps-table-witness.mjs | check that `pgid` is a positive integer | itself |
+| 6 | AGENTS.md | the Stopping bullet now says that group members are recorded at each scan, and names the remaining gap. The size is 29,997 bytes. The bullet's paths and symbols are `scripts/lib/browser-lease.mjs`, `killBrowser`, `browserTree`, `browserPgid` and `killRecorded`, all present in that file | scripts/agents-md-facts-witness.mjs and `wc -c AGENTS.md` |
+| 7 | docs/PENDING_VALIDATION.md, docs/index.html | this section and the regenerated page | scripts/docs-page-freshness-witness.mjs |
+
+Decisions and residual gaps:
+
+- A child that leaves its group before a scan (setsid or setpgid) is still not recorded. Only a subreaper would close that: PR_SET_CHILD_SUBREAPER on the lease's tree, so that every orphan reparents to a process the lease controls. That needs a native call that Node does not provide, so it is not done here. Owner decision.
+- Group id reuse: `browserPgid` is a number. If the browser group empties and its number is reused by a new group leader before a scan, that unrelated group is recorded. `killRecorded` stops only a PID whose start time matches the recorded one, but group recording has no start check on the leader. The existing `process.kill(-pid)` group kill has the same exposure. Likelihood not measured.
+- Windows: there is no pgid, so Windows still records by tree only. The Windows reap item stays BLOCKED, because no Windows host is available.
+
+
