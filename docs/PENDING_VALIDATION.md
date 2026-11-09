@@ -1233,3 +1233,24 @@ Local reproduction of the Pages build, with the workflow's commands at this tree
 - `node scripts/generate-docs-site.js --out /tmp/pages-local/dist-static/docs/index.html`: exit 0, `Wrote 30 sections`.
 
 The code change in this run is the root-path fix above. The Pages failures have no repo-side fix yet: `71a1fc4` is a deploy-service stall, and the `644e68a` cause is open until its own pages run finishes.
+
+## Run 22: pages concurrency decision, 2c68f7c results, 644e68a cause still open
+
+Results on the pushed commit `2c68f7c` (`git rev-parse --short HEAD`), from `gh run list --branch main`:
+
+- `pages` 42675351071: `completed success`
+- `CI` 42675350869: `completed success`
+
+Check-runs on `2c68f7c` (`gh api repos/AnEntrypoint/spoint/commits/<sha>/check-runs`): `build: success`, `deploy: success`, `check: success`, and the frame-time gate `SKIPPED` because no self-hosted GPU runner is online.
+
+Job lists from `gh api repos/AnEntrypoint/spoint/actions/runs/<id>/jobs`, job names and conclusions only:
+
+- `42675351071` (`2c68f7c`, pages): `build` success, `deploy` success. Total 2.
+- `42670949513` (`644e68a`, pages): `build` success. No `deploy` job. Total 1.
+- `42668313627` (`71a1fc4`, pages): `build` success, `deploy` failure. Total 2.
+
+Workflow decision (`.github/workflows/pages.yml`, read in full): the file has `concurrency` with `group: pages` and `cancel-in-progress: false` (lines 13-15), a `github-pages` environment on the deploy job (lines 37-38), and no `if:` condition on any job. With `cancel-in-progress: false`, a later push cannot cancel a deploy that has started. Under GitHub's documented concurrency behaviour, the only run a newer push can displace is an older run still pending in the group, and that run concludes `cancelled`, not `failure`. No `cancelled` pages run appears in the last eight runs. So the workflow was not changed; the minimal fix for a deploy cancelled by a later push is already in place.
+
+Status of the `644e68a` pages cause: open. What the API shows: the run has one job (`build`, success) and no `deploy` job, and it concluded `failure` after about 1 minute 40 seconds. No annotation names a cause, and no `--log-failed` output exists. The hypothesis recorded in run 21, that the `71a1fc4` deployment still held the `github-pages` environment, is not confirmed. The timing is consistent with it, since the `71a1fc4` deploy was cancelled at 18:00:02Z and the `644e68a` run started at 18:06:04Z, but nothing shows the environment was held. The `2c68f7c` pages run succeeding does not settle the question: it shows the deploy path works on a later push, not what made the `644e68a` run skip its deploy job.
+
+Change in this run: `docs/PENDING_VALIDATION.md` (this section) and `docs/index.html` (regenerated from the ledger). No workflow, `src/` or `scripts/` change.
