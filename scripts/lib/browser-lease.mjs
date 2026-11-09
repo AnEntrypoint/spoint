@@ -64,18 +64,18 @@ function linuxProcessTable() {
     let stat
     try { stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8') } catch { continue }
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
-    table.push({ pid: Number(name), ppid: Number(fields[1]), start: fields[19] })
+    table.push({ pid: Number(name), ppid: Number(fields[1]), pgid: Number(fields[2]), start: fields[19] })
   }
   return table
 }
 
 export function psProcessTable() {
-  const r = spawnSync('ps', ['-Ao', 'pid=,ppid=,lstart='], { encoding: 'utf8' })
+  const r = spawnSync('ps', ['-Ao', 'pid=,ppid=,pgid=,lstart='], { encoding: 'utf8' })
   if (r.status !== 0 || !r.stdout) return null
   const table = []
   for (const line of r.stdout.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
-    if (m) table.push({ pid: Number(m[1]), ppid: Number(m[2]), start: m[3] })
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
+    if (m) table.push({ pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), start: m[4] })
   }
   return table
 }
@@ -86,31 +86,43 @@ function windowsProcessTable() {
   if (r.status !== 0 || !r.stdout || !r.stdout.trim()) return null
   let rows
   try { rows = JSON.parse(r.stdout) } catch { return null }
-  return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: Number(row.pid), ppid: Number(row.ppid), start: String(row.start) }))
+  return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: Number(row.pid), ppid: Number(row.ppid), start: String(row.start), pgid: 0 }))
 }
 
-export function browserTreeNow(rootPid) {
-  if (!Number.isInteger(rootPid) || rootPid <= 0) return []
+export function browserTreeNow(rootPid, groupId = 0) {
+  const root = Number.isInteger(rootPid) && rootPid > 0 ? rootPid : 0
+  const group = Number.isInteger(groupId) && groupId > 0 ? groupId : 0
+  if (root === 0 && group === 0) return []
   const table = processTable()
   if (!table) {
     process.stderr.write('browser-lease: process table unreadable, children of browser pid ' + rootPid + ' not recorded\n')
     return []
   }
-  const root = table.find((row) => row.pid === rootPid)
-  if (!root) return []
-  const found = [root]
-  const frontier = [rootPid]
-  const seen = new Set([rootPid])
-  while (frontier.length) {
-    const parent = frontier.shift()
-    for (const row of table) {
-      if (row.ppid !== parent || seen.has(row.pid)) continue
-      seen.add(row.pid)
-      found.push(row)
-      frontier.push(row.pid)
+  const found = new Map()
+  const take = (row) => {
+    if (row.pid !== process.pid) found.set(row.pid + ':' + row.start, row)
+  }
+  const top = table.find((row) => row.pid === root)
+  if (top) {
+    take(top)
+    const frontier = [root]
+    const seen = new Set([root])
+    while (frontier.length) {
+      const parent = frontier.shift()
+      for (const row of table) {
+        if (row.ppid !== parent || seen.has(row.pid)) continue
+        seen.add(row.pid)
+        take(row)
+        frontier.push(row.pid)
+      }
     }
   }
-  return found.map((row) => ({ pid: row.pid, start: row.start }))
+  if (group > 0) {
+    for (const row of table) {
+      if (row.pgid === group) take(row)
+    }
+  }
+  return [...found.values()].map((row) => ({ pid: row.pid, start: row.start }))
 }
 
 function mergeTree(prior, found) {
@@ -122,7 +134,7 @@ function mergeTree(prior, found) {
 }
 
 function refreshedTree(record) {
-  return mergeTree(record?.browserTree, browserTreeNow(Number(record?.browserPid ?? 0)))
+  return mergeTree(record?.browserTree, browserTreeNow(Number(record?.browserPid ?? 0), Number(record?.browserPgid ?? 0)))
 }
 
 function killRecorded(entries) {
