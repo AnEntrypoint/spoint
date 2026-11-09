@@ -17,6 +17,7 @@ export { SNAP_ENTITY_VISITS_PER_TICK, PLAYERS_PER_SNAP_GROUP }
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
+const STARVE_HOLD_SECONDS = 0.25
 const INPUT_STEP_BANK = 16
 const GAP_WAIT_MAX_TICKS = 4
 const MAX_CATCHUP_STEPS_PER_TICK = 3
@@ -119,16 +120,18 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explic
       recordPlayerTick(player, deps, tick)
       continue
     }
+    let holdForInput = false
     let consumed = false
     if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0; consumed = true }
     else if (player.hasSentInput) {
       player.inputStarves = (player.inputStarves || 0) + 1
       player.starvedTicks = (player.starvedTicks || 0) + 1
-      if (player.lastInput) player.lastInput = neutralInput(player.lastInput)
+      holdForInput = player.starvedTicks <= deps.starveHoldTicks
+      if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
     }
-    stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
+    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
     if (consumed) advancePushQueue(player, deps.physicsIntegration)
-    accrueStepBudget(player, deps.tickMs, 1)
+    accrueStepBudget(player, deps.tickMs, holdForInput ? 0 : 1)
     let extra = 0
     while (inputs.length > INPUT_BUFFER_CATCHUP_DEPTH && extra < MAX_CATCHUP_STEPS_PER_TICK && player.inputStepBudget >= 1 && !sequenceGapAhead(player, inputs)) {
       takeNextInput(player, inputs)
@@ -430,7 +433,7 @@ export function createTickHandler(deps) {
   const applyMovement = _movement?.applyMovement || _applyMovement
   const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
   const movement = { ...DEFAULT_MOVEMENT, ...m }
-  const mvDeps = { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog: deps.eventLog, transformRingWriter: deps.transformRingWriter || null, tickMs: 1000 / tickRate }
+  const mvDeps = { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog: deps.eventLog, transformRingWriter: deps.transformRingWriter || null, starveHoldTicks: Math.max(1, Math.round(tickRate * STARVE_HOLD_SECONDS)), tickMs: 1000 / tickRate }
   const playerScratch = new Map()
   function getPlayerScratch(id) {
     let s = playerScratch.get(id)
