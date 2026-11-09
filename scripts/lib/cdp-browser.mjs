@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
-import { acquire as acquireLease, startOf } from './browser-lease.mjs'
+import { acquire as acquireLease, leasedSpawnArgv, startOf } from './browser-lease.mjs'
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -499,7 +499,8 @@ export async function launch(opts = {}) {
       ...(opts.args || []),
       'about:blank',
     ]
-    proc = spawn(chrome, args, { stdio: 'ignore', detached: process.platform !== 'win32' })
+    const spawnSpec = leasedSpawnArgv(chrome, args)
+    proc = spawn(spawnSpec.command, spawnSpec.args, { stdio: 'ignore', detached: process.platform !== 'win32' })
     liveBrowserProcs.add(proc)
     lease.record({ browserPid: proc.pid, browserPgid: process.platform === 'win32' ? 0 : proc.pid, browserStart: startOf(proc.pid), profileDir })
     const portFile = path.join(profileDir, 'DevToolsActivePort')
