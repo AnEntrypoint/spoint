@@ -605,3 +605,30 @@ Variance cause (read from code, not measured):
 No product code changed in this pass. The netcode behaviour is the same as `5643eaa`.
 
 Status: Phase A is committed locally. Nothing is pushed. The variance is not yet removed, the heading cause is not yet measured, and the gate is not known to pass.
+
+## Phase B (run 6): the gate still FAILS; the first strafe step is the measured cause
+
+Committed tree: `00b1b2a` (Phase A commits `0e4594c` and `00b1b2a` on top of `5643eaa`). Logs are in `/tmp/phaseG/`, not tracked.
+
+- Build: `npm run build:bundles`, `BUILD_EXIT=0` (`/tmp/phaseG/build.log`).
+- Gate: `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s), `/tmp/phaseG/gate.log`.
+  - `totals: runs 15/15 replays 391 replays over 1 cm residual 16 (in peer contact 0 of 8 contact replays; with a groundY gap 0) in 10 run(s) max residual 0.6460 m injected replays 0 (over limit 0) runs with local pops 5 max pops/min 6.00 pops 6 matched 1 in peer contact 0 mirror spikes 2 corrections with server queue above 8 102 of which over 1 cm 13`
+  - `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 16 of 391 replays across 10 of 15 completed run(s); 2 mirror one-tick spike(s) of 0.8-2.5 mm across 2 of 15 run(s); 15 requested, 5 run(s) with local pops`
+  - `GATE_EXIT=1`
+- Check: `npm run check`, `CHECK_EXIT=0`, 137 `RESULT: PASS` (`/tmp/phaseG/check.log`).
+- Witness `node scripts/prediction-reconcile-witness.mjs`: `22/22 checks passed`, `RECONCILE_EXIT=0` (`/tmp/phaseG/reconcile.log`).
+
+Variance: this run gave 16 of 391. Earlier runs of near-identical code gave 19 of 387 and 8 of 391. The cause is in Phase A's variance note: real-time delivery in the conditioner. It is not removed in this pass.
+
+Measured cause of the remaining breaches (from the new probe's traces, `/tmp/groundy-replay-6d1D7Q/over-limit-traces.json`):
+- 12 of 16 over-limit corrections: the first replayed step whose horizontal velocity differs is the first `left` input after straight motion. Pre-state (0, -14), ground normal (0, 1, 0), and inputs identical on both sides. Server step output (9.899, -9.899), client (3.483, -16.316). Mirrored strafe gives (9.899, 9.899) against (3.483, 16.316), and one key gives (4.018, 15.781) on the client. The replay base is not the cause in these 12: the replay copies the server's velocity, and the steps before the strafe agree exactly.
+- 4 of 16 (ack 78 or 80 keys): no replayed step has a velocity difference above 0.01 m/s. The residual is positional (0.024 to 0.159 m). The ack velocity differs from the client's predicted velocity at the ack by 8 to 9 m/s (`ackVelDiff`), which is the base-level difference recorded in the probe.
+- All 16: `serverOnGround` true, `horizontallyWedged` false, `wedgeNormal` [0, 0], and the peer push window empty. A ground slope, a wedge and a push are not the cause.
+
+Keys (`run ack last residual m first-diverging seq input`): 1 312 326 0.5302 323 left; 3 78 93 0.0237 none; 3 312 326 0.5329 323 left; 3 463 475 0.4210 473 left; 4 80 94 0.1555 none; 4 311 324 0.6460 320 left; 6 461 470 0.1485 470 left; 9 312 326 0.5328 323 left; 10 312 325 0.6439 321 left; 11 312 326 0.5365 323 left; 11 461 472 0.1373 472 left; 12 78 92 0.0854 none; 12 312 325 0.6411 321 left; 13 313 327 0.5355 324 left; 14 78 92 0.1259 none; 14 312 325 0.6447 321 left.
+
+What this rules in and out: the replay base's velocity is the server's, and the server's steps before the first strafe agree with the client's. The disagreement is in the step function's output for a lateral wish, from identical state and input. The server result keeps the speed at 14 m/s and turns it 45 degrees, and the client result changes the speed to about 16.5 m/s. Those are deterministic outputs, not timing noise. Not yet measured: which code path produces each side's strafe result (the Jolt character step on the server against the client's analytical `_step` with its wall mirror), and why the ack velocity differs from prediction in the 4 keys with no replayed-step divergence.
+
+Defects found in this pass: none in build or check. The gate's variance is not fixed; its cause is recorded above and in `docs/netcode.md`. No product code changed in Phase B.
+
+Status: the gate FAILS (16 of 391), `npm run check` passes (137 PASS), the reconcile witness passes (22 of 22). Open. Not passing. The remaining breaches are a lateral-step output mismatch on the first strafe after straight motion, measured to the step level; the producing line is not yet identified.
