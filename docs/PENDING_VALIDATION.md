@@ -259,6 +259,31 @@ Supported: `mStickToFloorStepDown` (0.5 m) is required for the spike in the live
 
 Open: the mechanism inside Jolt's `ExtendedUpdate` that lifts the character before the stick pulls it back; a fix that keeps stick-to-floor and removes the lift; and whether `nostick` changes walking on downward steps, since it allows the character to leave the ground. The spike stays open. Phase B runs the witness, which now counts spikes, so the defect is measured in the gate.
 
+## Phase B: spike decision on final code, canonical 50/10/2, server probe (open)
+
+Final code: `fa25370` (Phase A) with the RESULT block in `scripts/groundy-replay-witness.mjs` now listing every failing reason, and the new `scripts/stick-floor-ramp-witness.mjs`. No `src/` change, so no bundle rebuild was needed for this pass. History: `origin/main` is 7bb9e43 (rewritten, see the note below), and this work sits on it as 715ab77 and the commit that carries this section.
+
+Measured on the final code (all runs `peers`, `--predict=on`, 15 runs each unless noted):
+
+- `npm run check`: exit 0.
+- `node scripts/stick-floor-ramp-witness.mjs`: `RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp (0.9355 >= 0.9); removing it drops grounded to 0.0645`. Log `/tmp/spike/C-ramp.log`.
+- `node scripts/netcode-conditioner-harness.mjs --cond=120/40/6 --predict=on --world=peers --duration=20000 --out=/tmp/spike/C-harness.json`: exit 0, log `/tmp/spike/C-harness.log`.
+- Gate, `node scripts/groundy-replay-witness.mjs` (120/40/6): exit 1. `totals: runs 15/15 replays 497 replays over 1 cm growth 11 (in peer contact 0 of 42 contact replays; with a groundY gap 0) in 10 run(s) max growth 0.1110 m ... mirror spikes 5`. `RESULT: FAIL world peers cond 120/40/6: replay growth over 1 cm in 11 of 497 replays across 10 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 5 of 15 run(s)`. Log `/tmp/spike/C-groundy-120-40-6.log`.
+- Canonical, `node scripts/groundy-replay-witness.mjs --cond=50/10/2`: exit 1. `totals: runs 15/15 replays 0 replays over 1 cm growth 0 ... mirror spikes 2`. `RESULT: FAIL world peers cond 50/10/2: underpowered: 0 correction replay(s), below the 100 needed to gate replay growth; 2 mirror one-tick spike(s) of 0.8-2.5 mm across 2 of 15 run(s)`. Log `/tmp/spike/C-groundy-50-10-2.log`. The earlier 50/10/2 run had 1 correction replay and this run has 0, so the canonical correction does not reproduce from run to run; the item is recorded as a stated limit (underpowered), not closed.
+- Server-side spike probe (`/tmp/popdiag/nstick2.mjs` and `/tmp/popdiag/srvspike.mjs`, 120/40/6, three runs): `server spikes: 0` in each of three runs, about 2,600 server rows per run. The client rate is about 0.3 per run, so three runs with zero is weak evidence. Logs `/tmp/spike/C-srv-{1,2,3}.json`.
+
+Spike decision, from the evidence:
+
+- The trigger is the stick-to-floor step-down. Live ablation: 9 spikes in 31 baseline runs (`120/40/6`), 0 in 31 runs with `mStickToFloorStepDown` set to zero. Walk-stairs step-up is not the trigger: disabling it gave 6 spikes in 11 runs against 2 in 11 for baseline.
+- Setting the stick distance to 0.1 m gave 5 spikes in 10 runs, and to 0.2 m gave 10 in 10. Shorter sticks do not remove the spike, so no distance setting is the fix.
+- Removing the stick removes the spike, but it is not an acceptable fix. On the 5 deg ramp the grounded fraction falls from 0.9355 to 0.0645 (`scripts/stick-floor-ramp-witness.mjs`). A character walking down any slope would be airborne most of the way.
+- Decision: keep `stickToFloorDistance` at 0.5 m, make no physics change, and gate the stick with `stick-floor-ramp-witness.mjs` so that removing it fails. The spike stays a counted defect in the replay gate (5 in 15 runs at 120/40/6).
+- What is still unknown: the Jolt-internal mechanism. A fresh-state replay of a logged spike does not reproduce it, because each replayed step starts from the logged `p0`, which already carries the earlier lift. A standalone flat, step and ramp simulation at sprint speed (24 m/s, the captured speed) gives zero spikes in 3600 steps. So the spike is recorded as open at its trigger, not at its mechanism.
+
+Other open defect: the 11 correction replays over 1 cm at 120/40/6 (max 0.111 m). Recorded with its cause unknown. The candidates from earlier passes are acks rejected by `ackUsable` or `maxAckAdvanceTicks`, which leave prediction stale until a larger correction. This pass did not test them.
+
+Note on history: `origin/main` was rewritten to 7bb9e43 with admin@coas.co.za removed by owner approval. The Phase A commit is now 715ab77 on that base, under almagestfraternite@gmail.com. The earlier history on this ledger (0197ebf and before) is no longer on `origin/main`, so its commit hashes in this file refer to the old history.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.

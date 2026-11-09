@@ -159,13 +159,15 @@ const main = async () => {
   }
 
   const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && replays >= MIN_REPLAYS && spikeTotal === 0
+  const reasons = [
+    ...(failures.length ? [`${failures.length} of ${RUNS} run(s) failed`] : []),
+    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate replay growth`] : []),
+    ...(overLimit > 0 ? [`replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
+    ...(spikeTotal > 0 ? [`${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s)`] : [])
+  ]
   console.log(ruledOut
     ? `RESULT: PASS the replay base groundY adds no growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
-    : spikeTotal > 0
-    ? `RESULT: FAIL ${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s) of world ${WORLD} cond ${COND}`
-    : replays < MIN_REPLAYS
-    ? `RESULT: FAIL underpowered: ${replays} correction replay(s) across ${runs.length} of ${RUNS} run(s) of world ${WORLD} cond ${COND}, below the ${MIN_REPLAYS} needed to gate replay growth`
-    : `RESULT: FAIL replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s) of world ${WORLD} cond ${COND}; ${RUNS} requested, ${failures.length} failed, ${popRuns} run(s) with local pops`)
+    : `RESULT: FAIL world ${WORLD} cond ${COND}: ${reasons.join('; ')}; ${RUNS} requested, ${popRuns} run(s) with local pops`)
   await exitAfterQuiesce(ruledOut ? 0 : 1)
 }
 
