@@ -8,14 +8,12 @@ const { encodeTileMessage, boxRecordOf, boxRecordsOf, COLLISION_TILE_FORMAT } = 
 
 const TILE_M = 16
 const MARGIN_M = 3
-const TOL = 1e-5
 const checks = []
 const check = (name, ok, detail = '') => {
   checks.push(ok)
   console.log(`check ${name}: ${ok ? 'ok' : 'FAIL'}${detail ? ` (${detail})` : ''}`)
 }
 const sameRecord = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
-const nearAll = (a, b) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= TOL)
 const shapeDiff = (mirrorRecords, serverRecords) => {
   if (mirrorRecords.length !== serverRecords.length) return `count ${mirrorRecords.length} vs ${serverRecords.length}`
   const bad = mirrorRecords.findIndex((r, i) => !sameRecord(r, serverRecords[i]))
@@ -59,8 +57,8 @@ PROBES.forEach((p, i) => {
   const diff = floor ? shapeDiff(floor.records, serverTileRecords[i]) : 'no floor'
   check(`mirror floor records equal the server's at probe ${i} (${p.join(',')})`, diff === '', diff)
   check(`mirror holds no triangle floor at probe ${i}`, floor?.meshes === 0, `meshes ${floor?.meshes}`)
-  const bodyDiff = floor ? floor.bodies.findIndex((b, j) => !nearAll(b.half, floor.records[j].slice(0, 3)) || !nearAll(b.position, floor.records[j].slice(4, 7)) || !nearAll(b.rotation, floor.records[j].slice(7, 11))) : -1
-  check(`mirror Jolt bodies read back the record at probe ${i}`, bodyDiff < 0 && floor?.bodies.length === floor?.records.length && floor.records.length > 0, `body ${bodyDiff}, ${floor?.bodies.length} bodies for ${floor?.records.length} records`)
+  const bodyDiff = floor ? floor.bodies.findIndex((b, j) => !sameRecord(b.half, floor.records[j].slice(0, 3).map(Math.fround)) || !sameRecord(b.position, floor.records[j].slice(4, 7).map(Math.fround)) || !sameRecord(b.rotation, floor.records[j].slice(7, 11).map(Math.fround))) : -1
+  check(`mirror Jolt bodies hold the record exactly to float32 at probe ${i}`, bodyDiff < 0 && floor?.bodies.length === floor?.records.length && floor.records.length > 0, `body ${bodyDiff}, ${floor?.bodies.length} bodies for ${floor?.records.length} records`)
   if (floor && shapeDiff(floor.records, serverTileRecords[i])) mismatches++
 })
 
@@ -69,7 +67,7 @@ new Float64Array(control.b.buffer, control.b.byteOffset, control.b.byteLength / 
 mirror.onTile(control)
 const perturbed = mirror.floorOf(probe3(PROBES[1]))
 const caught = perturbed ? shapeDiff(perturbed.records, serverTileRecords[1]) !== '' : false
-check('negative control: a 1 cm half-extent change is reported as a shape difference', caught)
+check('negative control: a 1 cm half-extent change is reported as a shape difference', caught, perturbed ? shapeDiff(perturbed.records, serverTileRecords[1]) : 'no floor')
 
 const refusedBefore = mirror.getStats().refusedTiles
 mirror.onTile({ ...goodMessages[1], f: 1 })

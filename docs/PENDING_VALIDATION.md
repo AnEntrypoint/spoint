@@ -1089,3 +1089,43 @@ Source under test: `src/` and `scripts/` at HEAD, unmodified (`git diff HEAD -- 
 The spike is not present on the shipped source in these three gate runs, so no contact sets are recorded for the shipped source. The pre-change source shows five spikes on the same probe (run 17 entry above); the contact-set numbers from run 15 (`Phase A run 15`) remain the record of the triangle floor.
 
 Run 17 gate results (`b17_gate{1,2,3}.log`) were on the same shipped source (`8ca15f9`, the wire change, which `24ddf70` carries unchanged) and agree with this run. Run 17's probe counters are measurements, not gate passes (see the run 17 cause entry).
+
+## Witness record (run 19): the mirror's floor shape against the server's, exact to the float
+
+Correction to the run 16 entry above. Its line "Witness: not added" is superseded. The shape-mismatch witness was added in run 17 (commit `8ca15f9`), and the run 17 Phase A entry lists it. This entry is the record of that witness at the shipped source.
+
+Witness: `scripts/collision-tile-shape-witness.mjs` (manual; not wired into `scripts/check.mjs` or `package.json`, so `npm run check` does not run it). It builds a server `PhysicsWorld` with the arena-style floor (`box`, half `[100, 1, 100]`, at `[0, -1, 0]`) and a rotated box (half `[2, 0.5, 3]`, at `[5, 0.6, -4]`, rotation about y by 0.3 rad), enables the server's `StaticTileIndex`, and feeds each probe tile through the wire encoder (`encodeTileMessage`) into a `CollisionMirror`. The comparisons:
+
+- The mirror's box records (`floorOf(p).records`, decoded from the wire) equal the server's `StaticTileIndex` box records for the same tile, element by element with `===`, so the match is exact to the double. A mismatch is a failed check, and the witness exits 1.
+- The mirror's Jolt bodies hold each record exactly to float32: half extents (from `GetLocalBounds`), position and rotation (from `getBodyPosition` and `getBodyRotation`) are compared with `===` against `Math.fround` of the record, since Jolt stores float32.
+- The mirror holds no triangle floor for box-only tiles (`meshes 0`), and the server tile carries no triangles (`verts.length 0`).
+- Negative control: a 1 cm half-extent change in the wire record is reported as a shape difference. The witness checks that the mirror-side comparison does catch a difference.
+- A message without format version 2 is refused (`refusedTiles` rises by 2 for an unversioned and a version-1 message).
+
+Output at the shipped source (`/tmp/phaseI/b19_witness.log`, `scripts/collision-tile-shape-witness.mjs` as committed plus the exact-to-float readback and the negative-control detail):
+
+```
+check server boxes carry their half extents and convex radius in meta: ok
+check server tiles carry no triangles for box-only bodies: ok (0,0,0)
+check every record a server tile carries matches a server body exactly: ok
+check the tilted box reaches the tile of its own centre: ok
+check mirror initialised with its own physics world: ok
+check the wire message carries format version 2: ok
+check mirror floor records equal the server's at probe 0 (0,0): ok
+check mirror holds no triangle floor at probe 0: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 0: ok (body -1, 2 bodies for 2 records)
+check mirror floor records equal the server's at probe 1 (5,-4): ok
+check mirror holds no triangle floor at probe 1: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 1: ok (body -1, 2 bodies for 2 records)
+check mirror floor records equal the server's at probe 2 (-40,30): ok
+check mirror holds no triangle floor at probe 2: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 2: ok (body -1, 1 bodies for 1 records)
+check negative control: a 1 cm half-extent change is reported as a shape difference: ok (record 0: mirror [100.01, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1] server [100, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1])
+check a message without the version-2 format is refused, not installed: ok (refused 2 of 2)
+check restoring the good tile returns the server shape: ok
+mirror floor shape differs from the server's at 0 probe(s) of 3
+RESULT: PASS collision tile floor is the server's box (18 of 18 checks)
+WITNESS_EXIT=0
+```
+
+Scope of the claim. The witness shows the mirror's floor shape equals the server's box for these three probes and this box pair, at the shipped source. It does not show equality for every box the server can hold, and a failing comparison exits 1 but this run did not exercise that path on the real mirror (the negative control exercises the same comparison on a perturbed record).
