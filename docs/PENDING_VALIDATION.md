@@ -342,3 +342,35 @@ Question this phase is built to answer: for one multi-step over-limit replay, do
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.
+
+## Phase B: replay growth at 120/40/6, per-input cause (fix decision open)
+
+Runs on the instrumented hook (`scripts/lib/groundy-replay-hook.mjs`), `peers`, `120/40/6`, 15 runs each. `RESULT` lines are quoted from the run output.
+
+- Gate F (Phase A hook, `8953547`, first-physics-call server positions): log `/tmp/spike/F-groundy-120-40-6.log`, traces `/tmp/groundy-replay-OBoQo6/over-limit-traces.json`. Totals: `replays 454 replays over 1 cm growth 4 (in peer contact 0 of 34 contact replays; with a groundY gap 0) in 4 run(s) max growth 0.0708 m ... mirror spikes 5 ... corrections with server queue above 8 97 of which over 1 cm 0`. `RESULT: FAIL world peers cond 120/40/6: replay growth over 1 cm in 4 of 454 replays across 4 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`.
+- Gate G (this pass's hook, every server physics call recorded with its `dt`): log `/tmp/spike/G-groundy-120-40-6.log`, traces `/tmp/groundy-replay-vxWCzE/over-limit-traces.json`. Totals: `replays 480 replays over 1 cm growth 10 (in peer contact 0 of 31 contact replays; with a groundY gap 1) in 10 run(s) max growth 0.0607 m ... mirror spikes 5 ... corrections with server queue above 8 98 of which over 1 cm 0`. `RESULT: FAIL world peers cond 120/40/6: replay growth over 1 cm in 10 of 480 replays across 10 of 15 completed run(s)`.
+
+Per-input comparison (what the question asked: which side diverges first, and the wedge and push state at the ack):
+
+- Wedge and push state are identical in every over-limit replay: `horizontallyWedged` false, `blockedByServer` false, `wedgeNormal` [0,0], and the push window is all null. So neither the wedge nor the peer push is involved. Peer contact is 0 in every over-limit replay.
+- Every physics call in the traces I inspected (ack 250, 251, 249, 312 and 310) has `dt` 0.0167 s, the nominal tick. Tick dilation is therefore not the cause in those replays. I did not check the other over-limit traces for `dt`.
+- Class A, 8 of 10 (ack 249 to 251, lag 14, queue 6 to 7, growth 0.012 to 0.022 m): the replay tracks the server within 3 to 5 mm at every input the server had consumed before the last one. The client's pre-replay prediction had drifted 0.015 to 0.022 m further from the server over the 14-input unacked window, and the growth metric (`offsetM - errM`) counts that drift. The replay adds no error here, so this is a metric effect. In the same runs the last consumed input key has 3 or 4 extra physics calls (`serverCallCount`), with `dt` 0.0167 each. Those are server ticks taken after its input queue ran dry, and they move the character about 0.41 m with no client-side input to replay. The server diverges from the client after the last input, not inside the replayed path.
+- Class B, 2 of 10 (run ack 312, lag 15, queue 1; run ack 310, lag 14, queue 2; growth 0.059 and 0.061 m): the server has 2 physics calls under one input key (seq 315 and seq 311). The second call is a starved tick, taken before the next input arrived, and it moves the character about 0.22 m. The client replays one step per consumed input, so the replay is 0.22 m off from that input onward (`post-srv` 0.2243 at seq 311, 0.2166 at seq 318). The server diverges first, and the replay follows the inputs. The next ack corrects a 0.2 m residual.
+- Deep queue is not the discriminator: over-limit replays at queue 1 and 2 in class B, and at 6 and 7 in class A. Corrections with queue above 8 have 0 over-limit in both gates.
+
+Cause: the over-limit flags come from two sources, and neither is an error in the replay path itself. (a) The growth metric counts the client's prediction drift over the unacked window (class A). (b) The server runs physics ticks with no input (queue dry; `starveHoldTicks` then a neutral step, `src/sdk/TickHandler.js` `processPlayerMovement`), and the client's prediction has no step for them, so a 0.2 m or 0.4 m server-side displacement appears at the next ack (class B, and the last-key calls in class A).
+
+Changes in this pass:
+
+- `scripts/lib/groundy-replay-hook.mjs`: the server record is now the position after the last physics call under each input key, and every physics call is kept with its `dt` as `serverCallPositions` and `serverCallDts`, plus `serverCallCount`. Phase A recorded only the first call per key, which hid the extra starved ticks. The witness output line (`replay first off server at seq N`) now uses the end-of-key position, so its values differ from Phase A.
+
+Not changed this pass (decision open, recorded here rather than left implicit):
+
+- Fix for class B: the server's starved-tick step is a netcode behaviour choice. Options: (1) with no input available, hold the character (no physics step) so the client's per-input prediction matches; (2) keep the neutral step and have the client predict it. Option 1 freezes the character during packet loss, so the owner decides.
+- The gate metric: `growth = offsetM - errM` measures prediction drift over the unacked window as well as replay error. The replay-error measure would be the replay residual against the server at consumed inputs (about 4 mm here). The owner decides whether the gate uses that measure.
+
+Server spike probe (item 2, unchanged by this pass): `node /tmp/popdiag/srvspike.mjs` on `/tmp/spike/F-srv-1.json`, `F-srv-2.json`, `F-srv-3.json`, each from `NS_OUT=... node --import /tmp/popdiag/nstick2.mjs scripts/netcode-conditioner-harness.mjs --cond=120/40/6 --predict=on --world=peers --duration=20000`, gave `server spikes: 0` in all three.
+
+`npm run check`: exit 0. The stick-floor ramp witness is in the output: `check: RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp (0.9355 >= 0.9); removing it drops grounded to 0.0645`. Final line: `check: all app(s) resolve every import`. Build: not run, because this pass changed only `scripts/lib/groundy-replay-hook.mjs` and no `src/` file.
+
+Status: replay growth over 1 cm at 120/40/6 is explained (class A metric drift, class B server starved ticks), and the fix for class B is an owner decision. Stick-to-floor trigger, canonical 50/10/2 and server spike rate are unchanged from the previous section.

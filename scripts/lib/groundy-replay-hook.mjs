@@ -93,13 +93,15 @@ NetworkState.prototype.updatePlayer = function (playerId, ...rest) {
 
 const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.get(tick) ?? null
 
-const serverPositions = new Map()
+const serverCalls = new Map()
 const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
 PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
   const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
   const seq = livePlayerManager?.getPlayer(playerId)?.ackSequence
+  if (seq == null) return out
   const key = `${playerId}|${seq}`
-  if (seq != null && !serverPositions.has(key)) serverPositions.set(key, [state.position[0], state.position[1], state.position[2]])
+  if (!serverCalls.has(key)) serverCalls.set(key, [])
+  serverCalls.get(key).push({ dt: deltaTime, position: [state.position[0], state.position[1], state.position[2]] })
   return out
 }
 
@@ -168,12 +170,19 @@ const attachTraces = () => {
   for (const r of records) {
     if (r.kind !== 'correction' && r.kind !== 'resync') continue
     const pre = new Map(r.prePath.map(([seq, x, y, z]) => [seq, [x, y, z]]))
-    r.trace = r.path.filter(([seq]) => seq > r.ackSeq).map(([seq, x, y, z]) => ({
-      seq,
-      pre: pre.get(seq) ?? null,
-      post: [x, y, z],
-      server: serverPositions.get(`${r.playerId}|${seq}`) ?? null
-    }))
+    r.trace = r.path.filter(([seq]) => seq > r.ackSeq).map(([seq, x, y, z]) => {
+      const calls = serverCalls.get(`${r.playerId}|${seq}`) ?? []
+      const last = calls.length ? calls[calls.length - 1].position : null
+      return {
+        seq,
+        pre: pre.get(seq) ?? null,
+        post: [x, y, z],
+        server: last,
+        serverCallCount: calls.length,
+        serverCallDts: calls.map(c => c.dt),
+        serverCallPositions: calls.map(c => c.position)
+      }
+    })
   }
 }
 
