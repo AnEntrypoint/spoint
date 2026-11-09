@@ -40,21 +40,6 @@ function killTree(pid) {
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
-function reapProfileOwners(profile) {
-  if (process.platform !== 'win32' || !fs.existsSync(profile)) return
-  const marker = profile.replace(/'/g, "''")
-  const script =
-    `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
-    `Where-Object { $_.CommandLine -like '*${marker}*' -and $_.CommandLine -notlike '*--type=*' } | ` +
-    `ForEach-Object { $_.ProcessId }`
-  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
-  if (r.status !== 0) return
-  for (const line of String(r.stdout || '').split('\n')) {
-    const pid = Number(line.trim())
-    if (Number.isInteger(pid) && pid > 0) killTree(pid)
-  }
-}
-
 function killBrowser(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return
   if (process.platform === 'win32') {
@@ -174,7 +159,6 @@ function claim(dir, owner, fingerprint, ttlMs) {
     }
     if (holderIsLive(record, dir, ttlMs)) return false
     reclaimAbandonedHold(record)
-    reapProfileOwners(profileDir(dir))
     try { fs.unlinkSync(lock) } catch {}
     try {
       fd = fs.openSync(lock, 'wx')
@@ -188,7 +172,6 @@ function claim(dir, owner, fingerprint, ttlMs) {
     fs.closeSync(fd)
   }
   held.set(dir, { owner, ttlMs, adopted: false })
-  reapProfileOwners(profileDir(dir))
   return true
 }
 
@@ -307,7 +290,6 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
       killBrowser(Number(record.browserPid ?? 0))
-      reapProfileOwners(profileDir(dir))
       try { fs.unlinkSync(ownerFile(dir)) } catch {}
       try { fs.rmSync(profileDir(dir), { recursive: true, force: true }) } catch {}
     }
