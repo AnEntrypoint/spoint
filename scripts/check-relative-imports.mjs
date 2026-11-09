@@ -95,6 +95,7 @@ function trackedSourceFiles() {
     stdout = execFileSync('git', ['ls-files', '--', ...ROOTS], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   } catch (e) {
     console.error(`check-relative-imports: git ls-files failed, so which file(s) are committed is unknown: ${e.message}`)
+    console.log('RESULT: FAIL relative imports: the committed file list is unknown, git ls-files failed')
     process.exit(1)
   }
   return new Set(stdout.split('\n').filter(Boolean))
@@ -138,10 +139,12 @@ function main() {
   const missingRoots = ROOTS.filter((root) => !existsSync(root))
   if (missingRoots.length) {
     console.error(`check-relative-imports: source root(s) absent: ${missingRoots.join(', ')}`)
+    console.log(`RESULT: FAIL relative imports: source root(s) absent: ${missingRoots.join(', ')}`)
     process.exit(1)
   }
   if (scanned.length === 0) {
     console.error(`check-relative-imports: 0 tracked file(s) collected (${skipped} untracked) -- an empty scan is not a pass`)
+    console.log('RESULT: FAIL relative imports: 0 tracked files collected, an empty scan is not a pass')
     process.exit(1)
   }
 
@@ -169,18 +172,21 @@ function main() {
   console.log(`check-relative-imports: ${checked} relative specifier(s) in ${scanned.length} tracked file(s) (${skipped} untracked file(s) not scanned)`)
   if (checked === 0) {
     console.error(`check-relative-imports: 0 relative specifier(s) in ${scanned.length} tracked file(s) -- an empty scan is not a pass`)
+    console.log(`RESULT: FAIL relative imports: 0 relative specifiers in ${scanned.length} tracked file(s), an empty scan is not a pass`)
     process.exit(1)
   }
   if (namedChecked === 0) {
     console.error('check-relative-imports: 0 named relative import(s) found -- an empty export-name scan is not a pass')
+    console.log('RESULT: FAIL relative imports: 0 named relative imports found, an empty export-name scan is not a pass')
     process.exit(1)
   }
   if (problems.length) {
     console.error(`check-relative-imports: ${problems.length} unresolvable relative import(s):`)
     for (const p of problems) console.error(`  ${p}`)
+    console.log(`RESULT: FAIL relative imports: ${problems.length} unresolvable relative import(s)`)
     process.exit(1)
   }
-  console.log(`check-relative-imports: every relative specifier resolves, and all ${namedChecked} named relative import(s) name an export that exists`)
+  console.log(`RESULT: PASS relative imports: every relative specifier resolves and all ${namedChecked} named relative import(s) name an export that exists`)
 }
 
 main()

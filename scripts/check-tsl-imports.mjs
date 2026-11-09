@@ -81,10 +81,12 @@ function main() {
   const missingRoots = ROOTS.filter((root) => !existsSync(root))
   if (missingRoots.length) {
     console.error(`check-tsl-imports: source root(s) absent: ${missingRoots.join(', ')}`)
+    console.log(`RESULT: FAIL three export-name resolution: source root(s) absent: ${missingRoots.join(', ')}`)
     process.exit(1)
   }
   if (files.length === 0) {
     console.error('check-tsl-imports: 0 file(s) collected -- an empty scan is not a pass')
+    console.log('RESULT: FAIL three export-name resolution: 0 files collected, an empty scan is not a pass')
     process.exit(1)
   }
 
@@ -92,6 +94,7 @@ function main() {
   for (const m of modules) {
     if (m.exports.size === 0) {
       console.error(`check-tsl-imports: ${m.spec} exposed 0 export(s) -- the export list it compares against is empty`)
+      console.log(`RESULT: FAIL three export-name resolution: ${m.spec} exposed 0 exports`)
       process.exit(1)
     }
   }
@@ -124,14 +127,16 @@ function main() {
   console.log(`check-tsl-imports: ${checkedNames} named import(s) from ${modules.map(m => m.spec).join(', ')} across ${checkedFiles} file(s) (three ${version()})`)
   if (checkedNames === 0) {
     console.error(`check-tsl-imports: 0 named import(s) checked across ${files.length} file(s) -- an empty scan is not a pass`)
+    console.log(`RESULT: FAIL three export-name resolution: 0 named imports checked across ${files.length} file(s), an empty scan is not a pass`)
     process.exit(1)
   }
   if (problems.length) {
     console.error(`check-tsl-imports: ${problems.length} named import(s) absent from the installed export list:`)
     for (const p of problems) console.error(`  ${p}`)
+    console.log(`RESULT: FAIL three export-name resolution: ${problems.length} named import(s) absent from the installed export list`)
     process.exit(1)
   }
-  console.log('check-tsl-imports: every named import exists in the installed export list')
+  console.log(`RESULT: PASS three export-name resolution: every named import exists in the installed export list (three ${version()})`)
 }
 
 let cachedVersion = null

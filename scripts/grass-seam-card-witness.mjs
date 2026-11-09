@@ -499,5 +499,5 @@ check('NON-VACUOUS DOWN: reading the foot places the ring cheaper than solving i
 console.log('')
 for (const f of failures) console.log(`FAIL: ${f}`)
 if (failures.length) console.log(`RESULT: FAIL (${failures.length} of ${measurements.length} measurement(s))`)
-else console.log('RESULT: PASS')
+else console.log(`RESULT: PASS ${measurements.length} of ${measurements.length} measurement(s), each asserted: ${measurements.join('; ')}`)
 process.exit(failures.length ? 1 : 0)

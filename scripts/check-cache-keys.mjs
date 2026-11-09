@@ -140,9 +140,10 @@ async function main() {
     console.error(`[check-cache-keys] ${problems.length} stale-bake problem(s):`)
     for (const p of problems) console.error(p)
     console.error('  Add each file to its BAKE_INPUTS_* list in src/static/BakeCodeVersion.js, or re-bake the artifact.')
+    console.log(`RESULT: FAIL bake code-version closure: ${problems.length} stale-bake problem(s), listed above`)
     process.exit(1)
   }
-  console.log(`[check-cache-keys] ${BAKE_TRANSFORMS.length} bake transforms declare their whole import closure`)
+  console.log(`RESULT: PASS bake code-version closure: ${BAKE_TRANSFORMS.length} bake transforms declare their whole import closure and the shipped heightfield artifacts match this tree`)
 }
 
 main().catch((e) => { console.error('[check-cache-keys] harness error:', e?.message || e); process.exit(2) })
