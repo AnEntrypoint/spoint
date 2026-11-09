@@ -89,8 +89,11 @@ const realReconcile = proto._reconcile
 proto._reconcile = function (serverPlayer) {
   const before = this._lastAckedSeq
   this.__ackBefore = before
+  const ackIdx = this.inputHistory.indexOf(serverPlayer.inputSequence ?? -1)
+  const predictedAtAck = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
+  const ackErrM = predictedAtAck ? distance(predictedAtAck.position, serverPlayer.position) : null
   realReconcile.call(this, serverPlayer)
-  records.push({ kind: 'ack', engine: idOf(this), ackSeq: serverPlayer.inputSequence, before, applied: this._lastAckedSeq !== before, ackedTicks: serverPlayer.inputSequence - before, tick: this.__ackTick, t: performance.now() })
+  records.push({ kind: 'ack', engine: idOf(this), ackSeq: serverPlayer.inputSequence, before, applied: this._lastAckedSeq !== before, ackedTicks: serverPlayer.inputSequence - before, tick: this.__ackTick, ackErrM, t: performance.now() })
 }
 
 const queueDepthNow = new Map()

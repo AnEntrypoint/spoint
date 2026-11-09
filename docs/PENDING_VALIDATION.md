@@ -742,3 +742,23 @@ No client change. The client's roll-forward (`_rollForwardAcked`, reached only w
 Not changed in this pass: the gate's definition, the 1 cm threshold, the sample set, the wire format, and the starvation hold length (`STARVE_HOLD_SECONDS`, 0.25 s).
 
 Status: Phase A is committed locally. The freeze is measured in Phase B.
+
+## Phase B (run 9): the freeze removes every correction; the gate still FAILS, on the pass rule and on mirror spikes
+
+Build: `npm run build:bundles`, `BUILD_EXIT=0`. Witness: `node scripts/starved-neutral-witness.mjs`, `7/7 checks passed`, `RESULT: PASS a starved tick freezes the character until a sequenced input is consumed (constant false)`, `WITNESS_EXIT=0`.
+
+Gate, first pass (`/tmp/phaseI/run9_1.log` to `run9_3.log`), before the reporting change: each run had `replays 0`, `RESULT: FAIL ... underpowered: 0 correction replay(s), below the 100 needed to gate replay residual; 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`. The three `totals` lines are byte-identical.
+
+Phase B change (reporting only; the pass rule is unchanged): the probe records the prediction error at every ack (`ackErrM`, the distance between the predicted entry at the acked seq and the server position), and the gate prints a line with the maximum and the count over 1 cm. Before this change the residual was only measured on correction replays, so a run with no corrections had no residual value.
+
+Gate, final pass (`/tmp/phaseI/run9b_1.log` to `run9b_3.log`), with the reporting change:
+- Run 1: `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: underpowered: 0 correction replay(s), below the 100 needed to gate replay residual; 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 2 run(s) with local pops`, `GATE_EXIT=1`.
+- Run 2: the same two lines, `GATE_EXIT=1`.
+- Run 3: the same two lines, `GATE_EXIT=1`.
+
+Measured:
+- The correction mismatch is gone. No ack in 15 runs (8907 acks) needed a correction, and the largest prediction error before any correction was 0.0070 m, below the 1.5 cm correction threshold and below the 1 cm residual limit. The 9 over-limit replays of run 8 are gone.
+- The gate still FAILS. Its pass rule needs at least 100 correction replays to gate the residual; with the freeze there are 0, so the rule reports underpowered. This is the gate's own definition, not a defect in the change. Narrowing that rule is a gate change, which the dispatcher ruled out.
+- A second failure remains: 5 mirror one-tick spikes of 0.8-2.5 mm across 4 of 15 runs. These are the collision-mirror class that appeared in earlier runs (run 7: 5 spikes across 3 runs), not a replay residual. They are not addressed in this pass.
+
+Status: the starved-tick mismatch is removed at source; the gate FAILS on underpowered (0 of 100 correction replays) and on 5 mirror spikes. Residual value for the gate's own measure: none measured (0 correction replays); the prediction error at every ack is at most 0.0070 m.

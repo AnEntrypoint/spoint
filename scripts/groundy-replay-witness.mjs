@@ -164,7 +164,10 @@ const main = async () => {
     }
     for (const r of corrections) if (r.residualM > RESIDUAL_LIMIT_M) overTraces.push({ run: i, ...r })
     const engines = new Set(corrections.map(r => r.engine)).size
-    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue }
+    const ackErrs = records.filter(r => r.kind === 'ack' && Number.isFinite(r.ackErrM)).map(r => r.ackErrM)
+    const ackErrMaxM = ackErrs.length ? Math.max(...ackErrs) : null
+    const acksOverLimit = ackErrs.filter(e => e > RESIDUAL_LIMIT_M).length
+    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue, acks: ackErrs.length, ackErrMaxM, acksOverLimit }
     runs.push(summary)
     console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for residual) over-${RESIDUAL_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max residual ${fmtM(summary.maxResidualM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush}) mirror spikes ${summary.spikes}`)
   }
@@ -186,6 +189,10 @@ const main = async () => {
   const popOnPeer = runs.reduce((s, r) => s + r.pops.onPeerPush, 0)
   const popsPerMinMax = runs.reduce((m, r) => (r.popsPerMin === null ? m : Math.max(m, r.popsPerMin)), -Infinity)
   console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${RESIDUAL_LIMIT_M * 100} cm residual ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max residual ${Number.isFinite(maxResidual) ? maxResidual.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal} corrections with server queue above ${INPUT_CATCHUP_DEPTH} ${deepQueueTotal} of which over ${RESIDUAL_LIMIT_M * 100} cm ${overDeepQueueTotal}`)
+  const ackTotal = runs.reduce((s, r) => s + r.acks, 0)
+  const ackOverTotal = runs.reduce((s, r) => s + r.acksOverLimit, 0)
+  const ackMaxM = runs.reduce((m, r) => (r.ackErrMaxM === null ? m : Math.max(m, r.ackErrMaxM)), -Infinity)
+  console.log(`ack prediction error (every ack, before any correction): max ${Number.isFinite(ackMaxM) ? ackMaxM.toFixed(4) : '-'} m over ${ackTotal} acks; ${ackOverTotal} over ${RESIDUAL_LIMIT_M * 100} cm`)
   for (const r of overTraces) {
     const pre = firstDivergence(r.trace, 'pre'), post = firstDivergence(r.trace, 'post')
     const lag = r.lastSeq - r.ackSeq
