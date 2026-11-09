@@ -57,7 +57,7 @@ Skills encode environment-specific constraints that override general knowledge.
 
 ## Stopping Processes
 
-- Stop a process only by a PID you started or one a lease recorded: `browserPid` and `pid` in `.gm/browser-lease/session/owner.json` (`browserPid` is written at spawn by `scripts/lib/cdp-browser.mjs` `launch`). Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
+- Stop a process only by a PID you started or one a lease recorded: `browserPid` and `pid` in the lease owner record that `scripts/lib/browser-lease.mjs` writes. `browserPid` is recorded at spawn by `scripts/lib/cdp-browser.mjs` `launch`. Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
 - A browser lease stops its recorded browser's process group (`killBrowser`, `scripts/lib/browser-lease.mjs`). On Windows, `reapProfileOwners` still finds chrome processes by profile path and stops those PIDs; the owner should review that sweep.
 
 ## PRD rows and witness binding
