@@ -6,6 +6,7 @@ const { PredictionEngine } = await import('../../src/client/PredictionEngine.js'
 const { PlayerManager } = await import('../../src/netcode/PlayerManager.js')
 const { NetworkState } = await import('../../src/netcode/NetworkState.js')
 const { PhysicsIntegration } = await import('../../src/netcode/PhysicsIntegration.js')
+const { applyMovement } = await import('../../src/shared/movement.js')
 
 const RECORD_PATH = process.env.GROUNDY_RECORD || ''
 const INJECT_M = Number(process.env.GROUNDY_INJECT_M || 0)
@@ -21,9 +22,24 @@ const realOnServerSnapshot = proto.onServerSnapshot
 const realRebaseAndReplay = proto._rebaseAndReplay
 const realStep = proto._step
 let activeClientSteps = null
+const MOVE_FLAG_KEYS = ['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding', '_physCrouch', '_crouchDy']
+const moveFlags = state => Object.fromEntries(MOVE_FLAG_KEYS.map(k => [k, state[k] ?? null]))
 proto._step = function (input, seq, groundNormal) {
+  const ls = this.localState
+  const probing = !!activeClientSteps && seq != null
+  const dtS = (this.tickDuration * this.dilation) / 1000
+  const preVel = [ls.velocity[0], ls.velocity[2]]
+  const preFlags = moveFlags(ls)
+  const preOnGround = !!ls.onGround
+  let amVel = null
+  if (probing) {
+    const amState = { velocity: [...ls.velocity], onGround: ls.onGround, ...preFlags }
+    applyMovement(amState, input, this.movement, dtS)
+    amVel = [amState.velocity[0], amState.velocity[2]]
+  }
+  const pushIn = probing ? this._pushForSequence(seq) : null
   const out = realStep.call(this, input, seq, groundNormal)
-  if (activeClientSteps && seq != null) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!this.localState.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [this.localState.velocity[0], this.localState.velocity[2]] })
+  if (probing) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!ls.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [ls.velocity[0], ls.velocity[2]], preVel, amVel, preFlags, preOnGround, flags: moveFlags(ls), onGround: !!ls.onGround, dt: dtS, dilation: this.dilation, path: this._env?.collider ? 'collider' : 'analytic', pushIn: pushIn ? [...pushIn] : null })
   return out
 }
 
@@ -110,15 +126,18 @@ PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, de
   const input = lastInput ? { yaw: lastInput.yaw, crouch: !!lastInput.crouch, sprint: !!lastInput.sprint, forward: !!lastInput.forward, left: !!lastInput.left, right: !!lastInput.right } : null
   if (FREEZE_NEUTRAL && neutral) return undefined
   const before = [state.position[0], state.position[1], state.position[2]]
+  const carriedVel = [state.velocity[0], state.velocity[2]]
+  const flags = moveFlags(state)
+  const onGroundIn = !!state.onGround
   const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
   const seq = livePlayerManager?.getPlayer(playerId)?.ackSequence
   if (seq == null) return out
   const position = [state.position[0], state.position[1], state.position[2]]
   const key = `${playerId}|${seq}`
   if (!serverCalls.has(key)) serverCalls.set(key, [])
-  const vel = [state.velocity[0], state.velocity[2]]
+  const joltVel = [state.velocity[0], state.velocity[2]]
   const normal = Array.isArray(state.groundNormal) ? [...state.groundNormal] : null
-  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input, vel, normal })
+  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input, vel: carriedVel, joltVel, normal, flags, onGroundIn, onGroundOut: !!state.onGround })
   if (!callLogs.has(playerId)) callLogs.set(playerId, [])
   callLogs.get(playerId).push({ seq, before, after: position, neutral })
   return out
@@ -235,6 +254,7 @@ const attachTraces = () => {
     r.trace = r.path.filter(([seq]) => seq > r.ackSeq).map(([seq, x, y, z]) => {
       const calls = serverCalls.get(`${r.playerId}|${seq}`) ?? []
       const last = calls.length ? calls[calls.length - 1].position : null
+      const cs = new Map(r.clientSteps ?? []).get(seq) ?? {}
       return {
         seq,
         pre: pre.get(seq) ?? null,
@@ -248,10 +268,23 @@ const attachTraces = () => {
         serverInput: calls.length ? calls[0].input : null,
         clientInput: new Map(r.clientSteps ?? []).get(seq) ?? null,
         serverVel: calls.length ? calls[0].vel : null,
+        serverJoltVel: calls.length ? calls[0].joltVel : null,
         serverLastVel: calls.length ? calls[calls.length - 1].vel : null,
         serverNormal: calls.length ? calls[0].normal : null,
-        clientVel: (new Map(r.clientSteps ?? []).get(seq) ?? {}).vel ?? null,
-        clientNormal: (new Map(r.clientSteps ?? []).get(seq) ?? {}).normal ?? null
+        serverFlags: calls.length ? calls[0].flags : null,
+        serverOnGroundIn: calls.length ? calls[0].onGroundIn : null,
+        serverDt: calls.length ? calls[0].dt : null,
+        clientVel: cs.vel ?? null,
+        clientNormal: cs.normal ?? null,
+        clientPreVel: cs.preVel ?? null,
+        clientAmVel: cs.amVel ?? null,
+        clientPreFlags: cs.preFlags ?? null,
+        clientFlags: cs.flags ?? null,
+        clientPreOnGround: cs.preOnGround ?? null,
+        clientOnGround: cs.onGround ?? null,
+        clientDt: cs.dt ?? null,
+        clientPath: cs.path ?? null,
+        clientPushIn: cs.pushIn ?? null
       }
     })
     r.residualPrePushM = residualAgainst(r.trace, t => t.serverFirst)

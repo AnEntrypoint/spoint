@@ -682,3 +682,18 @@ Measured cause of the 9 remaining over-1-cm replays (traces in `/tmp/groundy-rep
 - Not identified: the producing line on either side. The server's step runs the Jolt character path; the client's step is the analytical `_step` with its wall mirror.
 
 Status: the variance is removed (three identical gate runs). The gate still FAILS (9 of 410 over 1 cm). Open, not passing. The remaining cause is measured to the step level for both kinds; which code path produces the lateral velocity on each side is the next probe.
+
+## Phase A (run 8): the probe compares the carried velocity and removes the peer push
+
+Run 7 recorded the server's velocity after the Jolt step, which is not the value the server carries into its step. The client's velocity also includes a peer push that the step applies after `predictCharacterStep`, so comparing it with the server's carried value counted the push as a step difference. This pass records each side at the point it is read and compares like with like. No product code changed; the gate's definition, the 1 cm threshold and the sample set are unchanged.
+
+| area | change | file | witness |
+|---|---|---|---|
+| probe, client | The `_step` wrapper records the pre-step velocity, `applyMovement` run on a copy of the pre-state (`amVel`), the move flags before and after, `onGround` before and after, `dt`, `dilation`, the path (`collider` or `analytic`) and the push that `_step` applies after the step (`pushIn`). | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| probe, server | The `updatePlayerPhysics` wrapper records `vel` as the carried velocity before the Jolt call and `joltVel` after it, plus the flags and `onGroundIn`/`onGroundOut`. Run 7's `serverVel` was the post-Jolt value; it is now `serverJoltVel`. | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| probe, trace | `attachTraces` joins the client step by sequence and writes the new fields (`serverVel`, `serverJoltVel`, `serverFlags`, `serverOnGroundIn`, `serverDt`, `clientVel`, `clientPreVel`, `clientAmVel`, `clientPreFlags`, `clientFlags`, `clientPreOnGround`, `clientOnGround`, `clientDt`, `clientPath`, `clientPushIn`). | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| gate, report | `firstVelocityDivergence(trace)` finds the first step where the server's carried velocity differs from the client's velocity with its push removed (`prePushVel`: post-step velocity minus `pushIn[2..3]`) by more than `VEL_DIVERGE_MS`. It reports the server and client sides, whether the client's `applyMovement` matches the server's carried value, and whether the previous step's flags and velocity agreed. One line is printed per over-limit key. | `scripts/groundy-replay-witness.mjs` | the gate, Phase B |
+
+Not changed in this pass: the gate's definition, the 1 cm threshold, the sample set, and any netcode behaviour.
+
+Status: Phase A is committed locally. The probe is measured in Phase B.

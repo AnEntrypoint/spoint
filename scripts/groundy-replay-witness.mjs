@@ -26,6 +26,28 @@ const firstDivergence = (trace, pick) => {
 }
 const SPIKE_MAX_M = 0.0025
 const INJECT_DEFAULT_M = 0.03
+const VEL_DIVERGE_MS = 0.01
+const planarDistance = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : null)
+const sameFlags = (a, b) => (a && b ? JSON.stringify(a) === JSON.stringify(b) : null)
+const prePushVel = t => (t.clientVel && t.clientPushIn ? [t.clientVel[0] - t.clientPushIn[2], t.clientVel[1] - t.clientPushIn[3]] : t.clientVel)
+const firstVelocityDivergence = trace => {
+  for (let i = 0; i < trace.length; i++) {
+    const t = trace[i]
+    const d = planarDistance(t.serverVel, prePushVel(t))
+    if (d === null || d <= VEL_DIVERGE_MS) continue
+    const prev = i > 0 ? trace[i - 1] : null
+    return {
+      seq: t.seq,
+      planarGapMs: Number(d.toFixed(4)),
+      server: { carriedVel: t.serverVel, joltVel: t.serverJoltVel, flags: t.serverFlags, onGroundIn: t.serverOnGroundIn, dt: t.serverDt, input: t.serverInput },
+      client: { preVel: t.clientPreVel, amVel: t.clientAmVel, prePushVel: prePushVel(t), postVel: t.clientVel, preOnGround: t.clientPreOnGround, onGround: t.clientOnGround, preFlags: t.clientPreFlags, flags: t.clientFlags, dt: t.clientDt, path: t.clientPath, pushIn: t.clientPushIn, input: t.clientInput },
+      amVelMatchesServerCarried: planarDistance(t.clientAmVel, t.serverVel) <= VEL_DIVERGE_MS,
+      prevStepFlagsAgree: prev ? sameFlags(prev.serverFlags, prev.clientFlags) : null,
+      prevStepVelAgree: prev ? planarDistance(prev.serverVel, prePushVel(prev)) <= VEL_DIVERGE_MS : null
+    }
+  }
+  return null
+}
 
 const args = parseArgs(process.argv.slice(2))
 const CONTROL = args.control === true || args.control === 'true'
@@ -168,6 +190,7 @@ const main = async () => {
     const pre = firstDivergence(r.trace, 'pre'), post = firstDivergence(r.trace, 'post')
     const lag = r.lastSeq - r.ackSeq
     console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} residual ${fmtM(r.residualM)} offset-minus-err ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)} ackVel ${JSON.stringify(r.ackVel)} predictedAckVel ${JSON.stringify(r.predictedAckVel)} ackNormal ${JSON.stringify(r.ackNormal)} predictedAckNormal ${JSON.stringify(r.predictedAckNormal)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
+    console.log(`  first velocity divergence ${JSON.stringify(firstVelocityDivergence(r.trace))}`)
   }
   if (overTraces.length) {
     const tracePath = join(dir, 'over-limit-traces.json')
