@@ -13,6 +13,7 @@ const GROWTH_LIMIT_M = 0.01
 const MIN_RUNS = 15
 const MIN_REPLAYS = 100
 const SPIKE_MIN_M = 0.0008
+const INPUT_CATCHUP_DEPTH = 8
 const SPIKE_MAX_M = 0.0025
 const INJECT_DEFAULT_M = 0.03
 
@@ -121,12 +122,14 @@ const main = async () => {
     const corrections = records.filter(r => r.kind === 'correction')
     const resyncs = records.filter(r => r.kind === 'resync').length
     const spikes = records.filter(r => r.kind === 'spike').length
+    const deepQueue = corrections.filter(r => r.serverQueueDepth > INPUT_CATCHUP_DEPTH).length
+    const overDeepQueue = corrections.filter(r => r.serverQueueDepth > INPUT_CATCHUP_DEPTH && r.growthM > GROWTH_LIMIT_M).length
     if (!engineMatchingHarness(corrections, harness.results?.[0]?.mispredict)) {
       failures.push(`run ${i}: no engine's corrections match the harness's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} applied corrections, so the hook missed a correction`)
       continue
     }
     const engines = new Set(corrections.map(r => r.engine)).size
-    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes }
+    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue }
     runs.push(summary)
     console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for growth) over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush}) mirror spikes ${summary.spikes}`)
   }
@@ -142,10 +145,12 @@ const main = async () => {
   const inContactReplays = runs.reduce((s, r) => s + r.inContactReplays, 0)
   const popTotal = runs.reduce((s, r) => s + r.pops.pops, 0)
   const spikeTotal = runs.reduce((s, r) => s + r.spikes, 0)
+  const deepQueueTotal = runs.reduce((s, r) => s + r.deepQueue, 0)
+  const overDeepQueueTotal = runs.reduce((s, r) => s + r.overDeepQueue, 0)
   const popMatched = runs.reduce((s, r) => s + r.pops.matched, 0)
   const popOnPeer = runs.reduce((s, r) => s + r.pops.onPeerPush, 0)
   const popsPerMinMax = runs.reduce((m, r) => (r.popsPerMin === null ? m : Math.max(m, r.popsPerMin)), -Infinity)
-  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal}`)
+  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal} corrections with server queue above ${INPUT_CATCHUP_DEPTH} ${deepQueueTotal} of which over ${GROWTH_LIMIT_M * 100} cm ${overDeepQueueTotal}`)
   for (const f of failures) console.log(`failed: ${f}`)
 
   if (CONTROL) {

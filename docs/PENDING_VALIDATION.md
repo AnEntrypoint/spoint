@@ -284,6 +284,25 @@ Other open defect: the 11 correction replays over 1 cm at 120/40/6 (max 0.111 m)
 
 Note on history: `origin/main` was rewritten to 7bb9e43 with admin@coas.co.za removed by owner approval. The Phase A commit is now 715ab77 on that base, under almagestfraternite@gmail.com. The earlier history on this ledger (0197ebf and before) is no longer on `origin/main`, so its commit hashes in this file refer to the old history.
 
+## Phase A: replay growth at 120/40/6, instrumented (code, docs and tests only)
+
+Top unblocked item: the correction replays over 1 cm at 120/40/6 (11 of 497 in the final-code gate run, max 0.111 m, `/tmp/groundy-replay-WRu6C4`, RESULT FAIL).
+
+What the existing records already show (from `/tmp/groundy-replay-WRu6C4`, no new run):
+
+- Every over-1 cm replay has an unacked replay length (`lastSeq − ackSeq`) of 14 or 15 inputs. Of the 497 corrections, 144 have a lag of 13 or less, and none of them exceeds 1 cm. At lag 14, 4 of 166 do, and at lag 15, 7 of 187 do.
+- The over-limit replays have ack errors of 0.23 to 1.6 m, and all are on the local player's engine with no peer contact (`inContact` false) and a ground-Y gap of zero. So the growth is horizontal, and it is not the peer push.
+- The server's input-catch-up path runs only when the queued inputs exceed `INPUT_BUFFER_CATCHUP_DEPTH` (8), and then at most `MAX_CATCHUP_STEPS_PER_TICK` (3) extra steps per tick, gated by `inputStepBudget` (`src/sdk/TickHandler.js` `processPlayerMovement`). A lag of 14–15 is consistent with a queue above 8.
+
+Candidate under test: the server's catch-up steps and the client's replay disagree when the server queue is deep. This is a hypothesis, not yet a finding.
+
+Changes in this phase (no `src/` change):
+
+- `scripts/lib/groundy-replay-hook.mjs`: wraps `PlayerManager.prototype.getInputs` to read each player's input-queue length on every server tick, and `NetworkState.prototype.updatePlayer` to store that length by the server tick. Each correction record now carries `serverQueueDepth` (the queue length at the acked tick, or null if none was logged) and `ackAdvance` (how far the ack moved on that snapshot). The existing injection, spike and record fields are unchanged.
+- `scripts/groundy-replay-witness.mjs`: the totals line adds `corrections with server queue above 8 N of which over 1 cm M`, so the run shows whether over-limit replays sit in the deep-queue regime.
+
+Phase B will run the 120/40/6 gate once with these fields, then decide the fix from what the counts show. If the over-limit replays are not in the deep-queue regime, the hypothesis is refuted and the next candidate (ack rejection by `ackUsable`/`maxAckAdvanceTicks`, read from `ackAdvance`) is tested the same way.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.
