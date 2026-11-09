@@ -1046,28 +1046,46 @@ Phase B run 17 results (`/tmp/phaseI/b17_*.log`):
 - Gate, three runs (`/tmp/phaseI/b17_gate{1,2,3}.log`), each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0); power counts starved-window replays, minimum 100`; `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`; `RESULT: PASS the replay base groundY adds no residual over 1 cm in 15 runs of 120/40/6 (0 replays, max residual - m, 2 run(s) with local pops)`; `GATE_EXIT=0`.
 - Mirror spikes, all 16 result lines of each gate run: `mirror spikes 0`. Total spikes over the three runs: 0.
 - Shared-lattice witness: `ok   AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0`; `wall-clock AFTER/BEFORE = 0.997129` (printed, not gated); `RESULT: PASS`; `LATTICE_EXIT=0`.
-- `npm run check`: recorded below after the docs site was regenerated.
+- `npm run check` on the tree committed as `24ddf70`: `RESULT` count 138 PASS, 0 FAIL (`/tmp/phaseI/b17_check_final.log`), background exit 0.
 
 The spike is gone. Phase A changed the mirror's floor from triangles to the server's box (see Phase A run 17); the contact churn that the Phase A run 15 table measured for the triangle floor is not reproduced with the box. The branch analysis in `docs/netcode.md` stays as the cause record. The 1 to 2.5 mm spike band in `scripts/groundy-replay-witness.mjs` (`SPIKE_MIN_M`, `SPIKE_MAX_M`) is unchanged; no run now hits it.
 
-## Run 17 spike cause: an A/B on the same probe, the wire change is the difference (measured, not a fix claim)
+## Run 17 spike cause: probe measurements and the shipped-source gate, kept apart
 
-Premise correction. Run 16 did not show zero spikes. Its three gate runs each reported `RESULT: FAIL ... 5 mirror one-tick spike(s)` (`/tmp/phaseI/b16_gate{1,2,3}.log`), the same as run 15 (`b15_gate{1,2,3}.log`). The zero result is from run 17, after the wire change. Run 16 changed no source, and its spike count matched run 15, so there was no unexplained movement before the wire change.
+Correction, recorded after 24ddf70 was pushed. The earlier text of this entry and the report that went with it said the four source files were reverted to `8ca15f9`, and read as if the shipped source had no box floor. That was wrong. `8ca15f9` is the wire change itself. The pre-change row restored the four files from `eda7223` (the parent of the wire change), and the post-change rows restored them from `8ca15f9`. `git show HEAD:src/client/CollisionMirror.js` at `24ddf70` contains the box floor (`boxKeys`, 10 matches); `StaticTileIndex.js` writes box records (`boxRecordOf`); `CollisionTileStreamer.js` sends `encodeTileMessage`; `src/shared/collisionTile.js` defines `COLLISION_TILE_FORMAT = 2`.
 
-Tick sequence, run 15 against run 16. The spike records match to the last digit (`spike run 3 engine 0: up 1.029 mm down -1.029 mm; xz -1.274,-1.267 -1.373,-1.501 -1.463,-1.734; ... seq 314 315 316`; the same for runs 5, 5, 13 and 14 at seq 412–414, 459–461, 200–202 and 103–105). The virtual clock makes the sequence deterministic, so a repeat gives the same spikes.
+Two kinds of result, kept apart:
 
-Probe coverage. The spike probe (`scripts/lib/groundy-replay-hook.mjs` `observeMirrorStep`) runs inside a child process per run, so the count was written from the child's `exit` handler to `/tmp/phaseI/tmpcount-*.txt`. The counter was temporary and is reverted. Per 15-run pass:
+- Gate results on the shipped source. `b17_gate{1,2,3}.log` (`RESULT: PASS`, `mirror spikes 0` on every run) were written at 17:44:52 to 17:45:49, after the wire-change commit `8ca15f9` (17:44:18). The working tree at that time matched that commit, and `scripts/lib/groundy-replay-hook.mjs` was unmodified (its last commit is `287b963`). These are gate results on shipped source. Phase B run 18 below re-runs the gate on the final tree.
+- Probe measurements. The table below came from a temporary counter added to `scripts/lib/groundy-replay-hook.mjs`, which wrote counts to `/tmp/phaseI/tmpcount-*.txt` from the child's `exit` handler. The counter only counts; it does not change the spike test. These numbers show what the probe observed. They are not gate passes, and they are not counted as gate runs anywhere below.
 
-| code | probe | mirror steps observed | eligible for spike check | spike records |
+Tick sequence, run 15 against run 16. The spike records match to the last digit (`spike run 3 engine 0: up 1.029 mm down -1.029 mm; xz -1.274,-1.267 -1.373,-1.501 -1.463,-1.734; ... seq 314 315 316`; the same for runs 5, 5, 13 and 14 at seq 412–414, 459–461, 200–202 and 103–105). The virtual clock makes the sequence deterministic. Runs 15 and 16 both reported 5 spikes per gate run (`b15_gate{1,2,3}.log`, `b16_gate{1,2,3}.log`), so the zero is not an unexplained movement between them. The zero is first seen in run 17.
+
+Probe counts per 15-run pass (probe measurements, not gate results):
+
+| source | probe run | mirror steps observed | eligible for the spike check | spike records |
 |---|---|---|---|---|
-| before the wire change (`eda7223` files) | idle | 17,081 | 17,021 | 5 (`b17_prechange_gate.log`, `RESULT: FAIL`) |
-| after the wire change (`8ca15f9`) | idle | 17,081 | 17,021 | 0 (`b17_probe_idle.log`, `RESULT: PASS`) |
-| after the wire change | 12 busy-loop processes | 17,081 | 17,021 | 0 (`b17_probe_load.log`, `RESULT: PASS`) |
+| pre-change (`eda7223` files), counter on | gate pass | 17,081 | 17,021 | 5 (`b17_prechange_gate.log`, `RESULT: FAIL`) |
+| shipped (`8ca15f9` files), counter on | idle | 17,081 | 17,021 | 0 (`b17_probe_idle.log`, `RESULT: PASS`) |
+| shipped (`8ca15f9` files), counter on | 12 busy-loop processes | 17,081 | 17,021 | 0 (`b17_probe_load.log`, `RESULT: PASS`) |
 
-So the probe steps the mirror the same number of times before and after the change, and the zero is not a probe that stopped measuring. The eligible steps (`prev1.og` true, which the spike check requires) are the same in every row.
+The probe steps the mirror the same number of times before and after the wire change, so the zero does not come from a probe that stopped measuring. Eligible steps are those where the previous step was grounded (`prev1.og`), which the spike check requires.
 
-Host load. The load averages recorded at child exit: idle pass 1-minute load 5.75 to 6.83; loaded pass 6.42 to 9.91 (12 cores). The loaded pass shows 0 spikes and the same step counts as idle. The earlier runs (15, 16) did not record load, so their load cannot be compared; the claim here is only that load did not change the post-change result.
+Host load. The load averages recorded at child exit: idle pass 1-minute load 5.75 to 6.83; loaded pass 6.42 to 9.91 (12 cores). The loaded pass shows 0 spikes and the same step counts as idle. Runs 15 and 16 did not record load, so their load cannot be compared with these.
 
-Cause. The one source difference between the two rows is the wire change: the four files `src/client/CollisionMirror.js`, `src/physics/StaticTileIndex.js`, `src/netcode/CollisionTileStreamer.js` and `src/physics/World.js`, restored from `eda7223` for the pre-change row and from `8ca15f9` afterwards. Same probe, same step count, 5 spikes before and 0 after. The spike records before the change are the run 15 and 16 records. This attributes the movement to the box floor, measured by one A/B pass each.
+Cause. The source difference between the pre-change row and the shipped rows is the wire change: `src/client/CollisionMirror.js`, `src/physics/StaticTileIndex.js`, `src/netcode/CollisionTileStreamer.js`, `src/physics/World.js` and the new `src/shared/collisionTile.js`. The pre-change counted pass had 5 spikes with the same records as runs 15 and 16; the shipped counted passes had none. This is one A/B pass on each side, so it supports the attribution but does not establish it on its own; the shipped gate passes are the evidence that counts.
 
-Not a fix claim until the gate's runs are read as a whole: the post-change gate passes three times (45 runs) and the idle and loaded probe passes add 30 runs; 75 runs with 0 spikes after the change against 5 spikes per gate pass before it. The rule that any spike fails the gate is unchanged.
+Scope. Shipped gate passes on `8ca15f9`: three gate runs of 15 (45 runs, `b17_gate{1,2,3}.log`, `mirror spikes 0`). The probe passes add 30 more runs of counts only. The rule that any spike fails the gate is unchanged.
+
+## Phase B run 18: shipped source (`src/` identical to `24ddf70`), gate, lattice and witness
+
+Source under test: `src/` and `scripts/` at HEAD, unmodified (`git diff HEAD -- src scripts` is empty; the only uncommitted files are this ledger and `docs/netcode.md`). The probe is the committed one (`scripts/lib/groundy-replay-hook.mjs` unmodified). No probe counters are in this run.
+
+- Witness: `node scripts/collision-tile-shape-witness.mjs`: `RESULT: PASS collision tile floor is the server's box (18 of 18 checks)`, exit 0.
+- Build: `npm run build:bundles`: `BUILD_EXIT=0` (`stamped dist/src/sdk/WorkerEntry.bundlehash.json 4784755db78b4cc8 (252 bundled inputs, artifact 6f8236c828ccfcdf)`, `/tmp/phaseI/b18_build.log`).
+- Gate, three runs of 120/40/6 (`/tmp/phaseI/b18_gate{1,2,3}.log`), each: `totals: runs 15/15 replays 0 replays over 1 cm residual 0`; `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`; `ack prediction error ... max 0.0070 m over 8907 acks; 0 over 1 cm`; `mirror spikes 0` on each of the 15 run lines; `RESULT: PASS the replay base groundY adds no residual over 1 cm in 15 runs of 120/40/6 (0 replays, max residual - m, 2 run(s) with local pops)`; `GATE_EXIT=0`.
+- Shared-lattice witness: `ok   AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0`; `wall-clock AFTER/BEFORE = 0.904171` (printed, not gated); `RESULT: PASS`; `LATTICE_EXIT=0`.
+
+The spike is not present on the shipped source in these three gate runs, so no contact sets are recorded for the shipped source. The pre-change source shows five spikes on the same probe (run 17 entry above); the contact-set numbers from run 15 (`Phase A run 15`) remain the record of the triangle floor.
+
+Run 17 gate results (`b17_gate{1,2,3}.log`) were on the same shipped source (`8ca15f9`, the wire change, which `24ddf70` carries unchanged) and agree with this run. Run 17's probe counters are measurements, not gate passes (see the run 17 cause entry).
