@@ -41,6 +41,7 @@ AGENTS.md keeps every rule and a summary of each caveat. This file keeps the ful
 
 - Stop a process only by a PID you started or one a lease recorded: `browserPid` and `pid` in the lease owner record that `scripts/lib/browser-lease.mjs` writes. `browserPid` is recorded at spawn by `scripts/lib/cdp-browser.mjs` `launch`. Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
 - A browser lease stops its recorded process group (`killOwnedBrowser`, `scripts/lib/browser-lease.mjs`) only while the leader's `browserStart` still matches. On Windows, `taskkill /T` stops the recorded tree; that path has not run on a Windows host.
+- The browser runs as a child subreaper: `leasedSpawnArgv` (`scripts/lib/browser-lease.mjs`) wraps the spawn in `perl` and calls `prctl(PR_SET_CHILD_SUBREAPER)` on Linux (syscall 157 on x86_64, 167 on arm64); the flag survives `exec`, so the pid is unchanged. Without perl the spawn is direct, and setsid or setpgid orphans are missed. A group re-formed under an exited leader needs the pid counter to wrap onto the leader's pid; `scripts/lease-leader-exit-witness.mjs` measures the wrap time and the joiner limit.
 
 ## PRD rows and witness binding
 
