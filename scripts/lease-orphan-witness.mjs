@@ -31,7 +31,7 @@ const run = async () => {
     const lease = await acquire({ root: dir, owner: 'lease-orphan-witness', waitMs: 10000 })
     launcher = spawn(process.execPath, ['-e', launcherSrc], { detached: true, stdio: ['ignore', 'pipe', 'inherit'] })
     orphan = await new Promise((resolve) => launcher.stdout.once('data', (d) => resolve(Number(String(d).trim()))))
-    lease.record({ browserPid: launcher.pid })
+    lease.record({ browserPid: launcher.pid, browserStart: fields(launcher.pid)[19] })
     await sleep(300)
     const rec = JSON.parse(fs.readFileSync(path.join(dir, 'lease', 'owner.json'), 'utf8'))
     check(rec.browserTree.some((e) => e.pid === orphan), 'orphan ' + orphan + ' is recorded in browserTree while launcher ' + launcher.pid + ' is alive')
