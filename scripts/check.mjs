@@ -257,6 +257,7 @@ async function main() {
     ['input-codec-quantize-witness', 'scripts/input-codec-quantize-witness.mjs', (out) => `check: ${out}`],
     ['expr-truncation-witness', 'scripts/expr-truncation-witness.mjs', (out) => `check: ${out}`],
     ['starved-neutral-witness', 'scripts/starved-neutral-witness.mjs', (out) => `check: ${out}`],
+    ['virtual-clock-witness', 'scripts/virtual-clock-witness.mjs', (out) => `check: ${out}`],
     ['chart-wire-input-gating-witness', 'scripts/chart-wire-input-gating-witness.mjs', (out) => `check: ${out}`],
     ['chart-resync-reply-witness', 'scripts/chart-resync-reply-witness.mjs', (out) => `check: ${out}`],
     ['chart-wire-stats-witness', 'scripts/chart-wire-stats-witness.mjs', (out) => `check: ${out}`],

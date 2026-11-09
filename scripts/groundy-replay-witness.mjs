@@ -9,6 +9,7 @@ import { exitAfterQuiesce } from './lib/quiesce.mjs'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 const HOOK_URL = pathToFileURL(resolve(SDK_ROOT, 'scripts', 'lib', 'groundy-replay-hook.mjs')).href
+const RUNTIME_URL = pathToFileURL(resolve(SDK_ROOT, 'scripts', 'lib', 'virtual-runtime.mjs')).href
 const RESIDUAL_LIMIT_M = 0.01
 const MIN_RUNS = 15
 const MIN_REPLAYS = 100
@@ -36,6 +37,7 @@ const INJECT_M = CONTROL ? numericFlag(args, 'inject', INJECT_DEFAULT_M) : 0
 
 const runChild = (env, outPath) => new Promise(resolveRun => {
   const child = spawn(process.execPath, [
+    '--import', RUNTIME_URL,
     '--import', HOOK_URL,
     HARNESS,
     `--cond=${COND}`,
@@ -119,7 +121,7 @@ const main = async () => {
   for (let i = 0; i < RUNS; i++) {
     const outPath = join(dir, `run-${i}.json`)
     const recordPath = join(dir, `run-${i}.groundy.json`)
-    const env = { GROUNDY_RECORD: recordPath, GROUNDY_INJECT_M: String(INJECT_M) }
+    const env = { GROUNDY_RECORD: recordPath, GROUNDY_INJECT_M: String(INJECT_M), SPOINT_VIRTUAL_SEED: String(i) }
     const { code, stderr } = await runChild(env, outPath)
     if (code !== 0) {
       failures.push(`run ${i} exited ${code}: ${stderr.trim().split('\n').slice(-5).join(' | ')}`)

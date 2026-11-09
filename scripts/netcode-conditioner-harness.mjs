@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { driveVirtual, RUN_SEED } from './lib/virtual-runtime.mjs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -11,10 +12,8 @@ import { installSpecifierHooks } from './lib/install-specifier-hooks.mjs'
 
 await installSpecifierHooks()
 
-if (typeof globalThis.WebSocket !== 'function') {
-  const { WebSocket } = await import('ws')
-  globalThis.WebSocket = WebSocket
-}
+const SEED_STRIDE = 1000
+const seedFor = base => base + SEED_STRIDE * RUN_SEED
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -29,7 +28,7 @@ const MISPREDICT_M = 0.02
 const RESPAWN_JUMP_M = 3
 
 const args = parseArgs(process.argv.slice(2))
-if (args.precise === true || args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
+if (args.precise === true || args.precise === 'true') throw new Error('[netcode-harness] --precise spins on wall-clock time, which the virtual clock cannot advance; the harness runs on virtual time only')
 const DURATION_MS = numericFlag(args, 'duration', 20000)
 const WORLD = strArg(args.world, 'arena')
 const HARNESS_ARENA = {
@@ -299,7 +298,7 @@ async function runOne(cond, predict, worldDef) {
   const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(process.cwd(), 'data') })
   await server.loadWorld({ ...worldDef, tickRate })
   await server.start()
-  const scheduler = createPreciseScheduler()
+  const scheduler = createPreciseScheduler({ spin: false })
   const truth = new Map(), tickTimes = []
   server.tickSystem.onTick(() => {
     const now = performance.now()
@@ -312,9 +311,9 @@ async function runOne(cond, predict, worldDef) {
   })
   const profile = { ...cond, channel: CHANNEL }
   const url = `ws://127.0.0.1:${port}/ws`
-  const mover = createHarnessClient({ url, profile, predict, scheduler, seed: 11 })
-  const shooter = createHarnessClient({ url, profile, predict, scheduler, seed: 23 })
-  const bots = Array.from({ length: BOTS }, (_, i) => createHarnessClient({ url, profile, predict, scheduler, seed: 100 + i }))
+  const mover = createHarnessClient({ url, profile, predict, scheduler, seed: seedFor(11) })
+  const shooter = createHarnessClient({ url, profile, predict, scheduler, seed: seedFor(23) })
+  const bots = Array.from({ length: BOTS }, (_, i) => createHarnessClient({ url, profile, predict, scheduler, seed: seedFor(100 + i) }))
   const all = [mover, shooter, ...bots]
   const shots = []
   server.connections.on('message', (clientId, msg) => {
@@ -354,7 +353,7 @@ async function runOne(cond, predict, worldDef) {
   const localFrames = [], remoteFrames = [], interpStats = [], meshLag = []
   const onsets = []
   let lastMoverInput = {}, runStart = 0, lastFrameAt = 0, shootAcc = 0, meterBase = null
-  const botRng = mulberry32(7)
+  const botRng = mulberry32(seedFor(7))
   const botInputs = bots.map(() => ({ yaw: 0, pitch: 0 }))
   runStart = performance.now() + 1500
   const shooterRec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
@@ -503,4 +502,4 @@ async function main() {
   process.exit(0)
 }
 
-main().catch(e => { console.error('[netcode-harness] FATAL', e?.stack || e); process.exit(1) })
+driveVirtual(main).catch(e => { console.error('[netcode-harness] FATAL', e?.stack || e); process.exit(1) })

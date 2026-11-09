@@ -1,24 +1,16 @@
 import { TransportWrapper } from '../../src/transport/TransportWrapper.js'
 import { unpack } from '../../src/protocol/msgpack.js'
 import { isUnreliable } from '../../src/protocol/MessageTypes.js'
+import { mulberry32 } from './virtual-clock.mjs'
+
+export { mulberry32 }
 
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
 const MIN_RETRANSMIT_PENALTY_MS = 20
 const SPIN_THRESHOLD_MS = 3
 
-export function mulberry32(seed) {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-export function createPreciseScheduler() {
+export function createPreciseScheduler({ spin = true } = {}) {
   const heap = []
   let seq = 0, armed = false, stopped = false
   const less = (a, b) => a.at < b.at || (a.at === b.at && a.seq < b.seq)
@@ -54,7 +46,8 @@ export function createPreciseScheduler() {
     if (armed || stopped || !heap.length) return
     armed = true
     const wait = heap[0].at - performance.now()
-    if (wait > SPIN_THRESHOLD_MS) setTimeout(run, wait - SPIN_THRESHOLD_MS)
+    if (!spin) setTimeout(run, Math.max(0, wait))
+    else if (wait > SPIN_THRESHOLD_MS) setTimeout(run, wait - SPIN_THRESHOLD_MS)
     else setImmediate(run)
   }
   return {
