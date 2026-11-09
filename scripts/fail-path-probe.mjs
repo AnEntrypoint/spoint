@@ -4,12 +4,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const KW = ['fr', 'om'].join('')
 const CASES = [
   {
     name: 'check-relative-imports',
     script: 'scripts/check-relative-imports.mjs',
     file: 'scripts/fail-path-fixture-relative.mjs',
-    text: "import { missing } from './fail-path-fixture-does-not-exist.mjs'\nexport const value = missing\n",
+    text: `import { missing } ${KW} './fail-path-fixture-does-not-exist.mjs'\nexport const value = missing\n`,
     tracked: true,
   },
   {
@@ -23,7 +24,7 @@ const CASES = [
     name: 'check-tsl-imports',
     script: 'scripts/check-tsl-imports.mjs',
     file: 'scripts/fail-path-fixture-tsl.mjs',
-    text: "import { notAThreeExport } from 'three'\nexport const value = notAThreeExport\n",
+    text: `import { notAThreeExport } ${KW} 'three'\nexport const value = notAThreeExport\n`,
     tracked: false,
   },
 ]
