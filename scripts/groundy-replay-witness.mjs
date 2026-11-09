@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -14,6 +14,15 @@ const MIN_RUNS = 15
 const MIN_REPLAYS = 100
 const SPIKE_MIN_M = 0.0008
 const INPUT_CATCHUP_DEPTH = 8
+const TRACE_DIVERGE_M = 0.01
+const distance3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+const firstDivergence = (trace, pick) => {
+  for (const t of trace) {
+    if (!t.server || !t[pick]) continue
+    if (distance3(t[pick], t.server) > TRACE_DIVERGE_M) return { seq: t.seq, m: distance3(t[pick], t.server) }
+  }
+  return null
+}
 const SPIKE_MAX_M = 0.0025
 const INJECT_DEFAULT_M = 0.03
 
@@ -106,6 +115,7 @@ const main = async () => {
   const dir = await mkdtemp(join(tmpdir(), 'groundy-replay-'))
   const runs = []
   const failures = []
+  const overTraces = []
   for (let i = 0; i < RUNS; i++) {
     const outPath = join(dir, `run-${i}.json`)
     const recordPath = join(dir, `run-${i}.groundy.json`)
@@ -128,6 +138,7 @@ const main = async () => {
       failures.push(`run ${i}: no engine's corrections match the harness's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} applied corrections, so the hook missed a correction`)
       continue
     }
+    for (const r of corrections) if (r.growthM > GROWTH_LIMIT_M) overTraces.push({ run: i, ...r })
     const engines = new Set(corrections.map(r => r.engine)).size
     const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue }
     runs.push(summary)
@@ -151,6 +162,16 @@ const main = async () => {
   const popOnPeer = runs.reduce((s, r) => s + r.pops.onPeerPush, 0)
   const popsPerMinMax = runs.reduce((m, r) => (r.popsPerMin === null ? m : Math.max(m, r.popsPerMin)), -Infinity)
   console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal} corrections with server queue above ${INPUT_CATCHUP_DEPTH} ${deepQueueTotal} of which over ${GROWTH_LIMIT_M * 100} cm ${overDeepQueueTotal}`)
+  for (const r of overTraces) {
+    const pre = firstDivergence(r.trace, 'pre'), post = firstDivergence(r.trace, 'post')
+    const lag = r.lastSeq - r.ackSeq
+    console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} growth ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
+  }
+  if (overTraces.length) {
+    const tracePath = join(dir, 'over-limit-traces.json')
+    await writeFile(tracePath, JSON.stringify(overTraces))
+    console.log(`traces: ${overTraces.length} over-limit replay(s) with per-input pre, post and server positions at ${tracePath}`)
+  }
   for (const f of failures) console.log(`failed: ${f}`)
 
   if (CONTROL) {

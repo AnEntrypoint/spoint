@@ -5,6 +5,7 @@ await installSpecifierHooks()
 const { PredictionEngine } = await import('../../src/client/PredictionEngine.js')
 const { PlayerManager } = await import('../../src/netcode/PlayerManager.js')
 const { NetworkState } = await import('../../src/netcode/NetworkState.js')
+const { PhysicsIntegration } = await import('../../src/netcode/PhysicsIntegration.js')
 
 const RECORD_PATH = process.env.GROUNDY_RECORD || ''
 const INJECT_M = Number(process.env.GROUNDY_INJECT_M || 0)
@@ -71,9 +72,11 @@ proto._reconcile = function (serverPlayer) {
 
 const queueDepthNow = new Map()
 const queueDepthByTick = new Map()
+let livePlayerManager = null
 
 const realGetInputs = PlayerManager.prototype.getInputs
 PlayerManager.prototype.getInputs = function (playerId) {
+  livePlayerManager = this
   const inputs = realGetInputs.call(this, playerId)
   queueDepthNow.set(playerId, inputs ? inputs.length : 0)
   return inputs
@@ -90,6 +93,16 @@ NetworkState.prototype.updatePlayer = function (playerId, ...rest) {
 
 const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.get(tick) ?? null
 
+const serverPositions = new Map()
+const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
+PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
+  const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
+  const seq = livePlayerManager?.getPlayer(playerId)?.ackSequence
+  const key = `${playerId}|${seq}`
+  if (seq != null && !serverPositions.has(key)) serverPositions.set(key, [state.position[0], state.position[1], state.position[2]])
+  return out
+}
+
 const realSetCollisionMirror = proto.setCollisionMirror
 proto.setCollisionMirror = function (mirror) {
   realSetCollisionMirror.call(this, mirror)
@@ -104,10 +117,15 @@ proto.setCollisionMirror = function (mirror) {
   }
 }
 
+const pathOf = engine => [...engine.inputHistory].map(e => [e.sequence, e.position[0], e.position[1], e.position[2]])
+
 proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = true) {
   let last = null
   for (const e of this.inputHistory) last = e
   const before = last ? [last.position[0], last.position[1], last.position[2]] : null
+  const prePath = pathOf(this)
+  const wedge = { horizontallyWedged: !!this.horizontallyWedged, blockedByServer: !!this._blockedByServer, wedgeNormal: [...this.wedgeNormal] }
+  const push = { serverPushWindow: this.lastServerState?.pushWindow ?? null, pushAckSeq: this.lastServerState?.pushAckSeq ?? null }
   realRebaseAndReplay.call(this, server, predictedAtAck, recordCorrection)
   if (!last) return
   const after = entryWithSequence(this, last.sequence)
@@ -131,7 +149,11 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     verticallyBlocked: !!this.verticallyBlocked,
     injectedM: INJECT_M,
     inContact,
-    path: [...this.inputHistory].map(e => [e.sequence, e.position[0], e.position[1], e.position[2]]),
+    path: pathOf(this),
+    prePath,
+    ackPosition: [server.position[0], server.position[1], server.position[2]],
+    wedge,
+    push,
     ackTick: this.__ackTick,
     ackSeq: server.inputSequence,
     ackAdvance: server.inputSequence - this.__ackBefore,
@@ -142,6 +164,20 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   })
 }
 
+const attachTraces = () => {
+  for (const r of records) {
+    if (r.kind !== 'correction' && r.kind !== 'resync') continue
+    const pre = new Map(r.prePath.map(([seq, x, y, z]) => [seq, [x, y, z]]))
+    r.trace = r.path.filter(([seq]) => seq > r.ackSeq).map(([seq, x, y, z]) => ({
+      seq,
+      pre: pre.get(seq) ?? null,
+      post: [x, y, z],
+      server: serverPositions.get(`${r.playerId}|${seq}`) ?? null
+    }))
+  }
+}
+
 process.on('exit', () => {
+  attachTraces()
   if (RECORD_PATH) writeFileSync(RECORD_PATH, JSON.stringify(records))
 })

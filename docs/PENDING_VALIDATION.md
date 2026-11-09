@@ -2,6 +2,8 @@
 
 Phase A changes are code, docs and tests written without running anything. Phase B runs each witness below, then the gate. Nothing here has been pushed unless the commit column says so.
 
+
+Commit hashes in this file were rewritten to the current `origin/main` history (owner-approved rewrite that removed the old author email). Old hashes are replaced by the new commit with the same subject: 0197ebf to 7bb9e43, 096e298 to bae3c98, 54229e9 to a540e75, 8e44515 to 8a201ff, b66a1b5 to fa478a3, fa25370 to 715ab77.
 ## Coded in Phase A
 
 | Row | Change | Commit | Files | Witness to run in Phase B |
@@ -63,7 +65,7 @@ Monitor logs, read back from `/tmp/popdiag/`:
 - Pre-fix baseline (`b4941c5` engine, 15 runs, clean rerun): `RESULT: FAIL`, exit 1. Totals: 85 replays, 56 over 1 cm (max growth 2.7370 m), 5 runs with pops, max 17.99 pops/min, 10 pops, 9 matched within 100 ms of a correction, 6 of them in peer contact. An earlier baseline attempt overlapped a second driver writing the same log, so its numbers (125 replays, 89 over) were discarded.
 - Fixed engine (`796c147`, 15 runs): `RESULT: FAIL`, exit 1. Totals: 79 replays, 50 over 1 cm (max 2.6405 m), 7 runs with pops, max 29.98 pops/min, 25 pops, 24 matched within 100 ms of a correction, 3 of them in peer contact.
 
-Row: replay natural growth. Witness PASS after Phase B (15 of 15 runs under 1 cm, see "Replay growth: Phase B" below), with a sample caveat: the witness records one mover replay per run. The earlier 6 of 23 and 52 of 77 counts came from the all-replay probe and the pre-Phase-B builds, so the all-replay count for this build is not measured. Option 1 (row 3 under "Coded in Phase A", commit 54229e9) is in. Cause found earlier: a server peer-collision impulse that the client does not predict in time; the next-tick rule does not remove the growth it produces.
+Row: replay natural growth. Witness PASS after Phase B (15 of 15 runs under 1 cm, see "Replay growth: Phase B" below), with a sample caveat: the witness records one mover replay per run. The earlier 6 of 23 and 52 of 77 counts came from the all-replay probe and the pre-Phase-B builds, so the all-replay count for this build is not measured. Option 1 (row 3 under "Coded in Phase A", commit a540e75) is in. Cause found earlier: a server peer-collision impulse that the client does not predict in time; the next-tick rule does not remove the growth it produces.
 
 Cause, measured this pass (instrumented server tick log, client replay probe, same process, three harness runs at `--cond=50/10/2`):
 - Server tick 345 (ack 311) for pid 2, t 5612 ms: pid 2 was idle at (0, 1.2, 10) with velocity 0 at tick 344. Pid 1 was running at about -9.8, 0, +10.0 m/s and was 0.71 m away at that tick (`CollisionSystem.js applyPlayerCollisions`, minimum 2 x capsuleRadius = 0.8 m). Pid 2's velocity became (1.005, 0, 1.695) and it moved onto a 0.2 m higher ground patch with no input, which is the push. `simulateTick` runs `applyPlayerCollisions` after `processPlayerMovement`, so the impulse is in the tick's state under that tick's ack.
@@ -115,7 +117,7 @@ Not pushed. `origin/main` is `a033468`. The local commits `b4941c5` through `312
 
 ## Replay growth after option 1 (Phase B, this pass)
 
-- Phase A commit: `54229e9` (lanmower, local, no trailers, not pushed). Rule: the separation push is planned from the published state and applied on the next tick. The client plans it from the acked state and its snapshot peers at lead 0, applies it after movement, and uses the planned push for the first input replayed after an ack. Later replayed inputs keep their stored push.
+- Phase A commit: `a540e75` (lanmower, local, no trailers, not pushed). Rule: the separation push is planned from the published state and applied on the next tick. The client plans it from the acked state and its snapshot peers at lead 0, applies it after movement, and uses the planned push for the first input replayed after an ack. Later replayed inputs keep their stored push.
 - `npm run check` (after `node scripts/generate-docs-site.js`): exit 0, 135 `RESULT: PASS` lines, no FAIL line.
 - `node scripts/groundy-replay-witness.mjs` (15 runs, 50/10/2 `on`): `RESULT: FAIL replay growth over 1 cm in 52 of 77 replays across 15 of 15 completed run(s); 15 requested, 0 failed, 6 run(s) with local pops`, exit 1. Totals: max growth 2.7634 m, 18 pops (max 17.99 pops/min), all 18 matched to a correction within 100 ms. The witness's own contact flag reads 0 of 0 contact replays, which is not a reliable record (its peers are one snapshot old).
 - Baseline at 796c147 (15 runs): 50 of 79 replays over 1 cm. After option 1: 52 of 77. The count does not move, so the same-tick push was not the dominant term of the growth in this harness.
@@ -147,7 +149,7 @@ Each change below is in the working tree and committed locally in Phase A. None 
 
 Measured in this pass:
 
-- Commit `b66a1b5` (push planned on the next tick, keyed by tick): 100 of 133 replays over 1 cm.
+- Commit `fa478a3` (push planned on the next tick, keyed by tick): 100 of 133 replays over 1 cm.
 - Per-tick queue (first version of the sequence-keyed window): 4 of 27 replays over 1 cm, in 4 of 15 runs.
 - Per-consumed-input queue: 2 of 31 replays over 1 cm, in 2 of 15 runs (maximum growth 0.2176 m). Pops 0 in every run.
 - Per-consumed-input queue plus the idle accumulator removed: 6 of 23 replays over 1 cm, in 6 of 15 runs (maximum growth 0.2355 m). This is worse than the line above, so it is not yet confirmed as a fix. Phase B repeats the measurement before deciding.
@@ -164,7 +166,7 @@ Each change below is in the working tree, committed locally, then pushed in one 
 - Caveat: the witness samples one mover replay per run, so this is 15 replays in total, not every replay in the run. The earlier 6 of 23 figure came from the all-replay probe. The all-replay count for this build was not run, so the pass is evidence about the witness's mover, not a proof that no replay grows over 1 cm.
 - Not separately measured: the wedge change alone, the accumulator removal alone. The 6 of 23 figure in Phase A was the per-consumed-input queue plus accumulator removal under the all-replay probe, before this wedge change. It is not a before-and-after for the final build.
 - Residuals not explained: spawn y drop at seq 9 and 10 (client-only, 0.2 m, before the first correction) and the 1 to 2 mm ledge bounce at seqs 269 to 272 (below the bar). Not investigated in this pass. Left open.
-- Repo note: `scripts/peer-replay-witness.mjs` was deleted in `8e44515` (Phase A). The deletion was not separately approved; it follows from the removal of the client peer separation it tested.
+- Repo note: `scripts/peer-replay-witness.mjs` was deleted in `8a201ff` (Phase A). The deletion was not separately approved; it follows from the removal of the client peer separation it tested.
 
 ## Replay growth: all-replay pass, Phase B results
 
@@ -173,7 +175,7 @@ Changes in this pass, each with its measurement:
 - Witness covers every correction replay (`scripts/groundy-replay-witness.mjs`). It measures the `kind: correction` replays of all engines in each run, not one mover. `kind: resync` replays (first contact and the settle below) carry no ack error, so they are counted and not measured for growth. The coverage check is at its cause: a harness count of 0 asserts nothing, because the harness counts only the local engine and a correction on the other engine is not a miss; a non-zero count must match one engine's corrections (count and jump mean and max). Before this fix, run 13 failed on a correction on engine 1 that the harness does not count.
 - Settle at the unchanged ack (cause of the spawn residual and of the 8 to 10 m error on engine 1). The server moves a player when its spawn hold releases, with no input acked (`ack 0`). Measured in a raw snapshot log: engine 0 moves z 8 to 10 and engine 1 moves z 8 to 0 at tick 17, with the ack still 0. `_reconcile` returned early whenever the ack had not advanced, so the client never adopted the move. Its first ack correction then carried the whole error: a 0.2 m drop (engine 0) and 8 to 10 m (engine 1) at ack 1. Fix (`src/client/PredictionEngine.js`, `_reconcile`): while the ack is 0 and unchanged, a server move above `RECONCILE_POS_EPS_M` re-bases with `_rebaseAndReplay(sv, null, false)`. The move is a resync, not a correction. Measured after the fix, three 20 s runs: 0 corrections in every run (before: 2 per run, errors 20 cm, 201 cm, 800 cm, 1000 cm at ack 1).
 - Re-simulation of ungrounded steps (added in Phase A, reverted). Measured: the 0.2 m drop still appeared at the tile-arrival tick, because the client's floor was the server's own pre-settle state. The mechanism was not the cause. Removed.
-- Ledge hypothesis (added in Phase A, reverted). A wedged step kept on the collider with the into-wedge velocity removed. Measured with the same blip count as without it: one one-tick spike of about 1 to 2 mm per run in both arms, so the change had no measured effect. The spikes are not from the mirror and analytic solver switch. Cause not found. Left open, and `src/shared/characterStep.js` is back at its `096e298` content.
+- Ledge hypothesis (added in Phase A, reverted). A wedged step kept on the collider with the into-wedge velocity removed. Measured with the same blip count as without it: one one-tick spike of about 1 to 2 mm per run in both arms, so the change had no measured effect. The spikes are not from the mirror and analytic solver switch. Cause not found. Left open, and `src/shared/characterStep.js` is back at its `bae3c98` content.
 - Wedge change, measured alone (displacement vs velocity sum, both arms with the settle fix, all-replay witness, 15 runs each):
   - Displacement (`true`, kept): `RESULT: PASS ... (0 replays, max growth - m, 0 run(s) with local pops)`. Zero correction replays in 15 runs.
   - Velocity sum (`false`): `RESULT: FAIL replay growth over 1 cm in 4 of 6 replays across 4 of 15 completed run(s)`. Over-limit runs 1, 4, 8 and 14, with growth 0.0981, 0.0335, 0.1462 and 0.0363 m.
@@ -236,7 +238,7 @@ No defect was fixed in this pass. The pass changed only the witness output (worl
 
 Changes in this phase:
 
-- `scripts/groundy-replay-witness.mjs`: `MIN_REPLAYS = 100`. A PASS needs at least 100 correction replays across the runs. The canonical 50/10/2 condition yields 1 replay in 15 runs, so it cannot pass and is reported as `FAIL underpowered`. The gate condition stays `120/40/6`, the default since 0197ebf.
+- `scripts/groundy-replay-witness.mjs`: `MIN_REPLAYS = 100`. A PASS needs at least 100 correction replays across the runs. The canonical 50/10/2 condition yields 1 replay in 15 runs, so it cannot pass and is reported as `FAIL underpowered`. The gate condition stays `120/40/6`, the default since 7bb9e43.
 - `scripts/lib/groundy-replay-hook.mjs`: wraps each engine's collision mirror `step` and records a `spike` record for each grounded step where y rises 0.8 to 2.5 mm and then falls at least 0.8 mm on the next step. Each record carries the engine id and the up and down amounts.
 - `scripts/groundy-replay-witness.mjs`: resyncs are counted by `kind === 'resync'`, not by subtraction, so spike records are not counted as resyncs. Each run line and the totals print the mirror spike count. A PASS needs zero spikes, and `RESULT: FAIL` names the spike count when spikes are present.
 - `docs/index.html`: regenerated with `node scripts/generate-docs-site.js`.
@@ -261,7 +263,7 @@ Open: the mechanism inside Jolt's `ExtendedUpdate` that lifts the character befo
 
 ## Phase B: spike decision on final code, canonical 50/10/2, server probe (open)
 
-Final code: `fa25370` (Phase A) with the RESULT block in `scripts/groundy-replay-witness.mjs` now listing every failing reason, and the new `scripts/stick-floor-ramp-witness.mjs`. No `src/` change, so no bundle rebuild was needed for this pass. History: `origin/main` is 7bb9e43 (rewritten, see the note below), and this work sits on it as 715ab77 and the commit that carries this section.
+Final code: `715ab77` (Phase A) with the RESULT block in `scripts/groundy-replay-witness.mjs` now listing every failing reason, and the new `scripts/stick-floor-ramp-witness.mjs`. No `src/` change, so no bundle rebuild was needed for this pass. History: `origin/main` is 7bb9e43 (rewritten, see the note below), and this work sits on it as 715ab77 and the commit that carries this section.
 
 Measured on the final code (all runs `peers`, `--predict=on`, 15 runs each unless noted):
 
@@ -282,7 +284,7 @@ Spike decision, from the evidence:
 
 Other open defect: the 11 correction replays over 1 cm at 120/40/6 (max 0.111 m). Recorded with its cause unknown. The candidates from earlier passes are acks rejected by `ackUsable` or `maxAckAdvanceTicks`, which leave prediction stale until a larger correction. This pass did not test them.
 
-Note on history: `origin/main` was rewritten to 7bb9e43 with admin@coas.co.za removed by owner approval. The Phase A commit is now 715ab77 on that base, under almagestfraternite@gmail.com. The earlier history on this ledger (0197ebf and before) is no longer on `origin/main`, so its commit hashes in this file refer to the old history.
+Note on history: `origin/main` was rewritten to 7bb9e43 with admin@coas.co.za removed by owner approval. The Phase A commit is now 715ab77 on that base, under almagestfraternite@gmail.com. The earlier history on this ledger (7bb9e43 and before) is no longer on `origin/main`, so its commit hashes in this file refer to the old history.
 
 ## Phase A: replay growth at 120/40/6, instrumented (code, docs and tests only)
 
@@ -321,6 +323,21 @@ Candidates, with the evidence for each:
 Not tested: the replayed path itself (per-input server and client positions for a multi-step ack, the wedge state `horizontallyWedged` and `_blockedByServer` at the ack, and the push window). The next step is a per-input comparison for one over-limit replay.
 
 Status: open. The growth cause is not identified. Phase A is `89fbd68`, and this phase adds the ack-advance fix to the hook. No `src/` change is kept.
+
+## Phase A: replay growth per-input trace, check step and ledger hashes (code, docs and tests only)
+
+Changes in this phase:
+
+- `scripts/check.mjs`: adds `stick-floor-ramp-witness` to the step list (after `server-field-paint-host-witness`), so `npm run check` runs the 0.5 m stick ramp witness and fails if the grounded fraction on a 5 deg ramp drops below 0.9.
+- `docs/PENDING_VALIDATION.md`: the commit hashes that are no longer on `origin/main` are replaced with the rewritten commit of the same subject (0197ebf to 7bb9e43, 096e298 to bae3c98, 54229e9 to a540e75, 8e44515 to 8a201ff, b66a1b5 to fa478a3, fa25370 to 715ab77). Each mapping was checked by exact subject match. A note at the top of the file records the mapping.
+- `scripts/lib/groundy-replay-hook.mjs`: four additions, each a wrapper that returns the wrapped call's value unchanged.
+  - Server per-input positions. `PhysicsIntegration.prototype.updatePlayerPhysics` is wrapped. After each call the hook records the player's state position under `playerId|ackSequence`, where `ackSequence` is the sequence `takeNextInput` set for that step (first record per key only). A step with no consumed input is not recorded.
+  - Client pre-replay path. Each correction stores `prePath`, the input history before the replay, next to `path`, which is the history after it.
+  - Wedge and push state at the ack. Each correction stores `wedge` (`horizontallyWedged`, `blockedByServer`, `wedgeNormal`) and `push` (the server snapshot's `pushWindow` and `pushAckSeq`), both read before the replay.
+  - Per-input trace. At exit, each correction and resync gets `trace`: for every input after the ack, `pre` (the client's pre-replay position), `post` (the replayed position) and `server` (the server's position after that input, or null if the server had not processed it by exit).
+- `scripts/groundy-replay-witness.mjs`: each over-limit correction prints one line with its ack, lag, ack advance, queue depth, error, growth, wedge and push state, and the first input where the pre-replay prediction is more than 1 cm off the server and the first input where the replay is more than 1 cm off the server. The full traces of all over-limit corrections are written to `over-limit-traces.json` in the run's temporary directory, and the path is printed.
+
+Question this phase is built to answer: for one multi-step over-limit replay, does the client or the server diverge first? The server cannot see unacked inputs when the ack arrives, so the server positions for inputs after the ack are recorded when the server later processes them, and joined at exit.
 
 ## Docs index
 

@@ -216,6 +216,7 @@ async function main() {
     ['script-preflight-witness', 'scripts/script-preflight-witness.mjs', (out) => `check: ${out}`],
     ['scripted-terrain-witness', 'scripts/scripted-terrain-witness.mjs', (out) => `check: ${out}`],
     ['server-field-paint-host-witness', 'scripts/server-field-paint-host-witness.mjs', (out) => `check: ${out}`],
+    ['stick-floor-ramp-witness', 'scripts/stick-floor-ramp-witness.mjs', (out) => `check: ${out}`],
     ['server-restart-loadworld-witness', 'scripts/server-restart-loadworld-witness.mjs', (out) => `check: ${out}`],
     ['shared-lattice-surface-witness', 'scripts/shared-lattice-surface-witness.mjs', (out) => `check: ${out}`],
     ['skill-md-facts-witness', 'scripts/skill-md-facts-witness.mjs', (out) => `check: ${out}`],
