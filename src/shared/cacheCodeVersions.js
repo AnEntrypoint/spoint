@@ -1,3 +1,3 @@
-export const SNAPSHOT_ENTITY_ENC_CODE_VERSION = '989b5adb57af'
-export const SNAPSHOT_ENCODE_CODE_VERSION = 'f57e2cab1f16'
-export const COLLISION_GRID_CODE_VERSION = 'df8bf8c5654e'
+export const SNAPSHOT_ENTITY_ENC_CODE_VERSION = '38ffe3fee28e'
+export const SNAPSHOT_ENCODE_CODE_VERSION = 'aca4d6ceffca'
+export const COLLISION_GRID_CODE_VERSION = '8eec9fdf2368'

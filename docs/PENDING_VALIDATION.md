@@ -2826,3 +2826,45 @@ Witness codes: W-alloc and W-frame, with scripts/perf-run.mjs for per-frame rows
 #### Exception to Phase A no-run rule: typings regeneration
 
 The pre-commit hook refuses a commit that changes the AppContext import closure unless `client/editor/sdk-typings.generated.d.ts` is regenerated and staged in the same commit. The command `npm run gen-typings` was run once, exit code 0. It wrote 984 lines and changed `SOURCE_DIGEST` (from `8aaf4a86...` to `61d30edd...`) and two inferred members, `origin` and `viewTick`, from `any` to `null`. Phase B checks those two as part of the W-behaviour run. No `--no-verify` was used.
+
+#### Phase B results (run 23 reuse pass, commit d0a47f5 plus the Phase B fixes)
+
+Witnesses run in ledger order, least-certain first. Each line is the RESULT line from the run, with the exit code.
+
+- fire-kernel-contract-witness: EXIT=0, RESULT: PASS fire kernel is deterministic, restores from snapshot, and rain suppresses spread without stopping burn-down
+- fire-weather-contract-witness: EXIT=0, RESULT: PASS fire weather parses the documented kinds and bounds
+- groundy-replay-witness: EXIT=0, RESULT: PASS the replay base groundY adds no residual over 1 cm in 15 runs of 120/40/6 (0 replays)
+- prediction-reconcile-witness: EXIT=0, RESULT: PASS PredictionEngine and ReconciliationEngine keep prediction matched to an exact authority (22 checks)
+- expr-truncation-witness: EXIT=0, RESULT: PASS quantizeInput truncates expr (3.7 -> 3, 254.9 -> 254) without reporting it
+- collision-tile-shape-witness: EXIT=0, RESULT: PASS collision tile floor is the server's box (19 of 19 checks)
+- snapshot-lod-tiers-witness: EXIT=0, RESULT: PASS spoint's snapshot tiers match docs/netcode.md (9 checks)
+- netcode-wire-pbt: EXIT=0, RESULT: PASS
+- spatial-index-witness: EXIT=0, RESULT: PASS the spatial index answers insert, nearby, nearbyCylinder and nearest (35 checks)
+- trigger-volume-witness: EXIT=0, RESULT: PASS trigger volume 4 enter(s), 4 exit(s), 6 linked-state write(s), 18 coded refusal(s)
+- spline-witness: EXIT=0, RESULT: PASS open+closed Catmull-Rom splines, arc-length framing, 36 coded refusals
+- path-handle-witness: EXIT=0, RESULT: PASS open+closed 3-point paths, within/beyond cutoffs, 20 coded refusals
+- stage-radius-zero-witness: EXIT=0, RESULT: PASS a zero radius is a zero radius through the stage (15 checks)
+- resolve-delivered-ids-witness: EXIT=0, RESULT: PASS spoint's unmanaged delivery matches docs/netcode.md (10 checks)
+- decision-runtime-witness: EXIT=0, RESULT: PASS decision runtime honours per-entity cadence, no-players gate, ask failure, duplicate/cap refusals and named callbacks
+- checkpoint-nested-radius-witness: EXIT=0, RESULT: PASS nested checkpoints[].radius is validated at the boundary
+- projectile-gravity-witness: EXIT=0, RESULT: PASS projectile integration applies gravity per substep, sweeps substep rays and refuses by code
+- starved-neutral-witness: EXIT=0, RESULT: PASS a starved tick freezes the character until a sequenced input is consumed (7/7 checks)
+- stick-floor-ramp-witness: EXIT=0, RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp
+- rock-model-exclusion-witness: EXIT=0, RESULT: PASS ordinary placed-model footprint removes 13 rock(s) and 252 plant(s); no survivor sits inside it
+- grass-wind-field-seam-witness: EXIT=0, RESULT: PASS grass wind field: sampled wind at a fixed point moves smoothly frame to frame
+- crowd-dot-cell-witness: EXIT=0, RESULT: PASS a crowd dot is reported at its own cell in every quadrant (11/11 checks)
+- xr-arc-frame-order-witness: EXIT=0, RESULT: PASS the arc runs in the frame section before the render
+- crowd-dot-render-witness (browser, --serve then --check on the result captured through the project's cdp-browser): CHECK_EXIT=0, RESULT: PASS the WebGL crowd dots draw with the material as shipped; a single dot measures 1.96 m and the largest bucket dot 5.9 m
+- planet-multiplayer-harness: EXIT=0, RESULT: PASS -- 54 of 54 check(s) passed
+- peer-profile-harness: EXIT=0, JSON output, no RESULT line; desyncs 0 on both peers
+- netcode-conditioner-harness: EXIT=0, metrics table written to data/netcode-harness, no RESULT line
+- perf-gate: EXIT=0, [perf-gate] PASS (measured p50 0.077 ms against a 0.091 ms limit), after the re-bake below
+- perf-run: NOT RUN. EXIT=2, "no DirectX adapter matches vendor nvidia". The witness needs a Windows NVIDIA adapter. The ledger's frame judgement is on the GPU runner, which is not online here.
+- W-hash (byte identity against e8c0c3d): NOT RUN. The before-and-after comparison needs the pre-change tree, and a second checkout is forbidden here. The wire witnesses above test the current code only.
+
+Fixes made in Phase B:
+- apps/world/tps-game.hf re-baked: the bake's input list includes src/terrain/PlanetFrame.js, which the reuse pass changed, so the stamp was stale and perf-gate refused to boot. Command: node scripts/bake-heightfield.mjs --world tps-game --out apps/world/tps-game.hf --extent 256 --res 1 --sector 16 --bits 16 (exit 0, 134694 B, same size, new stamp).
+- src/shared/cacheCodeVersions.js: SNAPSHOT_ENCODE_CODE_VERSION f57e2cab1f16 -> aca4d6ceffca, SNAPSHOT_ENTITY_ENC_CODE_VERSION 989b5adb57af -> 38ffe3fee28e, COLLISION_GRID_CODE_VERSION df8bf8c5654e -> 8eec9fdf2368. Each pin is the value check.mjs printed for the changed producing source.
+- docs/index.html regenerated with node scripts/generate-docs-site.js (exit 0), because the ledger text feeds the docs page. docs-page-freshness-witness then passed.
+
+npm run check after the fixes: CHECK_EXIT=0, 139 RESULT: PASS lines, 0 failure lines.
