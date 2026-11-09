@@ -40,13 +40,40 @@ function killTree(pid) {
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
-function killBrowser(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return
-  if (process.platform === 'win32') {
-    killTree(pid)
-    return
+function startTime(value) {
+  const text = String(value)
+  if (/^\d+$/.test(text)) return Number(text)
+  return Date.parse(text)
+}
+
+export function startOf(pid) {
+  const table = processTable()
+  const row = table ? table.find((r) => r.pid === pid) : undefined
+  return row ? row.start : null
+}
+
+function leaderState(record) {
+  const pid = Number(record?.browserPid ?? 0)
+  if (!(pid > 0) || !record?.browserStart) return 'unverified'
+  const table = processTable()
+  if (!table) return 'unverified'
+  const row = table.find((r) => r.pid === pid)
+  if (!row) return 'absent'
+  return row.start === String(record.browserStart) ? 'verified' : 'mismatch'
+}
+
+export function killOwnedBrowser(record) {
+  const pid = Number(record?.browserPid ?? 0)
+  const state = leaderState(record)
+  if (state === 'verified') {
+    if (process.platform === 'win32') killTree(pid)
+    else {
+      try { process.kill(-pid, 'SIGKILL') } catch {}
+    }
+  } else if (state !== 'absent') {
+    process.stderr.write('browser-lease: browser pid ' + pid + ' leader is ' + state + ', so its group is not signalled\n')
   }
-  try { process.kill(-pid, 'SIGKILL') } catch { killTree(pid) }
+  return state
 }
 
 function processTable() {
@@ -89,13 +116,18 @@ function windowsProcessTable() {
   return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: Number(row.pid), ppid: Number(row.ppid), start: String(row.start), pgid: 0 }))
 }
 
-export function browserTreeNow(rootPid, groupId = 0) {
+export function browserTreeNow(rootPid, groupId = 0, expectStart = null) {
   const root = Number.isInteger(rootPid) && rootPid > 0 ? rootPid : 0
   const group = Number.isInteger(groupId) && groupId > 0 ? groupId : 0
   if (root === 0 && group === 0) return []
   const table = processTable()
   if (!table) {
     process.stderr.write('browser-lease: process table unreadable, children of browser pid ' + rootPid + ' not recorded\n')
+    return []
+  }
+  const leader = table.find((row) => row.pid === (root || group))
+  if (expectStart !== null && leader && leader.start !== expectStart) {
+    process.stderr.write('browser-lease: pid ' + leader.pid + ' start differs from the recorded browser start, so nothing is recorded from it\n')
     return []
   }
   const found = new Map()
@@ -117,9 +149,9 @@ export function browserTreeNow(rootPid, groupId = 0) {
       }
     }
   }
-  if (group > 0) {
+  if (group > 0 && expectStart !== null) {
     for (const row of table) {
-      if (row.pgid === group) take(row)
+      if (row.pgid === group && startTime(row.start) >= startTime(expectStart)) take(row)
     }
   }
   return [...found.values()].map((row) => ({ pid: row.pid, start: row.start }))
@@ -134,7 +166,9 @@ function mergeTree(prior, found) {
 }
 
 function refreshedTree(record) {
-  return mergeTree(record?.browserTree, browserTreeNow(Number(record?.browserPid ?? 0), Number(record?.browserPgid ?? 0)))
+  const prior = Array.isArray(record?.browserTree) ? record.browserTree : []
+  if (!record?.browserStart) return prior
+  return mergeTree(prior, browserTreeNow(Number(record?.browserPid ?? 0), Number(record?.browserPgid ?? 0), String(record.browserStart)))
 }
 
 function killRecorded(entries) {
@@ -244,7 +278,7 @@ function holderIsLive(record, dir, ttlMs) {
 function reclaimAbandonedHold(record) {
   const holderPid = Number(record?.pid ?? 0)
   if (!pidAlive(holderPid)) killTree(holderPid)
-  killBrowser(Number(record?.browserPid ?? 0))
+  killOwnedBrowser(record)
 }
 
 function claim(dir, owner, fingerprint, ttlMs) {
@@ -393,7 +427,7 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
       const tree = refreshedTree(record)
-      killBrowser(Number(record.browserPid ?? 0))
+      killOwnedBrowser(record)
       killRecorded(tree)
       try { fs.unlinkSync(ownerFile(dir)) } catch {}
       try { fs.rmSync(profileDir(dir), { recursive: true, force: true }) } catch {}
