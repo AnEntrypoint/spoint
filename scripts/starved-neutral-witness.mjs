@@ -5,7 +5,7 @@ await installSpecifierHooks()
 const { processPlayerMovement } = await import('../src/sdk/TickHandler.js')
 const { PredictionEngine } = await import('../src/client/PredictionEngine.js')
 const { applyMovement, DEFAULT_MOVEMENT } = await import('../src/shared/movement.js')
-const { STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY } = await import('../src/shared/starvedNeutral.js')
+const { STARVED_TICKS_STEP_STATE } = await import('../src/shared/starvedNeutral.js')
 
 const checks = []
 const check = (name, ok, detail = '') => {
@@ -17,7 +17,7 @@ const TICK_RATE = 60
 const DT = 1 / TICK_RATE
 const HOLD_TICKS = Math.max(1, Math.round(TICK_RATE * 0.25))
 const WALK_TICKS = 6
-const NEUTRAL_TICKS = 12
+const STARVED_TICKS = 40
 const STILL_EPS_M = 1e-9
 const COAST_MIN_M = 0.05
 
@@ -31,12 +31,15 @@ function serverHarness() {
     hasSentInput: true,
     lastInput: null,
   }
+  let physicsCalls = 0
   const physicsIntegration = {
     updatePlayerPhysics(_id, st, dt) {
+      physicsCalls++
       st.position[0] += st.velocity[0] * dt
       st.position[2] += st.velocity[2] * dt
     },
     setCrouch() {},
+    physicsCalls: () => physicsCalls,
   }
   const deps = {
     playerManager: { getInputs: () => queue, getMovementOverride: () => null },
@@ -48,8 +51,9 @@ function serverHarness() {
     eventLog: null,
     transformRingWriter: null,
     starveHoldTicks: HOLD_TICKS,
+    tickMs: 1000 / TICK_RATE,
   }
-  return { player, queue, deps }
+  return { player, queue, deps, physicsIntegration }
 }
 
 const server = serverHarness()
@@ -60,53 +64,56 @@ const walkStart = server.player.state.position
 const walked = Math.hypot(walkStart[0], walkStart[2])
 check('walking moves the character before the input stops', walked > 0.5, `walked ${walked.toFixed(3)} m`)
 
-let holdMaxM = 0
-for (let i = 0; i < HOLD_TICKS; i++, tick++) {
+const frozenAt = [...server.player.state.position]
+const frozenVel = [...server.player.state.velocity]
+const callsBefore = server.physicsIntegration.physicsCalls()
+let starvedMaxM = 0
+let starvedVelMaxDelta = 0
+let starvedMaxSteps = 0
+for (let i = 0; i < STARVED_TICKS; i++, tick++) {
   const before = [...server.player.state.position]
   processPlayerMovement([server.player], server.deps, tick, DT, new Map())
   const p = server.player.state.position
-  holdMaxM = Math.max(holdMaxM, Math.hypot(p[0] - before[0], p[2] - before[2]))
+  starvedMaxM = Math.max(starvedMaxM, Math.hypot(p[0] - before[0], p[2] - before[2]))
+  const v = server.player.state.velocity
+  starvedVelMaxDelta = Math.max(starvedVelMaxDelta, Math.abs(v[0] - frozenVel[0]), Math.abs(v[2] - frozenVel[2]))
+  starvedMaxSteps = Math.max(starvedMaxSteps, server.player.starvedSteps || 0)
 }
-check('the starved hold leaves the character in place', holdMaxM <= STILL_EPS_M, `max ${holdMaxM}`)
 
-const neutralDisp = []
-const neutralVel = []
-for (let i = 0; i < NEUTRAL_TICKS; i++, tick++) {
-  const before = [...server.player.state.position]
+if (STARVED_TICKS_STEP_STATE) {
+  check('starved ticks step the character (reversal switch on)', starvedMaxM > 0, `max move ${starvedMaxM}`)
+} else {
+  check('starved ticks leave the character in place', starvedMaxM <= STILL_EPS_M, `max move ${starvedMaxM}`)
+  check('starved ticks leave the velocity as it was when the input stopped', starvedVelMaxDelta <= STILL_EPS_M, `max delta ${starvedVelMaxDelta}`)
+  check('starved ticks run no physics step', server.physicsIntegration.physicsCalls() === callsBefore, `calls ${server.physicsIntegration.physicsCalls() - callsBefore}`)
+  check('starved ticks count no neutral steps on the server', starvedMaxSteps === 0, `max starvedSteps ${starvedMaxSteps}`)
+  check('the frozen position is the position when the input stopped', server.player.state.position.every((c, i) => c === frozenAt[i]), `frozen at ${frozenAt.map(c => c.toFixed(3)).join(',')}`)
+
+  server.queue.push({ sequence: 11 + WALK_TICKS, data: { forward: true, yaw: 0 } })
+  const beforeResume = [...server.player.state.position]
+  const callsAtResume = server.physicsIntegration.physicsCalls()
   processPlayerMovement([server.player], server.deps, tick, DT, new Map())
-  const p = server.player.state.position
-  neutralDisp.push(Math.hypot(p[0] - before[0], p[2] - before[2]))
-  neutralVel.push(Math.hypot(server.player.state.velocity[0], server.player.state.velocity[2]))
+  const resumed = Math.hypot(server.player.state.position[0] - beforeResume[0], server.player.state.position[2] - beforeResume[2])
+  check('a sequenced input resumes from the frozen state with one physics step', server.physicsIntegration.physicsCalls() - callsAtResume === 1 && resumed > 0, `calls ${server.physicsIntegration.physicsCalls() - callsAtResume}, moved ${resumed.toFixed(4)} m`)
+  tick++
 }
 
-if (!STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY) {
-  check('server: a neutral step after the hold moves nothing horizontally', Math.max(...neutralDisp) <= STILL_EPS_M, `max ${Math.max(...neutralDisp)}`)
-  check('server: a neutral step after the hold leaves zero horizontal velocity', Math.max(...neutralVel) <= STILL_EPS_M, `max ${Math.max(...neutralVel)}`)
-} else {
-  check('server: the reversal switch restores the post-hold coast', neutralDisp[0] >= COAST_MIN_M, `first neutral step ${neutralDisp[0].toFixed(4)} m`)
-}
-
-const engine = new PredictionEngine(TICK_RATE)
-engine.setGroundProvider(() => 0)
-engine.init(1, { position: [0, 0, 0], velocity: [0, 0, 0] })
-engine.localState.velocity[0] = 12.9
-const predicted = {
-  position: [0, 0, 0],
-  velocity: [12.9, 0, 0],
-  onGround: true,
-  groundY: 0,
-  move: { ...engine.localState },
-  data: { forward: false, yaw: 0, pitch: 0, crouch: false, expr: 0 },
-}
-const ack = { position: [0, 0, 0], starvedSteps: NEUTRAL_TICKS, pushWindow: null, pushAckSeq: 0, groundNormal: null }
-engine._rollForwardAcked(ack, predicted)
-const rolledM = Math.hypot(engine.localState.position[0], engine.localState.position[2])
-const rolledVel = Math.hypot(engine.localState.velocity[0], engine.localState.velocity[2])
-
-if (!STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY) {
-  check('client: the roll-forward through the starved count moves nothing horizontally', rolledM <= STILL_EPS_M, `moved ${rolledM}`)
-  check('client: the roll-forward through the starved count leaves zero horizontal velocity', rolledVel <= STILL_EPS_M, `velocity ${rolledVel}`)
-} else {
+if (STARVED_TICKS_STEP_STATE) {
+  const engine = new PredictionEngine(TICK_RATE)
+  engine.setGroundProvider(() => 0)
+  engine.init(1, { position: [0, 0, 0], velocity: [0, 0, 0] })
+  engine.localState.velocity[0] = 12.9
+  const predicted = {
+    position: [0, 0, 0],
+    velocity: [12.9, 0, 0],
+    onGround: true,
+    groundY: 0,
+    move: { ...engine.localState },
+    data: { forward: false, yaw: 0, pitch: 0, crouch: false, expr: 0 },
+  }
+  const ack = { position: [0, 0, 0], starvedSteps: STARVED_TICKS, pushWindow: null, pushAckSeq: 0, groundNormal: null }
+  engine._rollForwardAcked(ack, predicted)
+  const rolledM = Math.hypot(engine.localState.position[0], engine.localState.position[2])
   check('client: the reversal switch restores the roll-forward coast', rolledM >= COAST_MIN_M, `moved ${rolledM.toFixed(4)} m`)
 }
 
@@ -116,7 +123,7 @@ if (failed.length) {
   console.log(`RESULT: FAIL ${failed.length} check(s): ${failed.map(c => c.name).join('; ')}`)
   await exitAfterQuiesce(1)
 } else {
-  const rule = STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY ? 'keeps the post-hold coast' : 'carries zero horizontal velocity'
-  console.log(`RESULT: PASS the starved neutral step ${rule} on the server and in the client roll-forward (constant ${STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY})`)
+  const rule = STARVED_TICKS_STEP_STATE ? 'steps the character with the zeroing and neutral step (reversal)' : 'freezes the character until a sequenced input is consumed'
+  console.log(`RESULT: PASS a starved tick ${rule} (constant ${STARVED_TICKS_STEP_STATE})`)
   await exitAfterQuiesce(0)
 }

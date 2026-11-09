@@ -9,7 +9,7 @@ import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
-import { holdStarvedNeutralVelocity } from '../shared/starvedNeutral.js'
+import { holdStarvedNeutralVelocity, STARVED_TICKS_STEP_STATE } from '../shared/starvedNeutral.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { packSnapshotBytes, newRecordMemo } from '../netcode/SnapshotPacker.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
@@ -129,7 +129,7 @@ export function processPlayerMovement(players, deps, tick, dt, playerIdleCounts,
     else if (player.hasSentInput) {
       player.inputStarves = (player.inputStarves || 0) + 1
       player.starvedTicks = (player.starvedTicks || 0) + 1
-      holdForInput = player.starvedTicks <= deps.starveHoldTicks
+      holdForInput = !STARVED_TICKS_STEP_STATE || player.starvedTicks <= deps.starveHoldTicks
       starvedNeutral = !holdForInput
       if (starvedNeutral) player.starvedSteps = (player.starvedSteps || 0) + 1
       if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)

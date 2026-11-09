@@ -726,3 +726,19 @@ Probe changes in this pass (no product code):
 Not decided here. The fix needs an owner decision between: (a) a per-input starved-tick count in the ack, which changes the wire; (b) keeping horizontal velocity on starved ticks (`STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY = true`), which is not measured on the gate and would still leave friction on the server's starved ticks, so it would not remove the mismatch on its own; or (c) accepting the residual. The gate stays FAILED until one is chosen.
 
 Status: the gate FAILS (9 of 410, three identical runs). The cause is measured to the starved tick in six keys and to the replay base in all nine.
+
+## Phase A (run 9): a starved tick changes nothing on the server
+
+Decided by the dispatcher (option (c) of run 8, the state-neutral starved tick). The owner's rule holds: a starved character stops rather than coasting, because it does not move while starved. Reversible by one constant.
+
+| area | change | file | witness |
+|---|---|---|---|
+| constant | New: `STARVED_TICKS_STEP_STATE = false`. `true` restores the hold, then the zero-velocity neutral step on the server, and the client's roll-forward through the starved count. | `src/shared/starvedNeutral.js` | `node scripts/starved-neutral-witness.mjs` (Phase B) |
+| server | `processPlayerMovement`: `holdForInput` is `!STARVED_TICKS_STEP_STATE || starvedTicks <= starveHoldTicks`. While the constant is `false`, a starved tick takes the hold branch: no `applyMovement`, no physics step, no zeroing, no neutral input, `starvedSteps` stays 0. The step budget accrues as on a hold tick. | `src/sdk/TickHandler.js` | `node scripts/starved-neutral-witness.mjs` |
+| witness | Rewritten for the freeze: 40 starved ticks after a walk leave the position unchanged (max move 1e-9 m), leave the velocity unchanged, run no physics step, count no neutral steps on the server, and a sequenced input resumes with exactly one physics step. The old zeroing checks run only when the constant is `true`. | `scripts/starved-neutral-witness.mjs` | `node scripts/starved-neutral-witness.mjs` |
+
+No client change. The client's roll-forward (`_rollForwardAcked`, reached only when the ack's `starvedSteps` is above 0) is now unreachable while the constant is `false`, because the server sends 0. It is kept as the reversal path.
+
+Not changed in this pass: the gate's definition, the 1 cm threshold, the sample set, the wire format, and the starvation hold length (`STARVE_HOLD_SECONDS`, 0.25 s).
+
+Status: Phase A is committed locally. The freeze is measured in Phase B.
