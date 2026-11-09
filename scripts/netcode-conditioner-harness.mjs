@@ -334,7 +334,7 @@ async function runOne(cond, predict, worldDef) {
   })
   const connectFailures = []
   await Promise.all(all.map(h => h.client.connect().catch(e => connectFailures.push(e))))
-  if (connectFailures.length) { console.error(`[netcode] ${connectFailures.length} of ${all.length} client(s) failed to connect: ${connectFailures[0].name}: ${connectFailures[0].message}`); process.exit(1) }
+  if (connectFailures.length) { console.log(`RESULT: FAIL ${connectFailures.length} of ${all.length} client(s) did not connect`); console.error(`[netcode] ${connectFailures.length} of ${all.length} client(s) failed to connect: ${connectFailures[0].name}: ${connectFailures[0].message}`); process.exit(1) }
   const t0 = performance.now()
   while (!all.every(h => h.client.playerId) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 20))
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
@@ -489,6 +489,7 @@ async function main() {
   }
   const unmeasured = results.filter((r) => !(r.inputToVisual.onsets > 0 && r.snapshots.hz > 0 && Number.isFinite(r.ticks.hz)))
   if (unmeasured.length) {
+    console.log(`RESULT: FAIL ${unmeasured.length} of ${results.length} arm(s) measured nothing: each arm needs input onsets > 0, a snapshot rate > 0 and a finite tick rate`)
     console.error(`[netcode-harness] ${unmeasured.length} of ${results.length} arm(s) measured nothing -- each needs onsets > 0, snapshot Hz > 0 and a finite tick Hz:`)
     for (const r of unmeasured) console.error(`  ${r.cond.latencyMs}/${r.cond.jitterMs}/${r.cond.lossPct}% predict=${r.predict ? 'on' : 'off'}: onsets=${r.inputToVisual.onsets} snapHz=${r.snapshots.hz} tickHz=${r.ticks.hz}`)
     process.exit(1)
@@ -499,7 +500,8 @@ async function main() {
   const outPath = OUT_PATH_ARG || resolve(OUT_DIR, `run-${Date.now()}.json`)
   await writeFile(outPath, JSON.stringify({ world: WORLD, channel: CHANNEL, fps: FPS, results, table }, null, 2))
   console.log(`[netcode-harness] wrote ${outPath}`)
+  console.log(`RESULT: PASS ${results.length} arm(s) measured, each with input onsets > 0, a snapshot rate > 0 and a finite tick rate and every client connected; latency and jitter are reported in the table, not asserted; ${outPath} written`)
   process.exit(0)
 }
 
-driveVirtual(main).catch(e => { console.error('[netcode-harness] FATAL', e?.stack || e); process.exit(1) })
+driveVirtual(main).catch(e => { console.log('RESULT: FAIL the run aborted before every arm was measured; see stderr'); console.error('[netcode-harness] FATAL', e?.stack || e); process.exit(1) })

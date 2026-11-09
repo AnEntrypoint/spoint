@@ -2868,3 +2868,39 @@ Fixes made in Phase B:
 - docs/index.html regenerated with node scripts/generate-docs-site.js (exit 0), because the ledger text feeds the docs page. docs-page-freshness-witness then passed.
 
 npm run check after the fixes: CHECK_EXIT=0, 139 RESULT: PASS lines, 0 failure lines.
+
+## Run 24: close-out of the three open items (Phase A, code, docs and tests only, no build, test, gate or witness run)
+
+Phase B runs the commands below and records their output here. The page is generated last, after this ledger is final.
+
+### 1. Harness RESULT lines
+
+Both harnesses exited 0 in run 23 with no RESULT line, so the exit code alone proved nothing. Each now prints a RESULT line that names what it checked. A failure prints `RESULT: FAIL` and exits 1.
+
+- `scripts/peer-profile-harness.mjs` asserts: at least 2 honest peers; at least one settled tick compared; the used-input flag agrees across honest peers on every tick; player and body state agrees on every tick that has a snapshot on all honest peers. Its FAIL path covers each of these and a crash.
+- `scripts/netcode-conditioner-harness.mjs` asserts: every client connects; every arm has input onsets > 0, a snapshot rate > 0 and a finite tick rate. It does not assert latency or jitter values, and its RESULT line says so.
+
+Phase B: `node scripts/peer-profile-harness.mjs` and `node scripts/netcode-conditioner-harness.mjs`; quote both RESULT lines.
+
+### 2. W-hash byte identity against e8c0c3d
+
+Added `scripts/reuse-pass-blob-hash-witness.mjs`. It reads the files named by run 23 audit rows (`changed` or `kept`) in this ledger. For each file it compares the sha256 of `git show e8c0c3d:<path>` with the sha256 of the working-tree file: no export directory, no second checkout. A `kept` file must be identical; a `changed` file must differ. It also fails on any changed code file under src, client, apps, packages, edge or bin that no row names.
+
+Covered list: 94 files, derived by the script from the rows (75 with a `changed` row, 19 kept only):
+
+`client/app.js`, `client/BrowserServer.js`, `client/core/FloatingOrigin.js`, `client/core/Grass.js`, `client/core/GrassMaterial.js`, `client/core/PlayerLOD.js`, `client/core/RenderGraph.nodes.js`, `client/core/Rocks.js`, `client/core/SceneOcclusion.js`, `client/core/ShadowPipeline.js`, `client/core/TerrainBackdrop.js`, `client/core/VegetationAmbientTSL.js`, `client/core/Vegetation.js`, `client/core/Weather.js`, `client/core/WebGPULodInstancer.js`, `client/xr/XRControls.js`, `client/xr/XRSystem.js`, `client/xr/XRWidgets.js`, `src/apps/AppRuntime.js`, `src/apps/AppRuntimePhysics.js`, `src/apps/AppRuntimeTick.js`, `src/behaviours/buffs.js`, `src/behaviours/buoyancy.js`, `src/behaviours/cameraRig.js`, `src/behaviours/checkpoint.js`, `src/behaviours/combat.js`, `src/behaviours/decisionRuntime.js`, `src/behaviours/destructible.js`, `src/behaviours/fireGameplay.js`, `src/behaviours/fire.js`, `src/behaviours/fireTerrain.js`, `src/behaviours/fireWeather.js`, `src/behaviours/fluid3d.js`, `src/behaviours/fluid.js`, `src/behaviours/path.js`, `src/behaviours/projectileGravity.js`, `src/behaviours/shrinking-zone.js`, `src/behaviours/softbody.js`, `src/behaviours/spline.js`, `src/behaviours/steering.js`, `src/behaviours/triggerVolume.js`, `src/client/BaseClient.js`, `src/client/CollisionMirror.js`, `src/client/PhysicsNetworkClient.js`, `src/client/PredictionEngine.js`, `src/netcode/CollisionSystem.js`, `src/netcode/CollisionTileStreamer.js`, `src/netcode/ConsensusVoter.js`, `src/netcode/controlFrame.js`, `src/netcode/DesyncDetector.js`, `src/netcode/EventLog.js`, `src/netcode/Hitscan.js`, `src/netcode/LagCompensator.js`, `src/netcode/LockstepChecksum.js`, `src/netcode/LockstepGameLoop.js`, `src/netcode/LockstepInputTransport.js`, `src/netcode/NetworkState.js`, `src/netcode/OutlierDetector.js`, `src/netcode/PeerSimSession.js`, `src/netcode/PhysicsIntegration.js`, `src/netcode/PlayerManager.js`, `src/netcode/RewindSpatialIndex.js`, `src/netcode/RollbackGameLoop.js`, `src/netcode/RollbackInputTransport.js`, `src/netcode/RollbackLoop.js`, `src/netcode/SnapshotBinFormat.js`, `src/netcode/SnapshotEncoder.js`, `src/netcode/SnapshotPacker.js`, `src/netcode/TeleportHold.js`, `src/netcode/TickSystemBase.js`, `src/netcode/TickSystem.js`, `src/netcode/WorkerBridgeProxy.js`, `src/physics/CharacterManager.js`, `src/physics/StaticTileIndex.js`, `src/physics/World.js`, `src/protocol/EventEmitter.js`, `src/protocol/InputCodec.js`, `src/sdk/ServerHandlers.js`, `src/sdk/TickHandlerAOI.js`, `src/sdk/TickHandler.js`, `src/shared/collisionTile.js`, `src/shared/fire/fireKernel.js`, `src/shared/fire/fireKeyframe.js`, `src/shared/fire/fireQueries.js`, `src/shared/fire/fireStageMap.js`, `src/shared/fire/fireTimeline.js`, `src/shared/movement.js`, `src/spatial/Octree.js`, `src/stage/stageShapes.js`, `src/terrain/GrassPlacement.js`, `src/terrain/HeightfieldStreamer.js`, `src/terrain/PlacementChart.js`, `src/terrain/PlanetFrame.js`, `src/terrain/TerrainMeshSurface.js`
+
+Phase B: `node scripts/reuse-pass-blob-hash-witness.mjs`. Each `FAIL` line is recorded in Phase B with its reason.
+
+### 3. Process defect: two pushes against the one-push rule
+
+Run 23 pushed twice: `3660848` (Phase B fixes; ledger and `docs/index.html`), then `00b08c0` (`docs/index.html` only, 7 lines added). Both are on `origin/main` (`git branch -r --contains`).
+
+Cause, as reported: the Phase B record was appended after `docs/index.html` was generated, so the freshness check failed on the first push. The ledger text for run 23 says the freshness witness passed before that push. This record does not settle which is right; the reflog is not in the repository.
+
+Fix: generate the page last. Order: finish the ledger; run the witnesses and record their output; run `node scripts/generate-docs-site.js` as the last write; run `node scripts/docs-page-freshness-witness.mjs`; commit; push once.
+
+### 4. Phase A commit
+
+One local commit as lanmower, no trailer. Nothing pushed in Phase A. Phase A ran `node --check` on the new script, a syntax parse only, and no witness.
+

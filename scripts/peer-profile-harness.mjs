@@ -127,7 +127,7 @@ async function main() {
   if (cheater) clearInterval(cheater)
   const honest = roster.filter(pk => pk !== KILL_PEER && pk !== CHEAT_PEER)
   if (honest.length < 2) {
-    console.error(`[peer-profile-harness] ${honest.length} honest peer(s) to compare -- a single peer is compared against itself, so no divergence can be seen`)
+    console.log(`RESULT: FAIL ${honest.length} honest peer(s) to compare: a single peer is compared against itself, so no divergence can be seen`)
     process.exit(1)
   }
   const ordered = [...tickLog.entries()].sort((a, b) => a[0] - b[0])
@@ -149,10 +149,12 @@ async function main() {
   console.log(JSON.stringify({ world: WORLD, profile: profileName, peers: PEER_COUNT, cond: { latencyMs: LAT, jitterMs: JIT, lossPct: LOSS }, killed: KILL_PEER, cheater: CHEAT_PEER, ticksCompared: comparable.length, peerStats: summary, firstInputMismatchTick: firstInputMismatch?.[0] ?? null, firstStateMismatchTick: firstStateMismatch?.[0] ?? null }))
   for (const ctx of peers.values()) { ctx.tickSystem.stop(); ctx.physics.destroy() }
   if (!(comparable.length > 0 && !firstInputMismatch && !firstStateMismatch)) {
+    console.log(`RESULT: FAIL ${comparable.length} settled tick(s) compared across ${honest.length} honest peer(s) on profile ${profileName}: firstInputMismatchTick=${firstInputMismatch?.[0] ?? null}, firstStateMismatchTick=${firstStateMismatch?.[0] ?? null}`)
     console.error(`[peer-profile-harness] FAIL: ${comparable.length} tick(s) compared, firstInputMismatchTick=${firstInputMismatch?.[0] ?? null}, firstStateMismatchTick=${firstStateMismatch?.[0] ?? null}`)
     process.exit(1)
   }
+  console.log(`RESULT: PASS ${comparable.length} settled tick(s) compared across ${honest.length} honest peer(s) on profile ${profileName}: used-input flags agree on every tick, and player and body state agree on every tick that has a snapshot on all honest peers`)
   process.exit(0)
 }
 
-main().catch(e => { console.error('[peer-profile-harness] FATAL', e?.stack || e); process.exit(1) })
+main().catch(e => { console.log('RESULT: FAIL the run aborted before the comparison; see stderr'); console.error('[peer-profile-harness] FATAL', e?.stack || e); process.exit(1) })
