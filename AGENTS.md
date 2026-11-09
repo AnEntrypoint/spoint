@@ -32,7 +32,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - `ci-status` ignores `rev`: an unpushed sha answers `unknown` + 422; query `gh api .../commits/<sha>/check-runs`.
 - A red `npm run check` is usually FOREIGN (stale bake pins): read the failing line first. Re-bake `scripts/bake-heightfield.mjs --extent 256 --res 1 --sector 16 --bits 16`.
 - `check-cache-keys.mjs` is shared: editing another transform's `BAKE_INPUTS_*` reddens `check` for every lane until the pin bumps in the SAME commit. Compute a pin from REMOTE committed blobs, reproducing the existing pin first.
-- `scripts/check.mjs` parses TRACKED `src,client,apps,scripts,bin` only and runs the witnesses named in its `steps` array; it does not discover the others, which are run by hand. A witness must exit 0 AND print `RESULT: PASS`.
+- `scripts/check.mjs` parses TRACKED `src,client,apps,scripts,bin` only; `npm run check` runs the 139 steps of its `steps` array and does not discover the other witnesses, which are run by hand. A witness must exit 0 AND print `RESULT: PASS`.
 - An absolute Windows path (`C:/dev/spoint/...`) in `scripts/*` is a CI-only ENOENT on ubuntu: resolve paths relative to the repo root.
 - CI: completing jobs = `check` + `frame-time-coverage`; `frame-time` needs `vars.CI_GPU_RUNNER_ONLINE == 'true'` (else SKIPPED). Judge the newest CI-evaluated commit: `check-runs` on a `[skip ci]` bump is zero and reads as pass.
 - CRLF: `core.autocrlf=true` only in SYSTEM config; `w/crlf` in `git ls-files --eol` = no diff.
@@ -48,6 +48,17 @@ Skills encode environment-specific constraints that override general knowledge.
 - `src/static/BakeCodeVersion.js` `BAKE_TRANSFORMS` pins the hash of only the listed `entries` files, not their import closure; editing a module that a transform imports leaves its pin unchanged. `src/shared/cacheCodeVersions.js` holds the `*_CODE_VERSION` constants that those pins hash into.
 - `.github/workflows/ci.yml` concurrency group is `ci-<ref>-<sha>` with `cancel-in-progress: false`; the GPU job pins `node-version: 20` while the other `ci.yml` jobs pin 24.
 - AGENTS.md is over the 30 KB target that 2fa8159 set; no gate enforces that target, so its size is recorded here as a note, not a failure.
+
+## Validation
+
+- Debug a failing path live before writing any test: reproduce it on the running dev server or with the one witness that names it, read the failure, then pin the fix with a witness.
+- Iterate on `npm run dev` with HMR (see Dev HMR bodies), not on `npm run check`, which takes about 3 minutes.
+- Run `npm run check` once per push, as the last step before the push.
+
+## Stopping Processes
+
+- Stop a process only by a PID you started or one a lease recorded: `browserPid` and `pid` in `.gm/browser-lease/session/owner.json` (`browserPid` is written at spawn by `scripts/lib/cdp-browser.mjs` `launch`). Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
+- A browser lease stops its recorded browser's process group (`killBrowser`, `scripts/lib/browser-lease.mjs`). On Windows, `reapProfileOwners` still finds chrome processes by profile path and stops those PIDs; the owner should review that sweep.
 
 ## PRD rows and witness binding
 
@@ -273,7 +284,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Grass wind field
 
 - `client/core/GrassWindField.js` evaluates the gust once per lattice cell (64 x 64 over 192 m, riding the camera) and both shader paths read it with one bilinear fetch. The gust is one function of world position and time, so two blades a metre apart move together; the turbulence is a ripple that travels downwind.
-- Every cell must be rewritten at the frame's time. With `GRASS_WIND_FIELD_BANDS = 8` each frame refreshed 1/8 of the rows, so one frame sampled rows from up to eight different times and the wind at a fixed point jerked. `scripts/grass-wind-field-seam-witness.mjs` (run by hand: `node scripts/grass-wind-field-seam-witness.mjs`; it is in no gate, and `npm run check` runs no witnesses): jerk ratio 231 at 8 bands, 6.4 at 1 band (cap 20). The 1-band cost is per frame CPU: in Node the lattice update rises from 0.07 to 0.55 ms (+0.48 ms). The browser cost is not measured; judge it on the frame-time number, not on this Node figure.
+- Every cell must be rewritten at the frame's time. With `GRASS_WIND_FIELD_BANDS = 8` each frame refreshed 1/8 of the rows, so one frame sampled rows from up to eight different times and the wind at a fixed point jerked. `scripts/grass-wind-field-seam-witness.mjs` (in the `npm run check` gate as step `grass-wind-field-seam-witness`; run it alone with `node scripts/grass-wind-field-seam-witness.mjs`): jerk ratio 231 at 8 bands, 6.4 at 1 band (cap 20). The 1-band cost is per frame CPU: in Node the lattice update rises from 0.07 to 0.55 ms (+0.48 ms). The browser cost is not measured; judge it on the frame-time number, not on this Node figure.
 - The lattice origin snaps to `GRASS_WIND_FIELD_SNAP_M` (24 m), bounded by the slack the extent leaves over the reach, so the lattice is not rebuilt every frame. `GRASS_WIND_FIELD_REACH_M` (77.6) and `GRASS_WIND_FIELD_DROP_MARGIN_M` (16) bracket the ring that `Grass.js` keeps before it drops a chunk.
 - A recentre that moves by whole cells copies the rows it keeps (`scroll`) and writes only the exposed border. With one band, `bandWrite` rewrites every row in the same frame, so a scroll costs the exposed writes on top of a full rebuild.
 - The amplitudes are the constants the shader carried before the join (`GRASS_SWAY_BASE/FLOW`, `GRASS_FLUTTER_*`); the join changes where they are evaluated, not how large they are.
