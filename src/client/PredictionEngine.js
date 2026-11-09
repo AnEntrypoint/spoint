@@ -119,6 +119,7 @@ export class PredictionEngine {
     this._peers = null
     this._pushOut = [0, 0, 0, 0]
     this._stepPush = [0, 0, 0, 0]
+    this._pendingPush = [0, 0, 0, 0]
     this.separationDistM = PLAYER_DEFAULTS.capsuleRadius * 2
   }
 
@@ -253,6 +254,7 @@ export class PredictionEngine {
     this._clearHorizontalBlock()
     this.walls.length = 0
     this._teleportTick = tick ?? -1
+    this._pendingPush.fill(0)
     this._trail.reset()
   }
 
@@ -294,23 +296,26 @@ export class PredictionEngine {
     env.collider = m && m.ready && m.covers(this.localState.position) ? m : null
     if (m && m.ready && !env.collider) m.noteUncovered()
     predictCharacterStep(this.localState, input, this.movement, dt, env)
+    const push = storedPush || this._pendingPush
+    applyPushTotal(this.localState, push)
     const total = this._stepPush
-    total.fill(0)
-    if (storedPush) applyPushTotal(this.localState, storedPush)
-    else if ((this._inputSeq - 1 - this._lastAckedSeq) * dt <= PEER_FRESH_WINDOW_S) this._separateFromPeers(dt, seq === undefined ? 1 : seq - this._lastAckedSeq)
+    total[0] = push[0]; total[1] = push[1]; total[2] = push[2]; total[3] = push[3]
+    this._planPeerPush(seq === undefined ? 1 : seq - this._lastAckedSeq)
   }
 
-  _separateFromPeers(dt, ticksPastSnapshot) {
+  _planPeerPush(ticksPastSnapshot) {
+    const pending = this._pendingPush
+    pending.fill(0)
     const peers = this._peers
-    if (!peers) return
-    const ls = this.localState, p = ls.position, v = ls.velocity, out = this._pushOut, total = this._stepPush
+    const dt = (this.tickDuration * this.dilation) / 1000
     const lead = Math.max(ticksPastSnapshot, 0) * dt
+    if (!peers || lead > PEER_FRESH_WINDOW_S) return
+    const p = this.localState.position, out = this._pushOut
     for (const [pid, peer] of peers) {
       if (pid === this.localPlayerId || !isFiniteVec(peer.position, 3)) continue
       const q = peer.position, w = isFiniteVec(peer.velocity, 3) ? peer.velocity : ZERO_VELOCITY
       if (!separationPush(q[0] + w[0] * lead - p[0], q[1] + w[1] * lead - p[1], q[2] + w[2] * lead - p[2], this.separationDistM, dt, out)) continue
-      p[0] -= out[0]; p[2] -= out[1]; v[0] -= out[2]; v[2] -= out[3]
-      total[0] += out[0]; total[1] += out[1]; total[2] += out[2]; total[3] += out[3]
+      pending[0] += out[0]; pending[1] += out[1]; pending[2] += out[2]; pending[3] += out[3]
     }
   }
 
@@ -433,7 +438,9 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null, e.push); saveEntry(e, ls) }
+    this._planPeerPush(0)
+    let first = true
+    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null, first ? null : e.push); first = false; saveEntry(e, ls); saveEntryPush(e, this._stepPush) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {
@@ -481,6 +488,7 @@ export class PredictionEngine {
     ls.onGround = base.onGround
     ls.groundY = base.onGround ? base.position[1] : (entry ? entry.groundY : NaN)
     if (entry) for (const k of MOVE_STATE_KEYS) ls[k] = entry.move[k]
+    this._planPeerPush(0)
     for (const e of history) if (e.sequence > ackSeq) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls); saveEntryPush(e, this._stepPush); this.stats.chartReplayInputs++ }
     const dx = ls.position[0] - beforeX, dy = ls.position[1] - beforeY, dz = ls.position[2] - beforeZ
     this.stats.chartReplayShiftM = Math.hypot(dx, dy, dz)

@@ -192,6 +192,7 @@ function placePlayerAt(ctx, playerId, position) {
   st.velocity[0] = 0; st.velocity[1] = 0; st.velocity[2] = 0
   st.onGround = false
   st.swimming = false
+  player.collisionPush = null
   physicsIntegration.setPlayerPosition(playerId, position)
   const charId = physicsIntegration.playerBodies.get(playerId)?.charId
   if (charId && physicsIntegration.physicsWorld) physicsIntegration.physicsWorld.setCharacterVelocity(charId, [0, 0, 0])

@@ -4,7 +4,7 @@ import { pack } from '../protocol/msgpack.js'
 import { currentChartEpoch, createChartReanchorMessage } from './chartWire.js'
 import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
-import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
+import { applyPlayerCollisions, planPlayerCollisions } from '../netcode/CollisionSystem.js'
 import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
@@ -507,7 +507,8 @@ export function createTickHandler(deps) {
   function simulateTick(tick, dt, players, explicitInputs = null) {
     processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs)
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
-    applyPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt, physicsIntegration)
+    applyPlayerCollisions(players, physicsIntegration)
+    planPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
     if (explicitInputs === null) stepChartReanchor(tick)
     physics.step(dt)

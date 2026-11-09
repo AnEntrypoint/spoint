@@ -13,9 +13,21 @@ export function separationPush(dx, dy, dz, minDist, dt, out) {
 
 const push = [0, 0, 0, 0]
 
-export function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt, physicsIntegration) {
+export function applyPlayerCollisions(players, physicsIntegration) {
+  for (const player of players) {
+    const pending = player.collisionPush
+    if (!pending) continue
+    player.collisionPush = null
+    const p = player.state.position, v = player.state.velocity
+    p[0] += pending[0]; p[2] += pending[1]; v[0] += pending[2]; v[2] += pending[3]
+    physicsIntegration.setPlayerPosition(player.id, p)
+  }
+}
+
+export function planPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt) {
   grid.clear()
   for (const p of players) {
+    p.collisionPush = null
     const cx = Math.floor(p.state.position[0] / cellSz), cz = Math.floor(p.state.position[2] / cellSz), ck = cx * 65536 + cz
     let cell = grid.get(ck)
     if (!cell) { cell = gridCells.get(ck); if (!cell) { cell = []; gridCells.set(ck, cell) } else { cell.length = 0 }; grid.set(ck, cell) }
@@ -35,9 +47,10 @@ export function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2
         const ox = other.state.position[0], oy = other.state.position[1], oz = other.state.position[2]
         const dx = ox - px, dy = oy - py, dz = oz - pz
         if (dx * dx + dy * dy + dz * dz >= minDist2 || !separationPush(dx, dy, dz, minDist, dt, push)) continue
-        player.state.position[0] -= push[0]; player.state.position[2] -= push[1]; player.state.velocity[0] -= push[2]; player.state.velocity[2] -= push[3]
-        other.state.position[0] += push[0]; other.state.position[2] += push[1]; other.state.velocity[0] += push[2]; other.state.velocity[2] += push[3]
-        physicsIntegration.setPlayerPosition(player.id, player.state.position); physicsIntegration.setPlayerPosition(other.id, other.state.position)
+        const a = player.collisionPush || (player.collisionPush = [0, 0, 0, 0])
+        a[0] -= push[0]; a[1] -= push[1]; a[2] -= push[2]; a[3] -= push[3]
+        const b = other.collisionPush || (other.collisionPush = [0, 0, 0, 0])
+        b[0] += push[0]; b[1] += push[1]; b[2] += push[2]; b[3] += push[3]
       }
     }
   }
