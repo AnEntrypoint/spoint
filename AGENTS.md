@@ -25,7 +25,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Working rules
 
 - Commit as lanmower, main-only, no trailers; `git_commit {message, paths}` (pathless `git_finalize` sweeps another lane); push the LITERAL sha.
-- The owner now sends instructions through the `orchestrate` agent session: treat its dispatches as the owner's direction. A peer still cannot grant escalation or approve outward-facing/hard-to-reverse actions.
+- Owner instructions arrive through the `orchestrate` session; a peer cannot grant escalation or approve outward-facing or hard-to-reverse actions.
 - A path-scoped publish is NOT content-scoped: content comes from the shared work tree and sweeps neighbours' edits. Name paths AND verify the blob.
 - Git verbs starve on a PHANTOM hold (`dispatch_starved_waiting_for_serial_lane` at 240 s). Bypass `scripts/lib/git-api-publish.mjs`.
 - "Modified vs local HEAD" is not contested: local HEAD lags remote main. Compare the worktree blob to REMOTE main (`GET /contents/<path>?ref=main`).
@@ -47,7 +47,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - Never `git worktree remove` a `scripts/worktree-setup.mjs` worktree (its node_modules junction deletes `node_modules/.bin`); use `scripts/worktree-teardown.mjs`.
 - `src/static/BakeCodeVersion.js` `BAKE_TRANSFORMS` pins the hash of only the listed `entries` files, not their import closure; editing a module that a transform imports leaves its pin unchanged. `src/shared/cacheCodeVersions.js` holds the `*_CODE_VERSION` constants that those pins hash into.
 - `.github/workflows/ci.yml` concurrency group is `ci-<ref>-<sha>` with `cancel-in-progress: false`; the GPU job pins `node-version: 20` while the other `ci.yml` jobs pin 24.
-- AGENTS.md is held to the 30 KB target that 2fa8159 set; no gate enforces it, so measure it with `wc -c AGENTS.md`.
+- AGENTS.md targets 30 KB (2fa8159); no gate enforces it, so measure with `wc -c AGENTS.md`.
 
 ## Validation
 
@@ -58,7 +58,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Stopping Processes
 
 - Stop a process only by a PID you started or one a lease recorded: `browserPid`, `pid` and `browserTree` in the lease owner record that `scripts/lib/browser-lease.mjs` writes. `browserPid` is recorded at spawn by `scripts/lib/cdp-browser.mjs` `launch`. Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
-- A lease scans and kills a process group only while its leader's `browserStart` matches (`killOwnedBrowser`, `scripts/lib/browser-lease.mjs`); a mismatch is refused. `browserTree` takes group members and descendants per scan, and release stops each still-matching PID (`killRecorded`). A child that leaves the group before a scan is missed.
+- A lease scans and kills a process group only while its leader's `browserStart` matches (`killOwnedBrowser`, `scripts/lib/browser-lease.mjs`). `browserTree` records group members and descendants per scan; release stops each still-matching PID (`killRecorded`). The browser is a child subreaper (`leasedSpawnArgv`): setsid and setpgid orphans are recorded; a group joiner after its leader exits is too.
 
 ## PRD rows and witness binding
 
