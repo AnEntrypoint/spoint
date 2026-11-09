@@ -3037,4 +3037,27 @@ Decisions and residual gaps:
 
 Phase B results (Linux, this host). `npm run build:bundles` exits 0 and changes no tracked file. `scripts/lease-group-orphan-witness.mjs` exits 0 with `RESULT: PASS`: `browserPgid` is recorded at spawn, the child is orphaned (ppid 1) and still in the launcher group, a scan after the launcher exit records it, and release stops it. Negative control: the same witness run against the pre-Run-29 browser-lease (commit 6ca0738) exits 1 with `check: FAIL scan after the launcher exited records the orphan ... through its group`, so the witness detects the gap; the release check still passes there, because the old group kill already reached the orphan. `scripts/lease-orphan-witness.mjs`, `scripts/lease-chromium-witness.mjs` (now including `browserPgid` equal to `browserPid`) and `scripts/lease-ps-table-witness.mjs` (pgid a positive integer) each exit 0 with `RESULT: PASS`. `scripts/lease-scan-cost-witness.mjs` exits 0 with `RESULT: PASS`: `browserTreeNow` p50 4.019 ms and p95 6.059 ms over 200 reads (4.774 and 6.083 ms in the first run) on a tree of 10 processes, with about 214 processes in /proc; `psProcessTable` p50 17.797 ms and p95 19.676 ms. `scripts/fail-path-probe.mjs` exits 0 with `RESULT: PASS`. `scripts/agents-md-facts-witness.mjs` exits 0 with `RESULT: PASS`, and AGENTS.md is 29,997 bytes. Defect fixed in Phase B: the scan-cost label still read `ps -Ao pid=,ppid=,lstart=`; it now matches the flags. Residual gaps are unchanged: setsid escapes and group-id reuse, both in the decisions above. The Windows item stays BLOCKED.
 
+## Run 30: group id reuse guarded by the leader's start time (Phase A, code and docs)
+
+Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | scripts/lib/browser-lease.mjs | `startOf(pid)` is exported. `leaderState(record)` reads the leader's process-table row and returns verified, absent, mismatch or unverified. `killOwnedBrowser(record)` replaces `killBrowser`: it signals the group only when the leader is verified (on Windows, `taskkill /T`), and it refuses a mismatch with a stderr line. Release and the abandoned-hold reclaim use it. `browserTreeNow(rootPid, groupId, expectStart)` records nothing from a leader whose start differs from `expectStart`, and takes group members only when `expectStart` is known and the member started no earlier than the leader. `refreshedTree` records nothing new without `browserStart`. `startTime` compares tick counts, ps lstart text and ISO text | scripts/lease-group-reuse-witness.mjs, scripts/lease-group-orphan-witness.mjs, scripts/lease-orphan-witness.mjs, scripts/lease-scan-cost-witness.mjs, scripts/lease-ps-table-witness.mjs |
+| 2 | scripts/lib/cdp-browser.mjs | `launch` records `browserStart: startOf(proc.pid)` at spawn, next to `browserPgid` | scripts/lease-chromium-witness.mjs |
+| 3 | scripts/lease-group-reuse-witness.mjs (new) | Linux only. An unrelated leader leads group N with a member. The lease records group N with a start that differs from the leader's. Checks: nothing from the group is recorded, and release kills nothing. A negative control is planned for Phase B: the same witness against the pre-Run-30 lease must exit 1 | itself |
+| 4 | scripts/lease-group-orphan-witness.mjs | records `browserStart` at spawn and checks that it is set | itself |
+| 5 | scripts/lease-orphan-witness.mjs | records `browserStart` with `browserPid` | itself |
+| 6 | scripts/lease-chromium-witness.mjs | checks that `browserStart` is set at spawn | itself |
+| 7 | AGENTS.md | the Stopping bullet names the start check and the refusal. Audit: the bullet's paths and symbols are `scripts/lib/browser-lease.mjs`, `killOwnedBrowser`, `browserStart`, `browserTree` and `killRecorded`, all present in that file. Size 29,984 bytes, down from 29,997 | scripts/agents-md-facts-witness.mjs and `wc -c AGENTS.md` |
+| 8 | docs/PENDING_VALIDATION.md, docs/index.html | this section and the regenerated page | scripts/docs-page-freshness-witness.mjs |
+
+Decisions and residual gaps:
+
+- Leader absent (the launcher has exited): the start check cannot run, because the leader's row is gone. Group members are still taken when they started no earlier than the recorded leader. Linux keeps a group number reserved while the group has members, so a number is reused only after the group empties. A group that later re-forms under a new leader that has itself exited is indistinguishable from ours by this check. Residual, unmeasured.
+- A group kill now needs a verified leader. With the leader absent, release stops only the recorded and scanned PIDs, each with its start checked. A member born after the last scan and before release is still taken by the release scan, because the scan runs first.
+- A missing `browserStart` (for example a failed `startOf` at spawn) fails closed: no new tree or group entries, and no group kill. The Chromium witness checks that the start is set.
+- Windows: `killOwnedBrowser` runs `taskkill /T` only when the root's CreationDate matches the recorded start. This is not run on Windows, so the Windows item stays BLOCKED.
+
+
 
