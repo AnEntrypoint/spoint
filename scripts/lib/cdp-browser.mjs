@@ -501,6 +501,7 @@ export async function launch(opts = {}) {
     ]
     proc = spawn(chrome, args, { stdio: 'ignore', detached: process.platform !== 'win32' })
     liveBrowserProcs.add(proc)
+    lease.record({ browserPid: proc.pid, profileDir })
     const portFile = path.join(profileDir, 'DevToolsActivePort')
     const dport = await waitFor(
       () => (fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null),
@@ -517,7 +518,7 @@ export async function launch(opts = {}) {
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('CDP websocket failed to open')) })
     const conn = new Connection(ws)
     await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => {})
-    lease.record({ browserPid: proc.pid, port: dport, profileDir })
+    lease.record({ port: dport })
     return new Browser(conn, proc, profileDir, lease)
   } catch (err) {
     try { ws && ws.close() } catch (_) {}

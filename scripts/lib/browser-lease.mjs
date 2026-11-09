@@ -41,22 +41,27 @@ function killTree(pid) {
 }
 
 function reapProfileOwners(profile) {
-  if (!fs.existsSync(profile)) return
+  if (process.platform !== 'win32' || !fs.existsSync(profile)) return
+  const marker = profile.replace(/'/g, "''")
+  const script =
+    `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
+    `Where-Object { $_.CommandLine -like '*${marker}*' -and $_.CommandLine -notlike '*--type=*' } | ` +
+    `ForEach-Object { $_.ProcessId }`
+  const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
+  if (r.status !== 0) return
+  for (const line of String(r.stdout || '').split('\n')) {
+    const pid = Number(line.trim())
+    if (Number.isInteger(pid) && pid > 0) killTree(pid)
+  }
+}
+
+function killBrowser(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return
   if (process.platform === 'win32') {
-    const marker = profile.replace(/'/g, "''")
-    const script =
-      `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
-      `Where-Object { $_.CommandLine -like '*${marker}*' -and $_.CommandLine -notlike '*--type=*' } | ` +
-      `ForEach-Object { $_.ProcessId }`
-    const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
-    if (r.status !== 0) return
-    for (const line of String(r.stdout || '').split('\n')) {
-      const pid = Number(line.trim())
-      if (Number.isInteger(pid) && pid > 0) killTree(pid)
-    }
+    killTree(pid)
     return
   }
-  spawnSync('pkill', ['-f', `--user-data-dir=${profile}`], { stdio: 'ignore' })
+  try { process.kill(-pid, 'SIGKILL') } catch { killTree(pid) }
 }
 
 export function sessionFingerprint({ args = [] } = {}) {
@@ -151,7 +156,7 @@ function holderIsLive(record, dir, ttlMs) {
 function reclaimAbandonedHold(record) {
   const holderPid = Number(record?.pid ?? 0)
   if (!pidAlive(holderPid)) killTree(holderPid)
-  killTree(Number(record?.browserPid ?? 0))
+  killBrowser(Number(record?.browserPid ?? 0))
 }
 
 function claim(dir, owner, fingerprint, ttlMs) {
@@ -301,7 +306,7 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     clearInterval(timer)
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
-      killTree(Number(record.browserPid ?? 0))
+      killBrowser(Number(record.browserPid ?? 0))
       reapProfileOwners(profileDir(dir))
       try { fs.unlinkSync(ownerFile(dir)) } catch {}
       try { fs.rmSync(profileDir(dir), { recursive: true, force: true }) } catch {}
