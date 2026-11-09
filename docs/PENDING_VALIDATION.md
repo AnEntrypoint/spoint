@@ -553,4 +553,33 @@ Reversal path: in `src/shared/starvedNeutral.js` set `STARVED_NEUTRAL_KEEPS_HORI
 
 Defects found while writing the witness, fixed before this commit: the first version had a check that passed for either value of the constant (removed); its RESULT line claimed zero velocity under both values (now follows the constant).
 
-Phase B results for this pass are recorded below when measured.
+## Phase B (run 5): the coast is removed; the gate still FAILS on a different cause
+
+Runs on the committed tree `7c8df1d`: `npm run build:bundles` (`BUILD_EXIT=0`), `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s), and `npm run check`. Logs are in `/tmp/phaseD/` and are not tracked.
+
+Gate (`/tmp/phaseD/gate.log`):
+- `totals: runs 15/15 replays 387 replays over 1 cm residual 19 (in peer contact 0 of 17 contact replays; with a groundY gap 0) in 13 run(s) max residual 1.3238 m injected replays 0 (over limit 0) runs with local pops 8 max pops/min 3.00 pops 8 matched 0 in peer contact 0 mirror spikes 4 corrections with server queue above 8 97 of which over 1 cm 11`
+- `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 19 of 387 replays across 13 of 15 completed run(s); 4 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 8 run(s) with local pops`
+- `GATE_EXIT=1`
+
+Check (`/tmp/phaseD/check.log`): `CHECK_EXIT=0`; 137 `RESULT: PASS`, including the new `starved-neutral-witness`.
+
+Effect of the decision, against `c1cb3ef` (run 4, the coast present):
+- Local pops: 810 pops, 218.67 pops/min at most, 15 of 15 runs with pops, before. 8 pops, 3.00 pops/min at most, 8 of 15 runs with pops, now.
+- Over-1-cm replays: 21 of 474 before (4.4 percent), 19 of 387 now (4.9 percent). The rate did not fall, so the gate does not pass.
+- Cause: before, 53 of 53 over-limit corrections over two runs began after a starved tick that coasted. Now 1 of 19 has a neutral step before its first breach (`run2 ack131 div134`). The coast cause is gone; the rest are another cause (below).
+
+Remaining keys (`run ack div ackKeyCalls residual m`, from `/tmp/groundy-replay-1ty1ns/over-limit-traces.json`): run0 ack80 div93 1 0.053; run0 ack312 div321 1 0.642; run1 ack308 div319 1 0.411; run2 ack131 div134 1 1.053; run3 ack79 div94 1 0.081; run3 ack313 div324 1 0.530; run4 ack462 div473 1 0.287; run5 ack312 div323 1 0.535; run6 ack312 div323 1 0.530; run7 ack310 div311 1 1.324; run8 ack79 div93 1 0.082; run8 ack312 div321 1 0.733; run9 ack78 div92 1 0.085; run9 ack312 div321 1 0.644; run10 ack314 div325 1 0.536; run11 ack79 div94 1 0.081; run11 ack312 div323 1 0.534; run13 ack79 div94 1 0.039; run13 ack312 div323 1 0.534.
+
+Measured signature of the remaining keys (traces with the input probe, `/tmp/phaseE/gate.log`, diagnostic run, 8 over-limit corrections, `/tmp/groundy-replay-0JKViI/over-limit-traces.json`):
+- The server's input and the client's replayed input are identical at the first breach: yaw, crouch, sprint, forward, left and right all match in 8 of 8.
+- The breach is grounded (`serverOnGround` true in all 8), the character is not wedged (`horizontallyWedged` false in all 8), and y is constant (1.4 m), so the cause is not vertical and not a slope.
+- Per-tick step lengths are similar on both sides (about 0.23 to 0.27 m). The per-tick gap grows about 0.14 m, which fits a heading difference of about 35 degrees at similar speed.
+- Cause not yet pinned. The heading of a replayed step follows the horizontal velocity carried into it, so the likely origin is a velocity difference at the replay base or during an earlier step. The probe does not record velocity, so the origin is not measured. Candidates to measure next: the velocity the ack hands to the replay base, and the lateral velocity left by earlier steps.
+- `serverQueueDepth` at the breach ranges from 1 to 13, so the server's catch-up is not the sole cause.
+
+Diagnostic run with the input probe (same behaviour, not the gate): 8 of 391 over 1 cm. This is the same run-to-run variance seen before, 19 of 387 and 8 of 391 on the same code.
+
+Defects found in this pass. (1) The first version of the new witness had a check that passed for either value of the constant and a RESULT line that claimed zero velocity under both values; both fixed before the Phase A commit. (2) The gate's over-1-cm count varies between runs of the same code (19 and 8 here). Both are recorded; neither is a product defect beyond the cause above.
+
+Status: the gate FAILS (19 of 387). Open. Not passing. The coast is removed and its cause is gone from 18 of 19 remaining over-limit corrections. The remaining breaches have identical inputs on both sides and a heading difference whose origin is not yet measured.

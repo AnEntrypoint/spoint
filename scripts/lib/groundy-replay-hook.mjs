@@ -19,6 +19,13 @@ const idOf = engine => {
 const proto = PredictionEngine.prototype
 const realOnServerSnapshot = proto.onServerSnapshot
 const realRebaseAndReplay = proto._rebaseAndReplay
+const realStep = proto._step
+let activeClientSteps = null
+proto._step = function (input, seq, groundNormal) {
+  const out = realStep.call(this, input, seq, groundNormal)
+  if (activeClientSteps && seq != null) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!this.localState.sliding })
+  return out
+}
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -99,6 +106,8 @@ const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
 const FREEZE_NEUTRAL = process.env.GROUNDY_FREEZE_NEUTRAL === '1'
 PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
   const neutral = (livePlayerManager?.getPlayer(playerId)?.starvedSteps || 0) > 0
+  const lastInput = livePlayerManager?.getPlayer(playerId)?.lastInput ?? null
+  const input = lastInput ? { yaw: lastInput.yaw, crouch: !!lastInput.crouch, sprint: !!lastInput.sprint, forward: !!lastInput.forward, left: !!lastInput.left, right: !!lastInput.right } : null
   if (FREEZE_NEUTRAL && neutral) return undefined
   const before = [state.position[0], state.position[1], state.position[2]]
   const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
@@ -107,7 +116,7 @@ PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, de
   const position = [state.position[0], state.position[1], state.position[2]]
   const key = `${playerId}|${seq}`
   if (!serverCalls.has(key)) serverCalls.set(key, [])
-  serverCalls.get(key).push({ dt: deltaTime, position, neutral })
+  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input })
   if (!callLogs.has(playerId)) callLogs.set(playerId, [])
   callLogs.get(playerId).push({ seq, before, after: position, neutral })
   return out
@@ -134,9 +143,12 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   for (const e of this.inputHistory) last = e
   const before = last ? [last.position[0], last.position[1], last.position[2]] : null
   const prePath = pathOf(this)
+  const outerSteps = activeClientSteps
+  const steps = new Map()
+  activeClientSteps = steps
   const wedge = { horizontallyWedged: !!this.horizontallyWedged, blockedByServer: !!this._blockedByServer, wedgeNormal: [...this.wedgeNormal] }
   const push = { serverPushWindow: this.lastServerState?.pushWindow ?? null, pushAckSeq: this.lastServerState?.pushAckSeq ?? null }
-  realRebaseAndReplay.call(this, server, predictedAtAck, recordCorrection)
+  try { realRebaseAndReplay.call(this, server, predictedAtAck, recordCorrection) } finally { activeClientSteps = outerSteps }
   if (!last) return
   const after = entryWithSequence(this, last.sequence)
   if (!after) return
@@ -170,6 +182,7 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     serverQueueDepth: serverQueueDepthAt(this.localPlayerId, this.__ackTick),
     lastSeq: last.sequence,
     playerId: this.localPlayerId,
+    clientSteps: [...steps.entries()],
     clientPushes: [...this.inputHistory].map(e => { const w = this._pushForSequence(e.sequence); return [e.sequence, w ? [...w] : null] }),
     t: performance.now()
   })
@@ -225,7 +238,9 @@ const attachTraces = () => {
         neutralCalls: calls.filter(c => c.neutral).length,
         serverCallDts: calls.map(c => c.dt),
         serverCallPositions: calls.map(c => c.position),
-        serverFirst: calls.length ? calls[0].position : null
+        serverFirst: calls.length ? calls[0].position : null,
+        serverInput: calls.length ? calls[0].input : null,
+        clientInput: new Map(r.clientSteps ?? []).get(seq) ?? null
       }
     })
     r.residualPrePushM = residualAgainst(r.trace, t => t.serverFirst)
