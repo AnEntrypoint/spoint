@@ -303,6 +303,25 @@ Changes in this phase (no `src/` change):
 
 Phase B will run the 120/40/6 gate once with these fields, then decide the fix from what the counts show. If the over-limit replays are not in the deep-queue regime, the hypothesis is refuted and the next candidate (ack rejection by `ackUsable`/`maxAckAdvanceTicks`, read from `ackAdvance`) is tested the same way.
 
+## Phase B: replay growth at 120/40/6, candidates tested (open)
+
+Runs on the instrumented hook (`scripts/lib/groundy-replay-hook.mjs`), `peers`, `120/40/6`, 15 runs each:
+
+- Run D (first instrumented, `ackAdvance` read a stale value): `/tmp/spike/D-groundy-120-40-6.log`. Totals: `replays 485 ... growth 11 ... max growth 0.1282 m ... corrections with server queue above 8 115 of which over 1 cm 4`. RESULT FAIL.
+- Run D2 (ack advance fixed, every ack recorded): `/tmp/spike/D2-groundy-120-40-6.log`. Totals: `replays 476 ... growth 7 ... in 6 run(s) max growth 0.0820 m ... mirror spikes 4 ... corrections with server queue above 8 116 of which over 1 cm 4`. RESULT FAIL.
+- Run D3 (temporary probe: `MAX_CATCHUP_STEPS_PER_TICK = 0` in `src/sdk/TickHandler.js`, reverted after the run): `/tmp/spike/D3-groundy-no-catchup.log`. Totals: `replays 499 ... growth 4 ... in 4 run(s) max growth 0.0324 m ... corrections with server queue above 8 159 of which over 1 cm 0`. RESULT FAIL.
+
+Candidates, with the evidence for each:
+
+- Refuted as the discriminator: server input-queue depth. Over-limit replays sit at queue depths 1, 2 and 3 as well as above 8 (in run D, 5 of 11 at depth 1 to 3).
+- Refuted: ack rejection. In run D2 there are 20,537 ack records: 8,677 applied, and every applied ack advanced by 1 to 8 inputs. The 11,860 skipped acks all have zero advance, which is a repeated ack. No advancing ack was rejected, so `ackUsable` and `maxAckAdvanceTicks` do not drop acks here.
+- Associated, small counts: multi-step acks. In run D2, corrections on acks that advance by 4 inputs at once have 4 over-limit replays in 45 (about 9%); acks advancing by 1 or 2 have 3 in 360 (about 0.8%). The server's catch-up path is the mechanism that advances an ack by several inputs at once.
+- Partial: catch-up. With catch-up off (run D3), over-limit replays fall to 4 in 499 from 7 in 476, and to 0 among the 159 deep-queue corrections. Four over-limit replays remain with catch-up off, so catch-up is at most one contributor.
+
+Not tested: the replayed path itself (per-input server and client positions for a multi-step ack, the wedge state `horizontallyWedged` and `_blockedByServer` at the ack, and the push window). The next step is a per-input comparison for one over-limit replay.
+
+Status: open. The growth cause is not identified. Phase A is `89fbd68`, and this phase adds the ack-advance fix to the hook. No `src/` change is kept.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.

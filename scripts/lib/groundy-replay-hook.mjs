@@ -58,10 +58,15 @@ const injectedSnapshot = (engine, snapshot) => {
 
 proto.onServerSnapshot = function (snapshot, tick) {
   this.__ackTick = tick
-  const ackBefore = this._lastAckedSeq
-  const out = realOnServerSnapshot.call(this, injectedSnapshot(this, snapshot), tick)
-  this.__ackAdvance = this._lastAckedSeq - ackBefore
-  return out
+  return realOnServerSnapshot.call(this, injectedSnapshot(this, snapshot), tick)
+}
+
+const realReconcile = proto._reconcile
+proto._reconcile = function (serverPlayer) {
+  const before = this._lastAckedSeq
+  this.__ackBefore = before
+  realReconcile.call(this, serverPlayer)
+  records.push({ kind: 'ack', engine: idOf(this), ackSeq: serverPlayer.inputSequence, before, applied: this._lastAckedSeq !== before, ackedTicks: serverPlayer.inputSequence - before, tick: this.__ackTick, t: performance.now() })
 }
 
 const queueDepthNow = new Map()
@@ -129,7 +134,7 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     path: [...this.inputHistory].map(e => [e.sequence, e.position[0], e.position[1], e.position[2]]),
     ackTick: this.__ackTick,
     ackSeq: server.inputSequence,
-    ackAdvance: this.__ackAdvance,
+    ackAdvance: server.inputSequence - this.__ackBefore,
     serverQueueDepth: serverQueueDepthAt(this.localPlayerId, this.__ackTick),
     lastSeq: last.sequence,
     playerId: this.localPlayerId,
