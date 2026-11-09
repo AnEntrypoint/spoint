@@ -25,6 +25,20 @@ const alive = (pid) => {
   }
 }
 
+const liveGroup = (pgid) => {
+  if (process.platform !== 'linux') return []
+  const out = []
+  for (const name of fs.readdirSync('/proc')) {
+    if (!/^\d+$/.test(name)) continue
+    try {
+      const f = fs.readFileSync('/proc/' + name + '/stat', 'utf8')
+      const parts = f.slice(f.lastIndexOf(')') + 2).split(' ')
+      if (parts[0] !== 'Z' && Number(parts[2]) === pgid) out.push(Number(name))
+    } catch {}
+  }
+  return out
+}
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lease-chromium-'))
 process.env.SPOINT_BROWSER_LEASE_DIR = path.join(dir, 'lease')
 let browser = null
@@ -36,7 +50,11 @@ try {
   check(rec.browserPgid === rec.browserPid, 'browserPgid ' + rec.browserPgid + ' is the browser pid ' + rec.browserPid + ', recorded at spawn')
   check(typeof rec.browserStart === 'string' && rec.browserStart.length > 0, 'browserStart recorded at spawn for the browser leader')
   check(pids.length >= 2, 'browser tree recorded ' + pids.length + ' process(es) under browser pid ' + rec.browserPid)
-  check(pids.every(alive), 'every recorded process is alive before close')
+  if (process.platform === 'linux') {
+    const groupNow = liveGroup(rec.browserPid)
+    const unrecorded = groupNow.filter((p) => !pids.includes(p))
+    check(groupNow.length >= 2 && unrecorded.length === 0, 'every live member of browser group ' + rec.browserPid + ' (' + groupNow.length + ') is recorded before close; unrecorded: ' + (unrecorded.join(',') || 'none'))
+  }
   await browser.close()
   browser = null
   const t0 = Date.now()
