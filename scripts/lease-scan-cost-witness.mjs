@@ -45,7 +45,7 @@ try {
     read.push(performance.now() - t)
   }
   console.log('browserTreeNow (/proc walk): ' + summary(scan))
-  console.log('psProcessTable (ps -Ao pid=,ppid=,lstart=): ' + summary(read))
+  console.log('psProcessTable (ps -Ao pid=,ppid=,pgid=,lstart=): ' + summary(read))
 } catch (err) {
   check(false, 'measurement failed: ' + (err && err.message ? err.message : String(err)))
 } finally {
