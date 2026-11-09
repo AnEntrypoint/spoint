@@ -19,6 +19,21 @@ const realRebaseAndReplay = proto._rebaseAndReplay
 
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
+const SPIKE_MIN_M = 0.0008
+const SPIKE_MAX_M = 0.0025
+const mirrorTracks = new WeakMap()
+
+const observeMirrorStep = (track, state) => {
+  const cur = { y: state.position[1], og: !!state.onGround }
+  const { prev2, prev1 } = track
+  if (prev2 && prev1 && prev1.og) {
+    const up = prev1.y - prev2.y, down = cur.y - prev1.y
+    if (up >= SPIKE_MIN_M && up <= SPIKE_MAX_M && down <= -SPIKE_MIN_M) records.push({ kind: 'spike', engine: track.engine, upM: up, downM: down, t: performance.now() })
+  }
+  track.prev2 = prev1
+  track.prev1 = cur
+}
+
 const entryWithSequence = (engine, sequence) => {
   for (const e of engine.inputHistory) if (e.sequence === sequence) return e
   return null
@@ -40,6 +55,20 @@ proto.onServerSnapshot = function (snapshot, tick) {
     return realOnServerSnapshot.call(this, { ...snapshot, players }, tick)
   }
   return realOnServerSnapshot.call(this, snapshot, tick)
+}
+
+const realSetCollisionMirror = proto.setCollisionMirror
+proto.setCollisionMirror = function (mirror) {
+  realSetCollisionMirror.call(this, mirror)
+  const m = this._mirror
+  if (!m || mirrorTracks.has(m)) return
+  const track = { engine: idOf(this), prev1: null, prev2: null }
+  mirrorTracks.set(m, track)
+  const realStep = m.step
+  m.step = function (state, input, dt, gravityY, wasGrounded) {
+    realStep.call(this, state, input, dt, gravityY, wasGrounded)
+    observeMirrorStep(track, state)
+  }
 }
 
 proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = true) {

@@ -232,6 +232,33 @@ Open items:
 
 No defect was fixed in this pass. The pass changed only the witness output (world and condition on each line) and the harness's shooter script.
 
+## Phase A: canonical 50/10/2 item and the 1–2 mm spike (code, docs and tests only, no build or witness run)
+
+Changes in this phase:
+
+- `scripts/groundy-replay-witness.mjs`: `MIN_REPLAYS = 100`. A PASS needs at least 100 correction replays across the runs. The canonical 50/10/2 condition yields 1 replay in 15 runs, so it cannot pass and is reported as `FAIL underpowered`. The gate condition stays `120/40/6`, the default since 0197ebf.
+- `scripts/lib/groundy-replay-hook.mjs`: wraps each engine's collision mirror `step` and records a `spike` record for each grounded step where y rises 0.8 to 2.5 mm and then falls at least 0.8 mm on the next step. Each record carries the engine id and the up and down amounts.
+- `scripts/groundy-replay-witness.mjs`: resyncs are counted by `kind === 'resync'`, not by subtraction, so spike records are not counted as resyncs. Each run line and the totals print the mirror spike count. A PASS needs zero spikes, and `RESULT: FAIL` names the spike count when spikes are present.
+- `docs/index.html`: regenerated with `node scripts/generate-docs-site.js`.
+
+Canonical 50/10/2 item, status: the one correction (run 7, seq 703, ack error 0.0449 m, 0.0582 m growth, not in peer contact, ground-Y gap zero) is kept as a stated limit, not closed. The cause of that ack error is not identified. The witness no longer passes on that condition, because of the replay floor above.
+
+Spike evidence. The spike is the 1–2 mm grounded lift in `CollisionMirror.step`. These counts come from the solver probe (`/tmp/popdiag/solver2.mjs`) and the ablation batches in `/tmp/spike/`, which are outside the repo:
+
+- Baseline, no change to Jolt settings: 9 spikes in 31 live `peers` runs under `120/40/6` (2 in runs 1–11, then 7 in runs 12–31).
+- `mStickToFloorStepDown` set to zero (`nostick`): 0 spikes in the same 31 runs. At about 0.29 spikes per baseline run, zero in 31 runs is unlikely by chance (about 9 expected).
+- `mWalkStairsStepUp` set to zero (`nostep`): 6 spikes in 11 runs, against 2 in 11 for the baseline. Walk-stairs step-up is not the cause, and disabling it did not remove the spike.
+- The positions of all 11 captured spikes (from `/tmp/popdiag/solver2-2.json` and the baseline captures) each sit one step past the line x = z, with |x − z| between 0.18 and 0.40 m. That matches the top-face diagonal of the arena box, but the next point shows the diagonal is not the cause on its own.
+- A replay on the opposite diagonal gives a spike at the same step with the same 1.0854 mm lift.
+
+Why the standalone replays do not count as evidence: a replay that starts each step from the logged `p0` already contains the lifted position from an earlier logged step, so the mirror passes the logged value through, and the result does not depend on the Jolt settings or the geometry. Every control in that matrix gave the same output. A replay started from a fresh Jolt state does not reproduce the logged step either. The mechanism therefore depends on Jolt state that the logs do not capture: the character's ground and contact state between steps.
+
+Ruled out: the top-face diagonal alone; walk-stairs step-up (`nostep`); the mirror's contact refresh (removing it in an earlier pass did not remove the spike); tile swaps and builds (zero at each spike); tile geometry (the arena box tile is exact); the server (no spikes in three captures); float noise on the top face (a 1e-6 m height noise gave the same lift).
+
+Supported: `mStickToFloorStepDown` (0.5 m) is required for the spike in the live runs. Removing it removes the spike, and it is the only setting tested that does.
+
+Open: the mechanism inside Jolt's `ExtendedUpdate` that lifts the character before the stick pulls it back; a fix that keeps stick-to-floor and removes the lift; and whether `nostick` changes walking on downward steps, since it allows the character to leave the ground. The spike stays open. Phase B runs the witness, which now counts spikes, so the defect is measured in the gate.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.
