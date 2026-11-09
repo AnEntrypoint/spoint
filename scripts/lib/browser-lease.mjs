@@ -49,6 +49,97 @@ function killBrowser(pid) {
   try { process.kill(-pid, 'SIGKILL') } catch { killTree(pid) }
 }
 
+function processTable() {
+  if (process.platform === 'win32') return windowsProcessTable()
+  if (process.platform === 'linux') return linuxProcessTable()
+  return psProcessTable()
+}
+
+function linuxProcessTable() {
+  let names
+  try { names = fs.readdirSync('/proc') } catch { return null }
+  const table = []
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue
+    let stat
+    try { stat = fs.readFileSync('/proc/' + name + '/stat', 'utf8') } catch { continue }
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    table.push({ pid: Number(name), ppid: Number(fields[1]), start: fields[19] })
+  }
+  return table
+}
+
+function psProcessTable() {
+  const r = spawnSync('ps', ['-Ao', 'pid=,ppid=,lstart='], { encoding: 'utf8' })
+  if (r.status !== 0 || !r.stdout) return null
+  const table = []
+  for (const line of r.stdout.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)
+    if (m) table.push({ pid: Number(m[1]), ppid: Number(m[2]), start: m[3] })
+  }
+  return table
+}
+
+function windowsProcessTable() {
+  const script = 'Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; start = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString("o") } else { "" }) } } | ConvertTo-Json -Compress'
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, maxBuffer: 64 * 1024 * 1024 })
+  if (r.status !== 0 || !r.stdout || !r.stdout.trim()) return null
+  let rows
+  try { rows = JSON.parse(r.stdout) } catch { return null }
+  return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: Number(row.pid), ppid: Number(row.ppid), start: String(row.start) }))
+}
+
+function browserTreeNow(rootPid) {
+  if (!Number.isInteger(rootPid) || rootPid <= 0) return []
+  const table = processTable()
+  if (!table) {
+    process.stderr.write('browser-lease: process table unreadable, children of browser pid ' + rootPid + ' not recorded\n')
+    return []
+  }
+  const root = table.find((row) => row.pid === rootPid)
+  if (!root) return []
+  const found = [root]
+  const frontier = [rootPid]
+  const seen = new Set([rootPid])
+  while (frontier.length) {
+    const parent = frontier.shift()
+    for (const row of table) {
+      if (row.ppid !== parent || seen.has(row.pid)) continue
+      seen.add(row.pid)
+      found.push(row)
+      frontier.push(row.pid)
+    }
+  }
+  return found.map((row) => ({ pid: row.pid, start: row.start }))
+}
+
+function mergeTree(prior, found) {
+  const byKey = new Map()
+  for (const entry of [...(Array.isArray(prior) ? prior : []), ...found]) {
+    byKey.set(entry.pid + ':' + entry.start, { pid: entry.pid, start: entry.start })
+  }
+  return [...byKey.values()]
+}
+
+function refreshedTree(record) {
+  return mergeTree(record?.browserTree, browserTreeNow(Number(record?.browserPid ?? 0)))
+}
+
+function killRecorded(entries) {
+  if (entries.length === 0) return
+  const table = processTable()
+  if (!table) {
+    process.stderr.write('browser-lease: process table unreadable, recorded browser children were not stopped\n')
+    return
+  }
+  const live = new Map(table.map((row) => [row.pid, row.start]))
+  for (const entry of entries) {
+    if (!entry.start || live.get(entry.pid) !== entry.start) continue
+    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(entry.pid), '/F'], { stdio: 'ignore' })
+    else { try { process.kill(entry.pid, 'SIGKILL') } catch {} }
+  }
+}
+
 export function sessionFingerprint({ args = [] } = {}) {
   return crypto.createHash('sha1')
     .update(JSON.stringify({ args: [...args].map(String).sort() }))
@@ -237,7 +328,7 @@ function startHeartbeat(dir) {
     const record = readOwner(dir)
     if (!record || record.pid !== process.pid) return
     try {
-      writeOwner(dir, { ...record, heartbeatAt: nowMs() })
+      writeOwner(dir, { ...record, heartbeatAt: nowMs(), browserTree: refreshedTree(record) })
     } catch {}
   }, HEARTBEAT_MS)
   timer.unref?.()
@@ -289,7 +380,9 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     clearInterval(timer)
     const record = readOwner(dir)
     if (record && record.pid === process.pid) {
+      const tree = refreshedTree(record)
       killBrowser(Number(record.browserPid ?? 0))
+      killRecorded(tree)
       try { fs.unlinkSync(ownerFile(dir)) } catch {}
       try { fs.rmSync(profileDir(dir), { recursive: true, force: true }) } catch {}
     }
@@ -303,7 +396,9 @@ export async function acquire({ root = process.cwd(), owner = `browser-${process
     record(extra) {
       const current = readOwner(dir)
       if (current && (current.pid === process.pid || isOurHold(current, dir))) {
-        writeOwner(dir, { ...current, ...extra, heartbeatAt: nowMs() })
+        const next = { ...current, ...extra, heartbeatAt: nowMs() }
+        next.browserTree = refreshedTree(next)
+        writeOwner(dir, next)
       }
     },
     release,

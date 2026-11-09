@@ -2976,3 +2976,17 @@ Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
 Phase A rule breach, disclosed: while fixing row 4 I ran `scripts/agents-md-facts-witness.mjs` twice, to read its failing claim. The first run failed on the `Date.now` claim in the Fire section, which I then rephrased. The second run passed with 210 path claims and 185 symbol claims. No other witness ran in Phase A.
 
 Open after Phase A: the Windows branch is not runnable here; the Windows gap in row 1 stays open until someone runs it on Windows.
+
+## Run 27: Windows orphan gap closed by recorded PIDs (Phase A, code and docs)
+
+Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
+
+| # | file | change | witness needed in Phase B |
+|---|------|--------|---------------------------|
+| 1 | scripts/lib/browser-lease.mjs | new `processTable` reads the process table: Linux from `/proc/<pid>/stat` (ppid, and the start time in field 22), macOS from `ps -Ao pid=,ppid=,lstart=`, Windows from `Get-CimInstance Win32_Process` (ParentProcessId, CreationDate). `browserTreeNow` walks the descendants of `browserPid`. `mergeTree` and `refreshedTree` keep them in `browserTree` in the owner record. `record()` and the heartbeat refresh it, so the children are captured while the launcher is alive. `release()` takes the tree before it kills the launcher group, then `killRecorded` stops each recorded PID that is still alive with the same start time, by PID (`taskkill /PID /F` on Windows, without `/T`). No profile-path or name match. A table that cannot be read is reported on stderr, never skipped silently | Linux: live run, Phase B step 5. Windows: unverified on this host (row 6) |
+| 2 | scripts/lib/cdp-browser.mjs | no change. `launch` already records `browserPid` at spawn (line 504) and `port` after connect (line 521), and `record()` now scans the tree at both points | covered by row 1 |
+| 3 | AGENTS.md | Stopping Processes now names `browserTree` and the PID stop. The gap sentence is replaced by the remaining gap: a child born and orphaned between two scans is not recorded | `node scripts/agents-md-facts-witness.mjs` and `wc -c AGENTS.md` |
+| 4 | docs/index.html | regenerated with `node scripts/generate-docs-site.js` after the ledger change | `node scripts/docs-page-freshness-witness.mjs` |
+
+Windows status: unverified on this Linux host. The Windows branch of `processTable` and `killRecorded` has never run here, so its PowerShell output format and `taskkill /PID /F` behaviour are unconfirmed. Open cost: on Windows the heartbeat runs a blocking `powershell.exe` `Get-CimInstance` call every 2 s; its duration is not measured. Open gap: a child born and orphaned between two scans is not recorded. Linux is covered for children in the launcher's process group by `killBrowser`, not for a child that left the group.
+
