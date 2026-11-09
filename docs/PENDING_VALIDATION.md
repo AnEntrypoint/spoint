@@ -63,7 +63,7 @@ Monitor logs, read back from `/tmp/popdiag/`:
 - Pre-fix baseline (`b4941c5` engine, 15 runs, clean rerun): `RESULT: FAIL`, exit 1. Totals: 85 replays, 56 over 1 cm (max growth 2.7370 m), 5 runs with pops, max 17.99 pops/min, 10 pops, 9 matched within 100 ms of a correction, 6 of them in peer contact. An earlier baseline attempt overlapped a second driver writing the same log, so its numbers (125 replays, 89 over) were discarded.
 - Fixed engine (`796c147`, 15 runs): `RESULT: FAIL`, exit 1. Totals: 79 replays, 50 over 1 cm (max 2.6405 m), 7 runs with pops, max 29.98 pops/min, 25 pops, 24 matched within 100 ms of a correction, 3 of them in peer contact.
 
-Row: replay natural growth. OPEN after Phase B. Option 1 (row 3 under "Coded in Phase A", commit 54229e9) is in, and the witness still fails at the baseline count (see "Replay growth after option 1" below). Cause found (below): a server peer-collision impulse that the client does not predict in time; the next-tick rule does not remove the growth it produces.
+Row: replay natural growth. Witness PASS after Phase B (15 of 15 runs under 1 cm, see "Replay growth: Phase B" below), with a sample caveat: the witness records one mover replay per run. The earlier 6 of 23 and 52 of 77 counts came from the all-replay probe and the pre-Phase-B builds, so the all-replay count for this build is not measured. Option 1 (row 3 under "Coded in Phase A", commit 54229e9) is in. Cause found earlier: a server peer-collision impulse that the client does not predict in time; the next-tick rule does not remove the growth it produces.
 
 Cause, measured this pass (instrumented server tick log, client replay probe, same process, three harness runs at `--cond=50/10/2`):
 - Server tick 345 (ack 311) for pid 2, t 5612 ms: pid 2 was idle at (0, 1.2, 10) with velocity 0 at tick 344. Pid 1 was running at about -9.8, 0, +10.0 m/s and was 0.71 m away at that tick (`CollisionSystem.js applyPlayerCollisions`, minimum 2 x capsuleRadius = 0.8 m). Pid 2's velocity became (1.005, 0, 1.695) and it moved onto a 0.2 m higher ground patch with no input, which is the push. `simulateTick` runs `applyPlayerCollisions` after `processPlayerMovement`, so the impulse is in the tick's state under that tick's ack.
@@ -153,6 +153,18 @@ Measured in this pass:
 - Per-consumed-input queue plus the idle accumulator removed: 6 of 23 replays over 1 cm, in 6 of 15 runs (maximum growth 0.2355 m). This is worse than the line above, so it is not yet confirmed as a fix. Phase B repeats the measurement before deciding.
 
 Open after Phase A: the remaining over-limit replays are not explained yet. The step-level join points at (a) a client step that moves 40 mm off its velocity while `wedged` is true, from the client's wedge heuristic (`_updateServerBlock`, `WEDGE_TRAVEL_MIN_M`), and (b) a 2 to 3 mm vertical step difference near the 1.4 m ledge. Neither is a fix yet.
+
+## Replay growth: Phase B (this pass)
+
+Each change below is in the working tree, committed locally, then pushed in one push with the Phase A commits.
+
+- Wedge test uses the predicted displacement (cause). `_updateServerBlock` in `src/client/PredictionEngine.js` judged the commanded travel as the sum of input velocities times the step `dt`. That is not the integral the step applies, so while the player turned or decelerated the sum read as motion, and the client flagged a wedge that was not there. The wedge then cut the client's step by up to about 40 mm. Fix: the commanded travel is the predicted position difference between the last acked entry and the entry `ackedTicks` later, from `history`. Falls back to no wedge when either entry is missing.
+- Step-level capture, six runs at `--cond=50/10/2`: 2 corrections per run recorded, both at 0 growth. The wedge mismatch count from the step-level parser was not read reliably (its output format did not match the filter used), so the wedge change's own effect is not measured separately. It is measured only together with the earlier Phase A fixes below.
+- Idle accumulator removal and per-consumed-input push queue (Phase A, now measured together with the wedge change): `npm run check` exit 0; `node scripts/groundy-replay-witness.mjs` (15 runs, 50/10/2 `on`), `RESULT: PASS the replay base groundY adds no growth over 1 cm in 15 runs of 50/10/2 (15 replays, max growth 0.0000 m, 0 run(s) with local pops)`, exit 0. Every run reports max growth 0.0000 m.
+- Caveat: the witness samples one mover replay per run, so this is 15 replays in total, not every replay in the run. The earlier 6 of 23 figure came from the all-replay probe. The all-replay count for this build was not run, so the pass is evidence about the witness's mover, not a proof that no replay grows over 1 cm.
+- Not separately measured: the wedge change alone, the accumulator removal alone. The 6 of 23 figure in Phase A was the per-consumed-input queue plus accumulator removal under the all-replay probe, before this wedge change. It is not a before-and-after for the final build.
+- Residuals not explained: spawn y drop at seq 9 and 10 (client-only, 0.2 m, before the first correction) and the 1 to 2 mm ledge bounce at seqs 269 to 272 (below the bar). Not investigated in this pass. Left open.
+- Repo note: `scripts/peer-replay-witness.mjs` was deleted in `8e44515` (Phase A). The deletion was not separately approved; it follows from the removal of the client peer separation it tested.
 
 ## Docs index
 

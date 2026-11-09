@@ -185,17 +185,11 @@ export class PredictionEngine {
     this._blockedByServer = false
     const history = this.inputHistory
     const to = this._lastAckedSeq + ackedTicks
-    const start = history.indexOf(this._lastAckedSeq + 1)
-    if (start < 0) return
-    const dtStep = (this.tickDuration * this.dilation) / 1000
-    let cx = 0, cz = 0, n = 0
-    for (let i = start; i < history.length; i++) {
-      const e = history.at(i)
-      if (e.sequence > to) break
-      cx += e.velocity[0]; cz += e.velocity[2]; n++
-    }
-    if (!n) return
-    cx *= dtStep; cz *= dtStep
+    const fromIdx = history.indexOf(this._lastAckedSeq)
+    const toIdx = history.indexOf(to)
+    if (fromIdx < 0 || toIdx <= fromIdx) return
+    const p0 = history.at(fromIdx).position, p1 = history.at(toIdx).position
+    const cx = p1[0] - p0[0], cz = p1[2] - p0[2]
     const commandedM = Math.hypot(cx, cz)
     if (commandedM <= WEDGE_TRAVEL_MIN_M) return
     let bx = cx - dx, bz = cz - dz
