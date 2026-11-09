@@ -130,6 +130,12 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   }
 
   const groundRay = new THREE.Raycaster()
+  const _groundCandidates = []
+  const _groundHits = []
+  const _rayOrigin = new THREE.Vector3()
+  const _arcPrev = { t: 0, diff: 0 }
+  const _isVisibleMeshHit = h => h.object.isMesh && h.object.visible
+  const _ensureMeshBoundsTree = o => { if (o.isMesh) ensureBoundsTree(o.geometry) }
 
   function isGroundCandidate(object) {
     return object.visible && !object.userData.xrPointer && object !== teleportArc && object !== teleportMarker
@@ -142,14 +148,16 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   }
 
   function groundCandidates() {
-    const candidates = scene.children.filter(isGroundCandidate)
-    for (const root of candidates) root.traverse(o => { if (o.isMesh) ensureBoundsTree(o.geometry) })
-    return candidates
+    _groundCandidates.length = 0
+    for (const o of scene.children) if (isGroundCandidate(o)) _groundCandidates.push(o)
+    for (const root of _groundCandidates) root.traverse(_ensureMeshBoundsTree)
+    return _groundCandidates
   }
 
   function surfaceBelow(x, z, ceilingY) {
-    groundRay.set(new THREE.Vector3(x, ceilingY, z), DOWN)
-    const hit = groundRay.intersectObjects(groundCandidates(), true).find(h => h.object.isMesh && h.object.visible)
+    groundRay.set(_rayOrigin.set(x, ceilingY, z), DOWN)
+    _groundHits.length = 0
+    const hit = groundRay.intersectObjects(groundCandidates(), true, _groundHits).find(_isVisibleMeshHit)
     return hit ? hit.point.y : null
   }
 
@@ -170,7 +178,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
         const hy = surfaceBelow(hx, hz, origin.y)
         if (hy !== null) hit = { point: new THREE.Vector3(hx, hy, hz), valid: true }
       }
-      prev = { t, diff }
+      prev = _arcPrev; _arcPrev.t = t; _arcPrev.diff = diff
     }
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }

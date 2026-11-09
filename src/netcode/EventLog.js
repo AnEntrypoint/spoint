@@ -10,10 +10,10 @@ const REPLAY_HANDLERS = new Map([
 
 export let EVENT_LOG_KINDS = [...REPLAY_HANDLERS.keys()]
 
+const REPLAYABLE_KINDS = new Map([...REPLAY_HANDLERS.keys()].map(kind => [kind, Object.freeze({ status: 'replayable', kind })]))
+
 export function parseEventKind(type) {
-  return REPLAY_HANDLERS.has(type)
-    ? { status: 'replayable', kind: type }
-    : { status: 'no-replay-arm', kind: type }
+  return REPLAYABLE_KINDS.get(type) ?? { status: 'no-replay-arm', kind: type }
 }
 
 export class EventLog {

@@ -5,6 +5,7 @@ export const REBASE_THRESHOLD_M = 8000
 export function createFloatingOrigin(scene, camera) {
   const _shift = new THREE.Vector3(0, 0, 0)
   const _authCam = new THREE.Vector3(0, 0, 0)
+  const _convertScratch = new THREE.Vector3(0, 0, 0)
   let _initialized = false
   let _rebaseCount = 0
   let _lastDelta = new THREE.Vector3(0, 0, 0)
@@ -33,13 +34,13 @@ export function createFloatingOrigin(scene, camera) {
   function onRebase(fn) { _listeners.add(fn); return () => _listeners.delete(fn) }
 
   function toAuthoritative(renderPos, out) {
-    const o = out || new THREE.Vector3()
+    const o = out || _convertScratch
     o.x = renderPos.x + _shift.x; o.y = renderPos.y + _shift.y; o.z = renderPos.z + _shift.z
     return o
   }
 
   function toRender(authPos, out) {
-    const o = out || new THREE.Vector3()
+    const o = out || _convertScratch
     o.x = authPos.x - _shift.x; o.y = authPos.y - _shift.y; o.z = authPos.z - _shift.z
     return o
   }

@@ -16,7 +16,7 @@ export function boxRecordOf(half, convexRadius, position, rotation) {
 
 export function boxRecordsFlat(records) {
   const out = new Float64Array(records.length * BOX_FLOATS)
-  records.forEach((r, i) => out.set(r, i * BOX_FLOATS))
+  for (let i = 0; i < records.length; i++) out.set(records[i], i * BOX_FLOATS)
   return out
 }
 

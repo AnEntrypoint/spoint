@@ -41,6 +41,8 @@ export class TickSystemBase {
     this.precise = typeof process !== 'undefined' && process.env?.SPOINT_PRECISE_TICKS === '1'
     this.schedulerStats = { ticks: 0, droppedMs: 0, maxLateMs: 0, spinWakeups: 0, timerWakeups: 0 }
     this._tickDropCallbacks = []
+    this._spinWake = () => { this._spinArmed = false; this.schedulerStats.spinWakeups++; this._onWake() }
+    this._timerWake = () => { this._timer = null; this.schedulerStats.timerWakeups++; this._onWake() }
   }
 
   get running() { return this._state === 'running' }
@@ -106,11 +108,11 @@ export class TickSystemBase {
     const granularity = _timerGranularityMs ?? DEFAULT_COARSE_TIMER_MS
     if (precise && remaining <= granularity + FINE_TIMER_MS) {
       this._spinArmed = true
-      _yield(() => { this._spinArmed = false; this.schedulerStats.spinWakeups++; this._onWake() })
+      _yield(this._spinWake)
       return
     }
     const wait = precise ? remaining - granularity - FINE_TIMER_MS : remaining - this._earlyToleranceMs()
-    this._timer = setTimeout(() => { this._timer = null; this.schedulerStats.timerWakeups++; this._onWake() }, Math.max(0, wait))
+    this._timer = setTimeout(this._timerWake, Math.max(0, wait))
     if (this._timer.unref) this._timer.unref()
   }
 

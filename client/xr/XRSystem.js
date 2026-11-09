@@ -99,13 +99,17 @@ export function createXRSystem(renderer, scene, camera) {
     return controllerInputSources.findIndex(s => s !== null && matches(s))
   }
 
+  const _isLeftHandSource = s => s.hand && s.handedness === 'left'
+  const _unlabelledHandSources = []
   function aimHandIndex() {
-    const left = aimSourceIndex(s => s.hand && s.handedness === 'left')
+    const left = aimSourceIndex(_isLeftHandSource)
     if (left >= 0) return left
-    const unlabelled = controllerInputSources.filter(s => s !== null && s.hand)
-    return unlabelled.length === 1 ? controllerInputSources.indexOf(unlabelled[0]) : -1
+    _unlabelledHandSources.length = 0
+    for (let i = 0; i < controllerInputSources.length; i++) { const s = controllerInputSources[i]; if (s !== null && s.hand) _unlabelledHandSources.push(s) }
+    return _unlabelledHandSources.length === 1 ? controllerInputSources.indexOf(_unlabelledHandSources[0]) : -1
   }
 
+  const _aimPointer = { origin: new THREE.Vector3(), direction: new THREE.Vector3(), trigger: false }
   function readAimPointer() {
     if (!renderer.xr.isPresenting) return null
     const session = renderer.xr.getSession()
@@ -117,18 +121,20 @@ export function createXRSystem(renderer, scene, camera) {
       const indexTip = joints?.['index-finger-tip']
       if (!indexTip) return null
       const thumbTip = joints['thumb-tip']
-      return {
-        origin: indexTip.getWorldPosition(new THREE.Vector3()),
-        direction: indexTip.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1),
-        trigger: thumbTip ? thumbTip.position.distanceTo(indexTip.position) < 0.02 : false
-      }
+      indexTip.getWorldPosition(_aimPointer.origin)
+      indexTip.getWorldDirection(_aimPointer.direction).multiplyScalar(-1)
+      _aimPointer.trigger = thumbTip ? thumbTip.position.distanceTo(indexTip.position) < 0.02 : false
+      return _aimPointer
     }
     let pointer = null, trigger = false
     for (let i = 0; i < controllerInputSources.length; i++) {
       const s = controllerInputSources[i]
       if (s?.handedness === 'left' && s.gamepad) {
         const ctrl = renderer.xr.getController(i)
-        pointer = { origin: ctrl.getWorldPosition(new THREE.Vector3()), direction: ctrl.getWorldDirection(new THREE.Vector3()).multiplyScalar(-1), trigger: false }
+        ctrl.getWorldPosition(_aimPointer.origin)
+        ctrl.getWorldDirection(_aimPointer.direction).multiplyScalar(-1)
+        _aimPointer.trigger = false
+        pointer = _aimPointer
       }
       if (s?.handedness === 'right' && s.gamepad?.buttons[1]?.pressed) trigger = true
     }
@@ -136,9 +142,12 @@ export function createXRSystem(renderer, scene, camera) {
     return pointer
   }
 
+  const _xrOffsetPos = { x: 0, y: 0, z: 0 }
+  const _xrIdentityOrientation = { x: 0, y: 0, z: 0, w: 1 }
   function offsetXROrigin(pt) {
     if (!renderer.xr.isPresenting || !xrBaseReferenceSpace) return false
-    renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform({ x: -pt.x, y: -pt.y, z: -pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
+    _xrOffsetPos.x = -pt.x; _xrOffsetPos.y = -pt.y; _xrOffsetPos.z = -pt.z
+    renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(_xrOffsetPos, _xrIdentityOrientation)))
     return true
   }
 
@@ -227,9 +236,11 @@ export function createXRSystem(renderer, scene, camera) {
     }
   }
 
+  const _vrOriginPt = { x: 0, y: 0, z: 0 }
   function syncVRPosition(local) {
     if (!local?.position || widgets.isTeleporting) return
-    offsetXROrigin({ x: local.position[0], y: local.position[1] + eyeHeightOf(local), z: local.position[2] })
+    _vrOriginPt.x = local.position[0]; _vrOriginPt.y = local.position[1] + eyeHeightOf(local); _vrOriginPt.z = local.position[2]
+    offsetXROrigin(_vrOriginPt)
   }
 
   const FRAME_DT_MIN_S = 0.001, FRAME_DT_MAX_S = 0.1

@@ -7,6 +7,7 @@ import { DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
 
 const STATE_RING_TICKS = 32
 const STATS_POST_INTERVAL_MS = 1000
+const ascending = (a, b) => a - b
 
 function spawnFor(ctx, index) {
   const pts = ctx.worldSpawnPoints || [ctx.worldSpawnPoint || [...DEFAULT_SPAWN_POINT]]
@@ -41,8 +42,10 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     return lastLocalInput ? { ...lastLocalInput } : null
   }
 
+  const playerInputsScratch = new Map()
   function toPlayerInputs(inputsByPeer) {
-    const m = new Map()
+    const m = playerInputsScratch
+    m.clear()
     for (const [pk, inp] of inputsByPeer) m.set(playerIdByPeer.get(pk), inp)
     return m
   }
@@ -76,10 +79,14 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     }
   }
 
+  const checksumIdScratch = []
   function checksumOf(tick, snap) {
     const fold = createChecksumFold().pushInt(tick)
     fold.pushInt(parseInt(checksumBodies(tick, snap.bodies).slice(0, 8), 16))
-    const ids = [...snap.players.keys()].sort((a, b) => a - b)
+    const ids = checksumIdScratch
+    ids.length = 0
+    for (const id of snap.players.keys()) ids.push(id)
+    ids.sort(ascending)
     for (const id of ids) {
       const s = snap.players.get(id).state
       fold.pushInt(id)
@@ -90,8 +97,13 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
   }
 
   const corrections = { count: 0, sumM: 0, maxM: 0, remoteMaxM: 0, remoteSumM: 0 }
+  const rollbackBeforeScratch = new Map()
   const observeRollback = {
-    before: () => new Map(playerManager.getConnectedPlayers().map(p => [p.id, [...p.state.position]])),
+    before: () => {
+      rollbackBeforeScratch.clear()
+      for (const p of playerManager.getConnectedPlayers()) rollbackBeforeScratch.set(p.id, [...p.state.position])
+      return rollbackBeforeScratch
+    },
     after: (before) => {
       for (const p of playerManager.getConnectedPlayers()) {
         const b = before.get(p.id); if (!b) continue
@@ -102,10 +114,14 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     }
   }
 
+  const liveIdScratch = []
   function liveChecksum(tick) {
     const core = checksumOf(tick, { bodies: physics.snapshotBodies(), players: playerManager.snapshotState() })
     const fold = createChecksumFold().pushInt(parseInt(core.slice(0, 8), 16)).pushInt(parseInt(core.slice(8), 16))
-    const ids = [...ctx.appRuntime.entities.keys()].sort()
+    const ids = liveIdScratch
+    ids.length = 0
+    for (const id of ctx.appRuntime.entities.keys()) ids.push(id)
+    ids.sort()
     for (const id of ids) {
       const e = ctx.appRuntime.entities.get(id)
       for (const v of e.position) fold.push(v)

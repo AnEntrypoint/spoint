@@ -2,6 +2,11 @@ import { resolveCCD, liveBodyIdOf } from './AppPhysics.js'
 import { mixinRagdoll } from './Ragdoll.js'
 import { flightForces } from '../physics/FlightModel.js'
 
+const ZERO_VEC3 = [0, 0, 0]
+const _budgetCandidates = []
+const _budgetRecords = []
+const _farthestFirst = (a, b) => b.d2 - a.d2
+
 export function mixinPhysics(runtime) {
   mixinRagdoll(runtime)
   runtime._rebindTierBodyId = function(e, tier) {
@@ -129,15 +134,18 @@ export function mixinPhysics(runtime) {
     const active = this._activeDynamicIds
     if (active.size <= budget) return
     const over = active.size - budget
-    const candidates = []
+    const candidates = _budgetCandidates
+    candidates.length = 0
     for (const id of active) {
       const e = this.entities.get(id)
       if (!e || e._physicsBodyId === undefined) continue
       const isVehicleChassis = e._vehicleId != null
       if (isVehicleChassis) continue
-      candidates.push({ id, e, d2: e._nearestPlayerDist2 ?? Infinity })
+      const rec = _budgetRecords[candidates.length] || (_budgetRecords[candidates.length] = {})
+      rec.id = id; rec.e = e; rec.d2 = e._nearestPlayerDist2 ?? Infinity
+      candidates.push(rec)
     }
-    candidates.sort((a, b) => b.d2 - a.d2)
+    candidates.sort(_farthestFirst)
     for (let i = 0; i < over && i < candidates.length; i++) {
       const { id, e } = candidates[i]
       if (!this._physics.isBodyActive(e._physicsBodyId)) continue
@@ -188,8 +196,8 @@ export function mixinPhysics(runtime) {
     const e = this.entities.get(entityId)
     const bodyId = liveBodyIdOf(this, e)
     if (bodyId === undefined) return true
-    const v = this._physics.getBodyVelocity(bodyId) || [0, 0, 0]
-    const a = this._physics.getBodyAngularVelocity?.(bodyId) || [0, 0, 0]
+    const v = this._physics.getBodyVelocity(bodyId) || ZERO_VEC3
+    const a = this._physics.getBodyAngularVelocity?.(bodyId) || ZERO_VEC3
     return (v[0]*v[0]+v[1]*v[1]+v[2]*v[2]) < eps*eps && (a[0]*a[0]+a[1]*a[1]+a[2]*a[2]) < eps*eps
   }
 

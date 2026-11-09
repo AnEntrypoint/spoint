@@ -359,6 +359,7 @@ export async function createVegetation(opts = {}) {
   const loaded = new Map()
   const deferredChunks = new Set()
   const discardedPlacementKeys = new Set()
+  const discardedSnapshot = []
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, VEG, ringRadius)
   let _occCands = null
@@ -519,7 +520,9 @@ export async function createVegetation(opts = {}) {
       unloadChunk(key); didDrop = true
     }
     if (discardedPlacementKeys.size > 0 && !didLoad && !didDrop && deferredChunks.size === 0) {
-      for (const key of [...discardedPlacementKeys]) { unloadChunk(key); didDrop = true }
+      discardedSnapshot.length = 0
+      for (const key of discardedPlacementKeys) discardedSnapshot.push(key)
+      for (const key of discardedSnapshot) { unloadChunk(key); didDrop = true }
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -699,6 +702,32 @@ export async function createVegetation(opts = {}) {
     if (typeof window !== 'undefined' && window.__vegWind != null) wind.uVegWind.value = +window.__vegWind
   }
 
+  const countDraws = (im) => {
+    const lod = im.LODinfo && im.LODinfo.render
+    const lc = lod && lod.count
+    if (lc && lc.length) { let n = 0; for (let i = 0; i < lc.length; i++) if ((lc[i] || 0) > 0 && lod.levels[i].object.visible) n++; return n }
+    return (im.count || 0) > 0 ? 1 : 0
+  }
+  const tierSplit = (im, impLevel) => {
+    const lod = im.LODinfo && im.LODinfo.render
+    const lc = lod && lod.count
+    const bands = []
+    let mesh = 0, impostor = 0
+    if (lc && lc.length) {
+      const last = impLevel ? lc.length - 1 : -1
+      for (let i = 0; i < lc.length; i++) {
+        const n = lc[i] || 0
+        if (i === last) { if (lod.levels[i].object.visible) impostor += n; continue }
+        mesh += n
+        bands.push(n)
+      }
+      return { mesh, impostor, bands }
+    }
+    const tiers = im.tierIds || []
+    for (let i = 0; i < tiers.length; i++) { const n = tiers[i].length; mesh += n; bands.push(n) }
+    return { mesh, impostor, bands }
+  }
+
   function update(dt, camera, playerPos, shadowStill) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
     if (isWebGPU && deferredTierWarmQueue.length > 0 && camera) warmOneTierMesh(camera)
@@ -740,31 +769,6 @@ export async function createVegetation(opts = {}) {
       let vis = 0, impostorInst = 0, meshInst = 0, branchMeshInst = 0, leafMeshInst = 0, vegDraws = 0
       const bandTotals = []
       const leafBands = []
-      const countDraws = (im) => {
-        const lod = im.LODinfo && im.LODinfo.render
-        const lc = lod && lod.count
-        if (lc && lc.length) { let n = 0; for (let i = 0; i < lc.length; i++) if ((lc[i] || 0) > 0 && lod.levels[i].object.visible) n++; return n }
-        return (im.count || 0) > 0 ? 1 : 0
-      }
-      const tierSplit = (im, impLevel) => {
-        const lod = im.LODinfo && im.LODinfo.render
-        const lc = lod && lod.count
-        const bands = []
-        let mesh = 0, impostor = 0
-        if (lc && lc.length) {
-          const last = impLevel ? lc.length - 1 : -1
-          for (let i = 0; i < lc.length; i++) {
-            const n = lc[i] || 0
-            if (i === last) { if (lod.levels[i].object.visible) impostor += n; continue }
-            mesh += n
-            bands.push(n)
-          }
-          return { mesh, impostor, bands }
-        }
-        const tiers = im.tierIds || []
-        for (let i = 0; i < tiers.length; i++) { const n = tiers[i].length; mesh += n; bands.push(n) }
-        return { mesh, impostor, bands }
-      }
       for (const rec of meshes) {
         vis += (rec.branch.count || 0)
         const impLevel = !isWebGPU && (rec.impTile != null || !!rec.impMat)

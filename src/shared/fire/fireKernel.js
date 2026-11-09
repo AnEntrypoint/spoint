@@ -627,7 +627,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   function beginStep(tickNumber) {
     let consumed = 0
     while (consumed < pending.length && pending[consumed].tick <= tickNumber) applyEvent(pending[consumed++])
-    if (consumed > 0) pending = pending.slice(consumed)
+    if (consumed > 0) pending.splice(0, consumed)
     stepIndex++
     composeWind(); rebuildWeights()
     stats.steps++
@@ -1036,6 +1036,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     stepOpen = false
   }
 
+  const cellStateOut = { state: 0, heat: 0, fuel: 0 }
+
   return {
     queueEvent, tick, runStepUnsliced, checksum, snapshot, restore, takeDelta, undoDelta, releaseDelta, undoOpenStep, markRestored,
     ignite: (tickNumber, face, I, J, id) => queueEvent({ kind: FIRE_EVENT.IGNITE, tick: tickNumber, face, I, J, id }),
@@ -1045,7 +1047,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     setRain: (tickNumber, value, id) => queueEvent({ kind: FIRE_EVENT.RAIN, tick: tickNumber, value, id }),
     cellState(face, I, J) {
       const g = peekCell(face, I, J)
-      return g < 0 ? { state: UNBURNT, heat: 0, fuel: fuelInit[fuelClassAt(face, I, J)] } : { state: state[g], heat: heat[g], fuel: fuel[g] }
+      if (g < 0) { cellStateOut.state = UNBURNT; cellStateOut.heat = 0; cellStateOut.fuel = fuelInit[fuelClassAt(face, I, J)] }
+      else { cellStateOut.state = state[g]; cellStateOut.heat = heat[g]; cellStateOut.fuel = fuel[g] }
+      return cellStateOut
     },
     get changeSerial() { return changeSerial },
     get tileGeneration() { return tileGeneration },

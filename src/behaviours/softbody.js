@@ -61,6 +61,7 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
   const damping = spec.damping ?? 4
   const gravity = spec.gravity ?? [0, -9.81, 0]
   const wind = spec.wind ? [...spec.wind] : null
+  const windForce = wind ? { x: wind[0], y: wind[1], z: wind[2] } : null
   const bendSprings = spec.bendSprings !== false
   const substeps = spec.substeps ?? 1
   const pinKeys = _resolvePins(spec.pins, cols, rows)
@@ -134,7 +135,7 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
           const b = _bodies[i]
           if (b.isFixed()) continue
           b.resetForces(true)
-          b.addForce({ x: wind[0], y: wind[1], z: wind[2] }, true)
+          b.addForce(windForce, true)
         }
       }
       _world.timestep = subDt
@@ -161,7 +162,8 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
       }
       if (maxDelta < PUBLISH_EPS_METERS) return false
     }
-    _lastPublished = Float64Array.from(_positions)
+    if (!_lastPublished) _lastPublished = new Float64Array(_positions.length)
+    _lastPublished.set(_positions)
     appCtx.entity.custom = {
       ...(appCtx.entity.custom || {}),
       softbody: { cols, rows, spacing, positions: Array.from(_positions) }

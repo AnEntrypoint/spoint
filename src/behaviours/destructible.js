@@ -146,7 +146,8 @@ export function createDestructible(spec = {}, appCtx = null) {
   }
 
   function _scanForImpact() {
-    const [ox, oy, oz] = appCtx.entity.position
+    const entityPos = appCtx.entity.position
+    const ox = entityPos[0], oy = entityPos[1], oz = entityPos[2]
     for (const p of appCtx.players.getAll()) {
       const pp = p.state?.position; if (!pp) continue
       const dx = pp[0] - ox, dy = pp[1] - oy, dz = pp[2] - oz
@@ -225,7 +226,7 @@ export function createDestructible(spec = {}, appCtx = null) {
 
     tick(dt) {
       if (_debrisTimers.size) {
-        for (const [id, st] of _debrisTimers) {
+        _debrisTimers.forEach((st, id) => {
           st.age += dt
           if (st.remaining != null) {
             st.remaining -= dt
@@ -233,7 +234,7 @@ export function createDestructible(spec = {}, appCtx = null) {
               _releasePoolPiece(id)
               _debrisIds.delete(id)
               _debrisTimers.delete(id)
-              continue
+              return
             }
           }
           if (st.lod === 'physical' && st.age >= debrisSettleGrace) {
@@ -245,7 +246,7 @@ export function createDestructible(spec = {}, appCtx = null) {
           else if (st.lod === 'frozen') {
             if (appCtx.world.setMotionType(id, 'static')) st.lod = 'static'
           }
-        }
+        })
       }
       if (_destroyed) {
         if (respawnDelay > 0) {

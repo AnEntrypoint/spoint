@@ -46,6 +46,7 @@ export function createTriggerVolume({ id, bounds, onEnter, onExit, rearmMs = 0, 
   let overlapping = new Set()
   const active = new Set()
   const pending = new Set()
+  const seen = new Set()
   let down = false
   let armed = true
   let rearmUntilMs = 0
@@ -88,7 +89,7 @@ export function createTriggerVolume({ id, bounds, onEnter, onExit, rearmMs = 0, 
   function update(entities) {
     if (!Array.isArray(entities)) throw refusal('trigger-entities-invalid', 'update(entities) needs an array')
     const atMs = clock()
-    const seen = new Set()
+    seen.clear()
     const next = new Set()
     const positions = new Map()
     for (const entity of entities) {

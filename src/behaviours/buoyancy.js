@@ -10,6 +10,8 @@ export function defineBuoyancy(spec = {}, appCtx = null) {
   const explicitForce = spec.buoyantForce ?? null
 
   let _lastSubmersionFrac = 0
+  const _force = [0, 0, 0]
+  const _velocity = [0, 0, 0]
 
   const buoyancy = {
     get submersionFrac() { return _lastSubmersionFrac },
@@ -29,12 +31,18 @@ export function defineBuoyancy(spec = {}, appCtx = null) {
       const mass = appCtx.entity.custom?.mass ?? 1
       const fullForce = explicitForce != null ? explicitForce : mass * gravityY * floatFactor
       const upward = fullForce * submersionFrac * dt
-      if (upward > 0) appCtx.physics.addForce([0, upward, 0])
+      if (upward > 0) {
+        _force[1] = upward
+        appCtx.physics.addForce(_force)
+      }
 
       if (linearDrag > 0) {
         const v = appCtx.physics.getVelocity()
         const damp = Math.max(0, 1 - linearDrag * submersionFrac * dt)
-        appCtx.physics.setVelocity([v[0] * damp, v[1] * damp, v[2] * damp])
+        _velocity[0] = v[0] * damp
+        _velocity[1] = v[1] * damp
+        _velocity[2] = v[2] * damp
+        appCtx.physics.setVelocity(_velocity)
       }
     }
   }

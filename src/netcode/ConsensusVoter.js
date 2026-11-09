@@ -6,6 +6,9 @@ function encodeChecksumMsg(tick, pubkey, checksum) {
   return encodeControlFrame(CONSENSUS_CTRL_PREFIX, { type: 'checksum', tick, pubkey, checksum })
 }
 
+const tickOfFrame = (frame) => frame.tick
+const senderOfFrame = (frame) => frame.pubkey
+
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3
 const DESYNC_LOG_LIMIT = 16
 const REMOTE_CHECKSUM_PAST_HORIZON_ROWS = 16
@@ -58,14 +61,9 @@ export class ConsensusVoter {
     })
 
     this._onData = ({ detail }) => {
-      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats), {
-        from: detail?.peerPubkey,
-        selfId: this.localPeerId,
-        clock: this._clock,
-        tickOf: (frame) => frame.tick,
-        senderOf: (frame) => frame.pubkey,
-        onOrder: countOrder(this.stats),
-      })
+      const origin = this._dispatchOrigin
+      origin.from = detail?.peerPubkey
+      const dispatched = dispatchControlFrame(CONSENSUS_CTRL_PREFIX, this._arms, detail?.data, this._onReject, origin)
       if (!dispatched) return
       if (dispatched.order === 'stale-frame') this.stats.staleChecksums = (this.stats.staleChecksums ?? 0) + 1
       dispatched.apply(dispatched.frame, dispatched.from)
@@ -73,6 +71,9 @@ export class ConsensusVoter {
     this.bridge.data.addEventListener('data', this._onData)
 
     this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, staleChecksums: 0, unknownKind: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0, rejects: {} }
+    this._onReject = countReject(this.stats)
+    this._onOrder = countOrder(this.stats)
+    this._dispatchOrigin = { from: null, selfId: this.localPeerId, clock: this._clock, tickOf: tickOfFrame, senderOf: senderOfFrame, onOrder: this._onOrder }
   }
 
   tick(tick) {
@@ -121,7 +122,7 @@ export class ConsensusVoter {
         }
       } else {
         track.consecutiveCount = 0
-        track.evidenceTicks = []
+        track.evidenceTicks.length = 0
       }
     }
 
@@ -152,7 +153,7 @@ export class ConsensusVoter {
     for (const [, track] of this._peerDesync) {
       if (track.ejected) continue
       track.consecutiveCount = 0
-      track.evidenceTicks = []
+      track.evidenceTicks.length = 0
     }
   }
 

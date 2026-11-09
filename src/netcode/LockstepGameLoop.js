@@ -32,7 +32,11 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   const sampledAt = new Map()
   const latencyRing = []
   const latency = { count: 0, sumMs: 0, maxMs: 0 }
-  let simTick = 0, driverTicks = 0, yieldCursor = 0, stalledDriverTicks = 0, evicted = null, smoothedAdvantage = 0
+  const byPeer = new Map()
+  const survivorBuf = []
+  const waitingBuf = []
+  const pendingBuf = []
+  let simTick = 0, driverTicks = 0, yieldCursor = 0, stalledDriverTicks = 0, evicted = null, smoothedAdvantage = 0, latencyCursor = 0
   const stats = { ticksSimulated: 0, stalls: 0, timeSyncYields: 0, catchUpTicks: 0, maxStallRun: 0, connectingTicks: 0, lateInputsIgnored: 0, futureInputsIgnored: 0 }
 
   function confirm(peer, tick, input) {
@@ -59,7 +63,11 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     return inputs.get(peer).get(tick)
   }
 
-  function waitingOn(tick) { return roster.filter(pk => !has(pk, tick)) }
+  function waitingOn(tick) {
+    waitingBuf.length = 0
+    for (const pk of roster) if (!has(pk, tick)) waitingBuf.push(pk)
+    return waitingBuf
+  }
   function ready(tick) { for (const pk of roster) if (!has(pk, tick)) return false; return true }
 
   function onRemoteInput(peer, tick, input, advantage = 0) {
@@ -69,7 +77,11 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     confirm(peer, tick, input)
   }
 
-  function survivors() { return roster.filter(pk => !cuts.has(pk) && !dropping.has(pk)) }
+  function survivors() {
+    survivorBuf.length = 0
+    for (const pk of roster) if (!cuts.has(pk) && !dropping.has(pk)) survivorBuf.push(pk)
+    return survivorBuf
+  }
 
   function tailOf(peer) {
     const out = []
@@ -139,14 +151,15 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     sampledAt.delete(tick)
     const ms = now() - s
     latency.count++; latency.sumMs += ms; if (ms > latency.maxMs) latency.maxMs = ms
-    if (latencyRing.length >= LATENCY_RING) latencyRing.shift()
-    latencyRing.push(ms)
+    if (latencyRing.length < LATENCY_RING) latencyRing.push(ms)
+    else { latencyRing[latencyCursor] = ms; latencyCursor = (latencyCursor + 1) % LATENCY_RING }
   }
 
   function step(dt) {
     const t = simTick + 1
     submitLocal(t + opts.inputDelayTicks)
-    const byPeer = new Map(), keys = {}
+    byPeer.clear()
+    const keys = {}
     for (const pk of roster) { const inp = inputOf(pk, t); byPeer.set(pk, inp); keys[pk] = canonicalJSON(inp) }
     used.set(t, keys)
     simulate(t, dt, byPeer)
@@ -172,7 +185,9 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   function localAdvantage() { return simTick - (minRemoteNewest() - opts.inputDelayTicks) }
 
   function pendingPeers() {
-    return roster.filter(pk => pk !== localPeerId && !cuts.has(pk) && !dropping.has(pk) && !newestReceived.has(pk))
+    pendingBuf.length = 0
+    for (const pk of roster) if (pk !== localPeerId && !cuts.has(pk) && !dropping.has(pk) && !newestReceived.has(pk)) pendingBuf.push(pk)
+    return pendingBuf
   }
 
   function remoteAdvantageMax() {
@@ -237,7 +252,7 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
       const v = voter ? voter.getStats() : null
       return {
         ...stats, connectingTicksByPeer: Object.fromEntries(connectingTicks), simTick, driverTicks, smoothedAdvantage: +smoothedAdvantage.toFixed(2), remoteAdvantageMax: remoteAdvantageMax(), evicted, localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage),
-        waitingOn: ready(simTick + 1) ? [] : waitingOn(simTick + 1),
+        waitingOn: ready(simTick + 1) ? [] : [...waitingOn(simTick + 1)],
         lastConfirmed: Object.fromEntries(lastConfirmed), cuts: Object.fromEntries(cuts), dropping: [...dropping.keys()], dropLog: [...dropLog],
         inputLatencyMs: latencyStats(),
         checksumsCompared: v ? v.verified + v.desyncsDetected : 0, desyncs: v ? v.desyncsDetected : 0, firstDesyncTick: v?.firstDesyncTick ?? null, voter: v

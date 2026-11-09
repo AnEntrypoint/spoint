@@ -11,6 +11,11 @@ const _benderScratch = []
 const _benderAuthTmp = { x: 0, y: 0, z: 0 }
 const GRASS_BEND_MAX_RADIUS_M = 60
 const ALTITUDE_INDEPENDENT_NEAR_M = 0.3
+const _terrainDepthRes = { near: undefined, far: undefined, target: 'canvas', frameId: 0 }
+const _terrainColorRes = { target: 'canvas' }
+const _sceneDepthRes = { target: 'canvas', frameId: 0 }
+const _sceneColorRes = { target: 'canvas' }
+const _benderByDistSq = (a, b) => a.distSq - b.distSq
 
 let _hostNearFarRejectedOnce = false
 const hostNearFarOf = (near, far) =>
@@ -82,8 +87,9 @@ export function buildRenderSectionNodes() {
           viewProjRel: vp, eye: cam && cam.eye, frameId: ctx.frameId,
         }
         ctx.res['camera-context'] = live
-        ctx.res.terrainDepth = { near: live.near, far: live.far, target: 'canvas', frameId: ctx.frameId }
-        ctx.res.terrainColor = { target: 'canvas' }
+        _terrainDepthRes.near = live.near; _terrainDepthRes.far = live.far; _terrainDepthRes.frameId = ctx.frameId
+        ctx.res.terrainDepth = _terrainDepthRes
+        ctx.res.terrainColor = _terrainColorRes
       },
     },
 
@@ -148,7 +154,7 @@ export function buildRenderSectionNodes() {
                 row.x = wx; row.z = wz; row.distSq = distSq
                 _benderScratch.push(row)
               }
-              if (_benderScratch.length > 1) _benderScratch.sort((a, b) => a.distSq - b.distSq)
+              if (_benderScratch.length > 1) _benderScratch.sort(_benderByDistSq)
             }
             try { if (typeof grass.updateStreaming === 'function') grass.updateStreaming(frameDt, ctx.camera, vegFocus, _benderScratch, pose); else if (typeof grass.update === 'function') grass.update(frameDt, ctx.camera, vegFocus, _benderScratch) } catch (_) {}
           }
@@ -184,8 +190,9 @@ export function buildRenderSectionNodes() {
           renderDeferringUnreadyPrograms(ctx.renderer, ctx.scene, ctx.camera)
           if (hasTerrain) ctx.renderer.autoClear = true
         }
-        ctx.res.sceneDepth = { target: 'canvas', frameId: ctx.frameId }
-        ctx.res.sceneColor = { target: 'canvas' }
+        _sceneDepthRes.frameId = ctx.frameId
+        ctx.res.sceneDepth = _sceneDepthRes
+        ctx.res.sceneColor = _sceneColorRes
       },
     },
 

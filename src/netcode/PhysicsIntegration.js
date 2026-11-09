@@ -24,6 +24,8 @@ export class PhysicsIntegration {
     this._derivePhysicalHalfHeight()
     this.playerBodies = new Map()
     this._crouchStates = new Map()
+    this._swimResult = { vy: 0, dragMul: 1 }
+    this._velocityScratch = [0, 0, 0]
   }
 
   _derivePhysicalHalfHeight() {
@@ -66,13 +68,14 @@ export class PhysicsIntegration {
     const submersionFrac = this._submersionFrac(state.position[1], state.position[0], state.position[2])
     const swimming = submersionFrac > 0.5
     state.swimming = swimming
-    if (!swimming) return { vy: gravityVy, dragMul: 1 }
+    const result = this._swimResult
+    if (!swimming) { result.vy = gravityVy; result.dragMul = 1; return result }
     const g = this.config.gravity[1]
     let vy = state.velocity[1] + g * SWIM_GRAVITY_MUL * deltaTime
     if (jumpHeld) vy = Math.max(vy, SWIM_UP_SPEED)
     else vy = Math.max(SWIM_SINK_SPEED, vy)
-    const dragMul = Math.max(0, 1 - SWIM_DRAG * deltaTime)
-    return { vy, dragMul }
+    result.vy = vy; result.dragMul = Math.max(0, 1 - SWIM_DRAG * deltaTime)
+    return result
   }
 
   addPlayerCollider(playerId, radius = 0.4) {
@@ -141,7 +144,9 @@ export class PhysicsIntegration {
     const swim = this._resolveSwimVelocity(state, deltaTime, vy, !!state._jumpHeld)
     vy = swim.vy
     const vx = state.velocity[0] * swim.dragMul, vz = state.velocity[2] * swim.dragMul
-    this.physicsWorld.setCharacterVelocity(charId, [vx, vy, vz])
+    const velocity = this._velocityScratch
+    velocity[0] = vx; velocity[1] = vy; velocity[2] = vz
+    this.physicsWorld.setCharacterVelocity(charId, velocity)
     this.physicsWorld.updateCharacter(charId, deltaTime)
     this.physicsWorld.readCharacterPosition(charId, state.position)
     this.physicsWorld.readCharacterVelocity(charId, state.velocity)

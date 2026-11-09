@@ -381,12 +381,12 @@ export function defineCombat(spec = {}, ctx = null) {
           spawnPowerup(pu.def, pu.position)
         }
       }
-      for (const [pid, reload] of reloading) {
-        if (now < reload.at) continue
+      reloading.forEach((reload, pid) => {
+        if (now < reload.at) return
         ammo.set(pid, config.magazineSize)
         reloading.delete(pid)
         ctx.players.send(pid, { type: 'reload_complete', ammo: config.magazineSize })
-      }
+      })
       for (const [pid, data] of [...respawning]) if (now >= data.respawnAt) respawn(pid)
     },
 

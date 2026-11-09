@@ -71,8 +71,15 @@ function waitForSequenceGap(player, inputs) {
   return true
 }
 
-function neutralInput(last) {
-  return { yaw: last.yaw || 0, pitch: last.pitch || 0, crouch: !!last.crouch, expr: last.expr || 0 }
+const _neutralInputByPlayer = new WeakMap()
+
+function neutralInput(player) {
+  const last = player.lastInput
+  const yaw = last.yaw || 0, pitch = last.pitch || 0, crouch = !!last.crouch, expr = last.expr || 0
+  let out = _neutralInputByPlayer.get(player)
+  if (!out) { out = {}; _neutralInputByPlayer.set(player, out) }
+  out.yaw = yaw; out.pitch = pitch; out.crouch = crouch; out.expr = expr
+  return out
 }
 
 function takeNextInput(player, inputs) {
@@ -132,7 +139,7 @@ export function processPlayerMovement(players, deps, tick, dt, playerIdleCounts,
       holdForInput = !STARVED_TICKS_STEP_STATE || player.starvedTicks <= deps.starveHoldTicks
       starvedNeutral = !holdForInput
       if (starvedNeutral) player.starvedSteps = (player.starvedSteps || 0) + 1
-      if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
+      if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player)
     }
     if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, starvedNeutral)
     if (consumed) advancePushQueue(player, deps.physicsIntegration)
@@ -189,8 +196,11 @@ function packSnapshot(seq, encoded, me, chartEpoch, recordMemo) {
   return buf
 }
 
+const _keptIdsScratch = new Set()
+
 function restoreTrimmedBaselines(sent, kept, staticCount, entityMap, prevMap) {
-  const keptIds = new Set()
+  const keptIds = _keptIdsScratch
+  keptIds.clear()
   for (let i = staticCount; i < kept.length; i++) keptIds.add(kept[i][0])
   for (let i = staticCount; i < sent.length; i++) {
     const id = sent[i][0]
@@ -205,6 +215,24 @@ const _cellViewersScratch = new Map()
 const _cellShareCache = new Map()
 
 const _servedScratch = []
+
+const _addIdsLength = (a, ids) => a + ids.length
+const _fanoutResult = { nearby: null, encoded: null, byId: null }
+const _NO_PRE_ENCODED_PLAYERS = Object.freeze([])
+const _staticEncOf = (se) => se.enc
+const newGroup = (i) => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 })
+const _dynEntitiesScratch = []
+const _liveCellsScratch = new Set()
+const _combinedScratch = { tick: 0, players: null, entities: null, serverTime: 0 }
+const _sharedEncodedScratch = { tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined }
+const _cellSharePool = []
+const _viewerListPool = []
+
+function sharedEncodedOf(tick, serverTime, players, entities, removed) {
+  const e = _sharedEncodedScratch
+  e.tick = tick; e.serverTime = serverTime; e.players = players; e.entities = entities; e.removed = removed; e.dots = undefined
+  return e
+}
 
 const playerFanoutWork = { lobbyPlayers: 0, encodedPlayers: 0, nearbyVisits: 0, recipients: 0, snapshots: 0 }
 export function resetPlayerFanoutWork() {
@@ -241,9 +269,10 @@ function buildPlayerFanout(served, snapPlayers, relevanceRadius, appRuntime) {
   playerFanoutWork.snapshots++
   playerFanoutWork.lobbyPlayers += snapPlayers.length
   playerFanoutWork.encodedPlayers += encoded.size
-  playerFanoutWork.nearbyVisits += nearby.reduce((a, ids) => a + ids.length, 0)
+  playerFanoutWork.nearbyVisits += nearby.reduce(_addIdsLength, 0)
   playerFanoutWork.recipients += served.length
-  return { nearby, encoded, byId }
+  _fanoutResult.nearby = nearby; _fanoutResult.encoded = encoded; _fanoutResult.byId = byId
+  return _fanoutResult
 }
 
 function selectServedPlayers(players, snapGroups, curGroup, serveAll) {
@@ -254,12 +283,13 @@ function selectServedPlayers(players, snapGroups, curGroup, serveAll) {
 
 function groupPlayersByCell(served, planetRadius, relevanceRadius) {
   _playerCellScratch.clear(); _cellViewersScratch.clear()
+  let viewerLists = 0
   for (const player of served) {
     const p = player.state.position
     const cell = resolvePlayerCell(p, planetRadius, relevanceRadius)
     _playerCellScratch.set(player.id, cell)
     let viewers = _cellViewersScratch.get(cell.cellKey)
-    if (!viewers) { viewers = []; _cellViewersScratch.set(cell.cellKey, viewers) }
+    if (!viewers) { viewers = _viewerListPool[viewerLists] || (_viewerListPool[viewerLists] = []); viewers.length = 0; viewerLists++; _cellViewersScratch.set(cell.cellKey, viewers) }
     viewers.push(p[0], p[1], p[2])
   }
 }
@@ -283,7 +313,6 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const curStaticVersion = appRuntime._staticVersion
     const curStaticCustomSum = appRuntime.getStaticCustomVersionSum ? appRuntime.getStaticCustomVersionSum() : 0
     let activeStaticEntries = null
-    const newGroup = (i) => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 })
     if (state.staticByGroup.length < snapGroups) {
       for (let i = state.staticByGroup.length; i < snapGroups; i++) state.staticByGroup.push(newGroup(i))
     } else if (state.staticByGroup.length > snapGroups) {
@@ -329,7 +358,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       const viewerPos = player.state.position
       const { cellKey, cellFace, cellCx, cellCy, cellsPerFace } = _playerCellScratch.get(player.id)
       let cached = _cellShareCache.get(cellKey)
-      if (!cached) { cached = {}; _cellShareCache.set(cellKey, cached) }
+      if (!cached) { cached = _cellSharePool[_cellShareCache.size] || (_cellSharePool[_cellShareCache.size] = {}); cached.sharedEncode = undefined; cached.sharedFull = undefined; _cellShareCache.set(cellKey, cached) }
       const nearbyPlayerIds = fanout.nearby[si]
       let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
       if (nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
@@ -351,7 +380,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         if (!shared || shared.tick !== tick) {
           const relevantIds = resolveDeliveredIds(ring.relevantIds, unmanagedIds, _cellViewersScratch.get(cellKey), planetRadius, relevanceRadius, appRuntime)
           const cellLastTick = state.cellLastTick.get(cellKey) || 0
-          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, clientSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
+          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, _NO_PRE_ENCODED_PLAYERS, activeStaticEntries, state.staticEntityMap, state.staticEntityIds, clientSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
           shared = { tick, entities: r.encoded.entities, removed: r.encoded.removed, entityMap: r.entityMap }
           r.entityMap._cellShared = true
           cached.sharedEncode = shared
@@ -363,14 +392,16 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         if (isFreshToCell) {
           let full = cached.sharedFull
           if (!full || full.tick !== tick) {
-            const dynEntities = Array.from(shared.entityMap.values()).map(v => v[3]).filter(Boolean)
+            const dynEntities = _dynEntitiesScratch
+            dynEntities.length = 0
+            for (const v of shared.entityMap.values()) if (v[3]) dynEntities.push(v[3])
             const staticEnts = state.lastStaticEntries || []
-            full = { tick, entities: staticEnts.map(se => se.enc).concat(dynEntities) }
+            full = { tick, entities: staticEnts.map(_staticEncOf).concat(dynEntities) }
             cached.sharedFull = full
           }
-          encoded = { tick: playerSnap.tick || 0, serverTime: serverNow, players: preEncodedPlayers || [], entities: full.entities, removed: undefined, delta: 1 }
+          encoded = sharedEncodedOf(playerSnap.tick || 0, serverNow, preEncodedPlayers || [], full.entities, undefined)
         } else {
-          encoded = { tick: playerSnap.tick || 0, serverTime: serverNow, players: preEncodedPlayers || [], entities: shared.entities, removed: shared.removed, delta: 1 }
+          encoded = sharedEncodedOf(playerSnap.tick || 0, serverNow, preEncodedPlayers || [], shared.entities, shared.removed)
         }
         state.playerCell.set(player.id, cellKey)
       } else {
@@ -401,7 +432,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       for (const t of state.cellLastTick.values()) { if (t < minTick) minTick = t }
       state.tombstoneLog.pruneBefore(minTick)
       if (state.cellLastTick.size > 0) {
-        const liveCells = new Set(state.playerCell.values())
+        const liveCells = _liveCellsScratch
+        liveCells.clear()
+        for (const key of state.playerCell.values()) liveCells.add(key)
         for (const key of state.cellLastTick.keys()) {
           if (!liveCells.has(key)) { state.cellLastTick.delete(key); state.cellEntityMaps.delete(key) }
         }
@@ -413,7 +446,8 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     }
   } else {
     const entitySnap = appRuntime.getSnapshot()
-    const combined = { tick: playerSnap.tick, players: playerSnap.players, entities: entitySnap.entities, serverTime: serverNow }
+    const combined = _combinedScratch
+    combined.tick = playerSnap.tick; combined.players = playerSnap.players; combined.entities = entitySnap.entities; combined.serverTime = serverNow
     const prevMap = (isKeyframe || state.broadcastEntityMap.size === 0) ? new Map() : state.broadcastEntityMap
     const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
     state.broadcastEntityMap = entityMap

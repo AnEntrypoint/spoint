@@ -9,6 +9,10 @@ import { swingTwistLimits, hingeLimits } from './constraintLimits.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
+const _ZERO_VEC3 = [0, 0, 0]
+const _rayExcludeOne = [null]
+const _rayJids = []
+const _rayDirScratch = [0, 0, 0]
 
 function shapeMetaOf(shapeType, motionType, params) {
   if (shapeType !== 'box') return { type: motionType, shape: shapeType }
@@ -760,7 +764,7 @@ export class PhysicsWorld {
     if (sk) {
       const isDynamic = this.bodyMeta.get(id)?.type === 'dynamic'
       this._repositionBody(id, _PARK_POS, null, isDynamic ? false : null)
-      if (isDynamic) { this.setBodyVelocity(id, [0, 0, 0]); this.setBodyAngularVelocity(id, [0, 0, 0]) }
+      if (isDynamic) { this.setBodyVelocity(id, _ZERO_VEC3); this.setBodyAngularVelocity(id, _ZERO_VEC3) }
       let free = this._bodyPool.get(sk); if (!free) this._bodyPool.set(sk, free = [])
       free.push(id)
       return
@@ -828,8 +832,9 @@ export class PhysicsWorld {
     const J = this.Jolt
     const scratchFilter = this._raycastScratch().bf
     if (excludeBodyIds == null) return scratchFilter
-    const ids = Array.isArray(excludeBodyIds) ? excludeBodyIds : [excludeBodyIds]
-    const jids = []
+    const ids = Array.isArray(excludeBodyIds) ? excludeBodyIds : _rayExcludeOne.fill(excludeBodyIds)
+    const jids = _rayJids
+    jids.length = 0
     for (const id of ids) { const b = this._getBody(id); if (b) jids.push(b.GetID()) }
     if (jids.length === 0) return scratchFilter
     if (jids.length === 1) return new J.IgnoreSingleBodyFilter(jids[0])
@@ -874,7 +879,8 @@ export class PhysicsWorld {
     } else result = { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null }
     if (bf !== s.bf) J.destroy(bf)
     if (this._dormant && this._dormant.pendingCount > 0) {
-      const reach = this._dormant.firstReach(origin, [dirX, dirY, dirZ], maxDistance)
+      _rayDirScratch[0] = dirX; _rayDirScratch[1] = dirY; _rayDirScratch[2] = dirZ
+      const reach = this._dormant.firstReach(origin, _rayDirScratch, maxDistance)
       if (reach < (result.hit ? result.distance : maxDistance)) return { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null, unavailable: 'static-colliders-migrating' }
     }
     return result

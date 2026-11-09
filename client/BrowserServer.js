@@ -6,6 +6,7 @@ import { DEFAULT_ICE_SERVERS } from '/src/shared/worldDefaults.js'
 import { localSpecifiers } from '/src/apps/appImports.js'
 
 const _COALESCE_SENTINEL = 0xff
+const _peerMessage = { type: 'PEER_MESSAGE', peerId: null, data: null }
 const _PEER_SIM_FRAME = /^ww(rollback|lockstep):/
 function _isBareSnapshotFrame(mt, bytes) {
   if (mt !== MSG.SNAPSHOT) return false
@@ -35,6 +36,11 @@ export class BrowserServer extends BaseClient {
     this._onVisibilityChange = () => {
       if (typeof document === 'undefined' || !document.hidden || !this._worker) return
       this._worker.postMessage({ type: 'SAVE_NOW' })
+    }
+    this._onSnapFlush = () => {
+      this._snapScheduled = false
+      const s = this._pendingSnap; this._pendingSnap = null
+      if (s != null && this._worker) this.onMessage(s)
     }
   }
 
@@ -194,12 +200,7 @@ export class BrowserServer extends BaseClient {
           this._pendingSnap = data.data
           if (!this._snapScheduled) {
             this._snapScheduled = true
-            const flush = () => {
-              this._snapScheduled = false
-              const s = this._pendingSnap; this._pendingSnap = null
-              if (s != null && this._worker) this.onMessage(s)
-            }
-            setTimeout(flush, 0)
+            setTimeout(this._onSnapFlush, 0)
           }
           return
         }
@@ -237,7 +238,8 @@ export class BrowserServer extends BaseClient {
     if (!worker) return
     if (typeof data === 'string') return
     if (data instanceof ArrayBuffer) {
-      worker.postMessage({ type: 'PEER_MESSAGE', peerId, data }, [data])
+      _peerMessage.peerId = peerId; _peerMessage.data = data
+      worker.postMessage(_peerMessage, [data])
       return
     }
     if (typeof data?.arrayBuffer === 'function') {

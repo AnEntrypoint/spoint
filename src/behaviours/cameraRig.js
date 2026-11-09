@@ -143,7 +143,7 @@ export function defineCameraRig(spec = {}, appCtx = null) {
   function playerState(playerId, create) {
     let p = players.get(playerId)
     if (!p && create) {
-      p = { active: new Set([defaultId]), perLayer: new Map() }
+      p = { active: new Set([defaultId]), perLayer: new Map(), order: null }
       players.set(playerId, p)
     }
     return p
@@ -156,7 +156,8 @@ export function defineCameraRig(spec = {}, appCtx = null) {
   }
 
   function ordered(p) {
-    return [...p.active].map(id => layers.get(id)).sort((a, b) => b.priority - a.priority)
+    if (p.order === null) p.order = [...p.active].map(id => layers.get(id)).sort((a, b) => b.priority - a.priority)
+    return p.order
   }
 
   return {
@@ -164,12 +165,14 @@ export function defineCameraRig(spec = {}, appCtx = null) {
       if (!layers.has(layerId)) refuse('push-unknown-layer', `push: layer "${layerId}" is not declared`)
       const p = playerState(playerId, true)
       p.active.add(layerId)
+      p.order = null
     },
     pop(playerId, layerId) {
       const p = playerState(playerId, false)
       if (!p || layerId === defaultId) return
       p.active.delete(layerId)
       p.perLayer.delete(layerId)
+      p.order = null
     },
     top(playerId) {
       const p = playerState(playerId, false)

@@ -112,8 +112,12 @@ function grassLightGain(sunElevY) {
   return GRASS_GAIN_DUSK + (GRASS_GAIN_DAY - GRASS_GAIN_DUSK) * t
 }
 
+const GRASS_WINDOW_KEYS = { skyFill: '__skyFill', termWidth: '__termWidth', nightFloor: '__nightFloor', nightLights: '__nightLights', exposure: '__exposure', lookSat: '__lookSat', lookContrast: '__lookContrast' }
+const _grassAmbIrr = [0, 0, 0]
+const _grassAmbDeltaOpts = { muS: 0, skyFill: 0, solar: ATM_SOLAR_IRRADIANCE, rayleigh: ATM_RAYLEIGH, ambIrr: _grassAmbIrr, termWidth: 0, nightFloor: 0 }
+
 function grassWindowNum(name, fallback) {
-  const v = typeof window === 'undefined' ? undefined : window['__' + name]
+  const v = typeof window === 'undefined' ? undefined : window[GRASS_WINDOW_KEYS[name]]
   return Number.isFinite(v) ? v : fallback
 }
 
@@ -126,15 +130,12 @@ export function setGrassSun(wind, sun) {
   const amb = wind.uAmbient.value.setHex(sun.ambientColor)
     .multiplyScalar((Number.isFinite(sun.ambientIntensity) ? sun.ambientIntensity : 1) * INV_PI)
   const muS = Number.isFinite(sun.elevDeg) ? Math.sin(sun.elevDeg * Math.PI / 180) : sun.dir[1]
-  const d = vegetationAmbientDelta({
-    muS,
-    skyFill: grassWindowNum('skyFill', TD.skyFill),
-    solar: ATM_SOLAR_IRRADIANCE,
-    rayleigh: ATM_RAYLEIGH,
-    ambIrr: [amb.r, amb.g, amb.b],
-    termWidth: grassWindowNum('termWidth', TD.termWidth),
-    nightFloor: grassWindowNum('nightFloor', TD.nightFloor),
-  })
+  _grassAmbIrr[0] = amb.r; _grassAmbIrr[1] = amb.g; _grassAmbIrr[2] = amb.b
+  _grassAmbDeltaOpts.muS = muS
+  _grassAmbDeltaOpts.skyFill = grassWindowNum('skyFill', TD.skyFill)
+  _grassAmbDeltaOpts.termWidth = grassWindowNum('termWidth', TD.termWidth)
+  _grassAmbDeltaOpts.nightFloor = grassWindowNum('nightFloor', TD.nightFloor)
+  const d = vegetationAmbientDelta(_grassAmbDeltaOpts)
   wind.uGrassAmbMul.value.set(d.albedoMul[0], d.albedoMul[1], d.albedoMul[2])
   wind.uGrassAmbAdd.value.set(d.add[0], d.add[1], d.add[2])
   const nightFillScale = grassWindowNum('nightLights', TD.nightLights) * (1 - d.dayShade) * (1 - d.nightAmt)

@@ -1,4 +1,4 @@
-import { fnv1aBytes } from '../shared/fnv1a.js'
+import { FNV1A_32_OFFSET_BASIS, fnv1aStepBytes } from '../shared/fnv1a.js'
 import { boxRecordOf, boxRecordsFlat } from '../shared/collisionTile.js'
 
 export const STATIC_TILE_M = 16
@@ -9,20 +9,19 @@ const TRI_CACHE_FLOAT_CAP = 2000000
 const TRI_CACHE_TILES_PER_BODY = 64
 const BOUNDS_LEN = 16
 const EMPTY_TRIS = new Float32Array(0)
+const ASCENDING = (a, b) => a - b
 
 export function staticTileKey(tx, tz) { return tx + ',' + tz }
 
 function tileHash(verts, boxes) {
-  const bytes = new Uint8Array(verts.byteLength + boxes.byteLength)
-  bytes.set(new Uint8Array(verts.buffer), 0)
-  bytes.set(new Uint8Array(boxes.buffer), verts.byteLength)
-  return fnv1aBytes(bytes)
+  return fnv1aStepBytes(fnv1aStepBytes(FNV1A_32_OFFSET_BASIS, new Uint8Array(verts.buffer)), new Uint8Array(boxes.buffer)) >>> 0
 }
 
 export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = STATIC_TILE_MARGIN_M) {
   const J = world.Jolt
   const tiles = new Map(), bodyTiles = new Map(), bodyBounds = new Map(), bigBodies = new Set()
   const geoVersion = new Map(), triCache = new Map()
+  const idScratch = [], partsScratch = [], boxesScratch = []
   const shapeKeys = world._bodyShapeKey || null
   let bigVersion = 0, geoSeq = 0, triCacheFloats = 0
   const one = new J.Vec3(1, 1, 1), com = new J.Vec3(0, 0, 0), lo = new J.Vec3(0, 0, 0), hi = new J.Vec3(0, 0, 0)
@@ -100,10 +99,11 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
     const t0 = performance.now()
     const x0 = t.tx * tileM, z0 = t.tz * tileM
     lo.Set(x0 - marginM, -COLUMN_HALF_Y_M, z0 - marginM); hi.Set(x0 + tileM + marginM, COLUMN_HALF_Y_M, z0 + tileM + marginM)
-    const ids = [...t.bodies]
+    const ids = idScratch; ids.length = 0
+    for (const id of t.bodies) ids.push(id)
     for (const id of bigBodies) ids.push(id)
-    ids.sort((a, b) => a - b)
-    const parts = [], boxes = []
+    ids.sort(ASCENDING)
+    const parts = partsScratch, boxes = boxesScratch; parts.length = 0; boxes.length = 0
     for (const id of ids) {
       const b = world.bodies.get(id)
       if (!b) continue

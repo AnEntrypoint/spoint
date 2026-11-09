@@ -16,6 +16,7 @@ let _d2Scratch = new Float64Array(0)
 const _full = new Set(), _reduced = new Set(), _dot = new Set()
 const _tierById = new Map()
 const _order = []
+const _tiers = { full: _full, reduced: _reduced, dot: _dot, order: _order, tierById: _tierById }
 
 function ensureScratchCapacity(n) {
   if (_idxScratch.length >= n) return
@@ -47,7 +48,7 @@ export function classifyPlayerTiers(entries, viewerPos, fullCount = PLAYER_LOD_F
     else if (d2 < reducedD2) { _reduced.add(id); _tierById.set(id, TIER_REDUCED) }
     else { _dot.add(id); _tierById.set(id, TIER_DOT) }
   }
-  return { full: _full, reduced: _reduced, dot: _dot, order: _order, tierById: _tierById }
+  return _tiers
 }
 function _byD2(a, b) { return _d2Scratch[a] - _d2Scratch[b] }
 

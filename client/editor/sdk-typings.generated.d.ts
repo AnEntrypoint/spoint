@@ -1,4 +1,4 @@
-export declare const SOURCE_DIGEST: '8aaf4a866d0f55032937e1a12fbf15e1f7094bb9d66dadd193d3c7da52d398b1';
+export declare const SOURCE_DIGEST: '61d30eddb170f4516b092501fd4e223641d22afae15c5db5272e2cbd676928dd';
 
 export type NonNegFinite = number;
 
@@ -732,9 +732,9 @@ export declare class AppContext {
         resolveFireRequest(lagComp: any, shooterId: any, shooterPosition: any, msg: any, hitbox?: Readonly<{
             centerHeight: 0.9;
             height: 1.8;
-            origin: any;
+            origin: null;
             radiusSq: 0.36;
-            viewTick: any;
+            viewTick: null;
         }>): {
         };
         resolveTargetPoint(target: any, lagComp: any, viewTick: any): {

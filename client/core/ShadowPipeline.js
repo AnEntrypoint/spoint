@@ -123,7 +123,8 @@ export function createShadowPipeline(sun, opts = {}) {
   function update(target) {
     let anyMoved = false
     let farIssued = 0
-    for (const c of _cascades) {
+    for (let i = 0; i < _cascades.length; i++) {
+      const c = _cascades[i]
       if (c.index > 0 && !(c._pendingFrames >= FAR_CASCADE_MAX_DEFER_FRAMES) && farIssued >= farRedrawBudget) {
         c._pendingFrames++
         continue

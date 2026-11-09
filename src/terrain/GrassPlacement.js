@@ -1,5 +1,5 @@
 import { hash3, rand, renderedSoilWeight, createPlacementCell, placementCellAt, surfaceOfCell } from './VegPlacement.js'
-import { latticeFor, tangentFrame, tangentToLocal, tangentHeadingInChart, surfaceAlongDir, climateAt } from './PlacementChart.js'
+import { latticeFor, tangentFrame, tangentToLocalInto, tangentHeadingInChart, surfaceAlongDir, climateAt } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 import { renderMeshHeightAt } from './TerrainMeshSurface.js'
 
@@ -66,35 +66,44 @@ function snoiseFor(hashVersion) {
 }
 
 const _smooth = (a, b, x) => { const t = _clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t) }
-const _mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+const _mix3Into = (out, a, b, t) => { out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t; return out }
+const _scale3Into = (out, a, s) => { out[0] = a[0] * s; out[1] = a[1] * s; out[2] = a[2] * s; return out }
+const _brightenChannel = (c) => _clamp01(c * TD.texBright)
+const _BED_MID = [0.12, 0.11, 0.09], _BED_DEEP = [0.06, 0.06, 0.07], _SEA_FOAM = [0.82, 0.88, 0.94]
+const _biomeA = [0, 0, 0], _biomeB = [0, 0, 0], _biomeC = [0, 0, 0]
+const _groundSurface = [0, 0, 0], _groundTint = [0, 0, 0]
+const _bladeOff = [0, 0, 0]
 
 function biomeClimateRgb(snoise3, dir, h, rockSlope, temp) {
   const dx = dir[0], dy = dir[1], dz = dir[2]
   const rockT = _smooth(TD.slopeRock[0], TD.slopeRock[1], rockSlope)
   const depthT = _clamp01(-h / 300)
-  const bed = _mix3(_mix3(BC.shore, [0.12, 0.11, 0.09], _smooth(0, 0.5, depthT)), [0.06, 0.06, 0.07], _smooth(0.5, 1, depthT))
-  const seaOut = _mix3(_mix3(bed, BC.rock, rockT), [0.82, 0.88, 0.94], (1 - _smooth(0.12, 0.22, temp)) * 0.9)
+  const bed = _mix3Into(_biomeA, _mix3Into(_biomeB, BC.shore, _BED_MID, _smooth(0, 0.5, depthT)), _BED_DEEP, _smooth(0.5, 1, depthT))
+  const seaOut = _mix3Into(_biomeB, _mix3Into(_biomeC, bed, BC.rock, rockT), _SEA_FOAM, (1 - _smooth(0.12, 0.22, temp)) * 0.9)
   const lo = TD.bandEdgesLo, hi = TD.bandEdgesHi, sn = TD.snowEdges
-  const land0 = _mix3(_mix3(BC.shore, BC.lowland, _smooth(0, lo[0], h)), BC.grass, _smooth(lo[0], lo[1], h))
+  _mix3Into(_biomeA, _mix3Into(_biomeC, BC.shore, BC.lowland, _smooth(0, lo[0], h)), BC.grass, _smooth(lo[0], lo[1], h))
   const warp = snoise3(dx * 130, dy * 130, dz * 130) * 0.004
   const bx = dx + warp, by = dy + warp, bz = dz + warp
   const bandWarp = (snoise3(bx * 210, by * 210, bz * 210) + 0.5 * snoise3(bx * 560, by * 560, bz * 560) + 0.25 * snoise3(bx * 1450, by * 1450, bz * 1450)) * TD.bandWarp
-  const land1 = _mix3(land0, BC.rock, _smooth(bandWarp + hi[0], bandWarp + hi[1], h))
-  const land2 = _mix3(land1, BC.snow, _smooth(bandWarp + sn[0], bandWarp + sn[1], h))
-  const land3 = _mix3(land2, BC.rock, rockT * (h >= 0 ? 1 : 0))
+  _mix3Into(_biomeC, _biomeA, BC.rock, _smooth(bandWarp + hi[0], bandWarp + hi[1], h))
+  _mix3Into(_biomeA, _biomeC, BC.snow, _smooth(bandWarp + sn[0], bandWarp + sn[1], h))
+  _mix3Into(_biomeC, _biomeA, BC.rock, rockT * (h >= 0 ? 1 : 0))
   const mottle = snoise3(dx * 120, dy * 120, dz * 120) * TD.variationAmt + 1
-  const beached = _mix3(land3.map((c) => c * mottle), BC.shore, (1 - _smooth(TD.beachTop * 0.3, TD.beachTop, h)) * (1 - rockT))
+  const beached = _mix3Into(_biomeA, _scale3Into(_biomeA, _biomeC, mottle), BC.shore, (1 - _smooth(TD.beachTop * 0.3, TD.beachTop, h)) * (1 - rockT))
   let ridge = 0
-  for (const [freq, amp, shift] of RIDGE_OCTAVES) ridge += amp * snoise3(dx * freq + shift, dy * freq + shift, dz * freq + shift)
+  for (let r = 0; r < RIDGE_OCTAVES.length; r++) {
+    const freq = RIDGE_OCTAVES[r][0], amp = RIDGE_OCTAVES[r][1], shift = RIDGE_OCTAVES[r][2]
+    ridge += amp * snoise3(dx * freq + shift, dy * freq + shift, dz * freq + shift)
+  }
   const ridgeGain = (ridge / RIDGE_AMP_SUM) * 0.02 + 1
-  return h < 0 ? seaOut : beached.map((c) => c * ridgeGain)
+  return h < 0 ? seaOut : _scale3Into(_biomeA, beached, ridgeGain)
 }
 
 function groundRgb(snoise3, dir, h, slope, temp, splat) {
   const biome = biomeClimateRgb(snoise3, dir, h, slope, temp)
-  const surface = [0, 1, 2].map((c) => splat.grass * BC.grass[c] + splat.rock * TD.bcRock[c] + splat.sand * BC.shore[c] + splat.snow * BC.snow[c])
-  const tinted = _mix3(surface, biome, TD.biomeTint * (1 - 0.85 * _clamp01(splat.sand)))
-  return tinted.map((c) => _clamp01(c * TD.texBright))
+  for (let c = 0; c < 3; c++) _groundSurface[c] = splat.grass * BC.grass[c] + splat.rock * TD.bcRock[c] + splat.sand * BC.shore[c] + splat.snow * BC.snow[c]
+  const tinted = _mix3Into(_groundTint, _groundSurface, biome, TD.biomeTint * (1 - 0.85 * _clamp01(splat.sand)))
+  return tinted.map(_brightenChannel)
 }
 
 export function grassDensity(temp, humidity, slopeRatio) {
@@ -192,7 +201,7 @@ export function blade(p, bi) {
   if (coin >= p.density) return null
   const ang = rand(h, K_YAW) * Math.PI * 2, rad = Math.sqrt(rand(h, K_JITX)) * GRASS.CLUMP_R
   const offE = Math.cos(ang) * rad, offN = Math.sin(ang) * rad
-  const off = tangentToLocal(p.tf, offE, p.riseAt(offE, offN), offN)
+  const off = tangentToLocalInto(p.tf, offE, p.riseAt(offE, offN), offN, _bladeOff)
   return {
     q: Math.fround(p.density > 0 ? coin / p.density : 1),
     x: Math.fround(p.x + off[0]), y: Math.fround(p.y + off[1]), z: Math.fround(p.z + off[2]),

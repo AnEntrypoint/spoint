@@ -2,6 +2,8 @@ import { LOCKSTEP_CTRL_PREFIX, controlFrameHandlers, countOrder, countReject, cr
 
 function encodeCtrl(obj) { return encodeControlFrame(LOCKSTEP_CTRL_PREFIX, obj) }
 
+const tickOfFrame = (frame) => frame.tick
+
 export class LockstepInputTransport {
   constructor({ bridge, onRemoteInput = null, onRemoteDrop = null, onPeerClosed = null } = {}) {
     if (!bridge?.data) throw new Error('LockstepInputTransport: bridge.data required')
@@ -20,6 +22,9 @@ export class LockstepInputTransport {
       input: (frame, from) => this._applyRemoteInput(frame, from),
       drop: (frame, from) => this._applyRemoteDrop(frame, from),
     })
+    this._onReject = countReject(this.stats)
+    this._onOrder = countOrder(this.stats)
+    this._dispatchOrigin = { from: null, selfId: null, clock: this._clock, tickOf: tickOfFrame, onOrder: this._onOrder }
   }
 
   get myPubkey() { return this.bridge.pubkey }
@@ -36,13 +41,10 @@ export class LockstepInputTransport {
   }
 
   _handleFrame(detail) {
-    const dispatched = dispatchControlFrame(LOCKSTEP_CTRL_PREFIX, this._arms, detail?.data, countReject(this.stats), {
-      from: detail?.peerPubkey,
-      selfId: this.myPubkey,
-      clock: this._clock,
-      tickOf: (frame) => frame.tick,
-      onOrder: countOrder(this.stats),
-    })
+    const origin = this._dispatchOrigin
+    origin.from = detail?.peerPubkey
+    origin.selfId = this.myPubkey
+    const dispatched = dispatchControlFrame(LOCKSTEP_CTRL_PREFIX, this._arms, detail?.data, this._onReject, origin)
     if (!dispatched) return
     dispatched.apply(dispatched.frame, dispatched.from)
   }

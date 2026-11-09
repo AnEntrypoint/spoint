@@ -52,10 +52,10 @@ export function createBuffStack(spec = {}, appCtx = null) {
       if (decayPerSec <= 0) return
       const step = decayPerSec * dt
       for (const m of _players.values()) {
-        for (const [k, v] of m) {
+        m.forEach((v, k) => {
           if (v > decayTarget) m.set(k, Math.max(decayTarget, v - step))
           else if (v < decayTarget) m.set(k, Math.min(decayTarget, v + step))
-        }
+        })
       }
     }
   }

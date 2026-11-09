@@ -19,21 +19,22 @@ export function createFireStageMap({ kernel, lattice, slotsAcross = 64, slotsDow
   let slotCount = 0
   let generation = -1
   const scratch = new Uint8Array(TILE_BYTES)
+  const scratchRows = Array.from({ length: TILE_SIZE }, (_, row) => scratch.subarray(row * TEXELS_PER_TILE_ROW * BYTES_PER_TEXEL, (row + 1) * TEXELS_PER_TILE_ROW * BYTES_PER_TEXEL))
   const dirty = new Int32Array(slotCapacity)
   const stats = { syncs: 0, tilesWritten: 0, bytesWritten: 0, resolves: 0 }
 
   function tileKey(face, ti, tj) { return (face * tilesPerAxis + ti) * tilesPerAxis + tj }
   function blockOrigin(slot) { return { x: (slot % slotsAcross) * TILE_SIZE, y: Math.floor(slot / slotsAcross) * TILE_SIZE } }
 
-  function writeTile(slot, source) {
+  function writeTile(slot) {
     const bx = (slot % slotsAcross) * TILE_SIZE, by = Math.floor(slot / slotsAcross) * TILE_SIZE
     for (let row = 0; row < TILE_SIZE; row++) {
       const dst = ((by + row) * width + bx) * BYTES_PER_TEXEL
-      data.set(source.subarray(row * TEXELS_PER_TILE_ROW * BYTES_PER_TEXEL, (row + 1) * TEXELS_PER_TILE_ROW * BYTES_PER_TEXEL), dst)
+      data.set(scratchRows[row], dst)
     }
   }
 
-  function clearTile(slot) { scratch.fill(0); writeTile(slot, scratch) }
+  function clearTile(slot) { scratch.fill(0); writeTile(slot) }
 
   function acquire(face, ti, tj) {
     const key = tileKey(face, ti, tj)
@@ -96,7 +97,7 @@ export function createFireStageMap({ kernel, lattice, slotsAcross = 64, slotsDow
       const serial = kernel.tileSerialOf(t)
       if (serial === seenSerial[slot]) continue
       kernel.readTileStage(t, scratch, 0)
-      writeTile(slot, scratch)
+      writeTile(slot)
       seenSerial[slot] = serial
       dirty[changed++] = slot
       stats.bytesWritten += TILE_BYTES

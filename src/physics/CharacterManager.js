@@ -19,7 +19,7 @@ export class CharacterManager {
     this._groundNormals = new Map()
     this._walls = new Map()
     this._nextCharId = 0
-    this.J = null; this._jolt = null; this._physicsSystem = null
+    this.J = null; this._jolt = null; this._physicsSystem = null; this._tempAllocator = null
     this._filters = null; this._updateSettings = null
     this._charGravity = null; this._tmpVec3 = null; this._tmpRVec3 = null
     this.config = {
@@ -30,7 +30,7 @@ export class CharacterManager {
   }
 
   init(J, jolt, physicsSystem) {
-    this.J = J; this._jolt = jolt; this._physicsSystem = physicsSystem
+    this.J = J; this._jolt = jolt; this._physicsSystem = physicsSystem; this._tempAllocator = jolt.GetTempAllocator()
     this._filters = {
       bp: new J.DefaultBroadPhaseLayerFilter(jolt.GetObjectVsBroadPhaseLayerFilter(), LAYER_DYNAMIC),
       ol: new J.DefaultObjectLayerFilter(jolt.GetObjectLayerPairFilter(), LAYER_DYNAMIC),
@@ -86,7 +86,7 @@ export class CharacterManager {
   update(charId, dt) {
     const ch = this.characters.get(charId); if (!ch) return
     const f = this._filters
-    ch.ExtendedUpdate(dt, this._charGravity, this._updateSettings, f.bp, f.ol, f.body, f.shape, this._jolt.GetTempAllocator())
+    ch.ExtendedUpdate(dt, this._charGravity, this._updateSettings, f.bp, f.ol, f.body, f.shape, this._tempAllocator)
     let onGround = false
     if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._onGroundAtLastUpdate.set(charId, onGround) }
     this._captureGroundNormal(charId, ch, onGround)
@@ -191,10 +191,10 @@ export class CharacterManager {
     const contacts = ch.GetActiveContacts()
     const n = contacts.size()
     if (!n) return
-    const feetY = ch.GetPosition().GetY() - shape.standHeight - shape.radius
+    const charPos = ch.GetPosition()
+    const feetY = charPos.GetY() - shape.standHeight - shape.radius
     const minContactY = feetY + this.config.maxStepHeight + WALL_ABOVE_STEP_M
     const staticType = this.J.EMotionType_Static
-    const charPos = ch.GetPosition()
     const cx = charPos.GetX(), cz = charPos.GetZ()
     for (let i = 0; i < n && w[0] < MAX_WALL_PLANES; i++) {
       const c = contacts.at(i)

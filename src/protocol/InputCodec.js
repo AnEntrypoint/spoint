@@ -278,13 +278,16 @@ export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   return r.bytes
 }
 
+const DECODED_ENTRIES = []
+
 export function decodeInputPacket(schema, bytes, dropAtOrBelow = null) {
   if (!(bytes instanceof Uint8Array)) return rejection(INPUT_CASE.PAYLOAD, {})
   if (bytes.length < 1) return rejection(INPUT_CASE.PAYLOAD_EMPTY, {})
   const n = bytes[0] & ~FLAG_EPOCH_TAGGED
   if (n === 0 || n > MAX_INPUTS_PER_PACKET) return rejection(INPUT_CASE.COUNT, { got: n, hi: MAX_INPUTS_PER_PACKET })
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const entries = []
+  const entries = DECODED_ENTRIES
+  entries.length = 0
   let off = 1
   let chartEpoch = 0
   if (bytes[0] & FLAG_EPOCH_TAGGED) {

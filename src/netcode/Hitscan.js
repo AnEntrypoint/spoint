@@ -16,12 +16,14 @@ function unitDirection(d) {
   return unit
 }
 
+const fireRequest = { origin: null, viewTick: null }
+
 export function resolveFireRequest(lagComp, shooterId, shooterPosition, msg, hitbox = DEFAULT_HITBOX) {
   const eye = [shooterPosition[0], shooterPosition[1] + hitbox.centerHeight, shooterPosition[2]]
-  if (!lagComp) return { origin: eye, viewTick: null }
-  const origin = lagComp.validateShotOrigin(shooterPosition, msg.origin, hitbox.centerHeight)
-  const viewTick = lagComp.acceptRewind(shooterId) ? lagComp.resolveViewTick(msg.viewTick) : null
-  return { origin, viewTick }
+  if (!lagComp) { fireRequest.origin = eye; fireRequest.viewTick = null; return fireRequest }
+  fireRequest.origin = lagComp.validateShotOrigin(shooterPosition, msg.origin, hitbox.centerHeight)
+  fireRequest.viewTick = lagComp.acceptRewind(shooterId) ? lagComp.resolveViewTick(msg.viewTick) : null
+  return fireRequest
 }
 
 export function resolveTargetPoint(target, lagComp, viewTick) {
@@ -29,9 +31,11 @@ export function resolveTargetPoint(target, lagComp, viewTick) {
   return { tp: rewound ? [...rewound.position] : target.state.position, rewound }
 }
 
+const toTarget = [0, 0, 0]
+
 export function rayVsCapsule(origin, direction, range, tp, hitbox = DEFAULT_HITBOX) {
   const unit = unitDirection(direction)
-  const toTarget = [tp[0] - origin[0], tp[1] + hitbox.centerHeight - origin[1], tp[2] - origin[2]]
+  toTarget[0] = tp[0] - origin[0]; toTarget[1] = tp[1] + hitbox.centerHeight - origin[1]; toTarget[2] = tp[2] - origin[2]
   const dot = toTarget[0] * unit[0] + toTarget[1] * unit[1] + toTarget[2] * unit[2]
   if (dot < 0 || dot > range) return null
   const proj = [origin[0] + unit[0] * dot, origin[1] + unit[1] * dot, origin[2] + unit[2] * dot]
@@ -67,11 +71,14 @@ export function findHitLinear(players, shot) {
   return nearest
 }
 
+const spatialSeen = new Set()
+
 export function findHitSpatial(players, shot, liveIndex = null) {
   const direction = unitDirection(shot.direction)
   const index = liveIndex || buildLiveIndex(players)
   const byId = index.playersById || new Map(players.map(p => [p.id, p]))
-  const seen = new Set()
+  const seen = spatialSeen
+  seen.clear()
   let nearest = null
   let nearestDot = Infinity
   let nearestOrder = Infinity

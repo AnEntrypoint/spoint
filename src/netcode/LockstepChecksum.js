@@ -2,6 +2,8 @@ import { FNV1A_32_OFFSET_BASIS, fnv1aStepFloat64 } from '../shared/fnv1a.js'
 
 const SECOND_LANE_SEED = 0x1000193
 const SECOND_LANE_BYTE_OFFSET = 1
+const checksumIds = []
+const byIdAscending = (x, y) => x - y
 
 function canonicalFloat64(n) {
   return n === 0 ? 0 : (Number.isNaN(n) ? NaN : n)
@@ -23,8 +25,11 @@ export function createChecksumFold() {
 
 export function checksumBodies(tick, snap) {
   const fold = createChecksumFold().pushInt(tick)
-  const ids = snap instanceof Map ? [...snap.keys()] : Object.keys(snap).map(Number)
-  ids.sort((x, y) => x - y)
+  const ids = checksumIds
+  ids.length = 0
+  if (snap instanceof Map) for (const id of snap.keys()) ids.push(id)
+  else for (const k of Object.keys(snap)) ids.push(Number(k))
+  ids.sort(byIdAscending)
   for (const id of ids) {
     const s = snap instanceof Map ? snap.get(id) : snap[id]
     fold.pushInt(id)

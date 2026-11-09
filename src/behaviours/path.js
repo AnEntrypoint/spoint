@@ -110,6 +110,7 @@ export function definePath(points, options) {
     return total > 0 ? bestAlong / total : 0
   }
 
+  const closestRecord = { index: 0, t: 0, point: [0, 0, 0], d2: 0, distance: 0 }
   const closest = (x, z) => {
     let best = null
     for (let i = 0; i < edgeCount; i++) {
@@ -122,7 +123,14 @@ export function definePath(points, options) {
       const dx = x - px, dz = z - pz
       const d2 = dx * dx + dz * dz
       if (best === null || d2 < best.d2) {
-        best = { index: i, t, point: [px, a[1] + (b[1] - a[1]) * t, pz], d2, distance: Math.sqrt(d2) }
+        best = closestRecord
+        best.index = i
+        best.t = t
+        best.point[0] = px
+        best.point[1] = a[1] + (b[1] - a[1]) * t
+        best.point[2] = pz
+        best.d2 = d2
+        best.distance = Math.sqrt(d2)
       }
     }
     return best
@@ -138,7 +146,7 @@ export function definePath(points, options) {
     const w = readWithin(within)
     const c = closest(x, z)
     if (c.distance > w) return null
-    return { index: c.index, t: c.t, point: c.point, distance: c.distance }
+    return { index: c.index, t: c.t, point: [...c.point], distance: c.distance }
   }
   const at = (index) => {
     if (!Number.isInteger(index)) throw refusal('path-index-invalid', `index must be an integer, got ${index}`)

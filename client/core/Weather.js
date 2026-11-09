@@ -290,9 +290,12 @@ export function createWeather(opts = {}) {
   let _rainSplashCarry = 0
   let _snowLandCarry = 0
 
+  const _discPoint = [0, 0]
   function _randomDiscPoint(cx, cz) {
     const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
-    return [cx + Math.cos(ang) * r, cz + Math.sin(ang) * r]
+    _discPoint[0] = cx + Math.cos(ang) * r
+    _discPoint[1] = cz + Math.sin(ang) * r
+    return _discPoint
   }
 
   function _groundInsideFallWindow(gh, cy) {

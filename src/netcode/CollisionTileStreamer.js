@@ -24,7 +24,7 @@ function characterConfig(physics, physicsIntegration, playerId) {
 }
 
 export function createCollisionTileStreamer({ physics, physicsIntegration, connections, getNetcodeConfig }) {
-  const clients = new Map()
+  const clients = new Map(), liveIds = new Set()
   const stats = { tilesSent: 0, bytesSent: 0 }
   let index = null, lastSweepAt = 0
 
@@ -46,7 +46,8 @@ export function createCollisionTileStreamer({ physics, physicsIntegration, conne
         const s = c.sent.get(t.k)
         if (s && s.hash === t.hash) continue
         sendTile(player.id, t)
-        c.sent.set(t.k, { tx: t.tx, tz: t.tz, hash: t.hash })
+        if (s) s.hash = t.hash
+        else c.sent.set(t.k, { tx: t.tx, tz: t.tz, hash: t.hash })
         budget--
       }
     }
@@ -74,8 +75,9 @@ export function createCollisionTileStreamer({ physics, physicsIntegration, conne
       streamTo(player, c, now)
     }
     if (clients.size > players.length) {
-      const live = new Set(players.map(p => p.id))
-      for (const id of clients.keys()) if (!live.has(id)) clients.delete(id)
+      liveIds.clear()
+      for (const p of players) liveIds.add(p.id)
+      for (const id of clients.keys()) if (!liveIds.has(id)) clients.delete(id)
     }
   }
 

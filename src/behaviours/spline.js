@@ -92,10 +92,13 @@ function controlAt(points, index, closed) {
   return points[index]
 }
 
+const _segment = { index: 0, t: 0 }
 function segmentIndex(segmentCount, u) {
   const clamped = Math.max(0, Math.min(segmentCount, u))
   const index = Math.min(Math.floor(clamped), segmentCount - 1)
-  return { index, t: clamped - index }
+  _segment.index = index
+  _segment.t = clamped - index
+  return _segment
 }
 
 function curve(p0, p1, p2, p3, t, derivative) {
@@ -112,15 +115,15 @@ function curve(p0, p1, p2, p3, t, derivative) {
   return out
 }
 
+const _controls = { t: 0, p0: null, p1: null, p2: null, p3: null }
 function controls(spline, u) {
   const { index, t } = segmentIndex(spline.segments, u)
-  return {
-    t,
-    p0: controlAt(spline.points, index - 1, spline.closed),
-    p1: controlAt(spline.points, index, spline.closed),
-    p2: controlAt(spline.points, index + 1, spline.closed),
-    p3: controlAt(spline.points, index + 2, spline.closed),
-  }
+  _controls.t = t
+  _controls.p0 = controlAt(spline.points, index - 1, spline.closed)
+  _controls.p1 = controlAt(spline.points, index, spline.closed)
+  _controls.p2 = controlAt(spline.points, index + 1, spline.closed)
+  _controls.p3 = controlAt(spline.points, index + 2, spline.closed)
+  return _controls
 }
 
 function positionAtU(spline, u) {
@@ -146,6 +149,7 @@ function buildTable(points, closed, steps) {
   return { samples, total: distance, segments, steps }
 }
 
+const _bracketPair = [null, null]
 function bracket(table, value, key) {
   const samples = table.samples
   let lo = 0
@@ -155,7 +159,9 @@ function bracket(table, value, key) {
     if (samples[mid][key] <= value) lo = mid
     else hi = mid
   }
-  return [samples[lo], samples[hi]]
+  _bracketPair[0] = samples[lo]
+  _bracketPair[1] = samples[hi]
+  return _bracketPair
 }
 
 function uAtDistance(table, distance) {

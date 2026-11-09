@@ -144,6 +144,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   const leaveSq = levels.map(lv => { const d = Number.isFinite(lv.distance) ? lv.distance : 0; const t = d - d * hysteresis; return t * t })
   const props = { renderOrder: 0, visible: true, matrixAutoUpdate: true }
   const tiers = levels.map(lv => createDensePool(scene, lv.geometry, lv.material, capacity, attributeSchema, props, false))
+  const tierIdLists = tiers.map(t => t.ids)
   const shadow = opts.shadowGeometry ? createDensePool(scene, opts.shadowGeometry, opts.shadowMaterial || levels[0].material, capacity, attributeSchema, props, true) : null
   const pools = shadow ? [...tiers, shadow] : tiers
   const recs = []
@@ -942,7 +943,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       },
     },
     get sweepStats() { return sweepStats },
-    get tierIds() { return tiers.map(t => t.ids) },
+    get tierIds() { return tierIdLists },
     get sweepGrid() { return { usable: grid.usable, cells: grid.cells, instances: liveCount, reachCells: grid.activeCount, pending: grid.pendingCount, builtLive: grid.builtLive } },
     get shadowActiveCount() { return shadow ? shadow.size : 0 },
     get tierMeshes() { return tiers.map(t => t.mesh) },

@@ -13,6 +13,7 @@ import { createSeatTable } from './AppSeats.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
 const _UNIT_SCALE = [1, 1, 1]
 const _ZERO_VEL = [0, 0, 0]
+const _attachmentPos = [0, 0, 0]
 const SUPPORT_RAY_LENGTH_M = 60
 const UNCOVERED_GROUND_HOLD_MAX_MS = 20000
 const SUPPORT_HOLD_REASON = {
@@ -680,7 +681,7 @@ export class AppRuntime {
   getEntity(id) { return this.entities.get(id) || null }
   fireEvent(eid, en, ...a) {
     const ad = this.apps.get(eid), c = this.contexts.get(eid); if (!ad || !c) return
-    this._log('app_event', { entityId: eid, event: en, args: a }, { sourceEntity: eid })
+    if (this._eventLog) this._log('app_event', { entityId: eid, event: en, args: a }, { sourceEntity: eid })
     if (this._pendingSetupIds.has(eid)) {
       let q = this._pendingSetupQueues.get(eid); if (!q) this._pendingSetupQueues.set(eid, q = [])
       q.push({ en, a })
@@ -839,7 +840,8 @@ export class AppRuntime {
       const e = this.entities.get(entityId); if (!e) { this._attachments.delete(entityId); continue }
       const pl = this._playerManager?.getPlayer(att.playerId); const pp = pl?.state?.position
       if (!pp) continue
-      const pos = [pp[0] + att.offset[0], pp[1] + att.offset[1], pp[2] + att.offset[2]]
+      const pos = _attachmentPos
+      pos[0] = pp[0] + att.offset[0]; pos[1] = pp[1] + att.offset[1]; pos[2] = pp[2] + att.offset[2]
       if (this.setEntityPosition) this.setEntityPosition(entityId, pos, e.rotation)
       else { e.position[0] = pos[0]; e.position[1] = pos[1]; e.position[2] = pos[2] }
     }

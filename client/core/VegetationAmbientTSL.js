@@ -43,10 +43,13 @@ export function applyVegetationTerrainAmbientTSL(material) {
 }
 
 const _c = new THREE.Color()
+const _ambIrr = [0.14, 0.14, 0.14]
+const _ambDeltaOpts = { muS: 1, skyFill: 0, solar: ATM_SOLAR_IRRADIANCE, rayleigh: ATM_RAYLEIGH, ambIrr: _ambIrr, termWidth: 0, nightFloor: 0 }
+const WINDOW_KEYS = { skyFill: '__skyFill', termWidth: '__termWidth', nightFloor: '__nightFloor', nightLights: '__nightLights', exposure: '__exposure', lookSat: '__lookSat', lookContrast: '__lookContrast' }
 
 function windowNum(name, fallback) {
   if (typeof window === 'undefined') return fallback
-  const v = window['__' + name]
+  const v = window[WINDOW_KEYS[name]]
   return Number.isFinite(v) ? v : fallback
 }
 
@@ -57,13 +60,20 @@ export function updateVegetationTerrainAmbient(tod, u = vegAmbientUniforms) {
   const nightFloor = windowNum('nightFloor', TD.nightFloor)
   const nightLights = windowNum('nightLights', TD.nightLights)
 
-  let ambIrr = [0.14, 0.14, 0.14]
   if (tod && Number.isFinite(tod.ambientIntensity) && Number.isFinite(tod.ambientColor)) {
     _c.setHex(tod.ambientColor)
-    ambIrr = [_c.r * tod.ambientIntensity * INV_PI, _c.g * tod.ambientIntensity * INV_PI, _c.b * tod.ambientIntensity * INV_PI]
+    _ambIrr[0] = _c.r * tod.ambientIntensity * INV_PI
+    _ambIrr[1] = _c.g * tod.ambientIntensity * INV_PI
+    _ambIrr[2] = _c.b * tod.ambientIntensity * INV_PI
+  } else {
+    _ambIrr[0] = _ambIrr[1] = _ambIrr[2] = 0.14
   }
 
-  const d = vegetationAmbientDelta({ muS, skyFill, solar: ATM_SOLAR_IRRADIANCE, rayleigh: ATM_RAYLEIGH, ambIrr, termWidth, nightFloor })
+  _ambDeltaOpts.muS = muS
+  _ambDeltaOpts.skyFill = skyFill
+  _ambDeltaOpts.termWidth = termWidth
+  _ambDeltaOpts.nightFloor = nightFloor
+  const d = vegetationAmbientDelta(_ambDeltaOpts)
   u.uVegAmbMul.value.set(d.albedoMul[0], d.albedoMul[1], d.albedoMul[2])
   u.uVegAmbAdd.value.set(d.add[0], d.add[1], d.add[2])
   u.uVegDayShade.value = d.dayShade

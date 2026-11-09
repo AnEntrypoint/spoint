@@ -4,6 +4,10 @@ import { TRIANGLE_FLOATS, decodeTileMessage, boxRecordsOf } from '../shared/coll
 const AT_REST_SPEED_SQ = 1e-4
 const PREBUILD_INTERVAL_MS = 200
 const MIRROR_JOLT_LIMITS = Object.freeze({ maxBodies: 128, maxBodyPairs: 256, maxContactConstraints: 256 })
+const MIRROR_ORIGIN = [0, 0, 0]
+const MIRROR_BOX_POS = [0, 0, 0]
+const MIRROR_BOX_ROT = [0, 0, 0, 1]
+const MIRROR_VELOCITY = [0, 0, 0]
 
 function tileKey(tx, tz) { return tx + ',' + tz }
 
@@ -17,11 +21,12 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
   const stats = { tiles: 0, builtTiles: 0, triangles: 0, boxes: 0, builds: 0, buildMs: 0, maxBuildMs: 0, swaps: 0, mirroredSteps: 0, stepMs: 0, uncoveredSteps: 0, bytes: 0, refusedTiles: 0 }
   let cfg = null, cfgKey = null, world = null, charId = null, generation = 0, active = null, lastPrebuildAt = 0
   const last = [NaN, NaN, NaN]
+  let tempAllocator = null, lastTile = null, lastTx = NaN, lastTz = NaN
 
   function dispose() {
     if (world) world.destroy()
-    world = null; charId = null; active = null
-    boxBodies.clear(); activeBoxes = new Set()
+    world = null; charId = null; active = null; tempAllocator = null; lastTile = null
+    boxBodies.clear(); activeBoxes.clear()
   }
 
   async function configure(c) {
@@ -37,7 +42,8 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     await w.init()
     if (gen !== generation) { w.destroy(); return }
     world = w
-    charId = mgr.addCharacter(c.radius, c.halfHeight, [0, 0, 0], c.mass, { maxSlopeAngle: c.maxSlopeAngle })
+    tempAllocator = w.jolt.GetTempAllocator()
+    charId = mgr.addCharacter(c.radius, c.halfHeight, MIRROR_ORIGIN, c.mass, { maxSlopeAngle: c.maxSlopeAngle })
     last[0] = NaN
     cfg = c; cfgKey = JSON.stringify(c)
   }
@@ -53,7 +59,9 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
       const J = world.Jolt, hv = new J.Vec3(r[0], r[1], r[2])
       const shape = new J.BoxShape(hv, r[3], null)
       J.destroy(hv)
-      const id = world._addBody(shape, [r[4], r[5], r[6]], J.EMotionType_Static, 0, { rotation: [r[7], r[8], r[9], r[10]], meta: { type: 'static', shape: 'box' } })
+      MIRROR_BOX_POS[0] = r[4]; MIRROR_BOX_POS[1] = r[5]; MIRROR_BOX_POS[2] = r[6]
+      MIRROR_BOX_ROT[0] = r[7]; MIRROR_BOX_ROT[1] = r[8]; MIRROR_BOX_ROT[2] = r[9]; MIRROR_BOX_ROT[3] = r[10]
+      const id = world._addBody(shape, MIRROR_BOX_POS, J.EMotionType_Static, 0, { rotation: MIRROR_BOX_ROT, meta: { type: 'static', shape: 'box' } })
       world.bodyInterface.RemoveBody(world.bodyIds.get(id))
       e = { id, refs: 0 }
       boxBodies.set(k, e)
@@ -74,7 +82,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     const bi = world.bodyInterface
     if (active?.meshId != null) bi.RemoveBody(world.bodyIds.get(active.meshId))
     for (const k of activeBoxes) bi.RemoveBody(world.bodyIds.get(boxBodies.get(k).id))
-    activeBoxes = new Set(); active = null; last[0] = NaN
+    activeBoxes.clear(); active = null; last[0] = NaN
   }
 
   function dropBody(t) {
@@ -83,12 +91,12 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     if (t.meshId != null) { const id = t.meshId; world.bodyInterface.DestroyBody(world.bodyIds.get(id)); forgetBody(id) }
     for (const k of t.boxKeys) releaseBox(k)
     if (t.meshId != null || t.boxKeys.length) stats.builtTiles--
-    t.meshId = null; t.boxKeys = []; t.built = false
+    t.meshId = null; t.boxKeys.length = 0; t.built = false
   }
 
   function clearTiles() {
     if (world) for (const t of tiles.values()) dropBody(t)
-    tiles.clear(); active = null; activeBoxes = new Set(); last[0] = NaN; stats.tiles = 0
+    tiles.clear(); active = null; activeBoxes = new Set(); last[0] = NaN; stats.tiles = 0; lastTile = null
   }
 
   function reexpress(transfer) {
@@ -151,6 +159,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     if (!decoded) { stats.refusedTiles++; return }
     const k = tileKey(decoded.tx, decoded.tz), prev = tiles.get(k)
     if (prev && world) dropBody(prev)
+    lastTile = null
     tiles.set(k, { tx: decoded.tx, tz: decoded.tz, hash: decoded.hash, verts: decoded.verts, boxes: boxRecordsOf(decoded.boxes), meshId: null, boxKeys: [], built: false })
     stats.bytes += msg.v.byteLength + msg.b.byteLength; stats.tiles = tiles.size
     if (cfg && nearPos) evictFar(nearPos)
@@ -158,6 +167,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
 
   function evictFar(p) {
     const T = cfg.tileM, cx = Math.floor(p[0] / T), cz = Math.floor(p[2] / T), keep = cfg.forgetRing + 1
+    lastTile = null
     for (const [k, t] of tiles) if (Math.max(Math.abs(t.tx - cx), Math.abs(t.tz - cz)) > keep) { dropBody(t); tiles.delete(k) }
     stats.tiles = tiles.size
   }
@@ -175,7 +185,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
       const settings = new J.MeshShapeSettings(list), sr = settings.Create()
       J.destroy(list)
       if (sr.IsValid()) {
-        t.meshId = world._addBody(sr.Get(), [0, 0, 0], J.EMotionType_Static, 0, { meta: { type: 'static', shape: 'mirror' } })
+        t.meshId = world._addBody(sr.Get(), MIRROR_ORIGIN, J.EMotionType_Static, 0, { meta: { type: 'static', shape: 'mirror' } })
         world.bodyInterface.RemoveBody(world.bodyIds.get(t.meshId))
       }
       J.destroy(settings); J.destroy(sr)
@@ -199,7 +209,12 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     active = t; last[0] = NaN; stats.swaps++
   }
 
-  function tileAt(p) { return tiles.get(tileKey(Math.floor(p[0] / cfg.tileM), Math.floor(p[2] / cfg.tileM))) }
+  function tileAt(p) {
+    const T = cfg.tileM, cx = Math.floor(p[0] / T), cz = Math.floor(p[2] / T)
+    if (lastTile && cx === lastTx && cz === lastTz) return lastTile
+    lastTx = cx; lastTz = cz; lastTile = tiles.get(tileKey(cx, cz))
+    return lastTile
+  }
 
   function covers(p) {
     if (!world || !cfg) return false
@@ -240,7 +255,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     if (p[0] === last[0] && p[1] === last[1] && p[2] === last[2]) return
     world.setCharacterPosition(charId, p)
     const mgr = world._charMgr, f = mgr._filters
-    mgr.characters.get(charId).RefreshContacts(f.bp, f.ol, f.body, f.shape, world.jolt.GetTempAllocator())
+    mgr.characters.get(charId).RefreshContacts(f.bp, f.ol, f.body, f.shape, tempAllocator)
     mgr.refreshGroundCaches()
   }
 
@@ -260,7 +275,8 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     syncCharacter(p)
     const wishedX = v[0], wishedZ = v[2]
     const vy = verticalVelocity(v[1], wasGrounded, gravityY, dt)
-    world.setCharacterVelocity(charId, [wishedX, vy, wishedZ])
+    MIRROR_VELOCITY[0] = wishedX; MIRROR_VELOCITY[1] = vy; MIRROR_VELOCITY[2] = wishedZ
+    world.setCharacterVelocity(charId, MIRROR_VELOCITY)
     world.updateCharacter(charId, dt)
     world.readCharacterPosition(charId, p)
     world.readCharacterVelocity(charId, v)

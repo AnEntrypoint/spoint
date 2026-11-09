@@ -16,6 +16,7 @@ export class DesyncDetector {
     this.onVerified = onVerified
     this._pending = new Map()
     this._resolvedTicks = new Set()
+    this._counts = new Map()
     this._maxPendingRows = 64
   }
 
@@ -44,7 +45,8 @@ export class DesyncDetector {
     this._resolvedTicks.add(tick)
     if (this._resolvedTicks.size > RESOLVED_TICK_HISTORY_MAX) this._resolvedTicks.delete(this._resolvedTicks.values().next().value)
 
-    const counts = new Map()
+    const counts = this._counts
+    counts.clear()
     for (const cs of row.values()) counts.set(cs, (counts.get(cs) || 0) + 1)
     let majorityChecksum = null, majorityCount = -1
     for (const [cs, count] of counts) { if (count > majorityCount) { majorityChecksum = cs; majorityCount = count } }

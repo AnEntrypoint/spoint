@@ -9,7 +9,7 @@ const _shooterWindows = new Map()
 
 function _getWindow(shooterId) {
   let w = _shooterWindows.get(shooterId)
-  if (!w) { w = { hits: [], lastHeadshotAt: 0, fastStreak: 0, lastFlagAt: 0 }; _shooterWindows.set(shooterId, w) }
+  if (!w) { w = { hits: [], headshotCount: 0, lastHeadshotAt: 0, fastStreak: 0, lastFlagAt: 0 }; _shooterWindows.set(shooterId, w) }
   return w
 }
 
@@ -18,9 +18,10 @@ export function recordHit(eventLog, shooterId, { headshot, timestampMs = Date.no
   const w = _getWindow(shooterId)
 
   w.hits.push(!!headshot)
-  if (w.hits.length > HEADSHOT_WINDOW_SIZE) w.hits.shift()
+  if (headshot) w.headshotCount++
+  if (w.hits.length > HEADSHOT_WINDOW_SIZE && w.hits.shift()) w.headshotCount--
   if (w.hits.length >= HEADSHOT_MIN_SAMPLES) {
-    const hsCount = w.hits.reduce((n, h) => n + (h ? 1 : 0), 0)
+    const hsCount = w.headshotCount
     const ratio = hsCount / w.hits.length
     if (ratio >= HEADSHOT_RATIO_THRESHOLD && timestampMs - w.lastFlagAt > FLAG_COOLDOWN_MS) {
       w.lastFlagAt = timestampMs

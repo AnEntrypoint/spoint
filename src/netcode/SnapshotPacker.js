@@ -33,6 +33,17 @@ function snapshotHead(type) {
   return head
 }
 
+const _numbersMemo = { seq: NaN, tick: NaN, serverTime: NaN, bytes: null }
+
+function numbersBytes(seq, tick, serverTime) {
+  const m = _numbersMemo
+  if (m.bytes !== null && m.seq === seq && m.tick === tick && m.serverTime === serverTime) return m.bytes
+  _numbers[0] = seq; _numbers[1] = tick; _numbers[2] = serverTime
+  m.seq = seq; m.tick = tick; m.serverTime = serverTime
+  m.bytes = new Uint8Array(pack(_numbers))
+  return m.bytes
+}
+
 function arrayHeaderLength(n) {
   return n < 16 ? 1 : n < 0x10000 ? 3 : 5
 }
@@ -102,7 +113,13 @@ function recordBytes(rec, memo) {
   const cached = memo.byId.get(rec[0])
   if (cached !== undefined && sameScalars(cached.values, rec)) { snapshotPackCounts.recordShares++; return cached.bytes }
   const bytes = new Uint8Array(pack(rec))
-  memo.byId.set(rec[0], { values: rec.slice(), bytes })
+  if (cached !== undefined) {
+    cached.values.length = rec.length
+    for (let i = 0; i < rec.length; i++) cached.values[i] = rec[i]
+    cached.bytes = bytes
+  } else {
+    memo.byId.set(rec[0], { values: rec.slice(), bytes })
+  }
   snapshotPackCounts.recordPacks++
   return bytes
 }
@@ -116,8 +133,7 @@ export function packSnapshotBytes(type, seq, encoded, me, chartEpoch, memo) {
   const players = encoded.players
   if (head === null || !Array.isArray(players)) { snapshotPackCounts.refusals++; return null }
   const n = players.length
-  _numbers[0] = seq; _numbers[1] = encoded.tick; _numbers[2] = encoded.serverTime
-  const numbers = pack(_numbers)
+  const numbers = numbersBytes(seq, encoded.tick, encoded.serverTime)
   _fields[0] = encoded.entities; _fields[1] = encoded.removed; _fields[2] = encoded.delta
   _fields[3] = encoded.dots; _fields[4] = me; _fields[5] = chartEpoch
   const tail = pack(_fields)

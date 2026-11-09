@@ -869,7 +869,7 @@ window.__debugDepthAt = function (px, py) {
     }))
     const firstWorld = nearestHits[0] ? nearestHits[0].point : null
     const firstWorldAuth = (firstWorld && floatingOrigin) ? floatingOrigin.toAuthoritative({ x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] }) : (firstWorld ? { x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] } : null)
-    const camPosAuth = floatingOrigin ? floatingOrigin.toAuthoritative(camera.position) : camera.position
+    const camPosAuth = floatingOrigin ? floatingOrigin.toAuthoritative(camera.position, _cameraAuthForRebase) : camera.position
     const groundH = (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function' && firstWorldAuth)
       ? guardedGroundHeight('app pick probe ground', (x, z) => window.__terrain.groundHeightLocal(x, z))(firstWorldAuth.x, firstWorldAuth.z)
       : null

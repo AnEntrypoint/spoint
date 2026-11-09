@@ -5,6 +5,7 @@ export function createFireGameplay({ appCtx, gameplay, getWorld, cellOfPosition,
   const scratch = { face: 0, I: 0, J: 0 }
   const startCell = { face: 0, I: 0, J: 0 }
   const endPoint = [0, 0, 0]
+  const impulse = [0, 0, 0]
   let accumulatedSeconds = 0
 
   function defaultTargets() {
@@ -81,7 +82,7 @@ export function createFireGameplay({ appCtx, gameplay, getWorld, cellOfPosition,
       const d = Math.sqrt(d2), falloff = 1 - d / radiusM
       hurt(target, damage * falloff)
       const inv = d > 1e-6 ? 1 / d : 0
-      if (target.entity) appCtx.world.applyImpulse(target.id, [dx * inv * gameplay.explosionImpulse * falloff, gameplay.explosionImpulse * falloff, dz * inv * gameplay.explosionImpulse * falloff])
+      if (target.entity) { impulse[0] = dx * inv * gameplay.explosionImpulse * falloff; impulse[1] = gameplay.explosionImpulse * falloff; impulse[2] = dz * inv * gameplay.explosionImpulse * falloff; appCtx.world.applyImpulse(target.id, impulse) }
       else if (target.holder.velocity) { target.holder.velocity[0] += dx * inv * gameplay.explosionImpulse * falloff; target.holder.velocity[1] += gameplay.explosionImpulse * falloff; target.holder.velocity[2] += dz * inv * gameplay.explosionImpulse * falloff }
     }
   }

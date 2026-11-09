@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import { isXRSessionSupported } from './xrSessionSupport.js'
 
+const _reticleMatrix = new THREE.Matrix4()
+const _viewMatrix = new THREE.Matrix4()
+const _viewScale = new THREE.Vector3()
+
 export class XRControls {
   constructor(options = {}) {
     this.enabled = false
@@ -52,7 +56,7 @@ export class XRControls {
 
   showReticle(transform) {
     if (!this.reticle) return
-    const m = new THREE.Matrix4().fromArray(transform.matrix)
+    const m = _reticleMatrix.fromArray(transform.matrix)
     this.reticle.position.setFromMatrixPosition(m); this.reticle.quaternion.setFromRotationMatrix(m)
     this.reticle.visible = true
   }
@@ -60,8 +64,8 @@ export class XRControls {
   update(frame) {
     if (!this.enabled||!frame) return
     const pose = frame.getViewerPose(this.referenceSpace); if (!pose) return
-    const vm = new THREE.Matrix4().fromArray(pose.views[0].transform.matrix)
-    vm.decompose(this.cameraPosition, this.cameraQuaternion, new THREE.Vector3())
+    const vm = _viewMatrix.fromArray(pose.views[0].transform.matrix)
+    vm.decompose(this.cameraPosition, this.cameraQuaternion, _viewScale)
     if (this.hitTestSource && this.options.placementMode) {
       const res = frame.getHitTestResults(this.hitTestSource)
       if (res.length > 0) { const p = res[0].getPose(this.referenceSpace); if (p) this.showReticle(p.transform) }

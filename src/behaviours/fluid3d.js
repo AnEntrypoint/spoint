@@ -126,7 +126,8 @@ export function createFluid3DBody(spec = {}, appCtx = null) {
       }
       if (maxDelta < PUBLISH_EPS) return false
     }
-    _lastPublished = Float64Array.from(_positions)
+    if (!_lastPublished || _lastPublished.length !== _positions.length) _lastPublished = new Float64Array(_positions.length)
+    _lastPublished.set(_positions)
     appCtx.entity.custom = {
       ...(appCtx.entity.custom || {}),
       fluid: { particleCount: _positions.length / 3, positions: Array.from(_positions) }

@@ -7,8 +7,12 @@ export function beginTeleportHold(player, { maxMs = TELEPORT_HOLD_MAX_MS, onRele
   player.teleportHold = { startedAt, deadline: startedAt + maxMs, onRelease, probeGroundY }
 }
 
+const SUPPORT_RAY_DOWN = Object.freeze([0, -1, 0])
+const supportRayOrigin = [0, 0, 0]
+
 function groundYBelow(physicsWorld, p) {
-  const r = physicsWorld.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)
+  supportRayOrigin[0] = p[0]; supportRayOrigin[1] = p[1]; supportRayOrigin[2] = p[2]
+  const r = physicsWorld.raycast(supportRayOrigin, SUPPORT_RAY_DOWN, SUPPORT_RAY_LENGTH_M)
   return r && r.hit && Number.isFinite(r.position?.[1]) ? r.position[1] : null
 }
 

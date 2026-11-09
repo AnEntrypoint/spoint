@@ -16,13 +16,14 @@ export function latticeFor(frame, spec) {
   return l
 }
 
+const _chunkDir = [0, 0, 0]
 export function ringAroundLocal(lattice, frame, x, z, radiusM) {
-  const d = frame.localToDir(x, z)
+  const d = frame.localToDir(x, z, undefined, _chunkDir)
   return lattice.ringAroundDir(d[0], d[1], d[2], radiusM)
 }
 
 export function chunkKeyAtLocal(lattice, frame, x, z) {
-  const d = frame.localToDir(x, z)
+  const d = frame.localToDir(x, z, undefined, _chunkDir)
   return lattice.chunkKeyOfDir(d[0], d[1], d[2])
 }
 
@@ -39,10 +40,11 @@ export function chunkCentreLocal(lattice, frame, key, out) {
 }
 
 const CORNERS = [[0, 0], [1, 0], [0, 1], [1, 1]]
+const _bounds = [0, 0, 0, 0]
 export function chunkBoundsLocal(lattice, frame, key, placements) {
   let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity
-  for (const [cu, cv] of CORNERS) {
-    lattice.chunkCornerDir(key, cu, cv, _cd)
+  for (let c = 0; c < CORNERS.length; c++) {
+    lattice.chunkCornerDir(key, CORNERS[c][0], CORNERS[c][1], _cd)
     const x = frame.radius * dotE(frame, _cd[0], _cd[1], _cd[2]), z = frame.radius * dotN(frame, _cd[0], _cd[1], _cd[2])
     if (x < minX) minX = x; if (x > maxX) maxX = x
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
@@ -52,7 +54,8 @@ export function chunkBoundsLocal(lattice, frame, key, placements) {
     if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
     if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z
   }
-  return [minX, minZ, maxX, maxZ]
+  _bounds[0] = minX; _bounds[1] = minZ; _bounds[2] = maxX; _bounds[3] = maxZ
+  return _bounds
 }
 
 const _groundGuards = new WeakMap()
@@ -96,13 +99,15 @@ function latticeRhoAlongDir(frame, de, du, dn, base, rhoGuess, out) {
   return NaN
 }
 
+const _elevationDir = [0, 0, 0]
 export function surfaceAlongDir(frame, dx, dy, dz, rhoGuess, out) {
   const de = dotE(frame, dx, dy, dz), du = dotU(frame, dx, dy, dz), dn = dotN(frame, dx, dy, dz)
   const base = frame.radius + frame.anchorHeight - frame.offsetY
   const latticeRho = latticeRhoAlongDir(frame, de, du, dn, base, rhoGuess, out)
   if (Number.isFinite(latticeRho)) return latticeRho
   if (frame.groundSource === 'cpu-solve') {
-    const h = frame.elevationAtDir([dx, dy, dz])
+    _elevationDir[0] = dx; _elevationDir[1] = dy; _elevationDir[2] = dz
+    const h = frame.elevationAtDir(_elevationDir)
     if (!Number.isFinite(h)) return NaN
     const r = frame.radius + h
     out[0] = r * de; out[1] = r * du - base; out[2] = r * dn

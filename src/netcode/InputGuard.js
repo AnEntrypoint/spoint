@@ -36,11 +36,11 @@ export function sanitizeInputPayload(input) {
 const ENVELOPE_HEADROOM_MULT = 3
 const ENVELOPE_MIN_CAP = 20
 
+const usableSpeed = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
+
 export function envelopeSpeedCap(movement) {
-  const candidates = [movement?.maxSpeed, movement?.sprintSpeed, movement?.airSpeedCap, movement?.slideMinSpeed]
-    .filter(v => typeof v === 'number' && Number.isFinite(v) && v > 0)
-  const base = candidates.length ? Math.max(...candidates) : ENVELOPE_MIN_CAP
-  return Math.max(ENVELOPE_MIN_CAP, base * ENVELOPE_HEADROOM_MULT)
+  const base = Math.max(usableSpeed(movement?.maxSpeed), usableSpeed(movement?.sprintSpeed), usableSpeed(movement?.airSpeedCap), usableSpeed(movement?.slideMinSpeed))
+  return Math.max(ENVELOPE_MIN_CAP, (base || ENVELOPE_MIN_CAP) * ENVELOPE_HEADROOM_MULT)
 }
 
 export function enforceMovementEnvelope(state, movement) {

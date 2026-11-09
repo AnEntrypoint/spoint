@@ -38,7 +38,7 @@ function makeEntry() {
 }
 
 class InputHistory {
-  constructor(capacity) { this._buf = []; this._head = 0; this._len = 0; this._grow(capacity) }
+  constructor(capacity) { this._buf = []; this._head = 0; this._len = 0; this._lastOut = []; this._grow(capacity) }
   _grow(capacity) {
     const old = this._buf, oldCap = old.length, next = new Array(capacity)
     for (let i = 0; i < this._len; i++) next[i] = old[(this._head + i) % oldCap]
@@ -62,7 +62,7 @@ class InputHistory {
   }
   clear() { this._head = 0; this._len = 0 }
   *[Symbol.iterator]() { for (let i = 0; i < this._len; i++) yield this.at(i) }
-  last(n) { const k = Math.min(n, this._len), out = new Array(k); for (let i = 0; i < k; i++) out[i] = this.at(this._len - k + i); return out }
+  last(n) { const k = Math.min(n, this._len), out = this._lastOut; out.length = k; for (let i = 0; i < k; i++) out[i] = this.at(this._len - k + i); return out }
 }
 
 function saveEntry(e, state) {
@@ -73,8 +73,11 @@ function saveEntry(e, state) {
   for (const k of MOVE_STATE_KEYS) e.move[k] = state[k]
 }
 
+const NEUTRAL_STEP = { yaw: 0, pitch: 0, crouch: false, expr: 0 }
+
 function neutralStep(data) {
-  return { yaw: data.yaw || 0, pitch: data.pitch || 0, crouch: !!data.crouch, expr: data.expr || 0 }
+  NEUTRAL_STEP.yaw = data.yaw || 0; NEUTRAL_STEP.pitch = data.pitch || 0; NEUTRAL_STEP.crouch = !!data.crouch; NEUTRAL_STEP.expr = data.expr || 0
+  return NEUTRAL_STEP
 }
 
 function applyPush(state, push) {
@@ -102,6 +105,7 @@ export class PredictionEngine {
     this._ground = null
     this._surface = null
     this._pendingKnockback = null
+    this._knockbackSlot = { dir: [], impulse: 0, startTime: 0 }
     this._knockbackWindow = 200
     this._enableKnockbackPreservation = true
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0, chartReanchors: 0, chartReplayShiftM: 0, chartReplayInputs: 0, chartReplayBase: 'none' }
@@ -113,6 +117,7 @@ export class PredictionEngine {
     this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
+    this._travelScratch = [0, 0]
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -151,7 +156,11 @@ export class PredictionEngine {
 
   recordKnockback(dir, impulse, now = Date.now()) {
     if (!this._enableKnockbackPreservation) return
-    this._pendingKnockback = { dir: [...dir], impulse, startTime: now }
+    const kb = this._knockbackSlot
+    kb.dir.length = 0
+    for (const v of dir) kb.dir.push(v)
+    kb.impulse = impulse; kb.startTime = now
+    this._pendingKnockback = kb
   }
 
   setKnockbackPreservation(enabled) { this._enableKnockbackPreservation = enabled }
@@ -192,7 +201,9 @@ export class PredictionEngine {
     const toIdx = history.indexOf(this._lastAckedSeq + ackedTicks)
     if (fromIdx < 0 || toIdx <= fromIdx) return null
     const p0 = history.at(fromIdx).position, p1 = history.at(toIdx).position
-    return [p1[0] - p0[0], p1[2] - p0[2]]
+    const out = this._travelScratch
+    out[0] = p1[0] - p0[0]; out[1] = p1[2] - p0[2]
+    return out
   }
 
   _updateServerBlock(dx, dz, ackedTicks) {
@@ -325,11 +336,12 @@ export class PredictionEngine {
     const planes = server.wallPlanes, sp = server.position, walls = this.walls
     for (let i = 0; planes && i + 2 < planes.length; i += 3) {
       const nx = planes[i], nz = planes[i + 1], d = planes[i + 2]
-      let w = walls.find(x => Math.abs(x.nx - nx) < WALL_MATCH_NORMAL && Math.abs(x.nz - nz) < WALL_MATCH_NORMAL && Math.abs(x.d - d) < WALL_MATCH_OFFSET_M)
+      let w = null
+      for (const x of walls) if (Math.abs(x.nx - nx) < WALL_MATCH_NORMAL && Math.abs(x.nz - nz) < WALL_MATCH_NORMAL && Math.abs(x.d - d) < WALL_MATCH_OFFSET_M) { w = x; break }
       const t = nx * sp[2] - nz * sp[0]
       if (!w) {
-        if (walls.length >= WALL_CACHE_SIZE) walls.shift()
-        w = { nx, nz, d, ay: 0, tMin: t, tMax: t }
+        w = walls.length >= WALL_CACHE_SIZE ? walls.shift() : {}
+        w.nx = nx; w.nz = nz; w.d = d; w.ay = 0; w.tMin = t; w.tMax = t
         walls.push(w)
       }
       w.nx = nx; w.nz = nz; w.d = d; w.ay = sp[1]
@@ -422,7 +434,7 @@ export class PredictionEngine {
       ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
       if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
     }
-    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
+    for (let i = 0; i < this.inputHistory.length; i++) { const e = this.inputHistory.at(i); this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {

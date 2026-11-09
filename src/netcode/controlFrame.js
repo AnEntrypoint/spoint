@@ -8,6 +8,13 @@ const text = (v) => typeof v === 'string'
 const list = (v) => Array.isArray(v)
 const number = (v) => typeof v === 'number' && Number.isFinite(v)
 const truthy = (v) => !!v
+const FOREIGN_PREFIX = Object.freeze({ status: 'foreign-prefix' })
+const dispatchResult = { frame: null, apply: null, from: null, order: null }
+
+function refuseFrame(onReject, kind, from, status, extra = null) {
+  if (onReject) onReject({ status, kind, from, ...(extra ?? {}) })
+  return null
+}
 
 const FRAME_CONTRACTS = new Map([
   [LOCKSTEP_CTRL_PREFIX, new Map([
@@ -37,7 +44,7 @@ export function encodeControlFrame(prefix, frame) {
 export function parseControlFrame(prefix, data) {
   const kinds = FRAME_CONTRACTS.get(prefix)
   if (!kinds) return { status: 'unregistered-prefix' }
-  if (typeof data !== 'string' || !data.startsWith(prefix)) return { status: 'foreign-prefix' }
+  if (typeof data !== 'string' || !data.startsWith(prefix)) return FOREIGN_PREFIX
   let frame
   try {
     frame = JSON.parse(data.slice(prefix.length))
@@ -97,14 +104,10 @@ export function dispatchControlFrame(prefix, arms, data, onReject = null, origin
   const { frame } = parsed
   if (!origin) return { frame, apply: arms.get(frame.type), from: null, order: null }
   const from = origin.from ?? null
-  const refuse = (status, extra = null) => {
-    if (onReject) onReject({ status, kind: frame.type, from, ...(extra ?? {}) })
-    return null
-  }
-  if (!from) return refuse('unattributed-sender')
-  if (from === origin.selfId) return refuse('self-echo')
+  if (!from) return refuseFrame(onReject, frame.type, from, 'unattributed-sender')
+  if (from === origin.selfId) return refuseFrame(onReject, frame.type, from, 'self-echo')
   const claimed = origin.senderOf ? origin.senderOf(frame) : null
-  if (claimed != null && claimed !== from) return refuse('misattributed-sender', { claimed })
+  if (claimed != null && claimed !== from) return refuseFrame(onReject, frame.type, from, 'misattributed-sender', { claimed })
   let order = null
   if (origin.tickOf) {
     if (!origin.clock) throw new Error('dispatchControlFrame: a tick reader needs a frame clock')
@@ -114,7 +117,11 @@ export function dispatchControlFrame(prefix, arms, data, onReject = null, origin
       if (origin.onOrder) origin.onOrder(order)
     }
   }
-  return { frame, apply: arms.get(frame.type), from, order }
+  dispatchResult.frame = frame
+  dispatchResult.apply = arms.get(frame.type)
+  dispatchResult.from = from
+  dispatchResult.order = order
+  return dispatchResult
 }
 
 const _hotSwapcontrolFrame = (next) => {

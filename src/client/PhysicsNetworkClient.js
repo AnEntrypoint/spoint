@@ -66,10 +66,12 @@ export class PhysicsNetworkClient extends BaseClient {
     this._destroyed = false
     this._connGen = 0
     this._reconnect = new ReconnectManager(config)
+    this._heartbeatFrame = { type: MSG.HEARTBEAT, payload: { timestamp: 0 } }
+    this._sendFrame = { type: 0, payload: null }
     const isOpenAndPackrReady = () => this._isOpen() && isPacked()
     this._heartbeat = createHeartbeatManager(isOpenAndPackrReady, () => {
       this._pingSent = Date.now()
-      try { this._rawSend(pack({ type: MSG.HEARTBEAT, payload: { timestamp: this._pingSent } })) }
+      try { this._heartbeatFrame.payload.timestamp = this._pingSent; this._rawSend(pack(this._heartbeatFrame)) }
       catch (e) { this._onClose() }
     }, () => {
       this._msgHandler.getTimeline().resync()
@@ -370,7 +372,7 @@ export class PhysicsNetworkClient extends BaseClient {
 
   sendInput(input, stepAt, periodMs) { if (this._isOpen()) super.sendInput(input, stepAt, periodMs) }
 
-  send(type, payload) { this._safeSend(pack({ type, payload }), isUnreliable(type)) }
+  send(type, payload) { const frame = this._sendFrame; frame.type = type; frame.payload = payload; this._safeSend(pack(frame), isUnreliable(type)) }
 
   getReconnectState() { return { state: this._reconnect._state, attempts: this._reconnect._attempts } }
 

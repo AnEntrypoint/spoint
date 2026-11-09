@@ -115,6 +115,9 @@ export async function createGrass(opts = {}) {
 
   const loaded = new Map()
   const deferredChunks = new Set()
+  const chunkNearIdx = [], chunkMidIdx = []
+  const revisitBatches = new Map()
+  const revisitGroupPool = []
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
@@ -244,7 +247,8 @@ export async function createGrass(opts = {}) {
     const count = list ? Math.max(0, Math.min(list.length, MAX_INSTANCES - totalInstances)) : 0
     const bufs = buffersFor(null, count)
     const v = viewsFor(null, bufs, count)
-    const nearIdx = [], midIdx = []
+    const nearIdx = chunkNearIdx, midIdx = chunkMidIdx
+    nearIdx.length = 0; midIdx.length = 0
     const classify = Number.isFinite(px) && Number.isFinite(pz)
     let chunkNear = true
     if (classify && !lodRevisit) {
@@ -445,7 +449,8 @@ export async function createGrass(opts = {}) {
       profile.lodRevisits++
       for (const cell of loaded.values()) scanChunk(cell, px, pz)
     }
-    const batches = new Map()
+    const batches = revisitBatches
+    batches.clear()
     let budget = LOD_REVISIT_BUDGET
     while (_flipIdx.length > 0 && budget > 0) {
       const cell = _flipCell.pop(), i = _flipIdx.pop()
@@ -455,7 +460,7 @@ export async function createGrass(opts = {}) {
       const inReach = bdx * bdx + bdz * bdz < cell.keepR2[i]
       const live = cell.on[i] === 1
       let g = batches.get(cell)
-      if (!g) { g = { addNear: [], addMid: [], drop: [], toNear: [], toMid: [] }; batches.set(cell, g) }
+      if (!g) { g = revisitGroupPool.pop() || { addNear: [], addMid: [], drop: [], toNear: [], toMid: [] }; batches.set(cell, g) }
       if (!inReach && live) g.drop.push(i)
       else if (inReach && !live) {
         if (clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)) g.addNear.push(i)
@@ -474,6 +479,11 @@ export async function createGrass(opts = {}) {
       if (g.addMid.length) { addBlades(cell, g.addMid, false); profile.revisitAdds += g.addMid.length }
       if (g.addNear.length) { addBlades(cell, g.addNear, true); profile.revisitAdds += g.addNear.length }
     }
+    for (const g of batches.values()) {
+      g.addNear.length = 0; g.addMid.length = 0; g.drop.length = 0; g.toNear.length = 0; g.toMid.length = 0
+      revisitGroupPool.push(g)
+    }
+    batches.clear()
   }
 
   let _ringClean = false, _scanKey = NaN

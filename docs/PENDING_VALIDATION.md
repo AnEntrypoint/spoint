@@ -2104,3 +2104,725 @@ Per-audit totals, as each auditor reported them:
 - `src/client/CollisionMirror.js:217` and `:224` (`floorOf` returns): `records` aliases tile state, and the only caller is a witness. A reuse would make a retained result change under the caller, so it is deferred until a real caller exists.
 - Array destructuring rows (`SnapshotEncoder.js:23`, `:49`, `:64`, `:531`, `:549`, `:520`, and the others marked low confidence): V8 usually elides them. Not changed without an allocation profile that shows otherwise.
 - Setup-only sites in all five areas: they run once, so reuse buys nothing.
+
+## Run 23 Phase A: reuse pass (changes local, nothing built, tested, gated or pushed)
+
+The owner's rule: reuse existing buffers and variables instead of creating new ones, for stability. Each row below is an audit row from the Run 23 section above. A changed row applies the audit's proposed reuse class. A kept row leaves the allocation as it is, with the reason. Phase B runs the witnesses named in each ledger line and fixes any defect before the single push.
+
+Totals from the ledger tables: 243 changed rows and 266 kept rows (the kept count includes reuse-none rows that a group listed with a reason). Per group: M 22 changed, 14 kept; N1 18, 36; N2a 13, 29; N2b 25, 20; P 14, 13; T1 14, 9; T2 19, 11; T3 13, 28; C1 37, 18; C2 8, 22; C3 17, 22; R1 12, 17; R2 31, 27.
+
+Witnesses Phase B runs for these changes (the audit area witness codes, with their scripts): W-hash on wire and snapshot bytes via `encodeTileMessage`, the snapshot packer and the input codec; W-alloc via `scripts/groundy-replay-witness.mjs` (108 ledger lines name it) and `scripts/perf-run.mjs` (63 lines, p50 with p95 beside it, GPU runner); W-behaviour via the module witnesses named in each ledger, including `scripts/prediction-reconcile-witness.mjs`, `scripts/expr-truncation-witness.mjs`, `scripts/collision-tile-shape-witness.mjs`, `scripts/fire-kernel-contract-witness.mjs`, `scripts/fire-weather-contract-witness.mjs`, `scripts/xr-arc-frame-order-witness.mjs`, `scripts/crowd-dot-render-witness.mjs`, `scripts/spline-witness.mjs`, `scripts/trigger-volume-witness.mjs`, `scripts/path-handle-witness.mjs`, `scripts/snapshot-lod-tiers-witness.mjs`, `scripts/stage-radius-zero-witness.mjs`, `scripts/spatial-index-witness.mjs` and `scripts/grass-wind-field-seam-witness.mjs`. Each is run with `node` and must exit 0 and print `RESULT: PASS`.
+
+Contract touches (the only ones; each keeps the default behaviour for existing callers): `src/netcode/SnapshotBinFormat.js` `packReducedPlayerPose` gained an optional `into` argument (absent, it still returns a fresh array); `src/terrain/PlanetFrame.js` `localToDir` gained an optional fourth `out` argument; `client/core/FloatingOrigin.js` `toAuthoritative` and `toRender` default to a shared scratch when no out-argument is given, and `client/app.js` now passes `_cameraAuthForRebase` at the call that used to alias.
+
+To check first in Phase B (the ledgers mark these as least certain): `src/sdk/TickHandler.js` :262, :331, :371 and :373 (pooled viewer arrays, cache entries, shared encoded scratch with `dots` reset); `src/shared/fire/fireKernel.js` :1048 (`cellState` now returns one reused object, and `fire.world.kernel` is public); `src/behaviours/fireGameplay.js` :84 (a retained impulse vector in a custom `applyImpulse`); `src/shared/movement.js` :114 (the pooled return of `predictCharacterStep`); `src/physics/CharacterManager.js` :89 and `src/client/CollisionMirror.js` :243 (caching `GetTempAllocator`, which assumes no finalizer); `src/client/CollisionMirror.js` :202 (the last-tile cache, dropped in dispose, clearTiles, onTile and evictFar); `src/physics/World.js` AppRuntimePhysics :138 (candidate pool holding entity refs until overwritten) and `AppRuntime.js` :842 (relies on `setEntityPosition` copying its argument); `src/sdk/TickHandlerAOI.js` :352 and :402 (module-scratch Sets returned from exported functions); `src/netcode/PeerSimSession.js` :45 and :94 and `src/netcode/PhysicsIntegration.js` :144 (consumers read, not run); `client/core/Grass.js` :448 and :458 and `client/core/WebGPULodInstancer.js` :945 (`tierIds` shared array); `client/xr/XRWidgets.js` :145 and :146 (cleared buffer instead of the audit's invalidating cache); `src/netcode/SnapshotEncoder.js` `_reducedPoseRecs` (per-slot record reuse across ticks, which needs each record consumed within its tick).
+
+See the kept reasons inside each ledger. The main ones: rows the audit lists as keep (`src/physics/World.js` :523, :524, :526 and :835; `src/netcode/SnapshotEncoder.js` :353 and :555; `src/sdk/TickHandler.js` :362; `src/netcode/PlayerManager.js` :219; `src/netcode/RewindSpatialIndex.js` :11; `src/client/CollisionMirror.js` :217 and :224; `src/protocol/InputCodec.js` :220 and :298; `src/netcode/SnapshotPacker.js` :97 and :104; `src/sdk/TickHandler.js` :175, a retained send buffer); retained-result rows (`TerrainMeshSurface.js` :166 and :198, `fireKernel.js` :408, `fluid.js` :93); rows whose consumer is an injected callee or a user hook that could re-enter (`triggerVolume.js` :92, :93 and :106, `BaseClient.js` :24 and :198, `InputCodec.js` :257); and the identity-sensitive XR and WebGL objects (`XRSystem.js` :141, `Grass.js` :611).
+
+### Ledger by group
+#### Group M ledger (Phase A, run 23 Area 1)
+
+Changed rows: 22. Kept rows: 14.
+
+Changed by category: preallocated-cleared-buffer 7, pooled-object 2, hoisted-variable 13, fixed-ring 0.
+Kept by category: preallocated-cleared-buffer 3, pooled-object 6, hoisted-variable 5, fixed-ring 0.
+
+Witnesses for every row (audit Area 1): W-behaviour `scripts/collision-tile-shape-witness.mjs`; W-hash on the tile wire via `encodeTileMessage`; W-alloc on per-step rows `scripts/groundy-replay-witness.mjs`. None were run (Phase A).
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/client/CollisionMirror.js:24 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `activeBoxes.clear()` in dispose replaces `new Set()` (activeBoxes is only ever a Set nobody else holds) | W-behaviour scripts/collision-tile-shape-witness.mjs; W-hash encodeTileMessage; W-alloc scripts/groundy-replay-witness.mjs |
+| src/client/CollisionMirror.js:40 | hoisted-variable | changed | hoisted-variable: module constant `MIRROR_ORIGIN` passed to addCharacter (addCharacter copies it into a new RVec3) | same |
+| src/client/CollisionMirror.js:53 | pooled-object | kept | Jolt Vec3 is destroyed right after the BoxShape constructor (`J.destroy(hv)`), so a pooled one is an ownership change; setup-rate, once per new box body | same |
+| src/client/CollisionMirror.js:56 | hoisted-variable | changed | hoisted-variable: `MIRROR_BOX_POS` and `MIRROR_BOX_ROT` module scratch filled per new box body; `_addBody` copies position into RVec3 and rotation into `new J.Quat(...)`, and stores only `opts.meta` | same |
+| src/client/CollisionMirror.js:77 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `activeBoxes.clear()` in detach | same |
+| src/client/CollisionMirror.js:86 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `t.boxKeys.length = 0` in dropBody (the array is never handed out; floorOf maps it, activate copies it with `new Set`) | same |
+| src/client/CollisionMirror.js:170 | pooled-object | kept | Jolt TriangleList is destroyed after MeshShapeSettings is built; the copy by MeshShapeSettings is unverified without a run, so the list cannot be pooled | same |
+| src/client/CollisionMirror.js:172 | hoisted-variable | kept | the stride and base come from `list.at()` of a list that is created and destroyed per build; nothing to hoist until the list is pooled | same |
+| src/client/CollisionMirror.js:178 | hoisted-variable | changed | hoisted-variable: `MIRROR_ORIGIN` passed as the mirror mesh position to `_addBody` (copied, not stored) | same |
+| src/client/CollisionMirror.js:195 | preallocated-cleared-buffer | kept | the proposed swap of two sets is a double buffer, which the brief keeps for a later pass; `want` becomes `activeBoxes` at :198 | same |
+| src/client/CollisionMirror.js:202 | hoisted-variable | changed | hoisted-variable last-tile cache in `tileAt`: `lastTile`, `lastTx`, `lastTz`, a hit only when the floored coordinates match. The cache is dropped (`lastTile = null`) in dispose (configure calls it first), clearTiles, onTile before its `tiles.set`, and evictFar before its loop. These are the only writers of `tiles` in the file (`tiles.set` at onTile and reexpress, `tiles.delete` at evictFar, `tiles.clear` at configure and clearTiles), and a miss is never cached | same |
+| src/client/CollisionMirror.js:250 | hoisted-variable | changed | same last-tile cache, reached through `tileAt` in step | same |
+| src/client/CollisionMirror.js:214 | hoisted-variable | changed | same last-tile cache, reached through `tileAt` in floorOf | same |
+| src/client/CollisionMirror.js:217 | pooled-object | kept | floorOf return object is the audit's keep-list site (CollisionMirror.js:217 and :224); `records` aliases tile state | same |
+| src/client/CollisionMirror.js:220 | preallocated-cleared-buffer | kept | `bodies` array is part of the floorOf return, which is the keep-list site; a reused array would alias a returned result | same |
+| src/client/CollisionMirror.js:221 | hoisted-variable | kept | half extents come from `GetShape().GetLocalBounds()`; the record half is float64 while Jolt bounds are float32, so the value would change; the bounds object is destroyed after use | same |
+| src/client/CollisionMirror.js:222 | pooled-object | kept | returned in floorOf (keep-list site) | same |
+| src/client/CollisionMirror.js:224 | pooled-object | kept | audit keep-list site (floorOf return) | same |
+| src/client/CollisionMirror.js:234 | hoisted-variable | kept | the proposed fix skips the nine-key scan when no neighbour is unbuilt; that is an algorithm change needing an unbuilt count, not a buffer reuse | same |
+| src/client/CollisionMirror.js:243 | hoisted-variable | changed | hoisted-variable: `tempAllocator` fetched once in configure (`w.jolt.GetTempAllocator()`) and cleared in dispose, used in syncCharacter. Embind returns the allocator as a raw pointer wrapper, so caching it is assumed safe (not verified by a run) | same |
+| src/client/CollisionMirror.js:263 | hoisted-variable | changed | hoisted-variable: `MIRROR_VELOCITY` scratch passed to setCharacterVelocity, which calls `_charMgr.setVelocity` and copies the three values into `_tmpVec3` | same |
+| src/client/CollisionMirror.js:279 | pooled-object | kept | getStats returns a snapshot; no in-repo caller of collisionMirrorStats, so a pooled object would turn a held snapshot into a live view for any future caller | same |
+| src/shared/collisionTile.js:14 | preallocated-cleared-buffer | kept | boxRecordOf is an export whose return shape is fixed; a shared out-buffer changes its argument and return contract, and its only in-repo caller (StaticTileIndex build) is the one that would have to change | W-behaviour scripts/collision-tile-shape-witness.mjs; W-hash encodeTileMessage |
+| src/shared/collisionTile.js:19 | closure | changed | hoisted-variable: `records.forEach` closure replaced by an indexed for loop (the closure captured `out`, so no module constant fits); same writes for dense arrays | same |
+| src/physics/StaticTileIndex.js:16 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer (the chained option): `tileHash` chains `fnv1aStepBytes` over `new Uint8Array(verts.buffer)` and `new Uint8Array(boxes.buffer)` from `FNV1A_32_OFFSET_BASIS`, so no concatenated buffer is built; `>>> 0` kept, same value | W-hash encodeTileMessage; W-behaviour scripts/collision-tile-shape-witness.mjs |
+| src/physics/StaticTileIndex.js:17 | hoisted-variable | kept | a view over the per-build `verts.buffer`; a view cannot be hoisted without a copy, and the hash now reads it directly | same |
+| src/physics/StaticTileIndex.js:18 | hoisted-variable | kept | a view over the per-build `boxes.buffer`; same reason as :17 | same |
+| src/physics/StaticTileIndex.js:103 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `idScratch` cleared and filled from `t.bodies` and `bigBodies` in place of `[...t.bodies]`; build does not re-enter (no callback reaches get/build) | same |
+| src/physics/StaticTileIndex.js:105 | closure | changed | hoisted-variable: module constant `ASCENDING` comparator for `ids.sort` | same |
+| src/physics/StaticTileIndex.js:106 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `partsScratch` and `boxesScratch` cleared at the start of build. Cleared lazily, so the last build's arrays stay referenced until the next build (bounded, not returned) | same |
+| src/netcode/CollisionTileStreamer.js:49 | object | changed | pooled-object: an existing `c.sent` entry (already private to `c.sent`) gets `s.hash = t.hash` in place; a new object is created only when no entry exists. Entry key implies the same tx and tz | W-behaviour scripts/collision-tile-shape-witness.mjs; W-hash encodeTileMessage (the wire bytes are unchanged) |
+| src/netcode/CollisionTileStreamer.js:77 | Set, closure | changed | preallocated-cleared-buffer: `liveIds` Set (declared with `clients`) cleared and refilled from `players`, replacing `new Set(players.map(...))` | same |
+| src/shared/movement.js:114 | object | changed | pooled-object: module object `MOVEMENT_RESULT` reset in place on each applyMovement return. Every in-repo consumer discards the return: characterStep.js predictCharacterStep (`result` is returned and then dropped by PredictionEngine._step, stick-floor-ramp-witness, groundy-replay-hook, TickHandler.js:101, starved-neutral-witness). An exported return that a future caller stores would alias, so this is noted for review | W-behaviour scripts/starved-neutral-witness.mjs and scripts/stick-floor-ramp-witness.mjs; W-alloc scripts/groundy-replay-witness.mjs |
+| src/physics/CharacterManager.js:89 | hoisted-variable | changed | hoisted-variable: `this._tempAllocator` fetched once in init (CharacterManager is built only by World, with a real Jolt) and used in update. Embind raw-pointer wrapper assumed (not verified by a run) | W-alloc scripts/groundy-replay-witness.mjs; W-behaviour scripts/collision-tile-shape-witness.mjs |
+| src/physics/CharacterManager.js:194 | hoisted-variable | changed | hoisted-variable: `charPos = ch.GetPosition()` read once, moved above feetY, and feetY computed from it | same |
+| src/physics/CharacterManager.js:197 | hoisted-variable | changed | the same `charPos` read, now shared with feetY (the second GetPosition call is gone) | same |
+
+#### N1 reuse ledger (Phase A)
+
+Files: src/netcode/SnapshotEncoder.js, src/netcode/SnapshotPacker.js, src/netcode/SnapshotBinFormat.js, src/netcode/TickSystemBase.js, src/netcode/TickSystem.js. Line numbers in the table are the run 23 audit's line numbers (from `e8c0c3d:docs/PENDING_VALIDATION.md`, Area 2 and Area 5 rows), not the edited file's.
+
+Category is the audit's Reuse class (Area 2 row; Area 5 where Area 2 has no row).
+
+Changed rows: 18. pooled-object 8, preallocated-cleared-buffer 2, hoisted-variable 6, fixed-ring 2.
+Kept rows: 36. pooled-object 25, preallocated-cleared-buffer 4, hoisted-variable 5, fixed-ring 1, other (preallocated-double-buffer) 1.
+
+| file:line | row class (per audit) | action | what changed (reuse class and buffer name) or reason kept | witness (code and script) |
+|---|---|---|---|---|
+| src/netcode/SnapshotEncoder.js:31 | pooled-object | changed | pooled-object: `_selfBlock` (6-slot module array) written in place by `encodeSelfBlock`; the two callers (TickHandler.js:396, :424) pack it synchronously in `packSnapshot` | W-hash (SnapshotEncoder packets), W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:66 | pooled-object | changed | pooled-object: `packReducedPlayerPose` takes an `into` record; `encodeReducedPlayer(p, slot)` draws `_reducedPoseRecs[slot]` (slot counter in `filterEncodedPlayersTiered`) | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs, scripts/snapshot-lod-tiers-witness.mjs |
+| src/netcode/SnapshotEncoder.js:74 | pooled-object (Area 5: preallocated-cleared-buffer) | changed | pooled-object: `_crowdBuckets` Map cleared per call in `buildCrowdDots`; bucket arrays stay fresh because they are the result | W-hash (dots in the snapshot), W-alloc; W-behaviour scripts/crowd-dot-cell-witness.mjs |
+| src/netcode/SnapshotEncoder.js:72 | hoisted-variable | changed | hoisted-variable: `NO_CROWD_DOTS` (frozen empty array) returned for an empty player list; in-repo callers read `.length` or pack it, nothing pushes to it | W-hash, W-alloc; W-behaviour scripts/crowd-dot-cell-witness.mjs |
+| src/netcode/SnapshotEncoder.js:117 | pooled-object | changed | pooled-object: `_tieredPlayers` scratch `out` in `filterEncodedPlayersTiered`, cleared per call; the only consumers pack it or read it before the next call (TickHandler.js:337-338, scripts/snapshot-lod-tiers-witness.mjs:50) | W-hash, W-alloc; W-behaviour scripts/snapshot-lod-tiers-witness.mjs |
+| src/netcode/SnapshotEncoder.js:186 | fixed-ring | changed | fixed-ring: `TombstoneLog` holds parallel arrays `_ids` and `_ticks` instead of one `{id, tick}` object per tombstone; `forClient` reads the same order | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:191 | fixed-ring | changed | fixed-ring: `pruneBefore` compacts `_ids` and `_ticks` in place with `splice(0, i)` instead of `_list.slice(i)` (no new array, same retained entries) | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:401 | pooled-object (Area 5: preallocated-cleared-buffer) | changed | pooled-object: `_withSelfPlayers` scratch `out` in `filterEncodedPlayersWithSelf`; sole caller TickHandler.js:340 packs it synchronously | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:465 | hoisted-variable | changed | hoisted-variable: `_idSetPair` module array replaces the per-call `[sleepingIds, suspendedIds]` literal in `refreshDynamicCache` | W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:499 | hoisted-variable | changed | hoisted-variable: `_idSetPair` replaces the same literal in `buildDynamicCache` | W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:526 | pooled-object | changed | pooled-object: `_relevantLookup` Set cleared and refilled by `fillRelevantLookup` in `encodeDeltaFromCache`; used only inside that call's loop, never returned | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:548 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_deltaDynIds` Set and `_deltaEntities` array in `encodeDelta` (cleared per call); the entities array is packed synchronously by TickHandler.js:418-424. The nextMap Map stays fresh (kept, see below) | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:564 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_deltaRemoved` cleared per call in `encodeDelta` (packed synchronously, TickHandler.js:418-424) | W-hash, W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotEncoder.js:27 | pooled-object | kept | encodePlayer rows are carried in `encoded.players` returned by `encode()` (ServerHandlers.js:146 sends it, RegionWorkerEntry.js:187 shares it) and `encodeDelta` rows share the `_playerEncPool` rows with `encodePlayersOnce` (TickHandler.js:234) in the same tick, so pooling aliases two encoders' output | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:81 | pooled-object | kept | the bucket arrays are the elements of the exported `buildCrowdDots` result, retained by scripts/crowd-dot-cell-witness.mjs | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:83 | pooled-object | kept | `[...buckets.values()]` is the exported `buildCrowdDots` result (retained by the crowd-dot witness) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:104 | pooled-object | kept | `classifyPlayerTiers` is exported and returns these arrays; scripts/snapshot-lod-tiers-witness.mjs:40 reads them | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:112 | pooled-object | kept | return record of the exported `classifyPlayerTiers` (same witness) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:126 | pooled-object | kept | return record of the exported static `filterEncodedPlayersTiered`; a fresh record per call keeps the exported return shape; the array inside it is the scratch changed at :117 | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:141 | preallocated-double-buffer (not one of the four classes) | kept | packBinRecord without `into` returns the bin retained as the entity baseline (`encodeDelta` :555, `stripVelocityForFar`); needs a per-entity double buffer, a later pass | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:227 | pooled-object | kept | `out` is pushed into `entities`, which the cell share keeps across recipients (TickHandler.js:355-358) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:237 | pooled-object (double-buffer) | kept | encodeEntity's `new Array(6)` is retained as the broadcast baseline (:555); double buffer is a later pass | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:280 | pooled-object | kept | buildEntry bins, `enc` and entry are per-entity cache lifetime (dynCache) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:303 | pooled-object | kept | stripVelocityForFar's bin and row become the entry's baseline (:353) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:353 | pooled-object (double-buffer) | kept | owner-named exception: `nextMap.set(id, [k, ...enc])` is the next tick's baseline; prev is read in the same call so in-place overwrite corrupts it; decided-not-to-change list | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:369 | pooled-object (rotate two) | kept | `known` Set is stored as knownIds, identity compared by the next call | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:388 | pooled-object | kept | already pooled per player id in `_playerEncPool`; only first sighting allocates | W-alloc |
+| src/netcode/SnapshotEncoder.js:418 | pooled-object | kept | nextMap is stored in staticEntityMap (state) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:419 | pooled-object | kept | allEntries and changedEntries are stored as the static state (staticEntries), retained across ticks | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:429 | pooled-object | kept | `[k, cust, custStr]` is the stored static baseline | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:431 | pooled-object | kept | `{enc, k, id}` entries are stored in staticEntries and changedEntries, retained as state | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:517 | pooled-object | kept | the fallback `[]` is the cell share's `shared.entities`, read by other players this tick (TickHandler.js:354-358); the scratch branch already reuses | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:518 | pooled-object | kept | the fallback Map becomes the cellEntityMaps baseline across ticks | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:531 | hoisted-variable | kept | array-destructuring row, low confidence; decided-not-to-change list (V8 usually elides it, no allocation profile here) | W-alloc |
+| src/netcode/SnapshotEncoder.js:536 | preallocated-cleared-buffer | kept | the no-scratch `[]` is retained by the cell share as `shared.removed` (TickHandler.js:354-358) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:543 | pooled-object | kept | per-recipient return record: its entities and entityMap are retained by the cell share and the baseline (TickHandler.js:354-358) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:547 | hoisted-variable | kept | the array form would share `_playerEncPool` rows with `encodePlayersOnce` in one tick (TickHandler.js:234) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:548 | preallocated-cleared-buffer (rotate Map, the nextMap part) | kept | nextMap is retained as broadcastEntityMap (TickHandler.js:418-419); double-buffer is a later pass | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:552 | pooled-object (double-buffer) | kept | encodeEntity's row is retained as the baseline by nextMap (:555) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:555 | pooled-object | kept | the row is the next tick's baseline | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:565 | pooled-object | kept | `encodeDelta` return record is also returned by the exported `encodeDeltaAcked` (no in-repo caller, but the return shape is exported) | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:576 | hoisted-variable | kept | encode()'s output is sent by ServerHandlers.js:146 and shared by RegionWorkerEntry.js:187 | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:577 | hoisted-variable | kept | same as :576 | W-hash, W-alloc |
+| src/netcode/SnapshotEncoder.js:578 | pooled-object | kept | encode() return record is sent by ServerHandlers.js:146 | W-hash, W-alloc |
+| src/netcode/SnapshotPacker.js:105 | pooled-object | changed | pooled-object: a record miss copies into the existing `cached.values` and replaces `cached.bytes` instead of `rec.slice()` plus a new entry; the new `bytes` buffer is still a copy of `pack(rec)` | W-hash (packed snapshot bytes), W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotPacker.js:120 | hoisted-variable | changed | hoisted-variable: `numbersBytes(seq, tick, serverTime)` memoises the header bytes by value (`_numbersMemo`, one copy via `new Uint8Array(pack(_numbers))`), so an unchanged header is not re-packed per recipient; the bytes are identical | W-hash (packed snapshot bytes), W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/SnapshotPacker.js:111 | preallocated-cleared-buffer | kept | the memo is created per tick by TickHandler.js:317 and :422; a reused WeakMap (`byRef`) returns stale bytes, and a cross-tick `byId` would retain removed player ids; the memo object stays per tick | W-hash, W-alloc |
+| src/netcode/SnapshotPacker.js:123 | hoisted-variable | kept | `me` and `chartEpoch` differ per recipient, so the tail array must be packed per recipient; splitting the entities segment out changes msgpack framing and cannot be proved byte-identical without running | W-hash, W-alloc |
+| src/netcode/SnapshotBinFormat.js:45 | pooled-object | changed | pooled-object: `packReducedPlayerPose(id, x, z, yawN, into)` writes into a caller record (same five fields, same clamps); callers draw from `_reducedPoseRecs` (see SnapshotEncoder.js:66) | W-hash, W-alloc |
+| src/netcode/SnapshotBinFormat.js:69 | preallocated-cleared-buffer | kept | packBinRecord without `into` returns the bin retained as the entity baseline (encodeEntity :552/:555, stripVelocityForFar :303); needs a per-entity double buffer | W-hash, W-alloc |
+| src/netcode/SnapshotBinFormat.js:81 | pooled-object | kept | packPlayerBinRecord without `into` is reached from encodePlayer (SnapshotEncoder.js:26), whose row is retained in `encoded.players` for the tick; encodePlayerInto already passes `rec.bins` | W-hash, W-alloc |
+| src/netcode/TickSystemBase.js:109 | hoisted-variable | changed | hoisted-variable: `this._spinWake` bound once in the constructor and passed to `_yield`; same body, reads `this` at call time | W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/TickSystemBase.js:113 | hoisted-variable | changed | hoisted-variable: `this._timerWake` bound once in the constructor and passed to `setTimeout`; same body and ordering; the Timeout object is still platform-allocated | W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+| src/netcode/TickSystem.js:27 | fixed-ring | kept | `_tickBudgetMs` is read as an array by src/sdk/RoomDirectory.js:147 (`budgets.length` divides the kept sum) and scripts/perf-gate.mjs:100, :183 (`.slice()`); a ring changes that contract; allocation effect not measured | W-alloc; W-behaviour scripts/groundy-replay-witness.mjs |
+
+#### N2a ledger (Area 5 netcode rows, Phase A)
+
+Counts
+- Changed rows: 14 (audit Reuse classes): preallocated-cleared-buffer 7, hoisted-variable 5, pooled-object 2, fixed-ring 0.
+- Kept rows with a non-none Reuse class: 16 (fixed-ring 9, pooled-object 4, preallocated-cleared-buffer 2, hoisted-variable 1).
+- Reuse none rows listed as kept: 13 lines (wire, identity, retention, library output, canonicalJSON, iterators). Reuse none rows with none risk are not listed.
+
+Witness codes: Area 5 names W-hash (packets and records) and W-alloc (per-tick rows); scripts `scripts/groundy-replay-witness.mjs` (rollback and lockstep rows), `scripts/prediction-reconcile-witness.mjs` (prediction rows). Area 5 names no script for the rewind index, the player manager, or physics-integration rows, so those cite W-alloc only.
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/netcode/RollbackGameLoop.js:45 | Map, object (inputs preallocated-cleared-buffer; keys fixed-ring) | changed (inputs) | preallocated-cleared-buffer: `inputsScratch` (per-instance Map, `clear()` per `inputsFor`). Consumer `PeerSimSession.simulate` copies it through `toPlayerInputs` synchronously and does not retain it. The `keys` Map stays new (kept below). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:45 (keys) | fixed-ring | kept | `keys` Map is stored in `used` until `prune`, so it is retained; a fixed ring is not proven equivalent. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:49 | string | kept | Reuse none. `canonicalJSON` per roster peer; memoizing needs identity-safe inputs. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:61 | string | kept | Reuse none. `canonicalJSON(input ?? null)` per remote input; same identity concern as :49. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:68 | Map | kept | fixed-ring. Row is retained in `remoteChecksums` until `compareChecksums` deletes it; no ring sized to the window is proven. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:76 | destructure | kept | Reuse none (iterator destructure, V8 elides). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackGameLoop.js:122, :145 | iterator | kept | Reuse none (O(window x roster) iteration, no allocation to reuse). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackLoop.js:10, :12 | Map, iterator | kept | fixed-ring. Snapshot slots are the captured state, retained for the window; the Map ring stays (the rule keeps it unless a fixed ring is provably equivalent). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackLoop.js:23 | array | kept | fixed-ring. The `[...ring.keys()]` copy is a transient key list, not a ring; a fixed ring would need a ring sized to the window, which this is not. Left as the copy. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackInputTransport.js:39 | string | kept | Reuse none. The wire format between peers is JSON; byte-identical framing must stay. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackInputTransport.js:50, :54, :55 | closure | changed | hoisted-variable: `countReject(this.stats)` and `countOrder(this.stats)` built once in the constructor as `this._onReject` and `this._onOrder`; `tickOf` is the module constant `tickOfFrame`. `this.stats` is never reassigned (only built in the constructor). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RollbackInputTransport.js:51 | object | changed | pooled-object: `this._dispatchOrigin` reset in place per inbound frame (`from`, `selfId`); `dispatchControlFrame` reads it synchronously and does not keep it. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:41 | object | kept | pooled-object. The `{...lastLocalInput}` copy is retained by `RollbackGameLoop.confirm` in `confirmed`, so a pool would have to cover that retention. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:45 | Map | changed | preallocated-cleared-buffer: `playerInputsScratch`, cleared in `toPlayerInputs`. `TickHandler.processPlayerMovement` only reads `explicitInputs.get(...)` and stores the values, not the Map. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:46 | destructure | kept | Reuse none (V8 elides). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:60, :61, :63 | Map, object | kept | fixed-ring. `capture` results and `lastInputs` are retained for `STATE_RING_TICKS` by the rollback ring. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:81 | string | kept | Reuse none. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:82 | array, closure | changed | preallocated-cleared-buffer: `checksumIdScratch` (length 0 then push, consumed synchronously); hoisted comparator `ascending` at module scope. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:94 | closure, array, Map | changed | preallocated-cleared-buffer: `rollbackBeforeScratch` Map cleared per `before()`; read only by `after` in the same `doRollback`. The `before` arrow is built once per session, not per call, so it is not hoisted. The per-player `[...position]` pair arrays are still allocated and kept. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:107 | string | kept | Reuse none. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/PeerSimSession.js:108 | array | changed | preallocated-cleared-buffer: `liveIdScratch` (length 0 then push, `sort()`, consumed synchronously). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:74 | closure | changed | hoisted-variable: module constant `isConnectedPlayer` replaces the `p => p.connected` arrow in `getConnectedPlayers`. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:97 | object | kept | pooled-object. Each entry is the retained input buffer row (order must hold, `MAX_BUFFERED_INPUTS` ring per player); entries are the player's input history. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:105 | array | kept | Reuse none. Manual insert keeps the order; the `splice` removed array is discarded. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:108 | shift | kept | fixed-ring, same as :97. The buffer is the retained input window; `shift` stays. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:139 | typed | kept | Reuse none. `pack()` output is library-allocated. | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:191, :198, :200 | array, object | kept | preallocated-cleared-buffer, pooled-object. `failed` is returned inside the result object, which the caller may hold. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:218, :223, :224 | object, closure, array | kept | fixed-ring. The snapshot is kept for the rollback window. `:223` arrow left inline (fixed-ring row). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:219, :225 | json | kept | fixed-ring. Owner rule and `Sites decided not to change`: the JSON clone stays (PlayerManager.js:219). | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:236, :242 | json | kept | pooled-object. Copy-into would change what a restored state keeps for non-JSON fields (JSON drops them) and would mutate the `state` object other code holds. Contract change, not a reuse. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:240 | closure, array | changed | hoisted-variable: module constant `copyPushSlot` replaces the `x => (x ? [...x] : null)` arrow in `restoreState`. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PlayerManager.js:241 | array | kept | Reuse none. `[...s.pendingPush]` restore copy. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/NetworkState.js:46 | closure | kept | hoisted-variable. The `v.some(arrow)` lives in `src/shared/vecGuard.js:3`, which is outside this group's files; `NetworkState.js` has no closure of its own at this site. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PhysicsIntegration.js:69, :75 | object | changed | pooled-object: `this._swimResult` reset in place by `_resolveSwimVelocity`; both callers read `vy` and `dragMul` synchronously before any other call. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PhysicsIntegration.js:98 | Map | kept | fixed-ring. `snapshotCrouchStates` result is retained in the rollback snapshot. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/PhysicsIntegration.js:144 | array | changed | preallocated-cleared-buffer: `this._velocityScratch` written in place before `setCharacterVelocity`. `World.setCharacterVelocity` to `CharacterManager.setVelocity` copies the components into a Jolt vector and does not keep the array. | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/RewindSpatialIndex.js:6 | Map | kept | preallocated-cleared-buffer, but the index is cached by `combat.js` per tick and the rule says reuse only once the old one is dropped. Kept. | W-alloc; no script named in Area 5 |
+| src/netcode/RewindSpatialIndex.js:11 | string | kept | Reuse none. `_key` string is the cell identity; a numeric key is only a fix if collision-free (decided not to change). | W-hash; no script named in Area 5 |
+| src/netcode/RewindSpatialIndex.js:15 | array | changed | hoisted-variable: `_cellOf` writes into the per-index `this._cell` and returns it. The only consumer, `queryRay`, destructures it at once. | W-alloc; no script named in Area 5 |
+| src/netcode/RewindSpatialIndex.js:26, :27 | array, object | kept | pooled-object. Buckets and `{id, pos}` entries are stored in `cells` and kept for the life of the index; the index has no removal, so a per-index pool has nothing to reuse. | W-alloc; no script named in Area 5 |
+| src/netcode/RewindSpatialIndex.js:38 | closure | changed | hoisted-variable: `nextBoundary` is now a module function taking `s`, replacing the per-ray arrow. | W-alloc; no script named in Area 5 |
+| src/netcode/RewindSpatialIndex.js:51 | Set | changed | preallocated-cleared-buffer: `this._visited`, cleared at the start of each `queryRay`. `queryRay` is not re-entered (the Hitscan callback does not call it). | W-alloc; no script named in Area 5 |
+| src/netcode/ReplayRecorder.js:23, :51 | object | kept | Reuse none. Entries are retained for the replay file; two typed arrays would avoid them but that is a format change. | W-hash; no script named in Area 5 |
+
+#### N2b ledger (Phase A reuse, Area 5 rows for the assigned netcode files)
+
+Changed rows: 25
+Kept rows: 20
+Changed by category: preallocated-cleared-buffer 8, fixed-ring 1, hoisted-variable 10, pooled-object 6
+Kept by category: preallocated-cleared-buffer 4, fixed-ring 5, hoisted-variable 5, pooled-object 6
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/netcode/LockstepGameLoop.js:149 | Map, object | changed | preallocated-cleared-buffer: loop-owned `byPeer` Map, `.clear()` each step (simulate copies it in PeerSimSession.toPlayerInputs and retains nothing). `keys = {}` kept: fixed-ring, retained in `used` until prune and returned by inspectTick | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:142 | shift | changed | fixed-ring: `latencyRing` overwritten at `latencyCursor` once full (no shift); latencyStats sorts a copy, so order is irrelevant | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:194 | array, closure | changed | preallocated-cleared-buffer: `pendingBuf` filled by a loop (no filter closure); only onDriverTick reads it | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:62 | array | changed | preallocated-cleared-buffer: `waitingBuf`; getStats now returns `[...waitingOn(...)]` so no caller holds the buffer | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:72 | array | changed | preallocated-cleared-buffer: `survivorBuf`; finishDrops reads it before voter.removePeer, the only re-entry point, and does not read it after | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:180 | destructure | kept | hoisted-variable (destructure): V8 elides it, audit's own low-confidence note, no allocation profile | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepGameLoop.js:75, :77, :114, :118, :150, :161 | none | skipped | reuse none in the audit | none |
+| src/netcode/LockstepInputTransport.js:39, :43, :44 | closure | changed | hoisted-variable: `_onReject` and `_onOrder` built once in the constructor from `this.stats`; `tickOfFrame` module constant | W-alloc |
+| src/netcode/LockstepInputTransport.js:40 | object | changed | pooled-object: `_dispatchOrigin` reset in place per frame (dispatchControlFrame reads it synchronously) | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepInputTransport.js:29, :34 | string | skipped | wire JSON, audit reuse none, kept as-is | W-hash |
+| src/netcode/controlFrame.js:34, :43 | string, json | skipped | wire JSON, audit reuse none, kept as-is | W-hash |
+| src/netcode/controlFrame.js:40 | object | changed | pooled-object: `FOREIGN_PREFIX` frozen constant (the audit's note says frozen constants are safe; only countReject reads the status) | W-hash; W-alloc |
+| src/netcode/controlFrame.js:50 | destructure | kept | hoisted-variable (destructure): V8 elides it, no allocation profile | W-hash |
+| src/netcode/controlFrame.js:53 | object | kept | pooled-object: parseControlFrame is exported and its result is returned to callers (scripts/netcode-wire-pbt.mjs holds parse results), so a reused object would alias across calls | W-hash |
+| src/netcode/controlFrame.js:100 | closure | changed | hoisted-variable: `refuseFrame(onReject, kind, from, status, extra)` module function replaces the per-frame `refuse` arrow; same onReject payload and key order | W-hash |
+| src/netcode/controlFrame.js:117 | object | changed | pooled-object: module-scoped `dispatchResult` reset in place; the three consumers (LockstepInputTransport, ConsensusVoter, RollbackInputTransport) read apply, frame and from before the call and read order before apply | W-hash; W-alloc |
+| src/netcode/ConsensusVoter.js:6 | json | skipped | wire JSON, audit reuse none, kept as-is | W-hash |
+| src/netcode/ConsensusVoter.js:61, :65, :66, :67 | closure | changed | hoisted-variable: `_onReject`, `_onOrder` built after `this.stats` exists; module `tickOfFrame` and `senderOfFrame` | W-alloc |
+| src/netcode/ConsensusVoter.js:62 | object | changed | pooled-object: `_dispatchOrigin` (selfId fixed, from set per frame) | W-alloc |
+| src/netcode/ConsensusVoter.js:120 | shift | kept | fixed-ring: `slice(-n)` with n = 0 or a non-integer differs from an in-place trim (`length = n` throws for a fraction), and it runs only past 2n per message | W-alloc |
+| src/netcode/ConsensusVoter.js:124, :155 | array | changed | preallocated-cleared-buffer: `track.evidenceTicks.length = 0`. getStats copies out (`evidenceTicks: [...track.evidenceTicks]` in the peers map), and the ejection evidence object also takes a copy | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/DesyncDetector.js:33 | Map | kept | fixed-ring: the row is held in `_pending` until resolved or evicted, and resolve passes it as `result.reports` | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/DesyncDetector.js:45 | iterator | kept | fixed-ring: the Set is already bounded at RESOLVED_TICK_HISTORY_MAX; the cost is the engine iterator, not a reusable buffer | W-alloc |
+| src/netcode/DesyncDetector.js:47 | Map | changed | preallocated-cleared-buffer: `this._counts` cleared per resolve; `counts` is last read before any onVerified or onDesync callback | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/DesyncDetector.js:50, :58, :59, :60 | destructure, array, object | skipped | audit reuse none (or retained by the result, per the audit) | none |
+| src/netcode/LockstepChecksum.js:12, :17, :18 | closure, object | kept | hoisted-variable: the fold state is per call, and PeerSimSession.js:84-85 nests a fold around checksumBodies, so one shared fold would clash | W-hash; scripts/groundy-replay-witness.mjs |
+| src/netcode/LockstepChecksum.js:26 | array | changed | preallocated-cleared-buffer: module `checksumIds`, filled and sorted in place, read only inside checksumBodies (pure, no re-entry) | W-hash |
+| src/netcode/LockstepChecksum.js:27 | closure | changed | hoisted-variable: module `byIdAscending` comparator | W-hash |
+| src/netcode/LockstepChecksum.js:20 | string | skipped | audit reuse none | none |
+| src/netcode/Hitscan.js:10 | array | kept | hoisted-variable: rayVsCapsule normalises again, and re-normalising a unit vector is not bit-identical, so the audit's pass-once fix changes numerics; needs a witness run first | W-alloc |
+| src/netcode/Hitscan.js:20 | array | kept | preallocated-cleared-buffer: the eye array is returned as the shot origin (combat.js:243 stores it into the shot) | W-alloc |
+| src/netcode/Hitscan.js:24 | object | changed | pooled-object: module `fireRequest` record reset per call; callers destructure it synchronously (combat.js:243, scripts/planet-multiplayer-harness.mjs:525, scripts/netcode-conditioner-harness.mjs:325) | W-alloc |
+| src/netcode/Hitscan.js:29 | array, object | kept | pooled-object: `tp` is kept in the returned hit, so one scratch cannot serve several targets | W-alloc |
+| src/netcode/Hitscan.js:34 | array | changed | hoisted-variable: module `toTarget` scratch written per call; rayVsCapsule returns only proj and dot, never toTarget | W-alloc |
+| src/netcode/Hitscan.js:37, :41, :53 | array, object | skipped | audit reuse none (retained in the returned hit) | none |
+| src/netcode/Hitscan.js:73 | Map | kept | preallocated-cleared-buffer: fallback only (buildLiveIndex always sets playersById), so a shared Map would buy nothing and a re-entrant isTargetable would share it | W-alloc |
+| src/netcode/Hitscan.js:74 | Set | changed | preallocated-cleared-buffer: module `spatialSeen`, cleared per call; the queryRay callback is synchronous and isTargetable (combat.js:201) never calls findHitSpatial | W-alloc |
+| src/netcode/Hitscan.js:78 | closure | kept | hoisted-variable: the callback captures per-shot locals (nearest, nearestDot, nearestOrder, shot, direction) | W-alloc |
+| src/netcode/OutlierDetector.js:21 | shift | kept | fixed-ring: an in-place shift on a 20-slot window, no allocation; `hits.length` still feeds sampleSize | W-alloc |
+| src/netcode/OutlierDetector.js:23 | closure | changed | hoisted-variable: running `headshotCount` in the window record replaces the per-hit reduce; incremented on push, decremented when the shifted-out entry was a headshot | W-alloc |
+| src/netcode/OutlierDetector.js:27, :38 | object | skipped | audit reuse none (event records) | none |
+| src/netcode/InputGuard.js:40, :41, :42 | array, closure | changed | hoisted-variable: `usableSpeed` module function and a four-argument Math.max replace the candidates array, filter closure and spread; zero stands for "no usable speed", so the MIN_CAP fallback is unchanged | W-alloc |
+| src/netcode/CollisionSystem.js:55, :57 | array | kept | pooled-object: advancePushQueue (line 24) keeps the pendingPush reference in the queue, and recycling a shifted entry would alias queued and pushWindow entries | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/CollisionSystem.js:26 | shift | kept | fixed-ring: PlayerManager.js:223 and :240 read `player.pushQueue` as an array, so the storage shape must stay | W-alloc |
+| src/netcode/CollisionSystem.js:65 | array | kept | preallocated-cleared-buffer: the slice is stored in networkState.pushWindow by TickHandler.js:162 and retained past the call | W-alloc |
+| src/netcode/TeleportHold.js:11 | array | changed | hoisted-variable: module `supportRayOrigin` scratch and frozen `SUPPORT_RAY_DOWN`; src/physics/World.js raycast copies origin into a Jolt Set and reads direction only | W-alloc |
+| src/netcode/LagCompensator.js:59 | iterator | skipped | audit reuse none | none |
+| src/netcode/LagCompensator.js:67 | array | changed | pooled-object: `_ringPool`; clearPlayerHistory pushes the ring back, recordPlayerPosition pops it before allocating (the pool size is bounded by peak tracked players, since rings are created only when the pool is empty) | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/netcode/LagCompensator.js:68, :121 | closure | changed | hoisted-variable: module `sampleAt(ring, i)` replaces the per-call `at` closures in recordPlayerPosition and rewindAtTick | W-alloc |
+| src/netcode/LagCompensator.js:122 | object | kept | pooled-object: the rewound sample is kept in the hit when `out` is absent (Hitscan.js:28 path) | W-alloc |
+| src/netcode/LagCompensator.js:141, :144 | array | kept | preallocated-cleared-buffer: `eye` is returned as the origin when the client origin is rejected, and kept for the shot | W-alloc |
+| src/netcode/EventLog.js:14 | object | changed | hoisted-variable: module `REPLAYABLE_KINDS` map of frozen `{status, kind}` per known replayable type; unknown types still allocate | W-alloc |
+| src/netcode/EventLog.js:32, :39, :83, :80, :102 | object, string | skipped | audit reuse none (the ring keeps the event literal; prune is periodic) | none |
+| src/netcode/WorkerBridgeProxy.js:2 | object | skipped | audit reuse none | none |
+| src/netcode/WorkerBridgeProxy.js:14, :15 | object | kept | pooled-object: the injected `post` may keep the message. scripts/peer-profile-harness.mjs (postFor, lines 90-98) reads msg.data inside a setTimeout, so a reused message object would deliver the wrong frame | W-alloc |
+| src/netcode/WorkerBridgeProxy.js:20 | object | kept | pooled-object: listeners may keep event.detail (the audit's own risk) | W-alloc |
+
+#### Group P ledger (Phase A reuse, Area 5 rows)
+
+Changed rows: 14 (preallocated-cleared-buffer 3, pooled-object 7, hoisted-variable 2, fixed-ring 2)
+Kept rows: 13 (preallocated-cleared-buffer 5, pooled-object 3, hoisted-variable 4, fixed-ring 1)
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/client/BaseClient.js:24 | preallocated-cleared-buffer | kept | splitCoalesced `out` stays fresh: the loop in onMessage calls _handleOneMessage, which runs user callbacks, and a re-entrant onMessage would clear a shared buffer mid-loop. Cannot be ruled out by reading the consumer. | W-hash, W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/BaseClient.js:90 | hoisted-variable | kept | `msg.payload \|\| {}` stays: a handler may write to payload, so a shared empty object would carry that write into the next message. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/BaseClient.js:177 | pooled-object | changed | `{data: input, cases: NO_INPUT_CASES}` replaced by `_passThrough(input)`, which writes the per-instance wrapper `this._quantized`; sendInput destructures `data` and `cases` before the callback loop, so a re-entrant sendInput cannot change them. | W-hash, W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/BaseClient.js:186, :187 | fixed-ring | changed | plain-input push and shift: the evicted slot object is reused for the new record (`slot = length >= REDUNDANT_INPUT_RECORDS ? shift() : {}`) in `this._plainInputs`. Entries are read synchronously by tryEncodeInputPacket and not retained. | W-hash, W-alloc; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/client/BaseClient.js:198 | preallocated-cleared-buffer | kept | `const cases = []` in _quantize stays: the array is returned to sendInput, which loops it calling user callbacks (onMessageError) that can re-enter sendInput and clear a shared array. | W-hash, W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/BaseClient.js:200 | pooled-object | changed | `{data, cases}` wrapper in _quantize replaced by the per-instance `this._quantized` written in place; consumed as in :177. | W-hash, W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/BaseClient.js:228 | pooled-object | changed | `{players: [localState]}` replaced by `this._snapshotWrap` (`players[0] = localState`). onServerSnapshot reads it synchronously; the wrapper is not stored (only the player state and pushWindow are, as before). | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:65 | preallocated-cleared-buffer | changed | InputHistory.last: `new Array(k)` replaced by the per-instance `this._lastOut` (`length = k`, refilled). The only consumer is BaseClient (via getUnackedInputs), which passes it to tryEncodeInputPacket synchronously; no other src or scripts caller. | W-hash, W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:64 | hoisted-variable | changed | The generator iterator is kept for the other for-of sites. The per-call generator at the rebase loop in _rebaseAndReplay is replaced by an indexed loop over `inputHistory.length` and `inputHistory.at(i)`, which gives the same order and reads `_len` each step, as the generator did. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:77 | pooled-object | changed | neutralStep returns the module scratch `NEUTRAL_STEP`, rewritten in place. Its only use is `_step(neutral, ...)` in _rollForwardAcked, and predictCharacterStep, applyMovement and the collider step read the input and do not store it. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:154 | pooled-object | changed | recordKnockback reuses the per-instance `this._knockbackSlot` (dir copied in place, impulse, startTime) and sets `_pendingKnockback` to it. `_pendingKnockback` is only read inside PredictionEngine; the copy of dir is element-equal to `[...dir]`. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:195 | preallocated-cleared-buffer | changed | _commandedTravel returns the per-instance `this._travelScratch` rewritten in place. Its only consumer is _updateServerBlock, which reads [0] and [1] synchronously. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:328 | hoisted-variable | changed | `walls.find(x => ...)` arrow replaced by a for-of loop with break, assigning the first match to `w` (same first-match result, no per-plane closure). | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PredictionEngine.js:331, :332 | fixed-ring | changed | `walls.shift()` at WALL_CACHE_SIZE and the new record: the evicted wall record is reused (`w = length >= WALL_CACHE_SIZE ? walls.shift() : {}`), fields reset in the same order as the literal. characterStep reads walls only and keeps no reference. | W-alloc; scripts/prediction-reconcile-witness.mjs (manual) |
+| src/client/PhysicsNetworkClient.js:373 | pooled-object | changed | `send` writes the per-instance `this._sendFrame` {type, payload} and packs it. pack is synchronous and the frame key order is unchanged, so the packed bytes are the same. | W-hash, W-alloc |
+| src/client/PhysicsNetworkClient.js:72 | pooled-object | changed | Heartbeat packs the per-instance `this._heartbeatFrame` with `payload.timestamp` set before pack. Same key order, so the bytes are the same. | W-hash, W-alloc |
+| src/protocol/InputCodec.js:220 | fixed-ring | kept | `{...recordTemplate(...)}` per record stays: the record becomes the quantize output kept as history `e.data`, and one shared object would alias it. Audit "decided not to change" list names this site. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:257 | preallocated-cleared-buffer | kept | `const cases = []` in tryEncodeInputPacket stays: the array is the `cases` of the returned frozen result, which the exported function may be held by callers, and BaseClient loops it while calling user callbacks that can re-enter sendInput. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:261, :262 | preallocated-cleared-buffer | kept | `new Uint8Array(size)` and `new DataView(out.buffer)` stay: the bytes are the `bytes` field of the exported result and the return of encodeInputPacket. A reused buffer needs a subarray whose `.buffer` is larger than the packet, which changes the wire payload object the callers send. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:271 | pooled-object | kept | The frozen result from tryEncodeInputPacket cannot be reset in place, and dropping the freeze changes the exported return contract. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:287 | preallocated-cleared-buffer | changed | `const entries = []` in decodeInputPacket replaced by the module array `DECODED_ENTRIES` (`length = 0` per call). Its only consumer, ServerHandlers (`decoded.entries` loop and reexpressInputEntries), reads it synchronously; entry wrappers are not kept (only `e.data`, as before). | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:298 | pooled-object | kept | `{sequence: 0, data: null}` per record stays: decoded records are the per-record input objects, and a single reused record would alias decoded player input. Audit "decided not to change" list names this site. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/InputCodec.js:306 | pooled-object | kept | The frozen result from decodeInputPacket cannot be reset in place, and dropping the freeze changes the exported return contract. | W-hash; scripts/expr-truncation-witness.mjs (npm run check) |
+| src/protocol/EventEmitter.js:31 | hoisted-variable | kept | `emit(event, ...args)` rest array stays: it is the emit signature, and a fixed-arity path would change the argument shape of a public method. | W-alloc |
+| src/protocol/EventEmitter.js:34 | preallocated-cleared-buffer | kept | `listeners.get(event).slice()` stays: listeners may emit or remove re-entrantly, which a single shared scratch would clobber. The audit says a depth-indexed scratch is needed, a later pass. | W-alloc |
+| src/protocol/EventEmitter.js:36 | hoisted-variable | kept | `fn(...args)` spread stays: it passes the existing args array and builds no per-call literal, so there is nothing to hoist. | W-alloc |
+| src/protocol/EventEmitter.js:25 | hoisted-variable | kept | The once wrapper `(...args)` and `fn(...args)` stay, for the same reason as :31 and :36. | W-alloc |
+
+#### T1 ledger: src/sdk/TickHandler.js and src/sdk/ServerHandlers.js (Area 2, run 23)
+
+Changed rows: 14 (pooled-object 11, hoisted-variable 3, preallocated-cleared-buffer 0, fixed-ring 0)
+Kept rows: 9 (pooled-object 6, hoisted-variable 1, none or conditional 2)
+
+Witness for every row: W-alloc, W-behaviour via `scripts/groundy-replay-witness.mjs`; W-hash via the snapshot tests in `scripts/` for the snapshot-bytes rows (`:371`, `:373`, `:416`, and `:175`, which is kept).
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/sdk/TickHandler.js:75 | pooled-object | changed | pooled-object: `neutralInput(player)` writes into a per-player object held in module WeakMap `_neutralInputByPlayer`; fields are read from `player.lastInput` before the write, so the case where lastInput is the pooled object itself is safe. Checked: `player.lastInput` is not compared by identity anywhere, PeerSimSession and ClusterHandoff copy it, and chartState `look` mutates it in place synchronously, so no consumer keeps the reference. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:158 | none | not listed | Reuse none. Left as is. | n/a |
+| src/sdk/TickHandler.js:175 | typed | kept | `new Uint8Array(spliced)` stays. `ConnectionManager._enqueue` pushes the buffer onto `client._outReliable` or `_outUnreliable` until `flushAll`, so it is retained past the call, while `packSnapshotBytes` rewrites the shared `carve` arena for the next recipient. A shared copy would also break because `me` differs per recipient. | W-hash: snapshot tests in `scripts/` |
+| src/sdk/TickHandler.js:193 | Set | changed | pooled-object (clear): module Set `_keptIdsScratch`, cleared at each call; used only inside `restoreTrimmedBaselines`, which is not reentrant. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:244 | closure | changed | hoisted-variable: `_addIdsLength` at module scope replaces the per-call `reduce` arrow. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:246 | object | changed | pooled-object: `buildPlayerFanout` returns the module object `_fanoutResult` with its three fields set. Consumed only inside `buildAndSendSnapshots` in the same call. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:262 | array | changed | pooled-object: `groupPlayersByCell` takes per-cell viewer arrays from module pool `_viewerListPool` (indexed by a local counter, `length = 0` on take). `_cellViewersScratch` is cleared per call, and viewers are read only in the same call. `encodeDeltaFromCache` and `resolveDeliveredIds` do not keep the array. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:286 | closure | changed | hoisted-variable: `newGroup` moved from inside the tick to module scope, unchanged in shape. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:295 | Map | not listed | Reuse none, keyframe only. | n/a |
+| src/sdk/TickHandler.js:317 | Map, WeakMap | kept | pooled-object (clear) not applied. `newRecordMemo` returns a `byRef` WeakMap, which has no `clear()`, and a reused WeakMap would keep record keys from earlier calls. Memo must not span calls. | W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:331 | object | changed | pooled-object: the `_cellShareCache` entry object is taken from pool `_cellSharePool` at index `_cellShareCache.size`, with `sharedEncode` and `sharedFull` reset to undefined. The cache is cleared per call, so its entries are never read after the call. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:343 | Map | not listed | Reuse none, new player only. | n/a |
+| src/sdk/TickHandler.js:354 | array | changed | hoisted-variable (frozen empty): `_NO_PRE_ENCODED_PLAYERS = Object.freeze([])` replaces the `[]` passed as `preEncodedPlayers`. The encoder only reads it, and the returned `r.encoded.players` is discarded here (only `entities` and `removed` are used). | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:355 | object | kept | pooled-object not applied. `shared` is stored in `cached.sharedEncode` and read by later players in the same snapshot pass, so its lifetime spans the pass. Reuse needs the cache entry lifetime changed, which the audit lists as a later pass. | W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:362 | Map | kept | Baseline kept per the brief and the audit's "decided not to change" list (`src/sdk/TickHandler.js:362`). It becomes the `playerEntityMaps` baseline and needs an ownership swap. | W-hash on snapshot bytes; W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:366 | array | changed | pooled-object per audit, implemented as a cleared module array `_dynEntitiesScratch` filled by a loop with `if (v[3])` (same result as `.map(v => v[3]).filter(Boolean)`). The array is consumed by `concat`, which copies it. | W-hash on snapshot bytes, W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:368 | closure | changed | pooled-object per audit, implemented as hoisted-variable `_staticEncOf` (`(se) => se.enc`) at module scope, replacing the per-call arrow. | W-hash on snapshot bytes, W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:371 | object | changed | pooled-object (per player): `sharedEncodedOf` fills the module object `_sharedEncodedScratch` and resets `dots` to undefined each time, so no field carries over. Its only consumers are `packSnapshot` (synchronous) and the `encoded.dots` write, both in the same iteration. | W-hash on snapshot bytes (`packSnapshot`, `SnapshotPacker`), W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:373 | object | changed | pooled-object: same scratch and helper as `:371`. | W-hash on snapshot bytes, W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:382 | Map | not listed | Reuse none. | n/a |
+| src/sdk/TickHandler.js:404 | Set | changed | pooled-object (clear): module Set `_liveCellsScratch`, cleared and refilled from `state.playerCell.values()`, used only in the cell-prune loop. | W-alloc, W-behaviour: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:416 | object | changed | pooled-object: module object `_combinedScratch` is filled per call and passed to `SnapshotEncoder.encodeDelta`, which reads its fields and returns new arrays and maps, so it does not keep the object. | W-hash on snapshot bytes, W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:417 | Map | not listed | Reuse none. | n/a |
+| src/sdk/TickHandler.js:422 | Map, WeakMap | kept | pooled-object (clear) not applied, same reason as `:317`: the WeakMap cannot be cleared. | W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:537 | object | not listed | Reuse none. The `emit` listeners may retain the payload. | n/a |
+| src/sdk/TickHandler.js:554 | object | kept | pooled-object not applied. `rttTable` and `pubkeys` are the payload of `connections.broadcast` (`:561`). That payload reference is held by `_sendObj` and is part of a public broadcast contract, so a retaining caller would see the tables change. | W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:561 | object | kept | pooled-object not applied. Passed to `connections.broadcast`, which keeps the payload reference in its module `_sendObj`. Same contract reason as `:554`. | W-alloc: `scripts/groundy-replay-witness.mjs` |
+| src/sdk/TickHandler.js:584 | string | not listed | Reuse none, 1 Hz warning only. | n/a |
+| src/sdk/ServerHandlers.js:298 | closure | kept | hoisted-variable (named handler) not applied. The `.catch` callback needs the per-message `clientId` and `msg` for its log line. A named module function cannot receive them without a per-message closure or bind, so the reuse would change the log content or the call shape. | W-alloc: `scripts/groundy-replay-witness.mjs` (per-message path) |
+| src/sdk/ServerHandlers.js:300 | promise | kept | `_onClientMessage` stays async. Making it sync changes microtask ordering on the input path, which is a contract the audit flags. Reuse class is none on this path. | W-behaviour: `scripts/groundy-replay-witness.mjs` |
+
+#### Ledger T2: src/sdk/TickHandlerAOI.js, src/spatial/Octree.js
+
+Changed rows: 19 (TickHandlerAOI 15, Octree 4)
+Kept rows: 11 (TickHandlerAOI 9, Octree 2)
+
+Changed, by audit Reuse class:
+- pooled-object: 11
+- hoisted-variable: 3
+- preallocated-cleared-buffer: 5
+- fixed-ring: 0
+
+Kept, by audit Reuse class:
+- pooled-object: 8
+- hoisted-variable: 1
+- preallocated-cleared-buffer: 2
+- fixed-ring: 0
+
+Witness for every row: W-alloc and W-behaviour via `scripts/groundy-replay-witness.mjs`. Rows whose output reaches the packet path (TickHandler 352, 377, 386) also need W-hash on the snapshot bytes. Octree rows: `scripts/spatial-index-witness.mjs` (manual). resolveDeliveredIds rows: `scripts/resolve-delivered-ids-witness.mjs`. Nothing was run in this pass.
+
+| file:line | row class (per audit) | action | what changed or reason kept | witness |
+|---|---|---|---|---|
+| src/sdk/TickHandlerAOI.js:153 | pooled-object | kept | epoch identity is compared by `readCellBase` (`hit.epoch !== epoch`); reusing one epoch object would make stale hits look current | W-behaviour: groundy-replay-witness.mjs, spatial-index-witness.mjs |
+| src/sdk/TickHandlerAOI.js:208 | pooled-object | changed | pooled-object: `storeCellBase` pops an entry from module `_cellBaseFree`; the evicted oldest entry is pushed back. Consumers (`readCellBase`, `addRingCell`) read the entry fields before any store, so an evicted entry has no live reader | W-alloc, W-behaviour: groundy-replay-witness.mjs, spatial-index-witness.mjs |
+| src/sdk/TickHandlerAOI.js:226 | pooled-object | kept | `resolvePlayerCell` return is exported and stored per player in `_playerCellScratch` (TickHandler.js:260) for the tick; one shared object would alias all players. Per-player pool needs an owner change in TickHandler.js, outside this file | W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:229 | pooled-object | kept | same as :226 (flat branch, live path): stored per player in `_playerCellScratch` for the tick | W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:254 | pooled-object | kept | `relSet` is held by the ring object in `_ringCache` and read by other players in the same tick; `_ringCache` is cleared by TickHandler.js:307, so a reset point lives outside this file | W-behaviour: groundy-replay-witness.mjs, spatial-index-witness.mjs |
+| src/sdk/TickHandlerAOI.js:255 | hoisted-variable | changed | hoisted-variable: the `addCell` closure becomes module function `addRingCell(relSet, face, cx, cy, key, planetRadius, relevanceRadius, appRuntime)`; `computeRingRelevantIds` calls it with the same arguments | W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:273 | hoisted-variable | changed | hoisted-variable: the `gate` copy of `cvp` is removed; `_withinAny` is passed `cvp` directly (read-only, same three values, same single point) | W-alloc, W-behaviour: spatial-index-witness.mjs, groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:274 | pooled-object | kept | `kept` Set is stored as `c.relevantIds` in `_spatialCache`, which outlives the call and is read by other players in the tick | W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:281 | pooled-object | kept | cache entry `c` is stored in `_spatialCache`; TickHandler.js:306 clears it and TickHandler.js:410-411 prune it, so reuse needs an owner-side reset | W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:303 | pooled-object | kept | ring object is stored in `_ringCache` and returned to every player in the cell for the tick; cleared externally (TickHandler.js:307) | W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:323 | pooled-object | changed | pooled-object: `_positionOfEntity` returns module scratch `_entityPositionHit` (same `{case, position}` shape). Both callers (addRingCell, resolveDeliveredIds) read `case` and `position` before any nested call; the function is exported but has no consumer outside this file | W-alloc, W-behaviour: spatial-index-witness.mjs, groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:336 | pooled-object | changed | pooled-object: same scratch `_entityPositionHit` as :323 | W-alloc, W-behaviour: spatial-index-witness.mjs, groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:352 | pooled-object | changed | pooled-object: `resolveDeliveredIds` fills module Set `_deliveredScratch` (cleared per call). Consumers (TickHandler.js:352, :377) pass it to `encodeDeltaFromCache`, which only reads it (SnapshotEncoder.js:524-532) and does not keep it. The witness reads each result inside its own block | W-hash on snapshot bytes, W-behaviour: resolve-delivered-ids-witness.mjs, groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:383 | none | not listed | Reuse none | n/a |
+| src/sdk/TickHandlerAOI.js:395 | hoisted-variable | kept | destructuring `for (const [id, box] of acc)`: the audit marks destructure rows low confidence and says V8 usually elides them; confirm with an allocation profile before changing | W-alloc: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:402 | pooled-object | changed | pooled-object: `getPlayerPriorityIds` clears and returns module Set `_priorityTopIds`. Only consumer is TickHandler.js:377, which passes it to `resolveDeliveredIds`, then `encodeDeltaFromCache` (read-only, not retained) | W-hash on snapshot bytes, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:441 | pooled-object | changed | pooled-object: `trimEntitiesToBudget` returns the module `_trimResult` through `trimResult()`. Only consumer (TickHandler.js:386-389) reads `trimmedCount` and `entities` at once | W-hash on snapshot bytes, W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:443 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `sized` is module array `_sizedScratch` (length set per call, every index written). Used only inside the call | W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:445 | pooled-object | changed | pooled-object: same `trimResult` scratch as :441 | W-hash, W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:447 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `candidates` is module array `_candidateScratch`, cleared with `length = 0` per call, then sorted with the unchanged `byFarthestFirst` comparator | W-hash (drop order), W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:457 | preallocated-cleared-buffer (parallel typed arrays) | changed | applied as pooled candidate records: `_candidatePool[k]` holds one `{i, d2}` record per index and is reused, pushed into the cleared `_candidateScratch`. This keeps the array-of-records sort, so the sort result is identical. The audit's typed-array form (sorting an index permutation) was not used because it changes the sort | W-hash (drop order), W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:460 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `dropSet` Set replaced by module `Uint8Array` `_dropMark` (grown when short, `fill(0, 0, n)` per call); `mark[c.i] = 1` plus a `dropped` counter replaces `dropSet.add` and `dropSet.size` | W-hash, W-alloc, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:468 | pooled-object | changed | pooled-object: `trimResult(entities, 0)` on the no-drop return | W-hash, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:469 | preallocated-cleared-buffer | kept | the trimmed array is assigned to `encoded.entities` (TickHandler.js:389) and goes to `packSnapshot`; it is the output that reaches the packet path, so it stays a new array per call. The filter closure is unchanged; it now reads `mark[i]` instead of the Set | W-hash on snapshot bytes, W-behaviour: groundy-replay-witness.mjs |
+| src/sdk/TickHandlerAOI.js:470 | pooled-object | changed | pooled-object: returns `trimResult(trimmed, dropped)`; the array `trimmed` is still per call (see :469) | W-hash, W-behaviour: groundy-replay-witness.mjs |
+| src/spatial/Octree.js:15 | none | not listed | Reuse none (string key identity) | n/a |
+| src/spatial/Octree.js:21 | pooled-object | changed | pooled-object: `placeInto` takes an empty bucket from module `_freeBuckets` (or creates one); `_unlink` pushes a bucket there only at the point it is deleted from `_cells`. Rebuild and reseat create new maps and do not pool old buckets | W-alloc, W-behaviour: spatial-index-witness.mjs, groundy-replay-witness.mjs |
+| src/spatial/Octree.js:32 | hoisted-variable | changed | hoisted-variable: `parseQueryCentre` writes module scratch `_queryCentre` and returns it. All three callers (`nearby`, `nearbyCylinder`, `nearest`) destructure it at once | W-alloc, W-behaviour: spatial-index-witness.mjs |
+| src/spatial/Octree.js:106 | pooled-object | changed | pooled-object: the cell-crossing branch of `update` overwrites the existing anchor array in place (`_anchors.get(id)`), since `_anchors` and `_entities` stay in step (insert, remove, reseat, clear). Anchors are never exposed (`getPosition` copies) | W-alloc, W-behaviour: spatial-index-witness.mjs |
+| src/spatial/Octree.js:127 | pooled-object | kept | `getPosition` is public and returns a fresh array; `_positionOfEntity` and the app layer may retain it, and the contract stays the same | W-behaviour: spatial-index-witness.mjs |
+| src/spatial/Octree.js:133 | preallocated-cleared-buffer | kept | `nearby` returns its result to public and app callers (AppRuntime nearbyPlayerIds, Stage.js, destructible.js, shrinking-zone.js). Stage.js caches query results through `baseRelevantIds`, so the array is retained; reuse would alias it | W-behaviour: spatial-index-witness.mjs |
+| src/spatial/Octree.js:206 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `collectStarved` fills module array `_starvedScratch` (cleared per call). Only consumer, AppRuntime.js:639-643, reads its length and iterates it at once; the witness iterates it at once too | W-alloc, W-behaviour: spatial-index-witness.mjs |
+
+#### Ledger T3 (Phase A reuse pass)
+
+Files: src/apps/AppRuntime.js, src/apps/AppRuntimeTick.js, src/apps/AppRuntimePhysics.js, src/physics/World.js
+
+Changed rows: 13 (Area 2)
+Kept rows: 28 (26 Area 2 + 2 Area 1 rows at World.js:523 and :524, kept by the audit's own decision list)
+
+Changed by audit reuse class: preallocated-cleared-buffer 4, pooled-object 1, hoisted-variable 8, fixed-ring 0
+Kept by audit reuse class: preallocated-cleared-buffer 4, pooled-object 19, hoisted-variable 4, fixed-ring 0, other (nested Map key, not a reuse class) 1
+
+Witness for Area 2 rows: W-alloc on every row, W-hash where bytes leave the process (AppRuntime.js:580 and the snapshot path), W-behaviour via `scripts/groundy-replay-witness.mjs` and the snapshot tests in `scripts/`. Not run in Phase A.
+
+| file:line | row class (per audit) | action | what changed or reason kept | witness |
+|---|---|---|---|---|
+| src/apps/AppRuntime.js:580 | pooled-object (double-buffer) | kept | `_encodeEntity` result is stored in `_snapshotEncCache` and compared by `_snapshotEncCurrent`; double buffer is a later pass | W-hash, W-alloc; scripts/groundy-replay-witness.mjs, snapshot tests |
+| src/apps/AppRuntime.js:582 | pooled-object | kept | `_snap` result is returned to callers that store snapshots | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntime.js:583 | preallocated-cleared-buffer | kept | `e` array is placed into the returned snapshot, so it is retained by the caller | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntime.js:617 | pooled-object | kept | `getStaticSnapshot` array is returned inside the snapshot | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntime.js:641 | pooled-object | kept | the Set is returned to callers and retained in `_spatialCache` | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntime.js:683 | hoisted-variable | changed | the `app_event` record is built only when `this._eventLog` is set (`if (this._eventLog) this._log(...)`); `_log` already does nothing without a log, so the record is identical | W-alloc, W-behaviour; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntime.js:842 | pooled-object (per attachment) | changed | `_tickAttachments` writes the position into module scratch `_attachmentPos` (pooled-object class, one shared scratch). The only `setEntityPosition` (AppRuntimePhysics.js) copies the components, and the else branch copies too, so nothing retains `pos` | W-alloc, W-behaviour; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:17 | hoisted-variable | kept | the `.catch` closure captures `entityId` for its message; a shared handler needs a bound function per call | W-alloc |
+| src/apps/AppRuntimeTick.js:61 | hoisted-variable (keys) | kept | Map entry destructure; no hoistable value | W-alloc |
+| src/apps/AppRuntimeTick.js:120 | hoisted-variable | changed | `self.velocity || other.velocity` fallback uses module constant `ZERO_VEC3`; the values are only read | W-alloc, W-behaviour; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:181 | pooled-object | kept | bucket cell is a Map value and is referenced by identity from `_colCache.cells`, with serial compare | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:211 | pooled-object | kept | new bucket cell after `buckets.clear()`; discarded cells are still referenced by `_colCache.cells` | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:214 | pooled-object | kept | Float64Array is retained in the `_colXf` map across ticks; reuse needs a removal-aware pool, which is a later pass | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:240 | pooled-object | kept | same as :211, a Map value referenced by `_colCache` | W-alloc; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimeTick.js:259 | pooled-object | kept | timer record is a `_respawnTimer` Map value released on several delete paths, once per fall event; a free list would change each delete site | W-alloc |
+| src/apps/AppRuntimeTick.js:262 | hoisted-variable | changed | `e._spawnPosition || ENTITY_RESPAWN_FALLBACK_POS` (module constant `[0, 20, 0]`); `setBodyPosition` and the position copy only read it | W-alloc, W-behaviour |
+| src/apps/AppRuntimeTick.js:267 | hoisted-variable | changed | `setBodyVelocity(id, ZERO_VEC3)`; `World.setBodyVelocity` only reads the components | W-alloc, W-behaviour |
+| src/apps/AppRuntimeTick.js:307 | nested Map key (not a reuse class) | kept | the `e.id + ':' + p.id` string key is the identity of `_interactCooldowns`, which is copied into the snapshot at `AppRuntime.js` (snapshot `interactCooldowns`), so the key form is a contract | W-behaviour |
+| src/apps/AppRuntimeTick.js:313 | hoisted-variable | kept | the `{player, entity}` payload goes to bus listeners that may retain it | W-alloc |
+| src/apps/AppRuntimeTick.js:322 | hoisted-variable | kept | Map entry destructure; no hoistable value | W-alloc |
+| src/apps/AppRuntimeTick.js:365 | preallocated-cleared-buffer | changed | `toRemove` is module array `_playerIdsToRemove`, cleared with `length = 0` on each use; it is only iterated inside the same block | W-alloc, W-behaviour |
+| src/apps/AppRuntimePhysics.js:41 | pooled-object (out-parameter) | kept | `World.getBodyPosition` returns a fresh array by contract (World.js:523), and an out-parameter needs a `World` signature change, which is not allowed | W-alloc |
+| src/apps/AppRuntimePhysics.js:132 | preallocated-cleared-buffer | changed | `candidates` is module array `_budgetCandidates`, cleared with `length = 0`; the sort runs on it as before, so its order is unchanged | W-alloc, W-behaviour; scripts/groundy-replay-witness.mjs |
+| src/apps/AppRuntimePhysics.js:138 | preallocated-cleared-buffer | changed | candidate records come from the pool `_budgetRecords` (indexed by the candidate count) and their fields are overwritten per use; they are never returned | W-alloc, W-behaviour |
+| src/apps/AppRuntimePhysics.js:140 | hoisted-variable | changed | comparator `(a, b) => b.d2 - a.d2` hoisted to module constant `_farthestFirst` | W-alloc, W-behaviour |
+| src/apps/AppRuntimePhysics.js:191 | hoisted-variable | changed | `|| [0,0,0]` fallbacks in `isEntityAtRest` (velocity and angular velocity) use module constant `ZERO_VEC3`; read only | W-alloc, W-behaviour |
+| src/apps/AppRuntimePhysics.js:271 | pooled-object | kept | `{grounded, speed}` is returned to the caller | W-alloc |
+| src/apps/AppRuntimePhysics.js:284 | pooled-object (write in place) | kept | `e.position` is aliased by apps and by other holders of the old array | W-alloc, W-behaviour |
+| src/apps/AppRuntimePhysics.js:298 | pooled-object | kept | `flightForces` result `r` is returned to the caller | W-alloc |
+| src/apps/AppRuntimePhysics.js:312 | pooled-object (in-place copy) | kept | `e.velocity` is aliased by other holders | W-alloc, W-behaviour |
+| src/physics/World.js:523 | preallocated-cleared-buffer (Area 1 row) | kept | audit decision: callers depend on a fresh array; public contract, signature unchanged | W-hash via encodeTileMessage; scripts/collision-tile-shape-witness.mjs |
+| src/physics/World.js:524 | preallocated-cleared-buffer (Area 1 row) | kept | audit decision, same as :523 | W-hash via encodeTileMessage; scripts/collision-tile-shape-witness.mjs |
+| src/physics/World.js:525 | pooled-object | kept | `getBodyVelocity` returns a fresh array under the same getter contract as :523 | W-alloc |
+| src/physics/World.js:526 | none | not changed | leak question, not reuse; audit says do not change in this pass | none |
+| src/physics/World.js:718 | preallocated-cleared-buffer (double-buffer swap) | kept | a double buffer is the later pass; re-entrant enqueue must land in the new queue | W-alloc |
+| src/physics/World.js:763 | hoisted-variable | changed | `setBodyVelocity` and `setBodyAngularVelocity` take module constant `_ZERO_VEC3`; both only read | W-alloc, W-behaviour |
+| src/physics/World.js:831 | preallocated-cleared-buffer | changed | `_rayIgnoreFilter` uses module array `_rayJids` (cleared per call) and module wrapper `_rayExcludeOne` for a non-array exclude id; neither is retained past the call | W-alloc, W-behaviour |
+| src/physics/World.js:835 | pooled-object | kept | `IgnoreSingleBodyFilter` is destroyed by `raycast` after use, so reuse changes ownership | W-alloc |
+| src/physics/World.js:860 | pooled-object | kept | ray `position` is returned to the caller | W-alloc |
+| src/physics/World.js:869 | pooled-object | kept | ray `normal` is returned to the caller | W-alloc |
+| src/physics/World.js:873 | pooled-object | kept | result literal is returned to the caller | W-alloc |
+| src/physics/World.js:877 | hoisted-variable | changed | direction passed to `firstReach` is module scratch `_rayDirScratch`, filled per call; `reachAlongRay` only reads it | W-alloc, W-behaviour; scripts/groundy-replay-witness.mjs |
+
+Rows with audit Reuse = none that were not acted on: AppRuntime.js:681, :690, :873; AppRuntimeTick.js:119, :123, :173, :337; AppRuntimePhysics.js:76, :99; World.js:764.
+
+#### Phase A reuse ledger, group C1 (run 23, Area 3, terrain files)
+
+Not executed: no node, npm, witness, dump or build was run (Phase A). Witness codes below are the ones the audit assigns; each changed row still needs its W-hash (placement sha256 dump) and W-alloc run before it is trusted.
+
+Counts (changed / kept):
+- Changed: 37. By audit reuse class: preallocated-cleared-buffer 24, hoisted-variable 11, pooled-object 2.
+- Kept: 18. By audit reuse class: preallocated-cleared-buffer 9, hoisted-variable 3, pooled-object 4, not one of the four classes (fixed-arity forward) 2.
+- VegPlacement.js and RockPlacement.js: every row there has Reuse `none`, so nothing was acted on and nothing is listed.
+
+Witness shorthand: W-hash = placement sha256 dump, W-alloc = allocation count, W-behaviour = module witness. Terrain witnesses from the audit: `scripts/grass-wind-field-seam-witness.mjs`, `scripts/rock-model-exclusion-witness.mjs`.
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/terrain/GrassPlacement.js:75 | preallocated-cleared-buffer | changed | `_mix3` returning arrays replaced by `_mix3Into(out, a, b, t)`; `_biomeA`, `_biomeB`; literals hoisted to `_BED_MID`, `_BED_DEEP` | W-hash, W-alloc, W-behaviour: grass-wind-field-seam-witness.mjs, rock-model-exclusion-witness.mjs |
+| src/terrain/GrassPlacement.js:76 | preallocated-cleared-buffer | changed | `seaOut` chain into `_biomeC` then `_biomeB`; `_SEA_FOAM` hoisted | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:78 | preallocated-cleared-buffer | changed | `land0` chain into `_biomeC` then `_biomeA` (statement, result unused by name) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:82 | preallocated-cleared-buffer | changed | `land1` into `_biomeC` (from `_biomeA`) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:83 | preallocated-cleared-buffer | changed | `land2` into `_biomeA` (from `_biomeC`) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:84 | preallocated-cleared-buffer | changed | `land3` into `_biomeC` (from `_biomeA`) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:86 | hoisted-variable | changed | `land3.map(c => c * mottle)` replaced by `_scale3Into(_biomeA, _biomeC, mottle)` then mixed in place | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:88 | hoisted-variable | changed | `for (const [freq, amp, shift] of RIDGE_OCTAVES)` replaced by an indexed loop, same arithmetic | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:90 | hoisted-variable | changed | `beached.map(c => c * ridgeGain)` replaced by in-place `_scale3Into(_biomeA, beached, ridgeGain)`; biome is consumed only by `groundRgb` in the same call | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:95 | hoisted-variable | changed | `[0,1,2].map` surface mix replaced by a loop writing `_groundSurface` | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:96 | preallocated-cleared-buffer | changed | tint `_mix3` into `_groundTint` | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:97 | hoisted-variable | changed | `tinted.map` closure hoisted to module `_brightenChannel`; the returned `ground` array stays fresh because classify's record keeps it | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:112 | hoisted-variable | kept | the `r` closure is stored in `_jet.at` and captured by `riseAt`, which is in the record classify returns; GrassPlacementLod keeps that record in `cellP` across calls | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:142 | preallocated-cleared-buffer | kept | `tf` is in the returned record (`p.tf`) and `riseAt`/`bowl` read its arrays later; GrassPlacementLod keeps records in `cellP` across calls, so a shared `_tf` would alias | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:150 | hoisted-variable | kept | `bowl` is captured by the retained `riseAt` closure | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:151 | hoisted-variable | kept | `riseAt` is returned in the classify record and called by blade() later | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:183 | pooled-object | kept | the classify record is returned to GrassPlacementLod, which holds it in `cellP` across calls | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/GrassPlacement.js:195 | preallocated-cleared-buffer | changed | `tangentToLocal` replaced by `tangentToLocalInto(..., _bladeOff)`; `off` is read immediately into fround fields and not retained | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:20 | preallocated-cleared-buffer | changed | `ringAroundLocal` calls `frame.localToDir(x, z, undefined, _chunkDir)`; the direction is consumed by `ringAroundDir` only | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:25 | preallocated-cleared-buffer | changed | `chunkKeyAtLocal` uses the same `_chunkDir` into-argument | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:44 | hoisted-variable | changed | `for (const [cu, cv] of CORNERS)` replaced by an indexed loop | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:55 | preallocated-cleared-buffer | changed | `chunkBoundsLocal` returns module `_bounds`; its three consumers (PlacementRing.bounds in Vegetation.js, Rocks.js, Grass.js) destructure it or pass it to commitTileExtent in the same call, which copies the values | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:105 | preallocated-cleared-buffer | changed | `frame.elevationAtDir([dx,dy,dz])` replaced by module `_elevationDir`; the elevation chain (default, ExactPatchFrame mesh path, cpuElevationAtDir) only reads the direction and passes `_norm(d)`, a copy, to the sampler | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlacementChart.js:151 | preallocated-cleared-buffer | kept | `tangentFrame` is the exported fresh-value API; its caller GrassPlacement.js:142 keeps the frame in a retained record, so the fresh object is required | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:98 | fixed-arity forward (not one of the four classes) | kept | the `(x, z, ...rest)` forward is not a buffer, pool or hoist; a fixed-arity forward would change the arity heightFn sees | W-behaviour: grass-wind-field-seam-witness.mjs |
+| src/terrain/PlanetFrame.js:99 | fixed-arity forward (not one of the four classes) | kept | same row (the forwarding call on the same line) | W-behaviour: grass-wind-field-seam-witness.mjs |
+| src/terrain/PlanetFrame.js:111 | preallocated-cleared-buffer | kept | `_norm` results are returned by anchorBasis and tangentLocalToDir and stored in the frame (`up`, `east`, `north`) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:112 | preallocated-cleared-buffer | changed | `_add` removed; its only caller was localToWorld, which now computes the same sum inline with identical operation order | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:113 | preallocated-cleared-buffer | kept | `_scale` results are stored in `anchorSurfaceWorld` for the frame's lifetime | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:114 | preallocated-cleared-buffer | kept | `_cross` results are returned by anchorBasis as `east` and `north` | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:153 | hoisted-variable | changed | `groundAt` closure per raycast call replaced by module `groundOrNull(frame, x, z)` with the same try/catch | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:159 | pooled-object | changed | `sampleAt` returns one per-call `sample` object reused for every step; reads of `prev`, `cur` and `sampleAt(mid)` are sequenced so none reads a value after another overwrote it, and hitAt copies the point | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:162 | pooled-object | changed | the `{x, y, z, above}` literal is the same per-call `sample` object (same change as :159) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:207 | preallocated-cleared-buffer | changed | `tangentLocalToDir` fills module `_tangentDir` and passes it to `_norm`, which copies | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:229 | preallocated-cleared-buffer | changed | `renderDirAt` takes an optional `out` (default is a fresh array, so solveSurfaceY and public localToDir callers are unchanged); `localToDir` forwards it; only PlacementChart's two callers pass a scratch | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:251 | preallocated-cleared-buffer | kept | solveSurfaceY hands the direction to an injected `heightAtDir` (patch-baker.js, bake-heightfield.mjs), which is not verifiable here as non-retaining | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:317 | preallocated-cleared-buffer | changed | `localToWorld`: the intermediate arrays (`_scale`, `_add`) are removed; the result stays a fresh array because callers hold it | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:318 | preallocated-cleared-buffer | changed | same row as :317 (the return line of localToWorld) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/PlanetFrame.js:321 | preallocated-cleared-buffer | kept | `cpuElevationAtDir` passes `_norm(d)` to the injected `sampler.heightAt`; the sampler contract on retaining its argument is not verifiable here | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:56 | preallocated-cleared-buffer | changed | `assignPlayers` owner array is module `_assignOwner`, length reset and filled with -1 | W-behaviour: grass-wind-field-seam-witness.mjs (terrain streamer has no module witness in the audit) |
+| src/terrain/HeightfieldStreamer.js:58 | preallocated-cleared-buffer | changed | `assignPlayers` load array is module `_assignLoad`; callers read it synchronously (publishPrimary, retireUnowned, prepareFields has no await between call and use) | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:72 | preallocated-cleared-buffer | changed | `players.filter` with two closures replaced by module `_uncovered` and `fieldWithin` (same predicate), the seed `find` replaced by a loop with the same `|| uncovered[0]` fallback | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:75 | preallocated-cleared-buffer | changed | `uncovered.filter` replaced by module `_members`; the returned record carries counts and a fresh centre array only | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:77 | hoisted-variable | changed | `for (const [x, z] of members)` replaced by an indexed loop | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:139 | preallocated-cleared-buffer | kept | `validCenters()` result is held across awaits in `pass()` (players is read at each loop iteration after `await buildField`), and the `groundlessPlayers` getter can return it | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:140 | preallocated-cleared-buffer | kept | same row as :139 (the map on the lattice branch) | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:200 | preallocated-cleared-buffer | changed | `coversPosition` `[x, z]` literal replaced by the per-streamer `coverProbe` 2-slot scratch; the lattice branch still returns the lattice's own array | W-behaviour: as above |
+| src/terrain/HeightfieldStreamer.js:201 | hoisted-variable | changed | `fields.some(closure)` replaced by an indexed loop with the same predicate | W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:119 | preallocated-cleared-buffer | changed | `new Float64Array(near.length)` removed; module-instance `nearExtents` is cleared (`length = 0`) and filled, then sorted with the same comparator as before, so the median is identical | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:121 | preallocated-cleared-buffer | changed | `Array.prototype.slice.call(ext).sort` replaced by sorting `nearExtents` in place (same values, same comparator) | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:134 | pooled-object | kept | the per-bucket arrays are Map values; reuse needs a pool, and keeping buckets across `nearGrid.clear()` would retain stale keys and grow the Map | W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:166 | pooled-object | kept | reusing an evicted quad's `pos` would evict before build; a failed build (returns null) currently evicts nothing, so the cache state and stats would change; not shown equivalent without running, and eviction/reuse aliasing is not ruled out | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:187 | hoisted-variable | changed | per-build `at` closure replaced by module `quadAt(n, i, j)`; the four corner reads use it | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:198 | pooled-object | kept | the quad record is stored in `built` (retained cache); reuse is tied to :166 | W-hash, W-alloc, W-behaviour: as above |
+| src/terrain/TerrainMeshSurface.js:404 | hoisted-variable | changed | `candidates.sort` closure replaced by module comparator `candidateOrder` (same keys) | W-hash, W-alloc, W-behaviour: as above |
+
+#### Group C2 ledger (Phase A reuse, Area 3 fire rows)
+
+Changed rows: 8. Kept rows: 22 table lines (15 with a reuse class, 7 with reuse none and a non-none risk).
+
+Changed, by audit Reuse class: preallocated-cleared-buffer 4, pooled-object 1, hoisted-variable 2, fixed-ring 1. Total 8.
+Kept, by audit Reuse class: preallocated-cleared-buffer 7, pooled-object 6, hoisted-variable 1, fixed-ring 1. Total 15.
+Kept, Reuse none with a retention, identity or diagnostic risk: 7 lines (fire.js:405, fire.js:87/89, fire.js:207/208, fireWeather.js:70/73, fireKernel.js:1041-1045, fireTimeline.js:161/165, fireKeyframe.js:110-118).
+
+Witness column: Area 3 says fire rows are pinned by the fire witnesses (scripts/fire-kernel-contract-witness.mjs, scripts/fire-weather-contract-witness.mjs), plus W-alloc on per-cell and per-sample rows. Nothing was run in Phase A, so these witnesses are the ones to run in Phase B.
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/shared/fire/fireKernel.js:630 | preallocated-cleared-buffer | changed | `pending = pending.slice(consumed)` became `pending.splice(0, consumed)` (in-place compaction of the kernel's `pending` queue). The array never escapes: takeDelta, snapshot and markRestored all copy it. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:1048 | pooled-object | changed | `cellState` resets a kernel-scope `cellStateOut` object in place and returns it, same `{state, heat, fuel}` shape. Only in-repo caller is the witness, which reads the fields before the next call. Note: `fire.world.kernel` is public, so an external app that stores the result would see it change. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:408 | pooled-object | kept | `stepStartStats = {...stats}` is retained by takeDelta at :434 (`d.stats`), and no per-delta copy is made. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:435 | pooled-object | kept | `pending.map(e => ({...e}))` copies are stored in the delta and in timeline entries. Recycling them needs releaseDelta to cover the copies (ownership), which the audit flagged. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:436 | pooled-object (pre-warm) | kept | Pre-warming `newDelta(UNDO_CELLS_INIT)` is eager memory for undo kernels, and the window size is known only to the timeline, not the kernel. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:1080 | preallocated-cleared-buffer | kept | `get wind()` is exposed as `fire.wind` (fire.js:200). A holder keeps the array, and a shared buffer would change under it. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKernel.js:1041-1045 | none | kept | Event literals (ignite, extinguish, setWind, setMoisture, setRain) are retained in `pending`. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireStageMap.js:32 | fixed-ring (precomputed row views) | changed | `writeTile(slot, source)` became `writeTile(slot)` and copies from `scratchRows`, 8 views over `scratch` built once in createFireStageMap. Both callers passed `scratch`, so the bytes written are identical. | fire-kernel-contract-witness.mjs (stage map is not pinned by a witness; W-alloc per-cell row) |
+| src/shared/fire/fireStageMap.js:84 | fixed-ring | kept | Index-by-slot changes the order of `dirtySlots` (an exported output that apps consume), which the audit flagged. | W-alloc per-tick row |
+| src/shared/fire/fireTimeline.js:67 | pooled-object (window ring) | kept | `{delta, prev, counters}` entry is stored in the snapshots Map. restoreEntry reads `entry.prev` after dropEntry, so a pool needs the ordering proven. Ring is a later pass. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireTimeline.js:96 | pooled-object | kept | `countersNow()` record is stored in the entry and read by countersAgainst. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireTimeline.js:40 | preallocated-cleared-buffer | kept | `get log()` returns the live array. Splicing in place would change what a holder sees after a prune (the current slice gives a new array). | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireTimeline.js:161, :165 | none | kept | `{...event}` copies are retained in the log and the kernel pending queue. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireKeyframe.js:206 | preallocated-cleared-buffer | changed | `w.raw(tileBuf.subarray(0, n))` became `w.bytesOf(tileBuf, n)`. New writer method copies with an index loop, no view allocated. Output bytes are identical. | fire-kernel-contract-witness.mjs (keyframe round trip) |
+| src/shared/fire/fireKeyframe.js:225 | preallocated-cleared-buffer | changed | `w.raw(scarBuf.subarray(0, scarBytes))` became `w.bytesOf(scarBuf, scarBytes)`. Same reason. | fire-kernel-contract-witness.mjs (keyframe round trip) |
+| src/shared/fire/fireKeyframe.js:110-118 | none | kept | Decoded `ev` rows are retained in the log. | fire-kernel-contract-witness.mjs |
+| src/shared/fire/fireQueries.js:32 | preallocated-cleared-buffer | kept | `frame.localToDir` has no into-variant (PlanetFrame.js:234 returns a new array), and PlanetFrame is outside this group's files. | W-alloc per-sample row |
+| src/behaviours/fire.js:134 | preallocated-cleared-buffer | kept | Same: no localToDir into-variant, file outside the group. | W-alloc per-query row |
+| src/behaviours/fire.js:285 | preallocated-cleared-buffer | kept | Same as :134. | W-alloc per-query row |
+| src/behaviours/fire.js:414 | preallocated-cleared-buffer | kept | `outbox = []` after the swap. The `rows` array is broadcast as `e: rows` and the broadcast may retain it. | fire-kernel-contract-witness.mjs |
+| src/behaviours/fire.js:405 | none | kept | `checksumRow` is broadcast and stored in remoteChecksums. | fire-kernel-contract-witness.mjs |
+| src/behaviours/fire.js:87, :89 | none | kept | `ev` is retained in the timeline log and outbox. `encodeFireEvent` row is retained until broadcast. | fire-kernel-contract-witness.mjs |
+| src/behaviours/fire.js:207, :208 | none | kept | Diagnostic getters, public API. | none (diagnostic) |
+| src/behaviours/fireGameplay.js:84 | hoisted-variable | changed | `applyImpulse(target.id, [...])` became a createFireGameplay-scope `impulse` vector filled per target just before the call. `runtime.applyImpulseToEntity` passes it to `addImpulse`, which copies into a temp vec and does not retain it. | fire-kernel-contract-witness.mjs (W-alloc per-query row) |
+| src/behaviours/fireGameplay.js:10-13 | preallocated-cleared-buffer | kept | `defaultTargets()` `out` array is not cleared-and-reused: a synchronous `players.send` inside `hurt` could re-enter `blast`, and the reset would clear the array the outer loop walks. | fire-kernel-contract-witness.mjs |
+| src/behaviours/fireWeather.js:10 | hoisted-variable | kept | `reading.wind` is exposed through `get reading()`, so a shared `out` would alias a retained reading. | fire-weather-contract-witness.mjs |
+| src/behaviours/fireWeather.js:22-26 | pooled-object | kept | `parseWeather` result is exposed through `get reading()`. | fire-weather-contract-witness.mjs |
+| src/behaviours/fireWeather.js:57 | preallocated-cleared-buffer | changed | `out.wind = [...]` became a per-instance `windEmit` vector, filled and assigned. Consumers (fire.js:152 and markEmitted) copy the values, and `out.wind` is nulled each call. | fire-weather-contract-witness.mjs |
+| src/behaviours/fireWeather.js:70, :73 | none | kept | Diagnostic getters, public API. | fire-weather-contract-witness.mjs |
+| src/behaviours/fireTerrain.js:27 | hoisted-variable | changed | `for (const c of breaks.cleared)` became an indexed loop over the array. `breaks.cleared` is always an array (fireSpec.js:192 `cleared.map`). | W-alloc per-cell row (firebreak fuel) |
+
+Not listed: fire.js:163 (reuse "none (iterate the Map directly)", risk none), fireKeyframe.js:53, :274, fireLattice.js:94, :98 (risk none).
+
+Group C3 ledger (Phase A reuse pass, run 23 Area 3 rows for the assigned behaviour and stage files)
+
+Changed rows: 17. Kept rows: 22.
+
+Changed, by audit reuse class:
+- preallocated-cleared-buffer: 6
+- pooled-object: 1
+- hoisted-variable: 10
+- fixed-ring: 0
+
+Kept, by audit reuse class:
+- preallocated-cleared-buffer: 13
+- pooled-object: 7
+- hoisted-variable: 1
+- fixed-ring: 1
+
+Rows with Reuse none were skipped and are not listed.
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and the name of the buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| src/behaviours/triggerVolume.js:91 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: closure Set `seen` (declared beside `pending`) cleared at the start of update(); only read before any hook runs | W-alloc; scripts/trigger-volume-witness.mjs |
+| src/behaviours/triggerVolume.js:92 | preallocated-cleared-buffer | kept | `next` becomes `overlapping` (retained state) and is passed to user hooks; a swap needs reentrancy analysis of user onEnter/onExit hooks, which cannot be read from the module | W-alloc; scripts/trigger-volume-witness.mjs |
+| src/behaviours/triggerVolume.js:93 | preallocated-cleared-buffer | kept | `positions` Map is read inside onEnter hooks (positions.get); a reentrant update from a hook would clear it | W-alloc; scripts/trigger-volume-witness.mjs |
+| src/behaviours/triggerVolume.js:106 | preallocated-cleared-buffer | kept | `released` is iterated while onEnter hooks run; a reused buffer is exposed to a reentrant update from a hook | W-alloc; scripts/trigger-volume-witness.mjs |
+| src/behaviours/projectileGravity.js:15-17 | preallocated-cleared-buffer | kept | stepProjectile is exported and returns fresh arrays to callers who may keep them; sweepProjectileGravity hands state arrays to the raycast callback, which may keep them, and returns next.position and next.velocity to the caller | W-alloc; scripts/projectile-gravity-witness.mjs |
+| src/behaviours/steering.js:49 | pooled-object | kept | step() and followPath() return the record to callers who may store position; not drawn from a pool | W-alloc; none named (no module witness in repo) |
+| src/behaviours/steering.js:71 | pooled-object | kept | the done branch returns [...from] and [0,0,0] to the caller | W-alloc; none named |
+| src/behaviours/steering.js:75 | pooled-object | kept | followPath return record is returned to the caller | W-alloc; none named |
+| src/behaviours/shrinking-zone.js:162 | pooled-object | kept | the zone_push payload is handed to appCtx.players.send, which queues it and may retain it | W-alloc; none named |
+| src/behaviours/buoyancy.js:32 | hoisted-variable | changed | hoisted-variable: closure `_force = [0,0,0]`, `_force[1] = upward` before appCtx.physics.addForce; the only addForce implementation (AppPhysics addForce to applyImpulseToEntity to World.addImpulse) copies the values into a Jolt temp | W-alloc; none named |
+| src/behaviours/buoyancy.js:37 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: closure `_velocity = [0,0,0]` written per component before appCtx.physics.setVelocity; setVelocity copies (`ent.velocity = [...v]`, setBodyVelocity copies into a Jolt temp) | W-alloc; none named |
+| src/behaviours/checkpoint.js:25 | hoisted-variable | changed | hoisted-variable: `for (const c of cps)` replaced by an indexed loop over `cps` (`const c = cps[ci]`); cps is not reassigned | W-alloc; scripts/checkpoint-nested-radius-witness.mjs |
+| src/behaviours/combat.js:384 | hoisted-variable | changed | hoisted-variable: `for (const [pid, reload] of reloading)` replaced by `reloading.forEach((reload, pid) => ...)` with `continue` becoming `return`; no insert happens in the loop, so live iteration is unchanged | W-alloc; none named |
+| src/behaviours/combat.js:390 | fixed-ring | kept | `[...respawning]` snapshot stays: respawn() calls user hooks (spec.onRespawn) and ctx.pickSpawnPoint, which can add to respawning during the loop, so a live iteration would change which players respawn in this tick | W-alloc; none named |
+| src/behaviours/decisionRuntime.js:32 | preallocated-cleared-buffer | kept | `due` snapshot must stay: tick() awaits decide() inside the loop, so a shared buffer could be cleared by a reentrant tick | W-alloc; scripts/decision-runtime-witness.mjs |
+| src/behaviours/destructible.js:228 | hoisted-variable | changed | hoisted-variable: `for (const [id, st] of _debrisTimers)` replaced by `_debrisTimers.forEach((st, id) => ...)` with `continue` becoming `return`; Map forEach and for-of share the same live-iteration semantics | W-alloc; none named |
+| src/behaviours/destructible.js:149 | hoisted-variable | changed | hoisted-variable: array destructure of appCtx.entity.position replaced by `entityPos` and indexed reads into ox, oy, oz | W-alloc; none named |
+| src/behaviours/buffs.js:55 | hoisted-variable | changed | hoisted-variable: `for (const [k, v] of m)` replaced by `m.forEach((v, k) => ...)`; the body only calls m.set on existing keys | W-alloc; none named |
+| src/behaviours/fluid.js:93 | preallocated-cleared-buffer | kept | `_positions` is returned by the public positions() accessor and app holders can keep it; reusing it would overwrite what a holder sees | W-alloc; none named |
+| src/behaviours/fluid.js:132 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_lastPublished` reused (allocated only on first publish or length change) and filled with `.set(_positions)`; it is only read by the epsilon compare | W-alloc; none named |
+| src/behaviours/fluid3d.js:129 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_lastPublished` reused with `.set(_positions)`, same as fluid.js:132 | W-alloc; none named |
+| src/behaviours/softbody.js:137 | hoisted-variable | changed | hoisted-variable: closure `windForce = {x,y,z}` built once from the constant `wind` array and passed to b.addForce; RAPIER addForce copies the values into a raw vector (`mA.intoRaw` then free) | W-alloc; none named |
+| src/behaviours/softbody.js:164 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_lastPublished` reused with `.set(_positions)`; its length is the fixed particleCount*3 | W-alloc; none named |
+| src/behaviours/cameraRig.js:27, :29, :47, :48, :70, :72 | preallocated-cleared-buffer | kept | target and position arrays are the returned camera fields of update(), which a caller may store | W-alloc; none named |
+| src/behaviours/cameraRig.js:34, :53, :77, :105, :194 | pooled-object | kept | return records of update() go to the caller | W-alloc; none named |
+| src/behaviours/cameraRig.js:93 | preallocated-cleared-buffer | kept | lerp results flow into the returned position and target | W-alloc; none named |
+| src/behaviours/cameraRig.js:159 | preallocated-cleared-buffer | changed | preallocated-cleared-buffer style: the sorted layer order is cached on the player record as `p.order` and rebuilt only when push or pop changes the active set (set to null); ordered() results are read-only and never returned | W-alloc; none named |
+| src/behaviours/path.js:65-73 | hoisted-variable | kept | segmentAt is a public return of definePath and returns a record that callers may hold | W-alloc; scripts/path-handle-witness.mjs |
+| src/behaviours/path.js:75-85 | preallocated-cleared-buffer | kept | pointAt and directionAt are public and return arrays that callers may hold | W-alloc; scripts/path-handle-witness.mjs |
+| src/behaviours/path.js:125 | hoisted-variable | changed | hoisted-variable: closest() writes into closure record `closestRecord` (point array included); nearest() now returns `point: [...c.point]`, so the caller-facing point is fresh | W-alloc; scripts/path-handle-witness.mjs |
+| src/behaviours/spline.js:60, :64, :72 | preallocated-cleared-buffer | kept | sub, scale and cross results feed normalize() and frame(), whose tangent, normal, lateral and position are returned to callers | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:98 | hoisted-variable | changed | hoisted-variable: segmentIndex returns the module record `_segment`; its only caller, controls(), reads it at once | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:103 | preallocated-cleared-buffer | kept | curve() output is retained by buildTable (stored in samples) and by frame() position | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:115-124 | pooled-object | changed | pooled-object: controls() fills the module record `_controls`; its callers positionAtU and frame() read the fields before any other controls() call | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:158 | hoisted-variable | changed | hoisted-variable: bracket() fills the module two-slot array `_bracketPair`; uAtDistance and distanceAtU destructure it at once | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:182-193 | preallocated-cleared-buffer | kept | quaternionFromBasis result is the returned rotation of frame() | W-alloc; scripts/spline-witness.mjs |
+| src/behaviours/spline.js:199-200 | preallocated-cleared-buffer | kept | tangent, normal and lateral from frame() are returned to callers | W-alloc; scripts/spline-witness.mjs |
+| src/stage/stageShapes.js:80 | pooled-object | kept | ring(radius) is reached through the public Stage.relevanceRing, which returns the record to callers; a per-radius cache would hand one object to every caller that asks for that radius, so any caller that keeps or mutates it aliases the others. The refusal path is untouched | W-alloc; scripts/stage-radius-zero-witness.mjs |
+| src/stage/stageShapes.js:88 | pooled-object | kept | same as stageShapes.js:80 for the planet shape | W-alloc; scripts/stage-radius-zero-witness.mjs |
+
+Group R1 ledger (Phase A, run 23 Area 4). Files: client/core/Grass.js, GrassMaterial.js, Rocks.js, Vegetation.js, VegetationAmbientTSL.js, WebGPULodInstancer.js.
+
+Changed rows: 12 (preallocated-cleared-buffer 4, pooled-object 4, hoisted-variable 3, fixed-ring 1)
+Kept rows: 18 (preallocated-cleared-buffer 7, hoisted-variable 11, pooled-object 0, fixed-ring 0)
+
+| file:line | row class (per audit) | action | what changed or reason kept | witness |
+|---|---|---|---|---|
+| client/core/Grass.js:247 | array, preallocated-cleared-buffer | changed | preallocated-cleared-buffer: module-owner `chunkNearIdx`/`chunkMidIdx` cleared with `length = 0` at the top of commitChunk. Consumer addBlades reads idx only inside addInstances, which runs its callback synchronously (WebGPUInstancing.js addInstances, WebGPULodInstancer.js addInstances) and keeps no reference. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:448 | Map, pooled-object | changed | pooled-object: `revisitBatches` Map, cleared at the top of revisitNearLod and cleared again after the batch loop. The Map is local to the call (not kept after the loop). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:458 | object, pooled-object | changed | pooled-object: batch group record drawn from `revisitGroupPool`; on release its five arrays are reset to length 0 and returned to the pool after the batch loop. The arrays are consumed synchronously by removeBlades, addBlades, moveClumpsToLod, so nothing retains them. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:147, :148 | array, preallocated-cleared-buffer | kept | No allocation at this site: writeInstanceUniforms already passes the module scratch `_windShadowArr` and `_groundTintArr`. The per-blade Array.from the audit names is in WebGPULodInstancer.js setUniformAt (kept, see below). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:470 | destructure, hoisted-variable | kept | for-of over Map entries; the entry pair is the iterator protocol and has no value to hoist. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:495, :509, :546, :574, :586 | iterator, hoisted-variable | kept | for-of over Set/Map keys and values; a live iterator cannot be reused. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:611, :612 | array, preallocated-cleared-buffer | kept | :611 `arr` is `wind.uDecalPosXZRS.value`, a uniform array whose identity the owner's rule keeps. :612 `nearestStamps` allocates inside src/terrain/GrassDecal.js, which is outside R1, and a reuse needs a GrassDecal API change. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:685-702 | array, preallocated-cleared-buffer | kept | getOcclusionCandidates `out` is stored as `_occCands` and returned to SceneOcclusion (retained). The per-cell `_occProxy` objects are stored on the cell. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Grass.js:711 | iterator, hoisted-variable | kept | for-of over Map entries (iterator protocol). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/GrassMaterial.js:116 | string, hoisted-variable | changed | hoisted-variable: module table `GRASS_WINDOW_KEYS` replaces `'__' + name` in grassWindowNum. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/GrassMaterial.js:131, :135, :136, :140, :144, :145, :146 | string, hoisted-variable | kept | The calls pass literal names, so they allocate nothing; the concatenation that was the allocation is changed at :116. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/GrassMaterial.js:129 | object, pooled-object | changed | pooled-object: `_grassAmbDeltaOpts` module object, fields reassigned in setGrassSun. vegetationAmbientDelta destructures it and keeps no reference. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/GrassMaterial.js:134 | array, preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_grassAmbIrr` module array, overwritten with amb.r, amb.g, amb.b each call. vegetationAmbientDelta only reads ambIrr. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Rocks.js:135 | array, preallocated-cleared-buffer | kept | `ids` is stored in the loaded cell record (`loaded.set(key, { ids, ... })`) and read by unloadChunk and applyOcclusion, so it is retained. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Rocks.js:203, :222, :328 | iterator, hoisted-variable | kept | for-of over Set and Map iterators (iterator protocol). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Rocks.js:303 | array, preallocated-cleared-buffer | kept | getOcclusionCandidates `out` is stored as `_occCands` and returned (retained). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Rocks.js:307-319 | array, preallocated-cleared-buffer | kept | Proxy objects are created once per cell and stored on `cell._occProxy` (retained); not a per-frame allocation. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:497, :516 | iterator, hoisted-variable | kept | for-of over Set and Map keys (iterator protocol). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:522 | spread, preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `discardedSnapshot` (createVegetation scope) is filled from `discardedPlacementKeys` with a loop, replacing `[...discardedPlacementKeys]`. The copy is needed because unloadChunk deletes from that set; unloadChunk does not re-enter streamRing, so the array is not shared. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:597 | destructure, hoisted-variable | kept | `const [instancer, slot] = deferredTierWarmQueue.shift()`: the tuple is created when it is enqueued, so this site allocates nothing new. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:741-766 | object, hoisted-variable (profile, 0.25 s) | changed | hoisted-variable (partial): `countDraws` and `tierSplit` moved from the 0.25 s profile block to createVegetation scope, since they close over nothing from update. Kept in place: `bandTotals` and `leafBands` (stored into profile.meshTierInstances and profile.leafTierInstances, retained through window.__veg.profile), and the `bands` array returned by tierSplit (part of the helper's return shape). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:868-890 | array, hoisted-variable (rebuild in place) | kept | getOcclusionCandidates `out` is stored as `_occCands` and returned (retained). Per-cell proxies are stored on the cell. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/Vegetation.js:893 | iterator, hoisted-variable | kept | for-of over Map entries (iterator protocol). | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/VegetationAmbientTSL.js:49 | string, hoisted-variable | changed | hoisted-variable: module table `WINDOW_KEYS` replaces `'__' + name` in windowNum. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/VegetationAmbientTSL.js:60, :63 | array, preallocated-cleared-buffer | changed | preallocated-cleared-buffer: `_ambIrr` module array. Both branches of updateVegetationTerrainAmbient assign all three entries (the else branch sets 0.14), so no stale value survives a call. vegetationAmbientDelta only reads ambIrr. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/VegetationAmbientTSL.js:66 | object, pooled-object | changed | pooled-object: `_ambDeltaOpts` module object, fields reassigned per call; vegetationAmbientDelta destructures it and keeps no reference. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/WebGPULodInstancer.js:889 | array, preallocated-cleared-buffer | kept | `rec.attrs[name]` stores the array per record and is read later by writeSlot and setAttr, so a per-call scratch would alias every record. An in-place per-record copy would change the identity of the stored uniform array, which the owner's rule keeps. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/WebGPULodInstancer.js:92, :116 | for-in, hoisted-variable | kept | for-in over `attrs`; the key set changes in build(), so a module key array would need a rebuild path. V8 enumerates cached keys without allocating. | W-frame + W-alloc: scripts/perf-run.mjs |
+| client/core/WebGPULodInstancer.js:945 | array, fixed-ring | changed | fixed-ring: `tierIdLists = tiers.map(t => t.ids)` built once at construction; `tiers` is fixed and each pool's `ids` is a const array, so the mapped result does not change. Only reader is the Vegetation.js profile tick (reads length and elements). Caveat: the getter now returns one shared array, so a caller must not mutate it. | W-frame + W-alloc: scripts/perf-run.mjs |
+
+#### R2 reuse ledger (Phase A, Area 4 rows for the 13 assigned files)
+
+Counts. Changed rows: 31 (pooled-object 13, fixed-ring 2, hoisted-variable 12, preallocated-cleared-buffer 4). Kept rows: 27 (pooled-object 8, fixed-ring 2, hoisted-variable 13, preallocated-cleared-buffer 4). Categories are the audit's Reuse class. Rows with Reuse `none` are not listed, per the brief. Not counted: app.js:2740 (same allocation as XRSystem.js:232, counted there) and app.js:872 (an alias guard, not an audit row).
+
+Witness codes: W-alloc and W-frame, with scripts/perf-run.mjs for per-frame rows; scripts/crowd-dot-render-witness.mjs for PlayerLOD; scripts/xr-arc-frame-order-witness.mjs for XR rows; W-alloc with scripts/perf-run.mjs for BrowserServer rows (no per-message witness is named in Area 4). Nothing was run in Phase A.
+
+| file:line | row class (per audit) | action: changed or kept | what changed (reuse class and name of buffer, variable or pool) or the reason kept | witness code and script from the audit area |
+|---|---|---|---|---|
+| client/app.js:2505 | hoisted-variable | kept | equipNameOf (src/shared/equipment.js) returns a new object; a cache by equip id needs invalidation on _equipment change, and equipment.js is outside this file set | W-alloc, scripts/perf-run.mjs |
+| client/app.js:2706 | hoisted-variable | kept | _fpsStr depends on fpsDisplay and renderer.info per call; no constant to hoist | W-alloc, scripts/perf-run.mjs |
+| client/app.js:2774 | hoisted-variable | kept | for-of destructure of a Map entry; array destructuring is on the decided-not-to-change list | W-alloc, scripts/perf-run.mjs |
+| client/app.js:2788 | preallocated-cleared-buffer | kept | hiddenInEditorIds copy is made by the getter in client/editor/SceneHierarchy.js:396, outside this file set | W-alloc, scripts/perf-run.mjs |
+| client/app.js:2802 | hoisted-variable | kept | pm.playerMeshes.values() is a single-use Map iterator; nothing to hoist | W-alloc, scripts/perf-run.mjs |
+| client/app.js:2803 | hoisted-variable | kept | el.entityMeshes.values() is a single-use Map iterator; nothing to hoist | W-alloc, scripts/perf-run.mjs |
+| client/app.js:964 | pooled-object | changed | _getMinimapPose calls toAuthoritative with no out; the FloatingOrigin default is now a module scratch (see client/core/FloatingOrigin.js:36), and the result is read at once. Call site unchanged | W-alloc, scripts/perf-run.mjs |
+| client/app.js:872 | (guard, not a row) | changed | camPosAuth now passes _cameraAuthForRebase so the shared default scratch does not alias firstWorldAuth (app.js:871) | W-behaviour, scripts/perf-run.mjs |
+| client/BrowserServer.js:12 | fixed-ring | kept | new Uint8Array views the caller's ArrayBuffer (possibly transferred); a view cannot rebind its buffer | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:42 | pooled-object | kept | readAll builds the Map in src/transport/TransformRing.js _readSlots, outside this file set; an out parameter needs that file, and app.js:2679 passes the Map on | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:197 | hoisted-variable | changed | flush closure replaced by this._onSnapFlush, bound once in the constructor; setTimeout(this._onSnapFlush, 0) | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:228 | pooled-object | kept | PEER_FRAME message goes through toWorker, whose delay branch keeps the message in a setTimeout closure; reuse would change the message when the timer fires | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:240 | pooled-object | changed | direct PEER_MESSAGE postMessage uses the module object _peerMessage; postMessage clones synchronously, and the transfer list stays per call | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:247 | hoisted-variable | kept | the transfer list is a postMessage transfer list; identity and detach semantics are kept per the brief | W-alloc, scripts/perf-run.mjs |
+| client/BrowserServer.js:292 | preallocated-cleared-buffer | kept | the buf is a slice transferred with postMessage, so it must be a fresh ArrayBuffer; transfer detaches it | W-alloc, scripts/perf-run.mjs |
+| client/xr/XRWidgets.js:145 | fixed-ring | changed | groundCandidates fills the module-scope cleared buffer _groundCandidates (the audit proposed a cache with invalidation on scene change; that was not taken because invalidation cannot be verified without running, so the class applied is preallocated-cleared-buffer) | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:146 | fixed-ring | changed | the traverse callback is the hoisted _ensureMeshBoundsTree; the candidate array is _groundCandidates (see :145) | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:151 | hoisted-variable | changed | surfaceBelow origin is the module scratch _rayOrigin; Raycaster.set copies it | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:152 | preallocated-cleared-buffer | changed | intersectObjects takes the cleared buffer _groundHits as its intersects argument; the find predicate is the hoisted _isVisibleMeshHit | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:164 | preallocated-cleared-buffer | changed | the per-segment arrays are covered by the :145, :146 and :152 changes; no separate edit | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:171 | pooled-object | kept | hit.point is retained by executeTeleport (teleportPending) past the frame, so a pooled point would be overwritten while a teleport is pending | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRWidgets.js:173 | pooled-object | changed | the prev literal is the module object _arcPrev (local to the arc loop, not retained) | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:99 | hoisted-variable | kept | the closure wraps the per-call predicate matches; hoisting needs a predicate-specific function | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:102 | hoisted-variable | changed | aimHandIndex predicate hoisted to _isLeftHandSource | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:105 | preallocated-cleared-buffer | changed | unlabelled hands collected into the cleared buffer _unlabelledHandSources (explicit loop; controllerInputSources is never sparse) | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:120 | pooled-object | changed | readAimPointer hand path returns the module object _aimPointer; the result is consumed in the same frame by updateTeleportArc | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:121 | hoisted-variable | changed | origin is _aimPointer.origin, written by getWorldPosition | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:122 | hoisted-variable | changed | direction is _aimPointer.direction, written by getWorldDirection | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:130 | pooled-object | changed | controller path writes _aimPointer.origin (same pooled object) | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:131 | pooled-object | changed | controller path writes _aimPointer.direction and sets pointer = _aimPointer | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:141 | pooled-object | changed (partial) | offsetXROrigin reuses the argument literals _xrOffsetPos and _xrIdentityOrientation (the constructor copies them). The XRRigidTransform and getOffsetReferenceSpace result are kept, since XR API object identity is not verified | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRSystem.js:232 | pooled-object | changed | syncVRPosition writes the module object _vrOriginPt; this is the allocation the audit also cites at app.js:2740 | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRControls.js:55 | hoisted-variable | changed | showReticle uses the module scratch _reticleMatrix | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRControls.js:63 | hoisted-variable | changed | update uses the module scratch _viewMatrix | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRControls.js:64 | hoisted-variable | changed | decompose scale vector is the module scratch _viewScale | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/xr/XRControls.js:66 | preallocated-cleared-buffer | kept | frame.getHitTestResults returns an array owned by the WebXR API; no buffer can be supplied | W-alloc, scripts/xr-arc-frame-order-witness.mjs |
+| client/core/PlayerLOD.js:36 | fixed-ring | kept | the subarray view of the scratch is the length-n sort target; no fixed ring fits a length-n view | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/PlayerLOD.js:37 | preallocated-cleared-buffer | kept | the sort is already in place on _idxScratch; this line allocates nothing | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/PlayerLOD.js:50 | pooled-object | changed | classifyPlayerTiers returns the module object _tiers (its containers were already module singletons); the only consumers are lastTiers and debug reads | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/PlayerLOD.js:109 | hoisted-variable | kept | the addInstances closure captures per-call dots, viewerY and groundHeightFn | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/PlayerLOD.js:112 | hoisted-variable | kept | array destructuring of dots[i]; decided-not-to-change list | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/PlayerLOD.js:171 | hoisted-variable | kept | array destructuring of dots[i]; decided-not-to-change list | W-alloc, scripts/crowd-dot-render-witness.mjs |
+| client/core/RenderGraph.nodes.js:80 | pooled-object | kept | the camera-context object is a debugMirrors key read by external debug through window.__renderGraph.lastRes | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:85 | pooled-object | changed | terrainDepth is the module object _terrainDepthRes, fields rewritten each frame; no in-repo reader holds the previous value | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:86 | pooled-object | changed | terrainColor is the module object _terrainColorRes | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:135 | hoisted-variable | kept | for-of destructure over pm.playerMeshes entries; decided-not-to-change list | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:151 | hoisted-variable | changed | sort comparator hoisted to module _benderByDistSq | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:187 | pooled-object | changed | sceneDepth is the module object _sceneDepthRes, frameId rewritten each frame | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:188 | pooled-object | changed | sceneColor is the module object _sceneColorRes | W-alloc, scripts/perf-run.mjs |
+| client/core/RenderGraph.nodes.js:210-225 | hoisted-variable | kept | budget callbacks are already module-level (_setModelPoolBudget, _setTerrainBudget, _setSceneBudget); no per-frame closure remains | W-alloc, scripts/perf-run.mjs |
+| client/core/Weather.js:295 | preallocated scratch pair (audit class not in the four; mapped to preallocated-cleared-buffer) | changed | _randomDiscPoint writes the module pair _discPoint; both call sites destructure at once | W-alloc, scripts/perf-run.mjs |
+| client/core/TerrainBackdrop.js:214 | pooled-object | kept | window.__lastGLCam (packages/mapspinner/src/planet-orchestrator.js:365) retains the cam that holds shadowInfo; pooling would change a retained value | W-alloc, scripts/perf-run.mjs |
+| client/core/TerrainBackdrop.js:254 | pooled-object | kept | frame.localToWorld (src/terrain/PlanetFrame.js:316) has no out parameter; that file is outside this set | W-alloc, scripts/perf-run.mjs |
+| client/core/TerrainBackdrop.js:298 | pooled-object | kept | the getStats literal is built in client/core/TerrainOcclusion.js:192, outside this set | W-alloc, scripts/perf-run.mjs |
+| client/core/SceneOcclusion.js:177 | pooled-object | kept | CullingHub.aggregate (client/core/CullingHub.js) stores each system's getStats result in its returned payload, which a caller may keep | W-alloc, scripts/perf-run.mjs |
+| client/core/SceneOcclusion.js:186 | hoisted-variable | kept | subsystems.map result is returned inside the same getStats payload (see :177) | W-alloc, scripts/perf-run.mjs |
+| client/core/ShadowPipeline.js:126 | hoisted-variable | changed | for-of over _cascades replaced by an indexed loop with const c = _cascades[i] | W-alloc, scripts/perf-run.mjs |
+| client/core/FloatingOrigin.js:36 | hoisted-variable | changed | toAuthoritative default out is the factory scratch _convertScratch; all no-out callers read the result at once, and app.js:871 and :872 are split (app.js:872 passes _cameraAuthForRebase) | W-alloc, scripts/perf-run.mjs |
+| client/core/FloatingOrigin.js:42 | hoisted-variable | changed | toRender default out is the same _convertScratch; all no-out callers read the result at once | W-alloc, scripts/perf-run.mjs |
+
+
+#### Exception to Phase A no-run rule: typings regeneration
+
+The pre-commit hook refuses a commit that changes the AppContext import closure unless `client/editor/sdk-typings.generated.d.ts` is regenerated and staged in the same commit. The command `npm run gen-typings` was run once, exit code 0. It wrote 984 lines and changed `SOURCE_DIGEST` (from `8aaf4a86...` to `61d30edd...`) and two inferred members, `origin` and `viewTick`, from `any` to `null`. Phase B checks those two as part of the W-behaviour run. No `--no-verify` was used.

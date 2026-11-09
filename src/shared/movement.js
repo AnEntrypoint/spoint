@@ -111,8 +111,12 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
 
   state.velocity[0] = vx
   state.velocity[2] = vz
-  return { wishX, wishZ, wishSpeed, jumped, sliding: !!state.sliding, forceCrouch }
+  MOVEMENT_RESULT.wishX = wishX; MOVEMENT_RESULT.wishZ = wishZ; MOVEMENT_RESULT.wishSpeed = wishSpeed
+  MOVEMENT_RESULT.jumped = jumped; MOVEMENT_RESULT.sliding = !!state.sliding; MOVEMENT_RESULT.forceCrouch = forceCrouch
+  return MOVEMENT_RESULT
 }
+
+const MOVEMENT_RESULT = { wishX: 0, wishZ: 0, wishSpeed: 0, jumped: false, sliding: false, forceCrouch: false }
 
 export let DEFAULT_MOVEMENT = {
   maxSpeed: 14.0,

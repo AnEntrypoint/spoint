@@ -20,6 +20,8 @@ function makeSample() {
   return { tick: 0, timestamp: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0] }
 }
 
+const sampleAt = (ring, i) => ring.buf[(ring.head + i) % HISTORY_CAPACITY]
+
 function nlerpQuat(out, a, b, t) {
   const s = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1
   let x = a[0] + (s * b[0] - a[0]) * t, y = a[1] + (s * b[1] - a[1]) * t, z = a[2] + (s * b[2] - a[2]) * t, w = a[3] + (s * b[3] - a[3]) * t
@@ -39,6 +41,7 @@ export class LagCompensator {
     this.historyWindow = historyWindow
     this.tickRate = tickRate
     this.playerHistory = new Map()
+    this._ringPool = []
     this.latestTick = 0
     this.tickPass = null
     this._passOpen = false
@@ -64,25 +67,24 @@ export class LagCompensator {
   recordPlayerPosition(playerId, position, rotation, velocity, tick) {
     if (typeof tick !== 'number' || !Number.isFinite(tick)) throw new RangeError(`recordPlayerPosition needs a finite tick, got ${String(tick)}`)
     let ring = this.playerHistory.get(playerId)
-    if (!ring) { ring = { buf: Array.from({ length: HISTORY_CAPACITY }, makeSample), head: 0, len: 0, committed: 0 }; this.playerHistory.set(playerId, ring) }
-    const at = i => ring.buf[(ring.head + i) % HISTORY_CAPACITY]
+    if (!ring) { ring = this._ringPool.pop() ?? { buf: Array.from({ length: HISTORY_CAPACITY }, makeSample), head: 0, len: 0, committed: 0 }; this.playerHistory.set(playerId, ring) }
     let slot = ring.len
-    if (ring.len > 0 && tick <= at(ring.len - 1).tick) {
+    if (ring.len > 0 && tick <= sampleAt(ring, ring.len - 1).tick) {
       let lo = 0, hi = ring.len - 1
-      while (lo < hi) { const mid = (lo + hi) >> 1; if (at(mid).tick < tick) lo = mid + 1; else hi = mid }
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (sampleAt(ring, mid).tick < tick) lo = mid + 1; else hi = mid }
       slot = lo
     }
-    if (slot === ring.len || at(slot).tick !== tick) {
+    if (slot === ring.len || sampleAt(ring, slot).tick !== tick) {
       if (ring.len < HISTORY_CAPACITY) {
-        for (let i = ring.len; i > slot; i--) copySample(at(i), at(i - 1))
+        for (let i = ring.len; i > slot; i--) copySample(sampleAt(ring, i), sampleAt(ring, i - 1))
         ring.len++
       } else {
         ring.head = (ring.head + 1) % HISTORY_CAPACITY
         slot = slot > 0 ? slot - 1 : 0
-        for (let i = HISTORY_CAPACITY - 1; i > slot; i--) copySample(at(i), at(i - 1))
+        for (let i = HISTORY_CAPACITY - 1; i > slot; i--) copySample(sampleAt(ring, i), sampleAt(ring, i - 1))
       }
     }
-    const entry = at(slot)
+    const entry = sampleAt(ring, slot)
     entry.tick = tick; entry.timestamp = _monotonicNow()
     entry.position[0] = position[0]; entry.position[1] = position[1]; entry.position[2] = position[2]
     entry.rotation[0] = rotation[0]; entry.rotation[1] = rotation[1]; entry.rotation[2] = rotation[2]; entry.rotation[3] = rotation[3]
@@ -118,15 +120,14 @@ export class LagCompensator {
     if (!ring || ring.len === 0) return null
     const n = this._passOpen ? ring.committed : ring.len
     if (n === 0) return null
-    const at = i => ring.buf[(ring.head + i) % HISTORY_CAPACITY]
     const o = out || makeSample()
-    const first = at(0), last = at(n - 1)
+    const first = sampleAt(ring, 0), last = sampleAt(ring, n - 1)
     let a = first, b = first, t = 0
     if (tick >= last.tick) { a = b = last }
     else if (tick > first.tick) {
       let lo = 0, hi = n - 1
-      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (at(mid).tick <= tick) lo = mid; else hi = mid }
-      a = at(lo); b = at(hi); t = (tick - a.tick) / ((b.tick - a.tick) || 1)
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (sampleAt(ring, mid).tick <= tick) lo = mid; else hi = mid }
+      a = sampleAt(ring, lo); b = sampleAt(ring, hi); t = (tick - a.tick) / ((b.tick - a.tick) || 1)
     }
     o.tick = a === b ? a.tick : tick
     for (let i = 0; i < 3; i++) { o.position[i] = a.position[i] + (b.position[i] - a.position[i]) * t; o.velocity[i] = a.velocity[i] + (b.velocity[i] - a.velocity[i]) * t }
@@ -171,6 +172,8 @@ export class LagCompensator {
   }
 
   clearPlayerHistory(playerId) {
+    const ring = this.playerHistory.get(playerId)
+    if (ring) { ring.head = 0; ring.len = 0; ring.committed = 0; this._ringPool.push(ring) }
     this.playerHistory.delete(playerId)
     this._rewindBuckets.delete(playerId)
   }

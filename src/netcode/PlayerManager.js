@@ -3,6 +3,8 @@ import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 import { mintPlayerOwner } from '../connection/playerOwner.js'
 
 const MAX_BUFFERED_INPUTS = 128
+const isConnectedPlayer = (p) => p.connected
+const copyPushSlot = (slot) => (slot ? [...slot] : null)
 
 const DELIVERED = 'delivered'
 const NO_TRANSPORT = 'no-transport'
@@ -71,7 +73,7 @@ export class PlayerManager {
 
   getConnectedPlayers() {
     if (this._cachedGen === this._connectedGen) return this._connectedCache
-    this._connectedCache = this.getAllPlayers().filter(p => p.connected)
+    this._connectedCache = this.getAllPlayers().filter(isConnectedPlayer)
     this._cachedGen = this._connectedGen
     return this._connectedCache
   }
@@ -237,7 +239,7 @@ export class PlayerManager {
       player.inputSequence = s.inputSequence
       player.lastClientSeq = s.lastClientSeq
       player.ackSequence = s.ackSequence
-      player.pushQueue = s.pushQueue ? s.pushQueue.map(x => (x ? [...x] : null)) : null
+      player.pushQueue = s.pushQueue ? s.pushQueue.map(copyPushSlot) : null
       player.pendingPush = s.pendingPush ? [...s.pendingPush] : null
       if (s.movementOverride) player.movementOverride = JSON.parse(JSON.stringify(s.movementOverride))
       else delete player.movementOverride

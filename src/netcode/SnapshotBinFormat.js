@@ -41,8 +41,10 @@ export const PLAYER_TIER_REDUCED = 1
 export const REDUCED_POSE_FIELDS = 5
 export const REDUCED_HEIGHT_ABSENT = NaN
 
-export function packReducedPlayerPose(id, x, z, yawN) {
-  return [id, clampI32Pos(x), clampI32Pos(z), yawN, PLAYER_TIER_REDUCED]
+export function packReducedPlayerPose(id, x, z, yawN, into) {
+  const rec = into || []
+  rec[0] = id; rec[1] = clampI32Pos(x); rec[2] = clampI32Pos(z); rec[3] = yawN; rec[4] = PLAYER_TIER_REDUCED
+  return rec
 }
 
 export function unpackReducedPlayerPose(rec, out) {

@@ -202,12 +202,20 @@ function readCellBase(key) {
   return hit
 }
 
+const _cellBaseFree = []
+
 function storeCellBase(key, cellViewerPos, baseRelevantIds) {
   const epoch = _aoiCellBaseEpoch
   if (epoch.case !== AOI_EPOCH_CASE.active) return
-  _cellBaseCache.set(key, { case: AOI_CELL_BASE_CASE.hit, epoch, cellViewerPos, baseRelevantIds })
+  const entry = _cellBaseFree.pop() || {}
+  entry.case = AOI_CELL_BASE_CASE.hit
+  entry.epoch = epoch
+  entry.cellViewerPos = cellViewerPos
+  entry.baseRelevantIds = baseRelevantIds
+  _cellBaseCache.set(key, entry)
   if (_cellBaseCache.size > AOI_CELL_BASE_MAX) {
     const oldest = _cellBaseCache.keys().next().value
+    _cellBaseFree.push(_cellBaseCache.get(oldest))
     _cellBaseCache.delete(oldest)
     aoiRingWork.evictions++
   }
@@ -247,56 +255,56 @@ function cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius) {
   return appRuntime.relevantEntities(cvp, relevanceRadius)
 }
 
+function addRingCell(relSet, face, cx, cy, key, planetRadius, relevanceRadius, appRuntime) {
+  let c = _spatialCache.get(key)
+  if (!c) {
+    aoiRingWork.cellComputes++
+    aoiRingWork.statefulQueries += 1
+    const base = readCellBase(key)
+    let cvp, baseRelevantIds
+    if (base.case === AOI_CELL_BASE_CASE.hit) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
+    else {
+      aoiRingWork.cellBaseComputes++
+      aoiRingWork.cellCentreSolves++
+      cvp = solveCellViewer(face, cx, cy, planetRadius, relevanceRadius)
+      baseRelevantIds = cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius)
+      storeCellBase(key, cvp, baseRelevantIds)
+    }
+    let relevantIds = appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds)
+    if (relevantIds instanceof Set && relevantIds.size > baseRelevantIds.length) {
+      const r2 = relevanceRadius * relevanceRadius
+      const kept = new Set()
+      for (const id of relevantIds) {
+        const r = _positionOfEntity(appRuntime, id)
+        if (r.case !== AOI_ENTITY_POSITION_CASE.position || _withinAny(r.position, cvp, planetRadius, r2)) kept.add(id)
+      }
+      relevantIds = kept
+    }
+    c = {
+      relevantIds,
+      cellViewerPos: cvp,
+      baseRelevantIds,
+    }
+    _spatialCache.set(key, c)
+  } else aoiRingWork.cellHits++
+  for (const id of c.relevantIds) relSet.add(id)
+}
+
 function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace, planetRadius, relevanceRadius, appRuntime) {
   let ring = _ringCache.get(cellKey)
   if (ring) { aoiRingWork.ringHits++; return ring }
   aoiRingWork.ringComputes++
   const relSet = new Set()
-  const addCell = (face, cx, cy, key) => {
-    let c = _spatialCache.get(key)
-    if (!c) {
-      aoiRingWork.cellComputes++
-      aoiRingWork.statefulQueries += 1
-      const base = readCellBase(key)
-      let cvp, baseRelevantIds
-      if (base.case === AOI_CELL_BASE_CASE.hit) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
-      else {
-        aoiRingWork.cellBaseComputes++
-        aoiRingWork.cellCentreSolves++
-        cvp = solveCellViewer(face, cx, cy, planetRadius, relevanceRadius)
-        baseRelevantIds = cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius)
-        storeCellBase(key, cvp, baseRelevantIds)
-      }
-      let relevantIds = appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds)
-      if (relevantIds instanceof Set && relevantIds.size > baseRelevantIds.length) {
-        const r2 = relevanceRadius * relevanceRadius
-        const gate = [cvp[0], cvp[1], cvp[2]]
-        const kept = new Set()
-        for (const id of relevantIds) {
-          const r = _positionOfEntity(appRuntime, id)
-          if (r.case !== AOI_ENTITY_POSITION_CASE.position || _withinAny(r.position, gate, planetRadius, r2)) kept.add(id)
-        }
-        relevantIds = kept
-      }
-      c = {
-        relevantIds,
-        cellViewerPos: cvp,
-        baseRelevantIds,
-      }
-      _spatialCache.set(key, c)
-    } else aoiRingWork.cellHits++
-    for (const id of c.relevantIds) relSet.add(id)
-  }
   if (planetRadius > 0) {
     aoiRingWork.neighbourCellsCalls++
     const neighbors = neighborCells(cellFace, cellCx, cellCy, cellsPerFace)
-    for (const n of neighbors) addCell(n.face, n.cx, n.cy, packCellKey(n.face, n.cx, n.cy, cellsPerFace))
+    for (const n of neighbors) addRingCell(relSet, n.face, n.cx, n.cy, packCellKey(n.face, n.cx, n.cy, cellsPerFace), planetRadius, relevanceRadius, appRuntime)
   } else {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         if (dx === 0 && dy === 0) continue
         const ncx = cellCx + dx, ncy = cellCy + dy
-        addCell(-1, ncx, ncy, flatCellKey(ncx, ncy))
+        addRingCell(relSet, -1, ncx, ncy, flatCellKey(ncx, ncy), planetRadius, relevanceRadius, appRuntime)
       }
     }
   }
@@ -313,6 +321,7 @@ export const AOI_ENTITY_POSITION_CASE = Object.freeze({
 
 const AOI_ENTITY_NO_POSITION = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.noPosition, position: null })
 const AOI_ENTITY_UNKNOWN = Object.freeze({ case: AOI_ENTITY_POSITION_CASE.unknownEntity, position: null })
+const _entityPositionHit = { case: AOI_ENTITY_POSITION_CASE.position, position: null }
 
 function _positionOfEntity(appRuntime, id) {
   const spatial = appRuntime?._stageLoader?._activeStage?.spatial
@@ -320,7 +329,8 @@ function _positionOfEntity(appRuntime, id) {
     const p = spatial.getPosition(id)
     if (p) {
       aoiRingWork.positionOfEntityResolves++
-      return { case: AOI_ENTITY_POSITION_CASE.position, position: p }
+      _entityPositionHit.position = p
+      return _entityPositionHit
     }
   }
   const e = appRuntime?.entities?.get(id)
@@ -333,7 +343,8 @@ function _positionOfEntity(appRuntime, id) {
     return AOI_ENTITY_NO_POSITION
   }
   aoiRingWork.positionOfEntityResolves++
-  return { case: AOI_ENTITY_POSITION_CASE.position, position: e.position }
+  _entityPositionHit.position = e.position
+  return _entityPositionHit
 }
 
 function _withinAny(p, gatePoints, planetRadius, r2) {
@@ -347,9 +358,13 @@ function _withinAny(p, gatePoints, planetRadius, r2) {
   return false
 }
 
+const _deliveredScratch = new Set()
+
 function resolveDeliveredIds(ringRelevantIds, unmanagedIds, gatePoints, planetRadius, relevanceRadius, appRuntime) {
   if (!unmanagedIds || unmanagedIds.length === 0) return ringRelevantIds
-  const delivered = new Set(ringRelevantIds)
+  const delivered = _deliveredScratch
+  delivered.clear()
+  for (const id of ringRelevantIds) delivered.add(id)
   if (!gatePoints || gatePoints.length < 3) {
     for (const id of unmanagedIds) delivered.add(id)
     return delivered
@@ -366,6 +381,7 @@ const _spatialCache = new Map()
 const _ringCache = new Map()
 const _priorityAccumulators = new Map()
 const _priorityBuckets = [[], [], [], []]
+const _priorityTopIds = new Set()
 
 export function clearPlayerPriorityAccumulator(playerId) { _priorityAccumulators.delete(playerId) }
 export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos, tick) {
@@ -399,7 +415,8 @@ export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos,
     else if (score >= 1) buckets[2].push(id)
     else buckets[3].push(id)
   }
-  const topIds = new Set()
+  const topIds = _priorityTopIds
+  topIds.clear()
   let remaining = PRIORITY_ENTITY_BUDGET
   for (const bucket of buckets) {
     for (const id of bucket) {
@@ -437,14 +454,28 @@ function estimateEntityBytes(enc, dynCache) {
   return n
 }
 
+const _trimResult = { entities: null, trimmedCount: 0 }
+const _sizedScratch = []
+const _candidateScratch = []
+const _candidatePool = []
+let _dropMark = new Uint8Array(0)
+
+function trimResult(entities, trimmedCount) {
+  _trimResult.entities = entities
+  _trimResult.trimmedCount = trimmedCount
+  return _trimResult
+}
+
 function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
-  if (entities.length - staticCount < BANDWIDTH_TRIM_MIN_ENTITIES) return { entities, trimmedCount: 0 }
+  if (entities.length - staticCount < BANDWIDTH_TRIM_MIN_ENTITIES) return trimResult(entities, 0)
   let total = 0
-  const sized = new Array(entities.length)
+  const sized = _sizedScratch
+  sized.length = entities.length
   for (let i = 0; i < entities.length; i++) { const b = estimateEntityBytes(entities[i], dynCache); sized[i] = b; total += b }
-  if (total <= BANDWIDTH_BUDGET_BYTES_PER_TICK) return { entities, trimmedCount: 0 }
+  if (total <= BANDWIDTH_BUDGET_BYTES_PER_TICK) return trimResult(entities, 0)
   const vx = viewerPos ? viewerPos[0] : 0, vy = viewerPos ? viewerPos[1] : 0, vz = viewerPos ? viewerPos[2] : 0
-  const candidates = []
+  const candidates = _candidateScratch
+  candidates.length = 0
   for (let i = staticCount; i < entities.length; i++) {
     const enc = entities[i]
     let d2 = Infinity
@@ -454,20 +485,28 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
       const dx = _budgetBin.px - vx, dy = _budgetBin.py - vy, dz = _budgetBin.pz - vz
       d2 = dx * dx + dy * dy + dz * dz
     }
-    candidates.push({ i, d2 })
+    let cand = _candidatePool[candidates.length]
+    if (!cand) { cand = {}; _candidatePool.push(cand) }
+    cand.i = i
+    cand.d2 = d2
+    candidates.push(cand)
   }
   candidates.sort(byFarthestFirst)
-  const dropSet = new Set()
+  if (_dropMark.length < entities.length) _dropMark = new Uint8Array(entities.length)
+  const mark = _dropMark
+  mark.fill(0, 0, entities.length)
+  let dropped = 0
   let iterations = 0
   for (const c of candidates) {
     if (total <= BANDWIDTH_BUDGET_BYTES_PER_TICK) break
     if (++iterations > BANDWIDTH_TRIM_MAX_ITERATIONS) break
-    dropSet.add(c.i)
+    mark[c.i] = 1
+    dropped++
     total -= sized[c.i]
   }
-  if (dropSet.size === 0) return { entities, trimmedCount: 0 }
-  const trimmed = entities.filter((_, i) => !dropSet.has(i))
-  return { entities: trimmed, trimmedCount: dropSet.size }
+  if (dropped === 0) return trimResult(entities, 0)
+  const trimmed = entities.filter((_, i) => mark[i] === 0)
+  return trimResult(trimmed, dropped)
 }
 
 export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, _cellCenterWorld, _spatialCache, _ringCache, _positionOfEntity }

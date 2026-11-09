@@ -40,6 +40,7 @@ export function createFireWeather({ config, readWeather, stepTicks, wind: initia
   let emittedMoisture = 0
   const wind = [initialWind[0] | 0, initialWind[1] | 0, initialWind[2] | 0]
   const emittedWind = [wind[0], wind[1], wind[2]]
+  const windEmit = [0, 0, 0]
 
   function advance() {
     reading = parseWeather(readWeather())
@@ -54,7 +55,7 @@ export function createFireWeather({ config, readWeather, stepTicks, wind: initia
     if (rain !== emittedRain) out.rain = rain
     const edge = moisture === 0 || moisture === config.maxMoisture
     if (Math.abs(moisture - emittedMoisture) >= config.hysteresis || (edge && moisture !== emittedMoisture)) out.moisture = moisture
-    if (wind[0] !== emittedWind[0] || wind[1] !== emittedWind[1] || wind[2] !== emittedWind[2]) out.wind = [wind[0], wind[1], wind[2]]
+    if (wind[0] !== emittedWind[0] || wind[1] !== emittedWind[1] || wind[2] !== emittedWind[2]) { windEmit[0] = wind[0]; windEmit[1] = wind[1]; windEmit[2] = wind[2]; out.wind = windEmit }
     return out
   }
 

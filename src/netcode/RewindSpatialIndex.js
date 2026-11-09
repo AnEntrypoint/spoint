@@ -1,18 +1,29 @@
 export const REWIND_SLOP = 10
 
+function nextBoundary(o, d, c, s) {
+  if (d === 0) return Infinity
+  const cellMin = c * s
+  const boundary = d > 0 ? cellMin + s : cellMin
+  return (boundary - o) / d
+}
+
 export class RewindSpatialIndex {
   constructor(cellSize = 16) {
     this.cellSize = cellSize
     this.cells = new Map()
     this._arrayIndex = new Map()
     this.playersById = new Map()
+    this._cell = [0, 0, 0]
+    this._visited = new Set()
   }
 
   static _key(cx, cy, cz) { return cx + ',' + cy + ',' + cz }
 
   _cellOf(pos) {
     const s = this.cellSize
-    return [Math.floor(pos[0] / s), Math.floor(pos[1] / s), Math.floor(pos[2] / s)]
+    const cell = this._cell
+    cell[0] = Math.floor(pos[0] / s); cell[1] = Math.floor(pos[1] / s); cell[2] = Math.floor(pos[2] / s)
+    return cell
   }
 
   insert(id, pos, margin = REWIND_SLOP) {
@@ -35,20 +46,15 @@ export class RewindSpatialIndex {
     const stepY = direction[1] > 0 ? 1 : direction[1] < 0 ? -1 : 0
     const stepZ = direction[2] > 0 ? 1 : direction[2] < 0 ? -1 : 0
 
-    const nextBoundary = (o, d, c) => {
-      if (d === 0) return Infinity
-      const cellMin = c * s
-      const boundary = d > 0 ? cellMin + s : cellMin
-      return (boundary - o) / d
-    }
-    let tMaxX = nextBoundary(origin[0], direction[0], cx)
-    let tMaxY = nextBoundary(origin[1], direction[1], cy)
-    let tMaxZ = nextBoundary(origin[2], direction[2], cz)
+    let tMaxX = nextBoundary(origin[0], direction[0], cx, s)
+    let tMaxY = nextBoundary(origin[1], direction[1], cy, s)
+    let tMaxZ = nextBoundary(origin[2], direction[2], cz, s)
     const tDeltaX = stepX !== 0 ? Math.abs(s / direction[0]) : Infinity
     const tDeltaY = stepY !== 0 ? Math.abs(s / direction[1]) : Infinity
     const tDeltaZ = stepZ !== 0 ? Math.abs(s / direction[2]) : Infinity
 
-    const visited = new Set()
+    const visited = this._visited
+    visited.clear()
     let t = 0
     let guard = 0
     const guardMax = Math.ceil(maxDist / s) * 3 + 8

@@ -22,7 +22,8 @@ export function defineCheckpoint(spec = {}, appCtx) {
     tick(_dt) {
       for (const player of appCtx.players.getAll()) {
         const pp = player.state?.position; if (!pp) continue
-        for (const c of cps) {
+        for (let ci = 0; ci < cps.length; ci++) {
+          const c = cps[ci]
           const dx = pp[0] - c.position[0], dy = pp[1] - c.position[1], dz = pp[2] - c.position[2]
           const insideVolume = dx * dx + dy * dy + dz * dz <= c.r2
           if (insideVolume) {

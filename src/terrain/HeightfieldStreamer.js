@@ -53,9 +53,11 @@ export const HEIGHTFIELD_REFUSALS = Object.freeze({
   threw: 'pass-threw',
 })
 
+const _assignOwner = [], _assignLoad = []
 function assignPlayers(players, fields, half) {
-  const owner = new Array(players.length).fill(-1)
-  const load = new Array(fields.length).fill(0)
+  const owner = _assignOwner, load = _assignLoad
+  owner.length = players.length; owner.fill(-1)
+  load.length = fields.length; load.fill(0)
   for (let i = 0; i < players.length; i++) {
     let best = -1, bestD = Infinity
     for (let f = 0; f < fields.length; f++) {
@@ -68,13 +70,23 @@ function assignPlayers(players, fields, half) {
   return { owner, load }
 }
 
+const _uncovered = [], _members = []
+function fieldWithin(p, fields, radius) {
+  for (let f = 0; f < fields.length; f++) if (chebyshev(p, fields[f].center) <= radius) return true
+  return false
+}
 function nextUncoveredCluster(players, fields, coverRadius, half) {
-  const uncovered = players.filter(p => !fields.some(f => chebyshev(p, f.center) <= coverRadius))
+  const uncovered = _uncovered
+  uncovered.length = 0
+  for (let i = 0; i < players.length; i++) if (!fieldWithin(players[i], fields, coverRadius)) uncovered.push(players[i])
   if (!uncovered.length) return null
-  const seed = uncovered.find(p => !fields.some(f => chebyshev(p, f.center) <= half)) || uncovered[0]
-  const members = uncovered.filter(p => chebyshev(p, seed) <= coverRadius)
+  let seed = uncovered[0]
+  for (let i = 0; i < uncovered.length; i++) if (!fieldWithin(uncovered[i], fields, half)) { seed = uncovered[i]; break }
+  const members = _members
+  members.length = 0
+  for (let i = 0; i < uncovered.length; i++) if (chebyshev(uncovered[i], seed) <= coverRadius) members.push(uncovered[i])
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
-  for (const [x, z] of members) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
+  for (let i = 0; i < members.length; i++) { const x = members[i][0], z = members[i][1]; if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
   return { center: [(minX + maxX) / 2, (minZ + maxZ) / 2], members: members.length, uncovered: uncovered.length }
 }
 
@@ -196,9 +208,13 @@ export function createTerrainStreamer(opts = {}) {
     return floorN
   }
 
+  const coverProbe = [0, 0]
   function coversPosition(x, z) {
-    const p = lattice ? lattice.toLattice(x, z) : [x, z]
-    return fields.some(f => chebyshev(p, f.center) <= half)
+    let p = coverProbe
+    if (lattice) p = lattice.toLattice(x, z)
+    else { p[0] = x; p[1] = z }
+    for (let f = 0; f < fields.length; f++) if (chebyshev(p, fields[f].center) <= half) return true
+    return false
   }
 
   function groundlessCenters() {

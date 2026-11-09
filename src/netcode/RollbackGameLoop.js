@@ -21,6 +21,7 @@ export function createRollbackGameLoop({ tickSystem, transport, rollback, roster
   const used = new Map()
   const localChecksums = new Map(), remoteChecksums = new Map(), desyncLog = []
   const remoteAdvantage = new Map()
+  const inputsScratch = new Map()
   let simTick = 0, dtS = 0, pendingRollbackFrom = null, nextChecksumTick = opts.checksumIntervalTicks
   const stats = { ticksSimulated: 0, stalls: 0, timeSyncYields: 0, rollbacks: 0, rollbackTicks: 0, maxRollbackDepth: 0, unrecoverableRollbacks: 0, predictedTicks: 0, mispredictions: 0, checksumsCompared: 0, desyncs: 0, firstDesyncTick: null }
 
@@ -42,7 +43,8 @@ export function createRollbackGameLoop({ tickSystem, transport, rollback, roster
   }
 
   function inputsFor(tick) {
-    const inputs = new Map(), keys = new Map()
+    inputsScratch.clear()
+    const inputs = inputsScratch, keys = new Map()
     for (const pk of roster) {
       const inp = inputFor(pk, tick)
       inputs.set(pk, inp)

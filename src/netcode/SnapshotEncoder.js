@@ -27,8 +27,13 @@ function encodePlayer(p) {
   return [p.id, bin, p.onGround?1:0, Math.round(p.health||0), p.crouch||0, (pitchN<<8)|yawN, p.expr||0, p.weapon||0]
 }
 
+const _selfBlock = new Array(6)
+
 export function encodeSelfBlock(p) {
-  return p ? [p.inputSequence, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position), p.pushWindow, p.starvedSteps || 0] : undefined
+  if (!p) return undefined
+  const b = _selfBlock
+  b[0] = p.inputSequence; b[1] = inputBufferByte(p.inputBuffer); b[2] = packGroundNormal(p.groundNormal); b[3] = packWallPlanes(p.wallNormals, p.position); b[4] = p.pushWindow; b[5] = p.starvedSteps || 0
+  return b
 }
 
 export function decodeSelfBlock(me, out) {
@@ -60,18 +65,23 @@ export const PLAYER_LOD_FULL_COUNT = 30
 export const PLAYER_LOD_REDUCED2 = 120 * 120
 export const PLAYER_LOD_REDUCED_HZ = 5
 
-function encodeReducedPlayer(p) {
+const _reducedPoseRecs = []
+function encodeReducedPlayer(p, slot) {
   const [px, , pz] = p.position
   const yawN = Math.round(((p.lookYaw || 0) % TAU + TAU) % TAU / TAU * 256) & 0xFF
-  return packReducedPlayerPose(p.id, px, pz, yawN)
+  return packReducedPlayerPose(p.id, px, pz, yawN, _reducedPoseRecs[slot] || (_reducedPoseRecs[slot] = []))
 }
 
 function dist2(ax, ay, az, bx, by, bz) { const dx = ax-bx, dy = ay-by, dz = az-bz; return dx*dx+dy*dy+dz*dz }
 
+const _crowdBuckets = new Map()
+const NO_CROWD_DOTS = Object.freeze([])
+
 export function buildCrowdDots(players, viewerPos, dotCellM) {
-  if (!players || players.length === 0) return []
+  if (!players || players.length === 0) return NO_CROWD_DOTS
   const cell = dotCellM || 25
-  const buckets = new Map()
+  const buckets = _crowdBuckets
+  buckets.clear()
   for (const p of players) {
     const pos = p.position; if (!pos) continue
     const cx = Math.floor(pos[0] / cell), cz = Math.floor(pos[2] / cell)
@@ -112,16 +122,19 @@ export function classifyPlayerTiers(playersById, nearbyIds, viewerPos, selfId) {
   return { full, reduced, dotPlayers }
 }
 
+const _tieredPlayers = []
+
 export function filterEncodedPlayersTiered(encodedMap, playersById, nearbyIds, selfId, viewerPos, tick, reducedTickMod) {
   const { full, reduced, dotPlayers } = classifyPlayerTiers(playersById, nearbyIds, viewerPos, selfId)
-  const out = []
+  const out = _tieredPlayers; out.length = 0
   const selfEnc = encodedMap.get(selfId); if (selfEnc) out.push(selfEnc)
   for (const id of full) { const enc = encodedMap.get(id); if (enc) out.push(enc) }
   const mod = Math.max(1, reducedTickMod || 1)
+  let reducedSlot = 0
   for (const id of reduced) {
     if (mod > 1 && (tick % mod) !== 0) continue
     const p = playersById.get(id)
-    if (p) out.push(encodeReducedPlayer(p))
+    if (p) out.push(encodeReducedPlayer(p, reducedSlot++))
   }
   return { players: out, dots: buildCrowdDots(dotPlayers, viewerPos) }
 }
@@ -182,20 +195,19 @@ function refreshEntryEnc(e, entry) {
 }
 
 export class TombstoneLog {
-  constructor() { this._list = [] ; this._minTick = 0 }
-  push(id, tick) { this._list.push({ id, tick }) }
+  constructor() { this._ids = []; this._ticks = []; this._minTick = 0 }
+  push(id, tick) { this._ids.push(id); this._ticks.push(tick) }
   pruneBefore(minTick) {
-    if (this._list.length === 0) return
+    if (this._ids.length === 0) return
     let i = 0
-    while (i < this._list.length && this._list[i].tick < minTick) i++
-    if (i > 0) this._list = this._list.slice(i)
+    while (i < this._ticks.length && this._ticks[i] < minTick) i++
+    if (i > 0) { this._ids.splice(0, i); this._ticks.splice(0, i) }
     this._minTick = minTick
   }
   forClient(sinceTick, prevEntityMap, out) {
     out.length = 0
-    for (let i = 0; i < this._list.length; i++) {
-      const t = this._list[i]
-      if (t.tick > sinceTick && prevEntityMap.has(t.id)) out.push(t.id)
+    for (let i = 0; i < this._ids.length; i++) {
+      if (this._ticks[i] > sinceTick && prevEntityMap.has(this._ids[i])) out.push(this._ids[i])
     }
     return out
   }
@@ -287,6 +299,8 @@ function buildEntry(e, id, prevCache, sleeping, simulated) {
   return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, simulated: !!simulated, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0, bins, flip: 0, binVersion: SNAPSHOT_ENTITY_ENC_CODE_VERSION }
 }
 
+const _idSetPair = [undefined, undefined]
+
 const NEAR2 = 20 * 20
 const MID2 = 60 * 60
 const _distScratch = {}
@@ -375,6 +389,18 @@ export function updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, 
   return known
 }
 
+const _withSelfPlayers = []
+const _relevantLookup = new Set()
+const _deltaDynIds = new Set()
+const _deltaEntities = []
+const _deltaRemoved = []
+
+function fillRelevantLookup(ids) {
+  _relevantLookup.clear()
+  for (const id of ids) _relevantLookup.add(id)
+  return _relevantLookup
+}
+
 export class SnapshotEncoder {
   static encodeCustomBySchema(schemaName, obj) { return encodeCustomBySchema(schemaName, obj) }
   static decodeCustomBySchema(schemaName, buf) { return decodeCustomBySchema(schemaName, buf) }
@@ -398,7 +424,7 @@ export class SnapshotEncoder {
   }
 
   static filterEncodedPlayersWithSelf(encodedMap, nearbyIds, selfId) {
-    const out = []; let hasSelf = false
+    const out = _withSelfPlayers; out.length = 0; let hasSelf = false
     for (let i = 0; i < nearbyIds.length; i++) { const id = nearbyIds[i]; if (id === selfId) hasSelf = true; const enc = encodedMap.get(id); if (enc) out.push(enc) }
     if (!hasSelf) { const self = encodedMap.get(selfId); if (self) out.push(self) }
     return out
@@ -462,7 +488,8 @@ export class SnapshotEncoder {
         if (entry.isEnv) envIds.push(id)
       }
     }
-    for (const idSet of [sleepingIds, suspendedIds]) {
+    _idSetPair[0] = sleepingIds; _idSetPair[1] = suspendedIds
+    for (const idSet of _idSetPair) {
       if (!idSet) continue
       for (const id of idSet) {
         const entry = cache.get(id)
@@ -496,7 +523,8 @@ export class SnapshotEncoder {
         cache.set(id, entry); if (entry.isEnv) envIds.push(id)
       }
     }
-    for (const idSet of [sleepingIds, suspendedIds]) {
+    _idSetPair[0] = sleepingIds; _idSetPair[1] = suspendedIds
+    for (const idSet of _idSetPair) {
       for (const id of idSet) {
         if (prevCache?.has(id)) {
           const entry = prevCache.get(id)
@@ -523,7 +551,7 @@ export class SnapshotEncoder {
     const propModCap = propTickMod(snapHz)
     const relevantCount = Array.isArray(relevantIds) ? relevantIds.length : (relevantIds ? relevantIds.size : 0)
     const iterIds = (relevantIds && dynCache.size > relevantCount) ? relevantIds : null
-    const relevantLookup = (!iterIds && Array.isArray(relevantIds)) ? new Set(relevantIds) : null
+    const relevantLookup = (!iterIds && Array.isArray(relevantIds)) ? fillRelevantLookup(relevantIds) : null
     if (iterIds) {
       for (const id of iterIds) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, viewers, seq, propModCap) }
       for (const id of (dynCache._envIds || [])) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, null, seq, propModCap) }
@@ -545,7 +573,8 @@ export class SnapshotEncoder {
 
   static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds) {
     const players = preEncodedPlayers || (snapshot.players || []).map(encodePlayer)
-    const dynIds = new Set(), entities = [], nextMap = new Map()
+    const dynIds = _deltaDynIds, entities = _deltaEntities, nextMap = new Map()
+    dynIds.clear(); entities.length = 0
     if (staticEntries) for (const { enc } of staticEntries) entities.push(enc)
     for (const e of snapshot.entities || []) {
       if (e.bodyType === 'static' && staticEntries) continue
@@ -561,7 +590,8 @@ export class SnapshotEncoder {
         entities.push(encoded)
       }
     }
-    const removed = []; for (const id of prevEntityMap.keys()) { if (!dynIds.has(id) && !(staticIds && staticIds.has(id))) removed.push(id) }
+    const removed = _deltaRemoved; removed.length = 0
+    for (const id of prevEntityMap.keys()) { if (!dynIds.has(id) && !(staticIds && staticIds.has(id))) removed.push(id) }
     return { encoded: { tick: snapshot.tick || 0, serverTime: snapshot.serverTime, players, entities, removed: removed.length ? removed : undefined, delta: 1 }, entityMap: nextMap }
   }
 

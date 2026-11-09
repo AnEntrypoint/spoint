@@ -54,6 +54,11 @@ function createWriter(reserve = 1024) {
       need(view8.byteLength)
       bytes.set(view8, at); at += view8.byteLength
     },
+    bytesOf(src, length) {
+      need(length)
+      for (let i = 0; i < length; i++) bytes[at + i] = src[i]
+      at += length
+    },
     peek() { return bytes.subarray(0, at) },
     done() { return bytes.subarray(0, at) },
   }
@@ -203,7 +208,7 @@ export function createKeyframeEncoder({ tick, snapshot, logOf = () => [] }) {
       tileBuf[n++] = heat[g] & 0xff; tileBuf[n++] = heat[g] >>> 8
       tileBuf[n++] = timer[g] & 0xff; tileBuf[n++] = timer[g] >>> 8
     }
-    w.raw(tileBuf.subarray(0, n))
+    w.bytesOf(tileBuf, n)
   }
 
   function stepScars(deadline) {
@@ -222,7 +227,7 @@ export function createKeyframeEncoder({ tick, snapshot, logOf = () => [] }) {
         prevStep = step
         scarAt++
       }
-      w.raw(scarBuf.subarray(0, scarBytes))
+      w.bytesOf(scarBuf, scarBytes)
       if (nowMs() >= deadline) return
     }
     phase = PHASE_CELL

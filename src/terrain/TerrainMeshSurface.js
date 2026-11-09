@@ -39,6 +39,9 @@ function deformDir(face, u, v, R, out) {
   return true
 }
 
+const quadAt = (n, i, j) => (j * n + i) * 3
+const candidateOrder = (a, b) => a.l - b.l || a.idx - b.idx
+
 function cellFlip(x, y) {
   let h = (x | (y << 16)) | 0
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b | 0)
@@ -111,15 +114,16 @@ export function createTerrainMeshSurface(opts = {}) {
   const NEAR_GRID_KEY_BIAS = 32768
   const nearGrid = new Map()
   const nearOverflow = []
+  const nearExtents = []
   let nearCellM = 0
   function rebuildNearIndex() {
     nearGrid.clear()
     nearOverflow.length = 0
     if (near.length === 0) return
-    const ext = new Float64Array(near.length)
-    for (let k = 0; k < near.length; k++) { const n = near[k]; ext[k] = Math.max(n.maxX - n.minX, n.maxZ - n.minZ) }
-    const ordered = Array.prototype.slice.call(ext).sort((a, b) => a - b)
-    nearCellM = Math.max(1, ordered[ordered.length >> 1])
+    nearExtents.length = 0
+    for (let k = 0; k < near.length; k++) { const n = near[k]; nearExtents.push(Math.max(n.maxX - n.minX, n.maxZ - n.minZ)) }
+    nearExtents.sort((a, b) => a - b)
+    nearCellM = Math.max(1, nearExtents[nearExtents.length >> 1])
     for (let k = 0; k < near.length; k++) {
       const n = near[k]
       n.idx = k
@@ -184,11 +188,10 @@ export function createTerrainMeshSurface(opts = {}) {
         pos[k + 2] = wx * N[0] + wy * N[1] + wz * N[2]
       }
     }
-    const at = (i, j) => (j * n + i) * 3
-    const x00 = pos[at(0, 0)], z00 = pos[at(0, 0) + 2]
-    const x10 = pos[at(g, 0)], z10 = pos[at(g, 0) + 2]
-    const x01 = pos[at(0, g)], z01 = pos[at(0, g) + 2]
-    const x11 = pos[at(g, g)], z11 = pos[at(g, g) + 2]
+    const x00 = pos[quadAt(n, 0, 0)], z00 = pos[quadAt(n, 0, 0) + 2]
+    const x10 = pos[quadAt(n, g, 0)], z10 = pos[quadAt(n, g, 0) + 2]
+    const x01 = pos[quadAt(n, 0, g)], z01 = pos[quadAt(n, 0, g) + 2]
+    const x11 = pos[quadAt(n, g, g)], z11 = pos[quadAt(n, g, g) + 2]
     const dxdi = ((x10 - x00) + (x11 - x01)) / (2 * g)
     const dxdj = ((x01 - x00) + (x11 - x10)) / (2 * g)
     const dzdi = ((z10 - z00) + (z11 - z01)) / (2 * g)
@@ -401,7 +404,7 @@ export function createTerrainMeshSurface(opts = {}) {
       }
     }
     if (candidates.length === 0) { stats.unserved++; return MESH_SURFACE_NO_GROUND }
-    candidates.sort((a, b) => a.l - b.l || a.idx - b.idx)
+    candidates.sort(candidateOrder)
     for (let k = 0; k < candidates.length; k++) {
       const q = materialize(candidates[k])
       if (!q) continue

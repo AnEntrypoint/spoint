@@ -15,10 +15,12 @@ function cellKey(cx, cz) {
   return cx + ',' + cz
 }
 
+const _freeBuckets = []
+
 function placeInto(cells, idCell, id, point) {
   const key = cellKey(cellCoord(point[0]), cellCoord(point[2]))
   let bucket = cells.get(key)
-  if (!bucket) { bucket = []; cells.set(key, bucket) }
+  if (!bucket) { bucket = _freeBuckets.pop() || []; cells.set(key, bucket) }
   bucket.push(id)
   idCell.set(id, key)
 }
@@ -28,8 +30,14 @@ function refuseQuery(label, argument, value) {
   throw new TypeError(`[SpatialIndex] ${label} got ${argument} ${shown}: a relevance query is a finite centre with a finite non-negative extent, so an absent, non-numeric, NaN, infinite or negative one is not a query`)
 }
 
+const _queryCentre = [0, 0, 0]
+const _starvedScratch = []
+
 function parseQueryCentre(label, position) {
-  if (position != null && Number.isFinite(position[0]) && Number.isFinite(position[1]) && Number.isFinite(position[2])) return [position[0], position[1], position[2]]
+  if (position != null && Number.isFinite(position[0]) && Number.isFinite(position[1]) && Number.isFinite(position[2])) {
+    _queryCentre[0] = position[0]; _queryCentre[1] = position[1]; _queryCentre[2] = position[2]
+    return _queryCentre
+  }
   return refuseQuery(label, 'centre', position)
 }
 
@@ -60,7 +68,7 @@ export class SpatialIndex {
         if (idx !== last) bucket[idx] = bucket[last]
         bucket.pop()
       }
-      if (bucket.length === 0) this._cells.delete(key)
+      if (bucket.length === 0) { this._cells.delete(key); _freeBuckets.push(bucket) }
     }
   }
 
@@ -103,7 +111,8 @@ export class SpatialIndex {
     if (cellKey(cellCoord(px), cellCoord(pz)) !== this._idCell.get(id)) {
       this._unlink(id)
       placeInto(this._cells, this._idCell, id, existing)
-      this._anchors.set(id, [px, py, pz])
+      const anchor = this._anchors.get(id)
+      anchor[0] = px; anchor[1] = py; anchor[2] = pz
       this._mutations++
       return
     }
@@ -203,7 +212,8 @@ export class SpatialIndex {
   collectStarved(viewerKey, maxTicksStarved = 300) {
     const v = this._starveViewer(viewerKey)
     const zero = v.zero, c = v.c
-    const starved = []
+    const starved = _starvedScratch
+    starved.length = 0
     for (const id of this._entities.keys()) {
       const z = zero.get(id)
       if (z === undefined) { zero.set(id, c + 1); continue }

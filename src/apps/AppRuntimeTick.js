@@ -7,6 +7,9 @@ const ENTITY_FALL_DEPTH_BELOW_TERRAIN_M = 20
 const ENTITY_RESPAWN_DELAY_S = 5
 const ENTITY_RESPAWN_COOLDOWN_S = 1
 const ENTITY_FALL_CHECK_EVERY_TICKS = 8
+const ZERO_VEC3 = [0, 0, 0]
+const ENTITY_RESPAWN_FALLBACK_POS = [0, 20, 0]
+const _playerIdsToRemove = []
 
 export function mixinTick(runtime) {
   runtime.tick = function(tickNum, dt) {
@@ -117,7 +120,7 @@ export function mixinTick(runtime) {
     nx/=dl; ny/=dl; nz/=dl
     const sr = self._cachedColR||0
     const point = [sx[0]-nx*sr, sx[1]-ny*sr, sx[2]-nz*sr]
-    const sv=self.velocity||[0,0,0], ov=other.velocity||[0,0,0]
+    const sv=self.velocity||ZERO_VEC3, ov=other.velocity||ZERO_VEC3
     const rvx=sv[0]-ov[0], rvy=sv[1]-ov[1], rvz=sv[2]-ov[2]
     const impactSpeed = -(rvx*nx+rvy*ny+rvz*nz)
     return { id: other.id, position: other.position, velocity: other.velocity, point, normal:[nx,ny,nz], impactSpeed }
@@ -259,12 +262,12 @@ export function mixinTick(runtime) {
         if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: null })
         const timer = this._respawnTimer.get(id)
         if (now - timer.startTime >= ENTITY_RESPAWN_DELAY_S && (timer.lastRespawn === null || now - timer.lastRespawn >= ENTITY_RESPAWN_COOLDOWN_S)) {
-          const spawnPos = e._spawnPosition || [0, 20, 0]
+          const spawnPos = e._spawnPosition || ENTITY_RESPAWN_FALLBACK_POS
           e.position[0] = spawnPos[0]; e.position[1] = spawnPos[1]; e.position[2] = spawnPos[2]
           e.velocity[0] = 0; e.velocity[1] = 0; e.velocity[2] = 0
           if (e._physicsBodyId !== undefined && this._physics) {
             this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
-            this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
+            this._physics.setBodyVelocity(e._physicsBodyId, ZERO_VEC3)
           }
           timer.startTime = now; timer.lastRespawn = now
         }
@@ -362,7 +365,8 @@ export function mixinTick(runtime) {
       ids.add(p.id)
     }
     if (this._playerIndex.size > players.length) {
-      const toRemove = []
+      const toRemove = _playerIdsToRemove
+      toRemove.length = 0
       for (const id of this._playerIndex.ids()) {
         if (!ids.has(id)) toRemove.push(id)
       }

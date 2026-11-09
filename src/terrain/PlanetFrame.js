@@ -109,7 +109,6 @@ export function guardedGroundHeight(where, heightFn) {
 const SURFACE_SOLVE_MAX_EVALS = 64
 
 const _norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
-const _add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 const _scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s]
 const _cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 
@@ -145,21 +144,24 @@ export function elevationAtLocal(frame, x, y, z) {
 
 const RAYCAST_BISECT_STEPS = 16
 
+function groundOrNull(frame, x, z) {
+  try { return frame.groundHeightLocal(x, z) } catch (e) {
+    if (e instanceof SurfaceSolveError) return null
+    throw e
+  }
+}
+
 export function raycastGroundLocal(frame, origin, direction, maxDistance, { stepM = 0.5, cellM = 1 } = {}) {
   if (!frame || typeof frame.groundHeightLocal !== 'function') return null
   const len = Math.hypot(direction[0], direction[1], direction[2])
   if (!(len > 0) || !Number.isFinite(maxDistance) || maxDistance <= 0) return null
   const dx = direction[0] / len, dy = direction[1] / len, dz = direction[2] / len
-  const groundAt = (x, z) => {
-    try { return frame.groundHeightLocal(x, z) } catch (e) {
-      if (e instanceof SurfaceSolveError) return null
-      throw e
-    }
-  }
+  const sample = { x: 0, y: 0, z: 0, above: false }
   const sampleAt = (t) => {
     const x = origin[0] + dx * t, y = origin[1] + dy * t, z = origin[2] + dz * t
-    const g = groundAt(x, z)
-    return { x, y, z, above: g === null ? true : y > g }
+    const g = groundOrNull(frame, x, z)
+    sample.x = x; sample.y = y; sample.z = z; sample.above = g === null ? true : y > g
+    return sample
   }
   let prevT = 0
   let prev = sampleAt(0)
@@ -183,8 +185,8 @@ export function raycastGroundLocal(frame, origin, direction, maxDistance, { step
 
   function hitAt(distance, p) {
     const e = cellM * 0.5
-    const gxp = groundAt(p.x + e, p.z), gxm = groundAt(p.x - e, p.z)
-    const gzp = groundAt(p.x, p.z + e), gzm = groundAt(p.x, p.z - e)
+    const gxp = groundOrNull(frame, p.x + e, p.z), gxm = groundOrNull(frame, p.x - e, p.z)
+    const gzp = groundOrNull(frame, p.x, p.z + e), gzm = groundOrNull(frame, p.x, p.z - e)
     const gx = (gxp !== null && gxm !== null) ? (gxp - gxm) / (2 * e) : 0
     const gz = (gzp !== null && gzm !== null) ? (gzp - gzm) / (2 * e) : 0
     const nl = Math.hypot(gx, 1, gz)
@@ -204,9 +206,13 @@ export function anchorBasis(anchorDir) {
   return { up, east, north }
 }
 
+const _tangentDir = [0, 0, 0]
 export function tangentLocalToDir(basis, radius, x, z) {
   const { up, east, north } = basis
-  return _norm([up[0] * radius + east[0] * x + north[0] * z, up[1] * radius + east[1] * x + north[1] * z, up[2] * radius + east[2] * x + north[2] * z])
+  _tangentDir[0] = up[0] * radius + east[0] * x + north[0] * z
+  _tangentDir[1] = up[1] * radius + east[1] * x + north[1] * z
+  _tangentDir[2] = up[2] * radius + east[2] * x + north[2] * z
+  return _norm(_tangentDir)
 }
 
 export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0, reliefScale }) {
@@ -220,20 +226,21 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   let _e0 = east[0], _e1 = east[1], _e2 = east[2]
   let _n0 = north[0], _n1 = north[1], _n2 = north[2]
   let _u0 = up[0], _u1 = up[1], _u2 = up[2]
-  function renderDirAt(x, renderY, z) {
+  function renderDirAt(x, renderY, z, out = [0, 0, 0]) {
     const t = radius + anchorHeight + renderY
     const ax = _u0 * t + _e0 * x + _n0 * z
     const ay = _u1 * t + _e1 * x + _n1 * z
     const az = _u2 * t + _e2 * x + _n2 * z
     const l = Math.hypot(ax, ay, az) || 1
-    return [ax / l, ay / l, az / l]
+    out[0] = ax / l; out[1] = ay / l; out[2] = az / l
+    return out
   }
   function renderYOnSphere(r2, elevation) {
     return (elevation - anchorHeight) - sphereDropBelowTangent(r2, radius + elevation)
   }
-  function localToDir(x, z, y) {
+  function localToDir(x, z, y, out) {
     const renderY = (y === undefined) ? renderYOnSphere(x * x + z * z, 0) : y - offsetY
-    return renderDirAt(x, renderY, z)
+    return renderDirAt(x, renderY, z, out)
   }
   function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M, yGuess) {
     requireArgument('solveSurfaceY', 'x', x, 'be a finite number', argumentIsFiniteNumber(x))
@@ -314,8 +321,8 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   }
   const anchorSurfaceWorld = _scale(up, radius + anchorHeight)
   function localToWorld(x, y, z) {
-    const surf = _add(_scale(up, radius + anchorHeight + y), _add(_scale(east, x), _scale(north, z)))
-    return surf
+    const s = radius + anchorHeight + y
+    return [up[0] * s + (east[0] * x + north[0] * z), up[1] * s + (east[1] * x + north[1] * z), up[2] * s + (east[2] * x + north[2] * z)]
   }
   let cpuDivergenceReported = false
   const cpuElevationAtDir = (d) => sampler.heightAt(_norm(d))

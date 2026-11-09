@@ -53,6 +53,8 @@ export class BaseClient {
     this._lastSnapTick = 0
     this._plainInputSeq = 1
     this._plainInputs = []
+    this._quantized = { data: null, cases: NO_INPUT_CASES }
+    this._snapshotWrap = { players: [null] }
     this._inputCasesReported = new Set()
     this.protocolRejected = null
     this._groundSurface = typeof config.predictionGroundSurface === 'function' ? config.predictionGroundSurface : null
@@ -174,17 +176,19 @@ export class BaseClient {
     const schema = this._msgHandler.getInputSchema()
     const predEngine = this._msgHandler.getPredEngine()
     const predicting = !!(this.config.predictionEnabled && predEngine)
-    const quantized = predicting ? this._quantize(input, schema) : { data: input, cases: NO_INPUT_CASES }
+    const quantized = predicting ? this._quantize(input, schema) : this._passThrough(input)
     if (!quantized) return
-    for (const c of quantized.cases) this._reportInputCase(c)
+    const { data, cases } = quantized
+    for (const c of cases) this._reportInputCase(c)
     let entries
     if (predicting) {
-      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(quantized.data, stepAt, periodMs)
+      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(data, stepAt, periodMs)
       entries = predEngine.getUnackedInputs(REDUNDANT_INPUT_RECORDS)
     } else {
       const sequence = this._plainInputSeq++
-      this._plainInputs.push({ sequence, data: quantized.data })
-      if (this._plainInputs.length > REDUNDANT_INPUT_RECORDS) this._plainInputs.shift()
+      const slot = this._plainInputs.length >= REDUNDANT_INPUT_RECORDS ? this._plainInputs.shift() : {}
+      slot.sequence = sequence; slot.data = data
+      this._plainInputs.push(slot)
       entries = this._plainInputs
     }
     if (!entries || entries.length === 0) return
@@ -197,11 +201,19 @@ export class BaseClient {
   _quantize(input, schema) {
     const cases = []
     try {
-      return { data: quantizeInput(schema, input, cases), cases }
+      const q = this._quantized
+      q.data = quantizeInput(schema, input, cases); q.cases = cases
+      return q
     } catch (e) {
       this._reportInputCase(toRejection(e))
       return null
     }
+  }
+
+  _passThrough(input) {
+    const q = this._quantized
+    q.data = input; q.cases = NO_INPUT_CASES
+    return q
   }
 
   _reportInputCase(c) {
@@ -225,7 +237,7 @@ export class BaseClient {
     const predEngine = this._msgHandler.getPredEngine()
     if (this.playerId && this.config.predictionEnabled && predEngine) {
       const localState = this._snapProc.getPlayerState(this.playerId)
-      if (localState) predEngine.onServerSnapshot({ players: [localState] }, this.currentTick)
+      if (localState) { const snap = this._snapshotWrap; snap.players[0] = localState; predEngine.onServerSnapshot(snap, this.currentTick) }
     }
     if (msgType === MSG.SNAPSHOT) this._trackArrivalJitter(incomingTick)
     if (this.playerId && msgType === MSG.SNAPSHOT) this._updateInputRate(this._snapProc.getPlayerState(this.playerId)?.inputBuffer)
