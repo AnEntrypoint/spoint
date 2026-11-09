@@ -274,6 +274,7 @@ async function main() {
     ['xr-pointer-ground-witness', 'scripts/xr-pointer-ground-witness.mjs', (out) => `check: ${out}`],
     ['xr-arc-frame-order-witness', 'scripts/xr-arc-frame-order-witness.mjs', (out) => `check: ${out}`],
     ['xr-teleport-warm-witness', 'scripts/xr-teleport-warm-witness.mjs', (out) => `check: ${out}`],
+    ['collision-tile-shape-witness', 'scripts/collision-tile-shape-witness.mjs', (out) => `check: ${out}`],
   ]
   for (const [label, file, fmt] of steps) {
     try {

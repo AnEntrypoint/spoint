@@ -62,12 +62,21 @@ PROBES.forEach((p, i) => {
   if (floor && shapeDiff(floor.records, serverTileRecords[i])) mismatches++
 })
 
-const control = { ...goodMessages[1], b: new Uint8Array(new Uint8Array(goodMessages[1].b)) }
-new Float64Array(control.b.buffer, control.b.byteOffset, control.b.byteLength / 8)[0] += 0.01
-mirror.onTile(control)
+const floorMeta = server.bodyMeta.get(floorId)
+const floorHalfTrue = floorMeta.half
+floorMeta.half = [floorHalfTrue[0] + 0.01, floorHalfTrue[1], floorHalfTrue[2]]
+index.forget(floorId)
+index.update(floorId)
+const perturbedTile = index.get(probeTiles[1][0], probeTiles[1][1], 0)
+const perturbedRecords = boxRecordsOf(perturbedTile.boxes)
+check('negative control: the server tile carries the perturbed floor record', perturbedRecords.some(r => r[0] === floorHalfTrue[0] + 0.01), `floor half ${floorMeta.half[0]}`)
+mirror.onTile(encodeTileMessage(perturbedTile))
 const perturbed = mirror.floorOf(probe3(PROBES[1]))
-const caught = perturbed ? shapeDiff(perturbed.records, serverTileRecords[1]) !== '' : false
-check('negative control: a 1 cm half-extent change is reported as a shape difference', caught, perturbed ? shapeDiff(perturbed.records, serverTileRecords[1]) : 'no floor')
+const perturbedDiff = perturbed ? shapeDiff(perturbed.records, serverTileRecords[1]) : 'no floor'
+check('negative control: the mirror path reports the perturbed server record as a shape difference', perturbedDiff !== '' && perturbedDiff !== 'no floor', perturbedDiff)
+floorMeta.half = floorHalfTrue
+index.forget(floorId)
+index.update(floorId)
 
 const refusedBefore = mirror.getStats().refusedTiles
 mirror.onTile({ ...goodMessages[1], f: 1 })
