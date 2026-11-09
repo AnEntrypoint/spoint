@@ -39,7 +39,7 @@ proto._step = function (input, seq, groundNormal) {
   }
   const pushIn = probing ? this._pushForSequence(seq) : null
   const out = realStep.call(this, input, seq, groundNormal)
-  if (probing) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!ls.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [ls.velocity[0], ls.velocity[2]], preVel, amVel, preFlags, preOnGround, flags: moveFlags(ls), onGround: !!ls.onGround, dt: dtS, dilation: this.dilation, path: this._env?.collider ? 'collider' : 'analytic', pushIn: pushIn ? [...pushIn] : null })
+  if (probing) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!ls.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [ls.velocity[0], ls.velocity[2]], preVel, amVel, preFlags, preOnGround, flags: moveFlags(ls), onGround: !!ls.onGround, dt: dtS, dilation: this.dilation, path: this._env?.collider ? 'collider' : 'analytic', pushIn: pushIn ? [...pushIn] : null, movement: { ...this.movement } })
   return out
 }
 
@@ -118,6 +118,13 @@ const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.g
 
 const serverCalls = new Map()
 const callLogs = new Map()
+const pendingPreStep = new Map()
+const realGetMovementOverride = PlayerManager.prototype.getMovementOverride
+PlayerManager.prototype.getMovementOverride = function (playerId) {
+  const p = this.players.get(playerId)
+  if (p?.state) pendingPreStep.set(playerId, { preVel: [p.state.velocity[0], p.state.velocity[2]], preFlags: moveFlags(p.state), preOnGround: !!p.state.onGround, starves: p.inputStarves ?? 0, starvedNow: p.starvedSteps ?? 0 })
+  return realGetMovementOverride.call(this, playerId)
+}
 const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
 const FREEZE_NEUTRAL = process.env.GROUNDY_FREEZE_NEUTRAL === '1'
 PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
@@ -137,7 +144,8 @@ PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, de
   if (!serverCalls.has(key)) serverCalls.set(key, [])
   const joltVel = [state.velocity[0], state.velocity[2]]
   const normal = Array.isArray(state.groundNormal) ? [...state.groundNormal] : null
-  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input, vel: carriedVel, joltVel, normal, flags, onGroundIn, onGroundOut: !!state.onGround })
+  const pre = pendingPreStep.get(playerId) ?? null
+  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input, vel: carriedVel, joltVel, normal, flags, onGroundIn, onGroundOut: !!state.onGround, preVel: pre?.preVel ?? null, preFlags: pre?.preFlags ?? null, preOnGround: pre?.preOnGround ?? null, preStarves: pre?.starves ?? null })
   if (!callLogs.has(playerId)) callLogs.set(playerId, [])
   callLogs.get(playerId).push({ seq, before, after: position, neutral })
   return out
@@ -267,6 +275,10 @@ const attachTraces = () => {
         serverFirst: calls.length ? calls[0].position : null,
         serverInput: calls.length ? calls[0].input : null,
         clientInput: new Map(r.clientSteps ?? []).get(seq) ?? null,
+        serverPreVel: calls.length ? calls[0].preVel : null,
+        serverPreFlags: calls.length ? calls[0].preFlags : null,
+        serverPreOnGround: calls.length ? calls[0].preOnGround : null,
+        serverPreStarves: calls.length ? calls[0].preStarves : null,
         serverVel: calls.length ? calls[0].vel : null,
         serverJoltVel: calls.length ? calls[0].joltVel : null,
         serverLastVel: calls.length ? calls[calls.length - 1].vel : null,
@@ -284,7 +296,8 @@ const attachTraces = () => {
         clientOnGround: cs.onGround ?? null,
         clientDt: cs.dt ?? null,
         clientPath: cs.path ?? null,
-        clientPushIn: cs.pushIn ?? null
+        clientPushIn: cs.pushIn ?? null,
+        clientMovement: cs.movement ?? null
       }
     })
     r.residualPrePushM = residualAgainst(r.trace, t => t.serverFirst)
