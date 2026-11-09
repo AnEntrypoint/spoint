@@ -16,7 +16,7 @@ const INJECT_DEFAULT_M = 0.03
 const args = parseArgs(process.argv.slice(2))
 const CONTROL = args.control === true || args.control === 'true'
 const RUNS = numericFlag(args, 'runs', CONTROL ? 1 : MIN_RUNS)
-const COND = strArg(args.cond, '50/10/2')
+const COND = strArg(args.cond, '120/40/6')
 const WORLD = strArg(args.world, 'peers')
 const DURATION_MS = numericFlag(args, 'duration', 20000)
 const INJECT_M = CONTROL ? numericFlag(args, 'inject', INJECT_DEFAULT_M) : 0
@@ -124,7 +124,7 @@ const main = async () => {
     const engines = new Set(corrections.map(r => r.engine)).size
     const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs }
     runs.push(summary)
-    console.log(`run ${i}: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for growth) over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush})`)
+    console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for growth) over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush})`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)
@@ -156,7 +156,7 @@ const main = async () => {
   const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0
   console.log(ruledOut
     ? `RESULT: PASS the replay base groundY adds no growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
-    : `RESULT: FAIL replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s); ${RUNS} requested, ${failures.length} failed, ${popRuns} run(s) with local pops`)
+    : `RESULT: FAIL replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s) of world ${WORLD} cond ${COND}; ${RUNS} requested, ${failures.length} failed, ${popRuns} run(s) with local pops`)
   await exitAfterQuiesce(ruledOut ? 0 : 1)
 }
 

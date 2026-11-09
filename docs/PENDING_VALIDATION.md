@@ -203,6 +203,35 @@ Measured facts:
 
 Not checked: whether the Jolt character's walk-stairs step or a contact on the box's large triangles produces the lift. Left open. The spike is below the 1 cm witness bar, and it is a predicted-state blip that the ack does not correct.
 
+## Witness power: Phase B, peers world under 120/40/6 (both arms, canonical 50/10/2)
+
+Run: `node scripts/groundy-replay-witness.mjs` (world `peers`, condition `120/40/6`, 15 runs, 20 s each). Each run line now prints `[world <w> cond <c>]`, and the FAIL RESULT line names the world and condition too. The logs below come from before and after that change, so the first arm's log has no condition on its run lines.
+
+Results (`correction` replays only; resync replays carry no ack error):
+
+| Arm | Log | Replays | Over 1 cm | Runs over | Max growth | Contact replays over |
+| --- | --- | --- | --- | --- | --- | --- |
+| Displacement (committed `_commandedTravel`), first run | `/tmp/popdiag/final-arm-true.log` | 472 | 4 | 4 of 15 | 0.1096 m | 1 of 27 |
+| Displacement, rerun with condition printed | `/tmp/popdiag/final-arm-true-cond.log` | 491 | 11 | 8 of 15 | 0.1110 m | 0 of 35 |
+| Velocity sum (temporary branch, reverted) | `/tmp/popdiag/final-arm-false.log` | 492 | 48 | 14 of 15 | 3.4921 m | 0 of 31 |
+
+The two displacement runs differ (472 and 491 replays, 4 and 11 over the limit) with the same code, so the count moves between runs. The velocity-sum arm is worse on every count: 48 over the limit against 11, and a max growth of 3.49 m against 0.11 m. The displacement formula stays in `src/client/PredictionEngine.js`. `FAIL` is still the result under 120/40/6: the displacement arm does not hold 1 cm.
+
+Canonical 50/10/2 (`node scripts/groundy-replay-witness.mjs --cond=50/10/2`, log `/tmp/popdiag/canonical-50-10-2.log`, hook output `/tmp/groundy-replay-WjTxBA`): 14 runs have 0 correction replays. Run 7 has one correction replay, so the canonical result is not zero.
+
+- Run 7, engine 1, seq 703: `errM` 0.0449 m, `jumpM` 0.1031 m, `growthM` 0.0582 m.
+- `serverGroundY` 1.4 and `predictedGroundY` 1.3999999762, so the ground-Y gap is zero and the error is horizontal.
+- `inContact` is false, so the peer push is not the cause.
+- This is over the 1 cm limit. It is an open defect, and no cause is identified in this pass.
+
+Open items:
+
+- The displacement arm still grows past 1 cm in 4 to 8 of 15 runs under 120/40/6, up to 0.111 m. The cause is not found. Likely candidates are acks rejected by `ackUsable` or `maxAckAdvanceTicks`, which would leave prediction stale until a larger correction. Not tested in this pass.
+- The canonical 50/10/2 run 7 correction (seq 703, 0.0449 m ack error, not in contact) is unexplained. The earlier 12-run hunt had no correction, so it appears only sometimes.
+- The one-tick spike stays open, as described in the Phase A section above.
+
+No defect was fixed in this pass. The pass changed only the witness output (world and condition on each line) and the harness's shooter script.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.

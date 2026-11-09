@@ -91,7 +91,8 @@ const HARNESS_PEERS = {
   ...HARNESS_ARENA, name: 'netcode-harness-peers',
   harness: {
     shooterAt: [0, 1.2, 1.6],
-    script: [[600, { forward: true }], [400, { forward: true, right: true }], [600, { backward: true }], [400, { backward: true, left: true }], [500, {}]]
+    script: [[600, { forward: true }], [400, { forward: true, right: true }], [600, { backward: true }], [400, { backward: true, left: true }], [500, {}]],
+    shooterScript: [[600, { backward: true }], [400, { backward: true, right: true }], [600, { forward: true }], [400, { forward: true, left: true }], [500, {}]]
   }
 }
 const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS, slope: HARNESS_SLOPE, peers: HARNESS_PEERS }
@@ -370,7 +371,12 @@ async function runOne(cond, predict, worldDef) {
     lastMoverInput = inp
     return inp
   })
-  shooter.client.startInputLoop(() => { if (args.kinds !== 'off') instrumentPrediction(shooter, shooterRec, null); return { yaw: 0, pitch: 0 } })
+  shooter.client.startInputLoop(() => {
+    if (args.kinds !== 'off') instrumentPrediction(shooter, shooterRec, null)
+    const shooterScript = worldDef.harness?.shooterScript
+    if (!shooterScript || performance.now() < runStart) return { yaw: 0, pitch: 0 }
+    return { ...moverInputAt(performance.now() - runStart, shooterScript), yaw: 0, pitch: 0 }
+  })
   bots.forEach((b, i) => b.client.startInputLoop(() => { if (botRng() < 0.03) botInputs[i] = { forward: botRng() < 0.6, left: botRng() < 0.3, right: botRng() < 0.3, yaw: botRng() * 6.28, pitch: 0 }; return botInputs[i] }))
   const stopInput = () => all.forEach(h => h.client.stopInputLoop())
   const stopFrames = scheduler.every(1000 / FPS, now => {
