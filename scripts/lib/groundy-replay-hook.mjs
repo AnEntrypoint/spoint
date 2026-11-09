@@ -195,6 +195,7 @@ const attachTraces = () => {
       }
     })
     r.residualM = residualOf(r.trace)
+    r.ackKeyCalls = (serverCalls.get(`${r.playerId}|${r.ackSeq}`) ?? []).length
   }
 }
 

@@ -386,6 +386,17 @@ Decision 1, netcode (owner): a starved tick takes the server's neutral physics s
 
 Not done in Phase A: the client does not predict a starved tick live, because it cannot know one before the ack. The ack's replay base is the server state at the snapshot tick, so it already holds the neutral steps before that tick. Neutral steps after the snapshot are unknown until the next ack, and the residual is what shows them. Phase B decides whether that residual is acceptable or needs a wire change.
 
+## Phase A (run 2): starved-tick count in the ack; client roll-forward
+
+Decision (replaces the client-predicts-starved-ticks idea, which cannot work because the client learns of a starved tick only at the ack): the server keeps the 0.25 s hold and reports `starvedSteps`, the neutral physics steps taken since the acked input, in every ack. The client rolls forward from its prediction at the acked input through that many neutral steps and keeps that state if it agrees with the server within `RECONCILE_POS_EPS_M`; otherwise it rebases on the server state at the snapshot tick. Reason in `docs/netcode.md` (Input). The server state at the snapshot tick already includes the steps before it, so the client never replays them twice.
+
+| Row | Change | Commit | Files | Witness to run in Phase B |
+|---|---|---|---|---|
+| count | `processPlayerMovement` counts neutral steps (not hold ticks) into `player.starvedSteps`, reset on each consumed input; `updatePlayer` takes it as a trailing argument. | Phase A | `src/sdk/TickHandler.js`, `src/netcode/NetworkState.js` | `node scripts/groundy-replay-witness.mjs` (120/40/6): the hook's `ackKeyCalls` and the gate totals; `npm run check` |
+| wire | `encodeSelfBlock` appends `starvedSteps` at index 5 of the self block; `decodeSelfBlock` and `applySelfBlock` read it, defaulting to 0. Older decoders ignore index 5. | Phase A | `src/netcode/SnapshotEncoder.js`, `src/client/SnapshotProcessor.js` | `npm run check` (msgpack and snapshot witnesses); the gate reads the count on every ack |
+| client | `_rebaseAndReplay` rolls forward from the acked prediction through the count (`_rollForwardAcked`) and falls back to the server base when it disagrees by more than `RECONCILE_POS_EPS_M`. | Phase A | `src/client/PredictionEngine.js` | `node scripts/prediction-reconcile-witness.mjs` (expect PASS, 22 checks); `node scripts/groundy-replay-witness.mjs` |
+| probe | The hook records `ackKeyCalls`: the server's physics calls under the acked input key, including the starved steps that come after the snapshot. The 32 no-starve divergences are classified against it in Phase B. | Phase A | `scripts/lib/groundy-replay-hook.mjs` | `node scripts/groundy-replay-witness.mjs` (the traces carry `ackKeyCalls`) |
+
 ## Phase B: 120/40/6 close-out (netcode decision refuted and reverted; residual gate FAILS, cause partly identified)
 
 Runs: `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s), and the server probe below. Logs are in `/tmp/phaseB/` and are not tracked.
