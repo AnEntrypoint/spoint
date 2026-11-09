@@ -385,3 +385,28 @@ Decision 1, netcode (owner): a starved tick takes the server's neutral physics s
 | gate | The hook records `residualM` per correction: the largest distance from a replayed entry's position to the server's position right after that input was consumed (first physics call under its key). The witness gates on `residualM > 1 cm`. `growthM` (`offsetM - errM`) is printed as a diagnostic. | Phase A | `scripts/lib/groundy-replay-hook.mjs`, `scripts/groundy-replay-witness.mjs` | `node scripts/groundy-replay-witness.mjs` (120/40/6); `node scripts/groundy-replay-witness.mjs --control` must show residual over 1 cm |
 
 Not done in Phase A: the client does not predict a starved tick live, because it cannot know one before the ack. The ack's replay base is the server state at the snapshot tick, so it already holds the neutral steps before that tick. Neutral steps after the snapshot are unknown until the next ack, and the residual is what shows them. Phase B decides whether that residual is acceptable or needs a wire change.
+
+## Phase B: 120/40/6 close-out (netcode decision refuted and reverted; residual gate FAILS, cause partly identified)
+
+Runs: `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s), and the server probe below. Logs are in `/tmp/phaseB/` and are not tracked.
+
+Decision 1, neutral physics step on every starved tick with no hold (commit `829b7fd`): REFUTED and reverted in `8cf1f10`.
+- Gate on `829b7fd`: `totals: runs 11/15 replays 2136 replays over 1 cm residual 1961 (in peer contact 55 of 55 contact replays; with a groundY gap 1) in 11 run(s) max residual 4.6090 m`. `RESULT: FAIL world peers cond 120/40/6: 4 of 15 run(s) failed; replay residual over 1 cm in 1961 of 2136 replays across 11 of 11 completed run(s)`. Four runs failed the hook check (`failed: run 4: no engine's corrections match the harness's 94 applied corrections, so the hook missed a correction`, and runs 10, 13, 14).
+- Local pops: `max pops/min 512.75` on that run. Per-ack error (`errM`) reached about 2.0 m.
+- Cause: a starved tick with no movement keys moves the character on the server, and the client cannot predict a starved tick before the ack. Every starved tick became an error. The 0.25 s hold keeps the replay at about 31 to 35 replays per run, as on the pre-change code.
+
+Decision 2, gate on the replay residual (commit `a9196d3`): implemented; the gate still FAILS on the reverted code (`8cf1f10`).
+- `totals: runs 15/15 replays 499 replays over 1 cm residual 66 (in peer contact 29 of 29 contact replays; with a groundY gap 2) in 15 run(s) max residual 1.2887 m injected replays 0 (over limit 0) runs with local pops 15 max pops/min 170.96 pops 698 matched 286 in peer contact 9 mirror spikes 5`
+- `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 66 of 499 replays across 15 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 5 of 15 run(s); 15 requested, 15 run(s) with local pops`
+- The witness target (over-limit replays drop to zero or are explained by the residual) is not met: 66 replays are over the limit, in all 15 runs.
+- Cause, from the traces (`/tmp/groundy-replay-x9V219/over-limit-traces.json`, counted by an ad hoc script, not committed): 36 of 66 over-limit replays have a starved server tick in their trace. 34 of 66 diverge from the server only after a starved tick. 32 of 66 diverge with no starved tick before the divergence, at 0.05 to 0.66 m. Every one of the 29 contact replays is over the limit. The 32 no-starve cases and the contact cases are not explained yet.
+- The "about 4 mm" residual from the earlier ledger is not reproduced by this residual definition (the largest distance from a replayed entry to the server position at its consumption, over all replayed entries). The 4 mm figure was a class-A subset and is not the gate measure.
+- Stated limit, not run: 50/10/2 is underpowered (`MIN_REPLAYS` 100, and it yields about 1 replay in 15 runs). It is reported as `underpowered` and does not gate.
+
+Server probe (`/tmp/popdiag/srvspike.mjs` over three `nstick2.mjs` logs from `netcode-conditioner-harness.mjs --cond=120/40/6 --predict=on --world=peers --duration=20000`): `/tmp/phaseB/S-srv-1.json server spikes: 0`, `S-srv-2.json server spikes: 0`, `S-srv-3.json server spikes: 0`.
+
+Build: `npm run build:bundles` wrote `dist/client` (`[bundle-client] stamped dist/client/app.bundlehash.json 26483c363bcaa80b`) and `dist/src/sdk/WorkerEntry.js` (`[bundle-worker] stamped dist/src/sdk/WorkerEntry.bundlehash.json 3126f402fca21ab2`). One esbuild warning, an empty glob for `./TickHandler.js?hmr=` in `src/sdk/WorkerEntry.js`, existed before this change.
+
+`npm run check`: the first run failed on `RESULT: FAIL docs/index.html is not the generator output`, because the ledger edit changed `docs/*.md`. Fixed by `node scripts/generate-docs-site.js` and confirmed by `RESULT: PASS docs/index.html equals the output of scripts/generate-docs-site.js for the current sources`. The full re-run result is in the commit message and the report.
+
+Status: Decision 1 refuted, reverted. Decision 2 implemented; the gate FAILS with the cause above. Open: the 32 no-starve divergences and the 29 contact replays.
