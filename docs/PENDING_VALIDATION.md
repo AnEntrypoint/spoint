@@ -1280,3 +1280,827 @@ Comparison, from the timestamps and the fields above:
 - Service-side reject: consistent with the evidence, but not proven. The run failed with no `deploy` job record, and the API exposes no reason and no annotation for the missing job. The record cannot show which service check rejected it.
 
 Cause: open. The two repo-side causes are ruled out by the record. The remaining cause is a service-side reject that the API does not expose, and it can only be confirmed by a GitHub support reply or by a recurrence that carries a job record or annotation. No rule is stated, because no cause is confirmed. No run was re-run and no repository setting was changed.
+
+## Run 23: reuse audit of hot-path allocations (Phase A, read-only, not pushed)
+
+Scope: per-tick, per-frame, per-step, per-cell, per-sample, per-message, per-packet and per-input allocations in the netcode, the server tick, the collision mirror floor, the client render loop, and the remaining `src/` per-tick code. Setup-only sites are left out, since they are not hot. Each row is `file:line | kind | path | expression | reuse | risk`. The rows come from five read-only audits; I did not re-verify them line by line, except `src/physics/World.js:526` and `getBodyPosition`, which I read.
+
+Witness codes, assigned by path class (every row in an area takes the code for its path):
+
+- W-hash: output is value-identical before and after. Dump the encoded packet, or the returned value, for a fixed input and compare sha256. Required for any change to bytes on the wire, the tile wire, the snapshot or the input codec.
+- W-alloc: allocation count per tick does not rise, and drops where the row is reused. Count with `--trace-gc` or a heap sample across the existing replay harness, `scripts/groundy-replay-witness.mjs` for the mirror and physics paths, and `scripts/perf-run.mjs` for the client loop.
+- W-frame: frame time does not regress. Judge on `scripts/perf-run.mjs` p50 with p95 beside it, on the GPU runner, since no runner is online here.
+- W-behaviour: the module's existing witness still passes. The witness for each file is named in the area heading.
+
+Reuse classes: `preallocated-cleared-buffer` (a scratch array or typed array cleared on each use), `pooled-object` (an object drawn from a free list), `hoisted-variable` (a module constant or scratch), `fixed-ring` (a ring sized to a retention window). Any row whose result is retained by a caller, a baseline, a ring or a payload cannot take a per-call scratch. Those rows need a per-owner double buffer or a ring sized to the window, and the risk column says which.
+
+Totals across the five audits, setup-only excluded: collision mirror 91 rows, server tick 177, remaining `src/` 200, client render loop 132, netcode 294. The per-area counts are in each heading below. The netcode audit's count of 294 includes its setup-only rows, which it did not separate, so that figure is an upper bound.
+
+### Area 1: collision mirror floor (audit read `src/client/CollisionMirror.js`, `src/shared/collisionTile.js`, `src/physics/StaticTileIndex.js`, `src/netcode/CollisionTileStreamer.js`)
+
+Witness: `scripts/collision-tile-shape-witness.mjs` (W-behaviour, the exact box records), and W-hash on the tile wire via `encodeTileMessage`.
+
+| Site | Kind | Path | Expression | Reuse | Risk |
+|---|---|---|---|---|---|
+| `src/client/CollisionMirror.js:24` | Map/Set | per-message | `activeBoxes = new Set()` in dispose | preallocated-cleared-buffer | none, internal |
+| `src/client/CollisionMirror.js:33` | object | per-message | `new PhysicsWorld({...})` options | none | config arrival only |
+| `src/client/CollisionMirror.js:40` | array | per-message | `[0, 0, 0]` addCharacter position | hoisted-variable | none, read as a position |
+| `src/client/CollisionMirror.js:42` | JSON | per-message | `JSON.stringify(c)` into cfgKey | none | cfgKey must keep every field |
+| `src/client/CollisionMirror.js:50` | string | per-message | `r.join(',')` key in acquireBox | none | content-keyed; a numeric hash could collide |
+| `src/client/CollisionMirror.js:53` | wasm | per-message | `new J.Vec3(...)` per new box body | pooled-object | none; Jolt copies the half extent (binding to verify) |
+| `src/client/CollisionMirror.js:54` | wasm | per-message | `new J.BoxShape(...)` | none | shape owned by body |
+| `src/client/CollisionMirror.js:56` | array | per-message | `[r[4..6]]`, `[r[7..10]]` into `_addBody` | hoisted-variable | none; consumed into `J.RVec3` and `J.Quat` |
+| `src/client/CollisionMirror.js:56` | object | per-message | `{rotation, meta}` options | none | meta stored by reference (`World.js:147`) and mutated (`:148`) |
+| `src/client/CollisionMirror.js:58` | object | per-message | `e = {id, refs: 0}` | none | retained as `boxBodies` value |
+| `src/client/CollisionMirror.js:76` | iterator | per-message | `for (const k of activeBoxes)` in detach | none | none |
+| `src/client/CollisionMirror.js:77` | Map/Set | per-message | `activeBoxes = new Set()` in detach | preallocated-cleared-buffer | none, reassigned at `:198` |
+| `src/client/CollisionMirror.js:84` | iterator | per-message | `for (const k of t.boxKeys)` in dropBody | none | none |
+| `src/client/CollisionMirror.js:86` | array | per-message | `t.boxKeys = []` in dropBody | preallocated-cleared-buffer | none; `floorOf` maps it |
+| `src/client/CollisionMirror.js:154` | object | per-message | tile record literal with `boxKeys: []` | none | retained in tiles Map |
+| `src/client/CollisionMirror.js:147` | JSON | per-message | `JSON.stringify(c)` in sameConfig | none | full-field key identity |
+| `src/client/CollisionMirror.js:152` | string | per-message | `tileKey(decoded.tx, decoded.tz)` in onTile | none | Map key identity |
+| `src/client/CollisionMirror.js:161` | iterator pair | per-message | `for (const [k, t] of tiles)` in evictFar, every arrival | none | none |
+| `src/client/CollisionMirror.js:170` | wasm | per-message | `new J.TriangleList()` in build | pooled-object (resize one list) | `MeshShapeSettings` must copy the list (binding to verify) |
+| `src/client/CollisionMirror.js:172` | wasm | per-message | `list.at(0)`, `list.at(1)` | hoisted-variable per pooled list | stride valid only until a resize reallocates |
+| `src/client/CollisionMirror.js:175` | wasm | per-message | `new J.MeshShapeSettings(list)`, `Create()` | none | shape handed to body |
+| `src/client/CollisionMirror.js:178` | array, object | per-message | mirror mesh `[0,0,0]` and `{meta}` | hoisted-variable | none |
+| `src/client/CollisionMirror.js:183` | array | per-message | `t.boxKeys.push(acquireBox(r))` | none | none |
+| `src/client/CollisionMirror.js:195` | Map/Set | per-step | `want = new Set(t.boxKeys)` on tile change | preallocated-cleared-buffer (swap two sets) | none; becomes `activeBoxes` at `:198` |
+| `src/client/CollisionMirror.js:196` | iterator | per-step | `for (const k of activeBoxes)` | none | none |
+| `src/client/CollisionMirror.js:197` | iterator | per-step | `for (const k of want)` | none | none |
+| `src/client/CollisionMirror.js:202` | string | per-step | `tileKey(Math.floor(p[0]/T), Math.floor(p[2]/T))` in tileAt via covers | hoisted-variable (last-tile cache) | cache must drop on onTile replace, evictFar, clearTiles, dispose, configure |
+| `src/client/CollisionMirror.js:250` | string | per-step | `activate(tileAt(p))` in step | hoisted-variable (same cache) | same |
+| `src/client/CollisionMirror.js:214` | string | per-query | `tileAt(p)` in floorOf | hoisted-variable (same cache) | same |
+| `src/client/CollisionMirror.js:217` | object | per-query | `return {meshes, records, bodies}` | pooled-object | `records` aliases tile.boxes; no `src/` or `client/` caller |
+| `src/client/CollisionMirror.js:220` | array, closure | per-query | `t.boxKeys.map(...)` and arrow | preallocated-cleared-buffer | a retained result aliases the reused array |
+| `src/client/CollisionMirror.js:221` | wasm | per-query | `GetShape().GetLocalBounds()` per box | hoisted-variable (half from record `r[0..2]`) | must equal the record half; verify |
+| `src/client/CollisionMirror.js:222` | array | per-query | `half = [...]` per box | pooled-object | caller retention |
+| `src/client/CollisionMirror.js:224` | object | per-query | `{half, position, rotation}` per box | pooled-object | caller retention |
+| `src/client/CollisionMirror.js:234` | string | per-step | `tileKey(cx+dx, cz+dz)` x9 in prebuildNeighbour, every step after 200 ms | hoisted-variable (skip the scan when no neighbour is unbuilt) | changes cost only |
+| `src/client/CollisionMirror.js:243` | wasm | per-step | `world.jolt.GetTempAllocator()` in RefreshContacts | hoisted-variable (fetch once) | none |
+| `src/client/CollisionMirror.js:263` | array | per-step | `[wishedX, vy, wishedZ]` into setCharacterVelocity | hoisted-variable (module scratch) | none; setVelocity copies values |
+| `src/client/CollisionMirror.js:279` | object | per-query | `getStats` spread | pooled-object | a stored snapshot aliases; only `PredictionEngine.js:122` calls it |
+| `src/shared/collisionTile.js:14` | array | per-message | `boxRecordOf` 11-value array per box in build | preallocated-cleared-buffer | none; copied by `boxRecordsFlat` |
+| `src/shared/collisionTile.js:18` | typed | per-message | `new Float64Array(records.length * 11)` in boxRecordsFlat | none | retained as `tile.boxes` |
+| `src/shared/collisionTile.js:19` | closure | per-message | `records.forEach(...)` | hoisted-variable | none |
+| `src/shared/collisionTile.js:24` | array | per-message | `boxRecordsOf` out `[]` per received tile | none | boxes kept per tile |
+| `src/shared/collisionTile.js:25` | array | per-message | `out.push(Array.from(flat.subarray(i, i+11)))` per box | none | records are the stored form |
+| `src/shared/collisionTile.js:31` | object | per-message | `encodeTileMessage` return literal | none | may outlive the send if the transport queues it (unverified) |
+| `src/shared/collisionTile.js:32` | typed | per-message | `new Uint8Array(t.verts.buffer, ...)` view | none | view aliases tile verts |
+| `src/shared/collisionTile.js:33` | typed | per-message | `new Uint8Array(t.boxes.buffer, ...)` view | none | view aliases tile boxes |
+| `src/shared/collisionTile.js:47` | typed | per-message | `new Float32Array(new Uint8Array(msg.v).buffer)` | none | the copy is the alignment guard |
+| `src/shared/collisionTile.js:48` | typed | per-message | `new Float64Array(new Uint8Array(msg.b).buffer)` | none | same |
+| `src/shared/collisionTile.js:53` | object | per-message | `return {tx, tz, hash, verts, boxes}` | none | consumed once by onTile |
+| `src/physics/StaticTileIndex.js:13` | string | per-query | `tx + ',' + tz` in staticTileKey | none | a numeric key changes Map identity inside the index |
+| `src/physics/StaticTileIndex.js:16` | typed | per-message | `new Uint8Array(verts.byteLength + boxes.byteLength)` in tileHash | preallocated-cleared-buffer, or chain `fnv1aStepBytes` over the two views | none; same hash |
+| `src/physics/StaticTileIndex.js:17` | typed | per-message | `new Uint8Array(verts.buffer)` view | hoisted-variable | none |
+| `src/physics/StaticTileIndex.js:18` | typed | per-message | `new Uint8Array(boxes.buffer)` view | hoisted-variable | none |
+| `src/physics/StaticTileIndex.js:34` | object | per-query | tile record `{k, tx, tz, bodies: new Set(), ...}` in tile() | none | retained until sweep |
+| `src/physics/StaticTileIndex.js:57` | wasm | per-step | `GetWorldSpaceBounds()`, `GetRotation()` in update | none | returned Jolt objects not destroyed here; ownership to verify |
+| `src/physics/StaticTileIndex.js:83` | array | per-step | `const keys = []` on span change | none | stored in bodyTiles |
+| `src/physics/StaticTileIndex.js:89` | wasm | per-message | `GetCenterOfMassPosition()`, `GetRotation()` in extractTriangles | none | none |
+| `src/physics/StaticTileIndex.js:91` | wasm | per-message | `new J.AABox(lo, hi)` per extraction | none | none |
+| `src/physics/StaticTileIndex.js:92` | wasm | per-message | `new J.ShapeGetTriangles(...)` per extraction | none | destroyed at `:95` |
+| `src/physics/StaticTileIndex.js:94` | typed | per-message | `new Float32Array(J.HEAPF32.buffer, ptr, n).slice()` | none | copy needed (heap can grow) |
+| `src/physics/StaticTileIndex.js:103` | array | per-message | `[...t.bodies]` plus `ids.push` | preallocated-cleared-buffer | none |
+| `src/physics/StaticTileIndex.js:105` | closure | per-message | `ids.sort((a, b) => a - b)` | hoisted-variable | none |
+| `src/physics/StaticTileIndex.js:106` | array | per-message | `const parts = [], boxes = []` | preallocated-cleared-buffer | none |
+| `src/physics/StaticTileIndex.js:123` | object | per-message | cache entry `{v, sk, tiles: new Map(), floats: 0}` | none | retained in triCache |
+| `src/physics/StaticTileIndex.js:132` | typed | per-message | `new Float32Array(len)` tile verts | none | retained as `t.verts` |
+| `src/physics/StaticTileIndex.js:144` | string | per-query | `tile(tx, tz)` key in get | none | none |
+| `src/physics/StaticTileIndex.js:150` | iterator pair | per-step | `for (const [k, t] of tiles)` in sweep, every 10 s | none | none |
+| `src/netcode/CollisionTileStreamer.js:40` | iterator pair | per-tick | `for (const [k, s] of c.sent)` per player | none | none |
+| `src/netcode/CollisionTileStreamer.js:49` | object | per-message | `c.sent.set(t.k, {tx, tz, hash})` per tile sent | pooled-object (update in place) | entries private to `c.sent` |
+| `src/netcode/CollisionTileStreamer.js:63` | iterator | per-tick | `for (const player of players)` | none | none |
+| `src/netcode/CollisionTileStreamer.js:77` | Set, closure | per-tick | `new Set(players.map(p => p.id))` while a client has left | preallocated-cleared-buffer | transient |
+| `src/netcode/CollisionTileStreamer.js:78` | iterator | per-tick | `for (const id of clients.keys())` | none | none |
+| `src/shared/movement.js:114` | object | per-step | `return {wishX, wishZ, wishSpeed, jumped, sliding, forceCrouch}` every character step | pooled-object | callers of predictCharacterStep that keep the result would alias |
+| `src/physics/CharacterManager.js:89` | wasm | per-step | `this._jolt.GetTempAllocator()` in update | hoisted-variable (fetch once) | none |
+| `src/physics/CharacterManager.js:95` | wasm | per-step | `ch.GetGroundVelocity()` when grounded | none | embind getters return fresh wrappers |
+| `src/physics/CharacterManager.js:98` | wasm | per-step | `ch.GetPosition()` when grounded and carried | none | same |
+| `src/physics/CharacterManager.js:113` | wasm | per-step | `ch.GetPosition()` in readPosition | none | no out-parameter getter |
+| `src/physics/CharacterManager.js:125` | wasm | per-step | `ch.GetLinearVelocity()` in readVelocity | none | no out-parameter getter |
+| `src/physics/CharacterManager.js:171` | wasm | per-step | `ch.GetGroundNormal()` | none | none |
+| `src/physics/CharacterManager.js:177` | iterator pair | per-step | `for (const [id, ch] of this.characters)` in refreshGroundCaches | none | none |
+| `src/physics/CharacterManager.js:191` | wasm | per-step | `ch.GetActiveContacts()` in _captureWalls | none | none |
+| `src/physics/CharacterManager.js:194` | wasm | per-step | `ch.GetPosition().GetY()` for feetY | hoisted-variable (one read shared with `:197`) | none |
+| `src/physics/CharacterManager.js:197` | wasm | per-step | `const charPos = ch.GetPosition()` | hoisted-variable | none |
+| `src/physics/CharacterManager.js:200` | wasm | per-step | `contacts.at(i)` per contact | none | none |
+| `src/physics/CharacterManager.js:203` | wasm | per-step | `c.mContactNormal` per contact | none | none |
+| `src/physics/CharacterManager.js:209` | wasm | per-step | `c.mPosition` per wall candidate | none | none |
+| `src/physics/World.js:523` | array | per-message | `getBodyPosition` returns `[x, y, z]` (verified: fresh array; AGENTS.md says shared temp) | preallocated-cleared-buffer (caller out-parameter via `_bulkOutP`) | every caller gets a fresh array today; a shared buffer changes that contract |
+| `src/physics/World.js:524` | array | per-message | `getBodyRotation` returns `[x, y, z, w]` | preallocated-cleared-buffer | same |
+
+Witness for this area, per row: W-behaviour (`scripts/collision-tile-shape-witness.mjs`), W-hash (the tile wire from `encodeTileMessage`), and W-alloc on the per-step rows (`scripts/groundy-replay-witness.mjs`).
+
+Findings from the mirror audit, in cost order: `tileAt` builds a key on every predicted step, twice (`:206`, `:250`), so a last-tile cache removes both. `prebuildNeighbour` rescans nine keys on every step after 200 ms. CharacterManager makes six to nine embind wrapper allocations per step, and embind getters take no out-parameter, so those cannot be pooled from the caller side.
+
+### Area 2: server tick (audit read `src/sdk/TickHandler*.js`, `ServerHandlers.js`, `src/apps/AppRuntime*.js`, `src/physics/World.js`, `src/spatial/Octree.js`, `src/netcode/SnapshotEncoder.js`, `SnapshotPacker.js`, `TickSystemBase.js`)
+
+Witness: `scripts/groundy-replay-witness.mjs` and the snapshot tests in `scripts/` for the encoder (W-hash on the packed snapshot bytes, which must not change, since clients decode them). W-alloc on every row.
+
+Largest per-recipient and per-cell costs, from the audit:
+
+- `src/sdk/TickHandler.js:175` copies every recipient's snapshot again (`new Uint8Array(spliced)`).
+- `src/netcode/SnapshotPacker.js:120` and `:123` re-pack the header and the entities and removed tail per recipient. The header is identical for every recipient of a snapshot, so it can be hoisted once per tick. The entities tail is shareable only within a shared cell.
+- `src/sdk/TickHandler.js:362` copies a whole entity baseline per player that changed cell, and `:366-368` rebuild the cell's full entity list per cell per tick.
+- `src/netcode/SnapshotEncoder.js:353` and `:555` build a 4-tuple per entity per encode, and `:552` re-encodes every entity each tick on the broadcast path.
+- `src/apps/AppRuntime.js:580` re-spreads a moving entity's arrays per snapshot.
+- Octree and AOI lookups allocate on every query: `src/spatial/Octree.js:32`, `:127`, `:133`; `src/sdk/TickHandlerAOI.js:323`, `:336`.
+
+Possible bug, verified by reading `src/physics/World.js:525-526`: `getBodyAngularVelocity` never calls `this.Jolt.destroy(v)`, while `getBodyVelocity` at `:525` does. This is a probable wasm object leak per call. Confirm Jolt ownership before changing it, since a destroy on a non-owned object is worse than a leak.
+
+| Site | Kind | Path | Expression | Reuse | Risk |
+|---|---|---|---|---|---|
+| `src/sdk/TickHandler.js:75` | object | per-entity-per-tick (cond) | neutralInput `{yaw,pitch,crouch,expr}` | pooled-object | `player.lastInput` aliasing if held elsewhere |
+| `src/sdk/TickHandler.js:158` | array | per-entity-per-tick (cond) | `[...st.position]` plus event literal on envelope clamp | none | event payload retained by eventLog |
+| `src/sdk/TickHandler.js:175` | typed | per-entity-per-tick | `new Uint8Array(spliced)` full copy per recipient | none | consumer may depend on the Buffer type; arena views are never rewritten |
+| `src/sdk/TickHandler.js:187` | typed | per-entity-per-tick (cond) | `pack(_packWrapper)` fallback re-encode | none | fallback only |
+| `src/sdk/TickHandler.js:193` | Set | per-entity-per-tick (cond) | `new Set()` in restoreTrimmedBaselines | pooled-object | none |
+| `src/sdk/TickHandler.js:244` | closure | per-tick | `nearby.reduce(...)` | hoisted-variable | none |
+| `src/sdk/TickHandler.js:246` | object | per-tick | `return {nearby, encoded, byId}` | pooled-object | none |
+| `src/sdk/TickHandler.js:262` | array | per-tick | `viewers = []` per distinct cell | pooled-object | read later by resolveDeliveredIds in the same tick |
+| `src/sdk/TickHandler.js:286` | closure | per-tick | `newGroup` arrow every snapshot tick | hoisted-variable | none |
+| `src/sdk/TickHandler.js:295` | Map | per-tick (cond) | `isKeyframe ? new Map()` | none | keyframe only |
+| `src/sdk/TickHandler.js:317` | Map, WeakMap | per-tick | `newRecordMemo()` | pooled-object (clear) | memo must not span ticks |
+| `src/sdk/TickHandler.js:331` | object | per-tick | `cached = {}` per distinct cell | pooled-object | cache is per tick |
+| `src/sdk/TickHandler.js:343` | Map | per-entity-per-tick (cond) | `isNewPlayer ? new Map()` | none | new player only |
+| `src/sdk/TickHandler.js:354` | array | per-tick | `[]` passed as preEncodedPlayers | hoisted-variable (frozen empty) | `encoded.players` is stored; a shared array must never be pushed to |
+| `src/sdk/TickHandler.js:355` | object | per-tick | `shared = {tick, entities, removed, entityMap}` | pooled-object | read by other players in the same tick |
+| `src/sdk/TickHandler.js:362` | Map | per-entity-per-tick (cond) | `new Map(shared.entityMap)` full baseline copy | pooled-object (double-buffer) | becomes the playerEntityMaps baseline; needs an ownership swap |
+| `src/sdk/TickHandler.js:366` | array | per-tick (cond) | `Array.from(...).map(...).filter(Boolean)` | pooled-object (per cell) | none |
+| `src/sdk/TickHandler.js:368` | closure | per-tick (cond) | `staticEnts.map(...).concat(dynEntities)` | pooled-object (per cell) | sent synchronously |
+| `src/sdk/TickHandler.js:371` | object | per-entity-per-tick | `encoded = {tick, serverTime, players, entities, removed, delta}` | pooled-object (per player) | packSnapshot is synchronous; `encoded.dots` set at `:393` |
+| `src/sdk/TickHandler.js:373` | object | per-entity-per-tick | same literal, second branch | pooled-object | as `:371` |
+| `src/sdk/TickHandler.js:382` | Map | per-entity-per-tick (cond) | `scratch.spareMap = ... ? new Map() : prevPlayerMap` | none | none |
+| `src/sdk/TickHandler.js:404` | Set | per-tick | `new Set(state.playerCell.values())` | pooled-object (clear) | none |
+| `src/sdk/TickHandler.js:416` | object | per-tick | `combined = {tick, players, entities, serverTime}` broadcast | pooled-object | none |
+| `src/sdk/TickHandler.js:417` | Map | per-tick (cond) | `new Map()` keyframe or empty | none | none |
+| `src/sdk/TickHandler.js:422` | Map, WeakMap | per-tick | `newRecordMemo()` broadcast | pooled-object (clear) | as `:317` |
+| `src/sdk/TickHandler.js:537` | object | per-tick (every 64 ticks, cond) | `emit('snapshot-rate', {...})` | none | listeners may retain payload |
+| `src/sdk/TickHandler.js:554` | object | per-tick (once per second) | `rttTable = {}, pubkeys = {}` | pooled-object | none |
+| `src/sdk/TickHandler.js:561` | object | per-tick (once per second) | `{rtt: rttTable, pubkeys}` broadcast | pooled-object | broadcast may retain |
+| `src/sdk/TickHandler.js:584` | string | per-tick (cond, 1 Hz) | console.warn template on overrun | none | none |
+| `src/sdk/TickHandlerAOI.js:151` | string | per-tick | `` `${codeEpoch}|${mutations}|...` `` epoch key | none | key text is the identity |
+| `src/sdk/TickHandlerAOI.js:153` | object | per-tick (cond: mutations moved) | `Object.freeze({case,key,...})` epoch | pooled-object | `readCellBase` compares epoch by identity; reuse breaks stale detection |
+| `src/sdk/TickHandlerAOI.js:208` | object | per-tick (cond: cell-base miss) | storeCellBase entry | pooled-object | entries live up to `AOI_CELL_BASE_MAX` (512) |
+| `src/sdk/TickHandlerAOI.js:226` | object | per-entity-per-tick (planet only, unreached in shipped worlds) | resolvePlayerCell planet return | pooled-object | held in `_playerCellScratch` for the tick |
+| `src/sdk/TickHandlerAOI.js:229` | object | per-entity-per-tick | resolvePlayerCell flat return | pooled-object (per player) | retained in `_playerCellScratch` per tick |
+| `src/sdk/TickHandlerAOI.js:241` | array | per-tick (cond: cell-base miss) | solveCellViewer `[...]` | none | stored in the cell-base cache across ticks |
+| `src/sdk/TickHandlerAOI.js:254` | Set | per-tick | `relSet = new Set()` per ring compute | pooled-object | ring read by other players in the same tick |
+| `src/sdk/TickHandlerAOI.js:255` | closure | per-tick | `addCell` arrow per computeRingRelevantIds | hoisted-variable (module fn taking relSet) | none |
+| `src/sdk/TickHandlerAOI.js:273` | array | per-tick (cond) | `gate = [cvp[0], cvp[1], cvp[2]]` | hoisted-variable | none |
+| `src/sdk/TickHandlerAOI.js:274` | Set | per-tick (cond) | `kept = new Set()` | pooled-object | stored in cache entry |
+| `src/sdk/TickHandlerAOI.js:281` | object | per-tick | `c = {relevantIds, cellViewerPos, baseRelevantIds}` | pooled-object | `_spatialCache` cleared each tick |
+| `src/sdk/TickHandlerAOI.js:303` | object | per-tick | `ring = {relevantIds: relSet}` | pooled-object | `_ringCache` cleared each tick |
+| `src/sdk/TickHandlerAOI.js:323` | object | per-entity-per-tick | `_positionOfEntity` returns `{case, position}` (spatial hit) | pooled-object (module scratch) | callers read at once; nesting would break |
+| `src/sdk/TickHandlerAOI.js:336` | object | per-entity-per-tick | `_positionOfEntity` returns `{case, position}` (entity hit) | pooled-object | as `:323` |
+| `src/sdk/TickHandlerAOI.js:352` | Set | per-tick (cond: unmanaged ids) | `new Set(ringRelevantIds)` in resolveDeliveredIds | pooled-object | consumed in the same call |
+| `src/sdk/TickHandlerAOI.js:383` | object | per-entity (cond: first sighting) | `h = {s: 0}` in getPlayerPriorityIds | none | lifetime per id |
+| `src/sdk/TickHandlerAOI.js:395` | destructure | per-entity-per-tick (cond: `acc.size > 64`) | `for (const [id, box] of acc)` | hoisted-variable (keys plus get) | none |
+| `src/sdk/TickHandlerAOI.js:402` | Set | per-entity-per-tick (cond: over budget) | `topIds = new Set()` per player | pooled-object (per player) | returned and consumed synchronously |
+| `src/sdk/TickHandlerAOI.js:429` | JSON | per-entity-per-tick (cond: `_customV` changed) | `JSON.stringify(cust)` refresh | none | none |
+| `src/sdk/TickHandlerAOI.js:433` | JSON | per-entity-per-tick (cond: custom without numeric `_customV`) | `JSON.stringify(f).length` in estimateEntityBytes | none | cache key must use the same version signal |
+| `src/sdk/TickHandlerAOI.js:441` | object | per-entity-per-tick (cond: under 6 dynamic) | `return {entities, trimmedCount: 0}` | pooled-object | consumed immediately |
+| `src/sdk/TickHandlerAOI.js:443` | array | per-entity-per-tick (6+ entities, non-shared player) | `sized = new Array(entities.length)` | preallocated-cleared-buffer | none |
+| `src/sdk/TickHandlerAOI.js:445` | object | per-entity-per-tick (under budget, typical) | `return {entities, trimmedCount: 0}` | pooled-object | none |
+| `src/sdk/TickHandlerAOI.js:447` | array | per-entity-per-tick (cond: over budget) | `candidates = []` | preallocated-cleared-buffer | sort must stay identical |
+| `src/sdk/TickHandlerAOI.js:457` | object | per-entity-per-tick (cond: over budget) | `candidates.push({i, d2})` | preallocated-cleared-buffer (parallel typed arrays) | identical sort result required |
+| `src/sdk/TickHandlerAOI.js:460` | Set | per-entity-per-tick (cond: over budget) | `dropSet = new Set()` | preallocated-cleared-buffer (Uint8Array mark) | none |
+| `src/sdk/TickHandlerAOI.js:468` | object | per-entity-per-tick (cond: nothing dropped) | return literal | pooled-object | none |
+| `src/sdk/TickHandlerAOI.js:469` | closure | per-entity-per-tick (cond: dropping) | `entities.filter((_, i) => !dropSet.has(i))` | preallocated-cleared-buffer | order preserved |
+| `src/sdk/TickHandlerAOI.js:470` | object | per-entity-per-tick (cond: dropping) | return literal | pooled-object | none |
+| `src/spatial/Octree.js:15` | string | per-entity-per-tick (cond: outside int range) | `cx + ',' + cz` in cellKey | none | key identity must stay |
+| `src/spatial/Octree.js:21` | array | per-entity-per-tick (cond: new bucket) | `bucket = []` in placeInto | pooled-object | `_unlink` deletes empty buckets |
+| `src/spatial/Octree.js:32` | array | per-entity-per-tick | parseQueryCentre `[position[0], position[1], position[2]]` | hoisted-variable (scalars or scratch) | none |
+| `src/spatial/Octree.js:106` | array | per-entity-per-tick (cond: cell crossing) | `this._anchors.set(id, [px, py, pz])` in update | pooled-object (overwrite in place) | equal to an in-place anchor write |
+| `src/spatial/Octree.js:127` | array | per-entity-per-tick | `getPosition(id)` returns `[p[0], p[1], p[2]]` | pooled-object (out-parameter) | returning the stored point would leak state |
+| `src/spatial/Octree.js:133` | array | per-tick | `const results = out || []` in nearby | preallocated-cleared-buffer | callers keep returned ids in sets |
+| `src/spatial/Octree.js:206` | array | per-tick (per viewer per cell-miss) | `const starved = []` in collectStarved | preallocated-cleared-buffer | consumed at once; collectStarved also walks all entities per call |
+| `src/apps/AppRuntime.js:580` | array | per-entity-per-tick (cond: moved since last snapshot) | `_encodeEntity`: `[...rotation]`, `[...position]`, `[...scale]`, `[...(velocity||[0,0,0])]` | pooled-object (double-buffer) | cached baseline compared by `_snapshotEncCurrent` |
+| `src/apps/AppRuntime.js:582` | object | per-tick (broadcast) | `_snap(entities)` | pooled-object | none |
+| `src/apps/AppRuntime.js:583` | array | per-tick (broadcast) | `getSnapshot` `e = []` and entity loop | preallocated-cleared-buffer | none |
+| `src/apps/AppRuntime.js:617` | array | per-tick (cond: static change or keyframe) | `getStaticSnapshot` `e=[]` + uncached encodes | pooled-object | none |
+| `src/apps/AppRuntime.js:641` | Set | per-entity-per-tick (cond: starved ids) | `new Set(ids)` in getRelevantDynamicIdsWithStarvation | pooled-object | retained in `_spatialCache` |
+| `src/apps/AppRuntime.js:681` | array | per-entity-per-tick (each fireEvent) | rest args `fireEvent(eid, en, ...a)` | none | handlers receive args; fixed arity needed |
+| `src/apps/AppRuntime.js:683` | object | per-entity-per-tick (each fireEvent, even without an event log) | `_log('app_event', {entityId, event, args: a}, ...)` | hoisted-variable (skip the build when no `_eventLog`) | record identical when a log is attached |
+| `src/apps/AppRuntime.js:690` | array, string | per-entity-per-tick (each fireEvent) | `[c, ...a]` and label template | none | label needed only on error |
+| `src/apps/AppRuntime.js:842` | array | per-entity-per-tick (per attachment) | `pos = [pp[0] + off[0], ...]` in _tickAttachments | pooled-object (per attachment) | `setEntityPosition` copies components; a hook override might retain |
+| `src/apps/AppRuntime.js:873` | object | per-entity-per-tick (cond: log attached) | `{...meta, tick}` spread in _log | none | none |
+| `src/apps/AppRuntimeTick.js:17` | closure | per-entity-per-tick (cond: update returns a promise) | `r?.catch(e => console.error(...))` | hoisted-variable | none |
+| `src/apps/AppRuntimeTick.js:61` | destructure | per-tick (per timer entity) | `for (const [eid, timers] of this._timers)` | hoisted-variable (keys) | none |
+| `src/apps/AppRuntimeTick.js:119` | array | per-entity-per-tick (per colliding pair) | `point = [sx-nx*sr, ...]` in _collisionPayload | none | payload retained by onCollision handlers |
+| `src/apps/AppRuntimeTick.js:120` | array | per-entity-per-tick (cond: velocity missing) | `self.velocity||[0,0,0]`, `other.velocity||[0,0,0]` | hoisted-variable | read-only |
+| `src/apps/AppRuntimeTick.js:123` | object | per-entity-per-tick (per pair; also `:133-134`, `:167-168`, `:193-194`) | payload `{id, position, velocity, point, normal, impactSpeed}` | none | handlers may retain payload |
+| `src/apps/AppRuntimeTick.js:173` | typed, array | per-entity (cond: first tick per entity) | `new Array(9)`, `new Float64Array(9)`, `[]` | none | once per entity |
+| `src/apps/AppRuntimeTick.js:181` | object | per-entity-per-tick (cond: empty neighbour bucket) | `cell = {list: [], serial}` for up to 9 cells | pooled-object | prune cadence at `:149` |
+| `src/apps/AppRuntimeTick.js:211` | object | per-tick (cond: grid rebuild) | `cell = {list: [], serial}` in _rebuildCollisionGrid | pooled-object | none |
+| `src/apps/AppRuntimeTick.js:214` | typed | per-tick (cond: rebuild) | `new Float64Array(11)` per entity | pooled-object | `captureTransform` writes in place |
+| `src/apps/AppRuntimeTick.js:240` | object | per-tick (cond: entity moved bucket) | `cell = {list: [], serial}` in _refreshCollisionGrid | pooled-object | none |
+| `src/apps/AppRuntimeTick.js:259` | object | per-entity-per-tick (cond: falling, every 8 ticks) | `_respawnTimer.set(id, {startTime, lastRespawn: null})` | pooled-object | none |
+| `src/apps/AppRuntimeTick.js:262` | array | per-entity-per-tick (cond: respawn) | `e._spawnPosition || [0, 20, 0]` | hoisted-variable | none |
+| `src/apps/AppRuntimeTick.js:267` | array | per-entity-per-tick (cond: respawn) | `setBodyVelocity(id, [0, 0, 0])` | hoisted-variable | none |
+| `src/apps/AppRuntimeTick.js:307` | string | per-entity-per-tick (cond: pressed and in radius) | `key = e.id + ':' + p.id` | nested Map keyed by entity then player | other code may read string keys |
+| `src/apps/AppRuntimeTick.js:313` | string, object | per-entity-per-tick (cond: interact fires) | `` `interact.${e.id}` `` and `{player, entity}` | hoisted-variable | none |
+| `src/apps/AppRuntimeTick.js:322` | destructure | per-tick (per proximity watch) | `for (const [entityId, watch] of this._proximityWatches)` | hoisted-variable | none |
+| `src/apps/AppRuntimeTick.js:337` | array | per-tick (cond: non-array players) | `[...players]` | none | none |
+| `src/apps/AppRuntimeTick.js:365` | array | per-tick (cond: stale index entries) | `toRemove = []` in _syncPlayerIndex | preallocated-cleared-buffer | none |
+| `src/apps/AppRuntimePhysics.js:41` | array | per-entity-per-tick (kinematic, every tick) | `getBodyPosition(id)` fresh array in _pushKinematicBody | pooled-object (out-parameter) | caller only compares |
+| `src/apps/AppRuntimePhysics.js:76` | array | per-tick (cond: LOD id list stale) | `this._lodIds || (this._lodIds = [...])` | none | none |
+| `src/apps/AppRuntimePhysics.js:99` | object | per-entity-per-tick (cond: tier to physical) | `{...d.opts, rotation: e.rotation}` | none | rare |
+| `src/apps/AppRuntimePhysics.js:132` | array | per-physics-step (cond: over body budget) | `candidates = []` in _enforceBodyBudget | preallocated-cleared-buffer | sort identity |
+| `src/apps/AppRuntimePhysics.js:138` | object | per-physics-step (cond) | `candidates.push({id, e, d2})` | preallocated-cleared-buffer | none |
+| `src/apps/AppRuntimePhysics.js:140` | closure | per-physics-step (cond) | `candidates.sort((a, b) => b.d2 - a.d2)` | hoisted-variable | none |
+| `src/apps/AppRuntimePhysics.js:191` | array | per-entity (caller-driven: isEntityAtRest) | `getBodyVelocity(...) || [0,0,0]`, `getBodyAngularVelocity?.(...) || [0,0,0]` | hoisted-variable | none |
+| `src/apps/AppRuntimePhysics.js:271` | object | per-entity (caller-driven: getEntityVehicleWheelState) | `{grounded, speed}` | pooled-object | none |
+| `src/apps/AppRuntimePhysics.js:284` | array | per-entity-per-tick (per attachment via `AppRuntime.js:842`) | `e.position = [...]`, `e.rotation = [...]` in setEntityPosition | pooled-object (write in place) | other holders of the old array |
+| `src/apps/AppRuntimePhysics.js:298` | object | per-entity (caller-driven: applyFlightModelToEntity) | `[...]` impulse, `rotation || [0,0,0,1]`, `flightForces(...)` | pooled-object | flightForces result consumed at once |
+| `src/apps/AppRuntimePhysics.js:312` | array | per-entity (caller-driven: setEntityVelocity) | `e.velocity = [...velocity]` | pooled-object (in-place copy) | other holders of `e.velocity` |
+| `src/physics/World.js:525` | array | per-entity (caller-driven) | `getBodyVelocity` array plus `Jolt.destroy` | pooled-object | none |
+| `src/physics/World.js:526` | wasm | per-entity (caller-driven) | `getBodyAngularVelocity`: `GetAngularVelocity` result never destroyed (verified by reading) | none (destroy as `:525` does) | leak fix only; verify Jolt ownership |
+| `src/physics/World.js:718` | array | per-physics-step (cond: queue non-empty) | `this._bodyQueue = []` in drainBodyQueue | preallocated-cleared-buffer (double-buffer swap) | re-entrant enqueue must land in the new queue |
+| `src/physics/World.js:763` | array | per-physics-step (cond: dynamic body parked) | `setBodyVelocity(id, [0,0,0])`, `setBodyAngularVelocity(id, [0,0,0])` | hoisted-variable | setters only read |
+| `src/physics/World.js:764` | array | per-physics-step (cond: first body of shape key) | `free = []` | none | none |
+| `src/physics/World.js:831` | array | per-physics-step (raycast with exclude) | `[excludeBodyId]` and `jids = []` in _rayIgnoreFilter | preallocated-cleared-buffer | none |
+| `src/physics/World.js:835` | wasm | per-physics-step (cond exclude) | `new J.IgnoreSingleBodyFilter(...)` per raycast | pooled-object | raycast destroys it; reuse changes ownership |
+| `src/physics/World.js:860` | array | per-physics-step (per hit) | `position = [origin + dir*dist]` | pooled-object | callers may retain the result |
+| `src/physics/World.js:869` | array | per-physics-step (cond: hit with body) | `normal = [n.GetX(), ...]` | pooled-object | callers may retain the result |
+| `src/physics/World.js:873` | object | per-physics-step | result literal `{hit: true, ...}` | pooled-object | callers may retain |
+| `src/physics/World.js:877` | array | per-physics-step (cond: dormant pending) | `[dirX, dirY, dirZ]` | hoisted-variable | none |
+| `src/netcode/SnapshotEncoder.js:23` | destructure | per-entity-per-tick (broadcast encodePlayer) | `const [px,py,pz] = p.position, ...` | none | low confidence: V8 usually elides it |
+| `src/netcode/SnapshotEncoder.js:27` | array | per-entity-per-tick (broadcast encodePlayer) | `[p.id, bin, ...8 fields]` row | pooled-object (use encodePlayerInto) | none if fields identical |
+| `src/netcode/SnapshotEncoder.js:31` | array | per-entity-per-tick (per recipient) | encodeSelfBlock 6-field array | pooled-object (per recipient) | packSnapshot is synchronous |
+| `src/netcode/SnapshotEncoder.js:49` | destructure | per-entity-per-tick | array destructuring in encodePlayerInto | none | low confidence: V8 usually elides it |
+| `src/netcode/SnapshotEncoder.js:64` | destructure | per-entity-per-tick (cond: reduced tier) | `const [px, , pz] = p.position` | none | low confidence |
+| `src/netcode/SnapshotEncoder.js:66` | array | per-entity-per-tick (cond: reduced tier) | `packReducedPlayerPose(...)` record (callee not audited) | pooled-object | callee-owned |
+| `src/netcode/SnapshotEncoder.js:74` | Map | per-tick (cond: tier filter) | `buckets = new Map()` in buildCrowdDots | pooled-object (clear) | none |
+| `src/netcode/SnapshotEncoder.js:78` | string | per-entity-per-tick (cond: dot players) | `` `${cx},${cz}` `` | none (numeric key) | key must not collide across signs |
+| `src/netcode/SnapshotEncoder.js:81` | array | per-entity-per-tick (cond: new bucket) | `buckets.set(key, [cx, cz, 1])` | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:83` | array | per-tick (cond: tier filter) | `[...buckets.values()]` spread | pooled-object | sent synchronously |
+| `src/netcode/SnapshotEncoder.js:104` | array | per-entity-per-tick (cond: more than 30 nearby) | `full=[], reduced=[], dotPlayers=[]` | pooled-object (per player) | consumed within the call |
+| `src/netcode/SnapshotEncoder.js:112` | object | per-entity-per-tick (cond: more than 30 nearby) | `return {full, reduced, dotPlayers}` | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:117` | array | per-entity-per-tick (cond: more than 30 nearby) | `out = []` in filterEncodedPlayersTiered | pooled-object (per player) | consumed by packSnapshot synchronously |
+| `src/netcode/SnapshotEncoder.js:126` | object | per-entity-per-tick (cond: more than 30 nearby) | `return {players: out, dots}` | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:141` | typed | per-entity-per-tick (cond: no `into` argument) | packBinRecord allocates when `into` absent | preallocated-double-buffer | `encodeDelta` retains enc as baseline |
+| `src/netcode/SnapshotEncoder.js:186` | object | per-entity (event: per tombstone) | `this._list.push({id, tick})` | fixed-ring (parallel arrays) | `forClient` reads the list |
+| `src/netcode/SnapshotEncoder.js:191` | array | per-tick (cond: tombstones pruned) | `this._list = this._list.slice(i)` in pruneBefore | fixed-ring (compact in place) | none |
+| `src/netcode/SnapshotEncoder.js:227` | array | per-entity-per-tick (cond: changed entity) | `out = [enc[0], mask]` in computeFieldDelta | pooled-object | pushed into the sent entities array |
+| `src/netcode/SnapshotEncoder.js:237` | array, typed | per-entity-per-tick (encodeDelta `:552`) | encodeEntity `new Array(6)` plus bin | pooled-object (double-buffer) | encodeDelta retains it as baseline (`:555`) |
+| `src/netcode/SnapshotEncoder.js:245` | string | per-entity-per-tick (cond: dirty entry) | `'' + custKey` in buildEntityKey | none | hash bytes must match |
+| `src/netcode/SnapshotEncoder.js:250` | JSON | per-entity-per-tick (cond: custom without `_customV`) | `JSON.stringify(cust)` | none | cache key semantics |
+| `src/netcode/SnapshotEncoder.js:280` | typed | per-entity (cond: enters cache) | buildEntry bins (two `Uint8Array`) | pooled-object | per-entity lifetime |
+| `src/netcode/SnapshotEncoder.js:287` | object | per-entity (cond: enters cache) | buildEntry return literal | pooled-object | cache lifetime |
+| `src/netcode/SnapshotEncoder.js:303` | typed | per-entity-per-tick (cond: far tier with viewers) | packBinRecord in stripVelocityForFar | pooled-object (per entry) | enc stored in nextMap baseline (`:353`) |
+| `src/netcode/SnapshotEncoder.js:304` | array | per-entity-per-tick (cond: far tier) | `[enc[0], enc[1], noVelBin, ...]` | pooled-object | as `:303` |
+| `src/netcode/SnapshotEncoder.js:353` | array | per-entity-per-tick (every applied entity) | `nextMap.set(id, [k, entry.cust, entry.custStr, enc])` in applyEntry | pooled-object (double-buffer) | prev read in the same call; in-place overwrite corrupts it |
+| `src/netcode/SnapshotEncoder.js:369` | Set | per-tick (cond: cache or static size changed) | `new Set(dynCache.keys())` in updateTombstones | pooled-object (rotate two) | identity stored as knownIds |
+| `src/netcode/SnapshotEncoder.js:401` | array | per-entity-per-tick (cond: 30 or fewer nearby) | `out = []` in filterEncodedPlayersWithSelf | pooled-object (per player) | consumed synchronously |
+| `src/netcode/SnapshotEncoder.js:418` | Map | per-tick (cond: static change or keyframe) | `nextMap = new Map()` in encodeStaticEntities | pooled-object | stored in staticEntityMap |
+| `src/netcode/SnapshotEncoder.js:419` | array | per-tick (cond) | `allEntries = []`, `changedEntries = []` (`:420`) | pooled-object | stored in state |
+| `src/netcode/SnapshotEncoder.js:429` | array | per-entity (cond: static change) | `nextMap.set(e.id, [k, cust, custStr])` | pooled-object | stored as static baseline |
+| `src/netcode/SnapshotEncoder.js:430` | object | per-entity (cond: static change) | `allEntries.push({enc, k, id})` | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:431` | object | per-entity (cond: changed static) | `changedEntries.push({enc, k, id})` | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:437` | Set | per-tick | `new Set(staticMap.keys())` in buildStaticIds | none | retained as staticEntityIds |
+| `src/netcode/SnapshotEncoder.js:465` | array | per-tick | `[sleepingIds, suspendedIds]` per refresh | hoisted-variable | none (two loops or a helper) |
+| `src/netcode/SnapshotEncoder.js:486` | Map, array | per-tick (rebuild only) | `cache = new Map(), envIds = []` in buildDynamicCache | none | the cache is the baseline |
+| `src/netcode/SnapshotEncoder.js:499` | array | per-tick (rebuild only) | `[sleepingIds, suspendedIds]` | hoisted-variable | none |
+| `src/netcode/SnapshotEncoder.js:517` | array | per-tick (per distinct cell, no scratch) | `scratch ? scratch.entities : []` in encodeDeltaFromCache | pooled-object (per cell) | shared.entities read by other players this tick |
+| `src/netcode/SnapshotEncoder.js:518` | Map | per-tick (per cell, no scratch) | `new Map()` for nextMap | pooled-object (rotate) | becomes cellEntityMaps baseline across ticks |
+| `src/netcode/SnapshotEncoder.js:526` | Set | per-tick (cond: array relevantIds) | `new Set(relevantIds)` | pooled-object | TickHandler passes Sets |
+| `src/netcode/SnapshotEncoder.js:531` | destructure | per-entity-per-tick (cond: dynCache at most relevant count) | `for (const [id, entry] of dynCache)` | hoisted-variable (keys plus get) | none; low confidence |
+| `src/netcode/SnapshotEncoder.js:536` | array | per-tick (per cell, no scratch) | `removed = scratch.removed` or `[]` | preallocated-cleared-buffer | retained by the cell share when no scratch |
+| `src/netcode/SnapshotEncoder.js:543` | object | per-tick | `return {encoded: {...}, entityMap}` per cell or recipient | pooled-object | the cell share keeps entities and entityMap (`TickHandler.js:355-358`) |
+| `src/netcode/SnapshotEncoder.js:547` | array | per-tick (broadcast, no preEncoded) | `(snapshot.players||[]).map(encodePlayer)` in encodeDelta | hoisted-variable (encodePlayersOnce) | packed synchronously |
+| `src/netcode/SnapshotEncoder.js:548` | Set, array, Map | per-tick (broadcast) | `new Set()`, `[]`, `new Map()` (nextMap) in encodeDelta | preallocated-cleared-buffer (rotate Map) | nextMap is retained as broadcastEntityMap; double-buffer it |
+| `src/netcode/SnapshotEncoder.js:552` | array, typed | per-entity-per-tick (broadcast) | `encodeEntity(e)`: `new Array(6)` plus bin | pooled-object (double-buffer) | nextMap retains it (`:555`) |
+| `src/netcode/SnapshotEncoder.js:555` | array | per-entity-per-tick (broadcast) | baseline row `[k, cust, custStr, encoded]` | pooled-object | row is the next tick's baseline; double-buffer |
+| `src/netcode/SnapshotEncoder.js:564` | array | per-tick (broadcast) | `const removed = []` | preallocated-cleared-buffer | packed synchronously |
+| `src/netcode/SnapshotEncoder.js:565` | object | per-tick (broadcast) | return literal | pooled-object | none |
+| `src/netcode/SnapshotEncoder.js:576` | array | per-tick | `(snapshot.players || []).map(encodePlayer)` in encode | hoisted-variable (encode once per tick when input is shared) | `RegionWorkerEntry.js:187` shares it |
+| `src/netcode/SnapshotEncoder.js:577` | array | per-tick | `(snapshot.entities || []).map(encodeEntity)` in encode | hoisted-variable | same as `:576` |
+| `src/netcode/SnapshotEncoder.js:578` | object | per-tick | `return {tick, serverTime, players, entities}` | pooled-object | none |
+| `src/netcode/SnapshotPacker.js:97` | typed | per-tick (bins-record miss) | `new Uint8Array(pack(rec))` | none | msgpackr reuses its output buffer, so the copy is required |
+| `src/netcode/SnapshotPacker.js:104` | typed | per-tick (scalar-record miss) | `new Uint8Array(pack(rec))` | none | as `:97` |
+| `src/netcode/SnapshotPacker.js:105` | object, array | per-tick (per miss) | `memo.byId.set(rec[0], {values: rec.slice(), bytes})` | pooled-object (copy into existing values array) | none |
+| `src/netcode/SnapshotPacker.js:111` | Map, WeakMap | per-tick | `newRecordMemo()` per tick | preallocated-cleared-buffer (only `byId` is reusable) | pooled rows keep identity, so a reused WeakMap returns stale bytes |
+| `src/netcode/SnapshotPacker.js:120` | typed | per-packet | `pack(_numbers)` header per packet (seq, tick, serverTime) | hoisted-variable (once per tick) | none; identical for all recipients |
+| `src/netcode/SnapshotPacker.js:123` | typed | per-packet | `pack(_fields)` tail re-encodes entities per recipient | hoisted-variable (entities segment only) | `me` and `chartEpoch` differ per recipient, so the tail must be split |
+| `src/netcode/SnapshotPacker.js:67` | typed | per-packet | `_arena.subarray` view per packet | none | returning an offset avoids the view; TickHandler copies anyway |
+| `src/netcode/SnapshotPacker.js:56` | typed | per-packet | `src.subarray(from)` in copyRange | none | pass an offset instead |
+| `src/netcode/TickSystemBase.js:109` | closure | per-tick (cond: spin wake) | `_yield(() => ...)` in _schedule | hoisted-variable (bind once) | none |
+| `src/netcode/TickSystemBase.js:113` | closure | per-tick | `setTimeout(() => ...)` arrow per schedule | hoisted-variable (bind once; `timer.refresh`) | refresh must keep ordering |
+| `src/sdk/ServerHandlers.js:298` | closure | per-message | `.catch(err => console.error(...))` per inbound message | hoisted-variable (named handler) | none |
+| `src/sdk/ServerHandlers.js:300` | promise | per-message | `async function _onClientMessage` returns a Promise per call | none on the input path if made sync | microtask timing changes if made sync |
+
+Witness for this area, per row: W-hash on the snapshot bytes (`SnapshotEncoder`, `SnapshotPacker`) and on the input packet (`InputCodec`), W-alloc on the per-tick rows, and W-behaviour via `scripts/groundy-replay-witness.mjs` for the server tick path. Rows touching `src/sdk/TickHandlerAOI.js` need the AOI witnesses already in the repo (`scripts/spatial-index-witness.mjs`, manual, run by hand).
+
+### Area 3: remaining `src/` per-tick, per-step, per-cell and per-sample code (audit read fire, behaviours, terrain, stage and the relocation hold)
+
+Witness: the module's own witness where one exists (for fire, `src/shared/fire/*.js` is pinned by the fire witnesses in the repo; for terrain, `scripts/grass-wind-field-seam-witness.mjs` and `scripts/rock-model-exclusion-witness.mjs`; for the relocation hold, `scripts/spawn-hold-reason-witness.mjs`, manual), plus W-hash on placement output (`placementsForChunk`, `placementsForRockChunk`: dump over about 3400 chunks and compare sha256, per `docs/measurement-figures.md`) and W-alloc on the per-cell and per-sample rows.
+
+Rows from the audit (setup-only rows dropped):
+
+| Site | Kind | Path | Expression | Reuse | Risk |
+|---|---|---|---|---|---|
+| `src/shared/fire/fireKernel.js:408` | object | per-step | `stepStartStats = {...stats}` in capturePreStep | pooled-object | takeDelta retains it (`:434`); reuse needs a per-delta copy |
+| `src/shared/fire/fireKernel.js:630` | array | per-step | `pending = pending.slice(consumed)` in beginStep (when events applied) | preallocated-cleared-buffer (compact in place) | low; consumers copy pending |
+| `src/shared/fire/fireKernel.js:435` | object array | per-step | `pending.map(e => ({...e}))` in takeDelta | pooled-object (recycle with undoPool) | recycling must cover these copies |
+| `src/shared/fire/fireKernel.js:436` | typed | per-step | `newDelta(UNDO_CELLS_INIT)` on undoPool miss (about 20 typed arrays) | pooled-object (pre-warm) | none |
+| `src/shared/fire/fireKernel.js:1080` | array | per-query | `get wind()` returns a fresh array on each read (`fire.js:200` forwards it) | preallocated-cleared-buffer | a holder sees the array change |
+| `src/shared/fire/fireKernel.js:1048` | object | per-query | `cellState()` returns `{state, heat, fuel}` | pooled-object | low; callers keep nothing |
+| `src/shared/fire/fireKernel.js:1041-1045` | object | per-query | ignite, extinguish, setWind, setMoisture, setRain event literals | none | events are retained in `pending` (`:622`) |
+| `src/behaviours/fire.js:163` | array (destructure) | per-tick | `for (const [tick, hash] of [...remoteChecksums])` each tick | none (iterate the Map directly) | none; delete-while-iterating is safe |
+| `src/behaviours/fire.js:405` | array | per-step | `checksumRow = [timeline.tick, timeline.checksum()]` | none | the row is broadcast and stored |
+| `src/behaviours/fire.js:414` | array | per-tick (cond: outbox non-empty) | `outbox = []` after the broadcast swap | preallocated-cleared-buffer | moderate; broadcast may retain the rows array |
+| `src/behaviours/fire.js:134` | array | per-query | `frame.localToDir(...)` in cellOfPosition | preallocated-cleared-buffer (needs a localToDir into-variant) | none |
+| `src/behaviours/fire.js:285` | array | per-query | `frame.localToDir(x, z, 0)` in stateAtLocal | preallocated-cleared-buffer (same) | none |
+| `src/behaviours/fire.js:87` | object | per-query | `ev = {...partial, tick, seq, at, id}` in emit | none | retained in the timeline log and outbox |
+| `src/behaviours/fire.js:89` | array | per-query | `outbox.push(encodeFireEvent(...))` | none | retained until broadcast |
+| `src/behaviours/fire.js:207` and `:208` | object, array | per-query | `get keyframeStats()` and `get checksumHistory()` | none | diagnostic |
+| `src/behaviours/fireGameplay.js:10-13` | array | per-tick (per damage period) | `defaultTargets()` `out` plus one record per player | preallocated-cleared-buffer | low; custom `gameplay.targets` may retain |
+| `src/behaviours/fireGameplay.js:84` | array | per-query | `applyImpulse(target.id, [...])` per entity hit | hoisted-variable | none |
+| `src/behaviours/fireWeather.js:10` | array | per-step | `parseWind` `const out = [0,0,0]` per weather step | hoisted-variable | `reading.wind` is exposed through `get reading()`, so aliasing |
+| `src/behaviours/fireWeather.js:22-26` | object | per-step | parseWeather returns a new `{kind, intensity, wind}` each advance | pooled-object | `get reading()` exposes it |
+| `src/behaviours/fireWeather.js:57` | array | per-step (cond: wind changed) | `out.wind = [wind[0], wind[1], wind[2]]` | preallocated-cleared-buffer | low; `fire.js:152` copies the values |
+| `src/behaviours/fireWeather.js:70`, `:73` | array | per-query | `get wind()`, `get emittedWind()` | none | diagnostic |
+| `src/behaviours/fireTerrain.js:27` | destructure | per-cell | `for (const c of breaks.cleared)` in classAt | hoisted-variable (indexed loop) | none |
+| `src/shared/fire/fireLattice.js:94` | array | per-cell (latent) | `cellCentreDir(face, I, J, out=[0,0,0])` default parameter | none (callers pass `out`) | none |
+| `src/shared/fire/fireLattice.js:98` | array | per-cell (latent) | `windInFaceAxes(..., out=[0,0])` default parameter | none (callers pass `out`) | none |
+| `src/shared/fire/fireStageMap.js:84` | destructure | per-tick | `for (const [key, slot] of slotOfKey)` per watched tile per sync | fixed-ring (index by slot) | low; the dirty order changes |
+| `src/shared/fire/fireStageMap.js:32` | typed view | per-tick | `source.subarray(...)` per row in writeTile | fixed-ring (precomputed row views) | none; source is always scratch |
+| `src/shared/fire/fireKeyframe.js:206` | typed view | per-tick | `w.raw(tileBuf.subarray(0, n))` per written tile | preallocated-cleared-buffer (write into the writer) | none |
+| `src/shared/fire/fireKeyframe.js:225` | typed view | per-tick | `w.raw(scarBuf.subarray(0, scarBytes))` per scar block | preallocated-cleared-buffer | none |
+| `src/shared/fire/fireKeyframe.js:53` | typed view | per-tick | writer.raw `new Uint8Array(src.buffer, ...)` | none (accept a Uint8Array) | none |
+| `src/shared/fire/fireKeyframe.js:274` | typed view, string | per-tick | `out.subarray(...)` plus b64Chunk string per block | none (output string retained) | none |
+| `src/shared/fire/fireKeyframe.js:110-118` | object | per-query | readEvent builds `ev` and a return literal per decoded event | none | decoded rows are retained in the log |
+| `src/shared/fire/fireQueries.js:32` | array | per-sample | `frame.localToDir(...)` per sample in sampledOpticalDepth (up to 512 per ray) | preallocated-cleared-buffer (localToDir into-variant) | none |
+| `src/shared/fire/fireTimeline.js:67` | object | per-step | `snapshots.set(t, {delta, prev, counters: countersNow()})` | pooled-object (window ring) | restore paths read entries |
+| `src/shared/fire/fireTimeline.js:96` | object | per-step | `countersNow()`: `const out = {}` per boundary | pooled-object (the record stored in the entry) | as `:67` |
+| `src/shared/fire/fireTimeline.js:40` | array | per-tick (cond: events dropped) | `log = log.slice(keepFrom)` in pruneLog | preallocated-cleared-buffer (splice in place) | `get log()` exposes the array |
+| `src/shared/fire/fireTimeline.js:161`, `:165` | object | per-query | `{...event}` in submit and `kernel.queueEvent({...ev})` | none | events are retained |
+| `src/terrain/GrassPlacement.js:75`, `:76`, `:78`, `:82`, `:83`, `:84`, `:96` | array | per-cell | `_mix3` result arrays (7 calls) | preallocated-cleared-buffer (`_mix3Into`) | none |
+| `src/terrain/GrassPlacement.js:86` | array | per-cell | `land3.map(c => c * mottle)` plus the `_mix3` result | hoisted-variable (unrolled) | none |
+| `src/terrain/GrassPlacement.js:88` | destructure | per-cell | `for (const [freq, amp, shift] of RIDGE_OCTAVES)` | hoisted-variable (unrolled) | none |
+| `src/terrain/GrassPlacement.js:90` | array | per-cell | `beached.map(c => c * ridgeGain)` | hoisted-variable | none |
+| `src/terrain/GrassPlacement.js:95` | array | per-cell (density > 0) | `[0,1,2].map(...)` surface mix in groundRgb | hoisted-variable (unroll 3 channels) | none |
+| `src/terrain/GrassPlacement.js:97` | array | per-cell (density > 0) | `tinted.map(c => _clamp01(...))` | hoisted-variable | none |
+| `src/terrain/GrassPlacement.js:112` | closure | per-cell | `r` closure per grassJetAt call | hoisted-variable (module function) | none |
+| `src/terrain/GrassPlacement.js:142` | array | per-cell | `tangentFrame(...)` → `createTangentFrame()` six arrays | preallocated-cleared-buffer (`tangentFrameInto` with a module `_tf`, as VegPlacement `:220` and RockPlacement `:133` do) | low; consumed synchronously by blade() |
+| `src/terrain/GrassPlacement.js:150`, `:151` | closure | per-cell | `bowl` and `riseAt` closures | hoisted-variable | none |
+| `src/terrain/GrassPlacement.js:168` | object | per-cell | `paintedWeightsFor(...)(...)` splat object | none in this file | external callee (mapspinner) |
+| `src/terrain/GrassPlacement.js:183` | object | per-cell | classify return record | pooled-object | low; blades read it synchronously |
+| `src/terrain/GrassPlacement.js:195` | array | per-cell (per blade, up to 79) | `tangentToLocal(p.tf, ...)` returns `[0,0,0]` per blade | preallocated-cleared-buffer (`tangentToLocalInto`, `PlacementChart:154`) | none |
+| `src/terrain/GrassPlacement.js:196` | object | per-cell (per blade) | blade() output record | none (output) | none |
+| `src/terrain/VegPlacement.js:79-83` | array | per-cell (placed tree) | `tintMultiplier` returns array | none (retained in output `tint`) | none |
+| `src/terrain/VegPlacement.js:247` | array | per-cell (placed tree) | `quatMulF32Into(..., [0,0,0,0])` output | none (retained) | none |
+| `src/terrain/VegPlacement.js:254-259` | object | per-cell (placed tree) | classify return record | none (output) | none |
+| `src/terrain/VegPlacement.js:257` | array | per-cell (placed tree) | `normal: [fround...]` | none (output) | none |
+| `src/terrain/VegPlacement.js:207`, `:212` | object | per-cell | `climateAt(...)` return (external `anchorField.climateAtLocal`) | none in file | external callee |
+| `src/terrain/VegPlacement.js:224` | object | per-cell (after gates) | `paintedWeightsFor(...)(...)` splat (external) | none in file | external callee |
+| `src/terrain/RockPlacement.js:159` | array | per-cell (placed rock) | `quatMulF32Into(..., [0,0,0,0])` | none | none |
+| `src/terrain/RockPlacement.js:162-167` | object, array | per-cell (placed rock) | return record and `normal: [fround...]` | none (output) | none |
+| `src/terrain/RockPlacement.js:140` | object | per-cell (after gates) | `paintedWeightsFor(...)(...)` (external) | none in file | external callee |
+| `src/terrain/RockPlacement.js:107`, `:126` | object | per-cell | `climateAt` return (external) | none in file | external callee |
+| `src/terrain/PlacementChart.js:20`, `:25` | array | per-query | `frame.localToDir(x, z)` in ringAroundLocal and chunkKeyAtLocal | preallocated-cleared-buffer (localToDir into-variant) | none |
+| `src/terrain/PlacementChart.js:44` | destructure | per-query | `for (const [cu, cv] of CORNERS)` in chunkBoundsLocal | hoisted-variable (indexed) | none |
+| `src/terrain/PlacementChart.js:55` | array | per-query | `return [minX, minZ, maxX, maxZ]` | preallocated-cleared-buffer (out-parameter) | low |
+| `src/terrain/PlacementChart.js:105` | array | per-sample (cpu-solve branch) | `frame.elevationAtDir([dx,dy,dz])` literal; `PlanetFrame.js:321` adds another | preallocated-cleared-buffer | moderate; the sampler contract must not retain the array |
+| `src/terrain/PlacementChart.js:151` | array | per-cell | `tangentFrame` calls `createTangentFrame()` (six arrays), used only by `GrassPlacement.js:142` | preallocated-cleared-buffer (tangentFrameInto) | see `GrassPlacement.js:142` |
+| `src/terrain/PlanetFrame.js:98-99` | array | per-sample | guardedGroundHeight wrapper `(x, z, ...rest) => heightFn(x, z, ...rest)`, called per Newton iteration (up to 16) | fixed-arity forward | low; a 3-argument caller would be cut, so keep `yGuess` explicit |
+| `src/terrain/PlanetFrame.js:111-114` | array | per-query | `_norm`, `_add`, `_scale`, `_cross` each return arrays | preallocated-cleared-buffer | none |
+| `src/terrain/PlanetFrame.js:153` | closure | per-query | `groundAt` closure (try/catch) per raycast call | hoisted-variable | none |
+| `src/terrain/PlanetFrame.js:159`, `:162` | closure, object | per-sample | `sampleAt` closure per call, and `{x, y, z, above}` per ray-march step (0.5 m) plus 16 bisect steps | pooled-object | none (local) |
+| `src/terrain/PlanetFrame.js:191-194` | array, closure | per-query (per hit) | hitAt `normal`, `point`, `point.map` x2, closures | none (result record) | none |
+| `src/terrain/PlanetFrame.js:207-210` | array | per-query | tangentLocalToDir `_norm([...])` literal plus normalize | preallocated-cleared-buffer | none |
+| `src/terrain/PlanetFrame.js:229`, `:251` | array | per-sample | `renderDirAt` returns a new direction array per localToDir and per solve evaluation (up to 64) | preallocated-cleared-buffer (module scratch) | moderate; heightAtDir callees must not keep `d` |
+| `src/terrain/PlanetFrame.js:317-318` | array | per-query | localToWorld: four arrays | preallocated-cleared-buffer | low |
+| `src/terrain/PlanetFrame.js:321` | array | per-sample (cpu elevation path) | `cpuElevationAtDir = (d) => sampler.heightAt(_norm(d))` per call | preallocated-cleared-buffer | moderate; sampler contract |
+| `src/terrain/PlanetFrame.js:330` | array | per-query | `anchorDir` getter returns a fresh array per read | none | diagnostic |
+| `src/terrain/PlanetFrame.js:366` | array | per-query | `groundSources` getter `[...keys()]` | none | diagnostic |
+| `src/terrain/TerrainMeshSurface.js:206` | string | per-query (per candidate, from heightAtLocal) | `quadKey` template string per materialize | none (numeric key, nested Map) | moderate; key must keep the epoch and the 1000x rounding |
+| `src/terrain/TerrainMeshSurface.js:404` | closure | per-query | `candidates.sort((a, b) => ...)` per call | hoisted-variable (module comparator) | none |
+| `src/terrain/TerrainMeshSurface.js:166` | typed | per-query (materialize miss, bounded by maxQuads) | `new Float64Array(n*n*3)` in buildQuad | pooled-object (reuse the evicted quad's buffer) | low; eviction and reuse must not alias |
+| `src/terrain/TerrainMeshSurface.js:187` | closure | per-query (per build) | `at` closure in buildQuad | hoisted-variable | none |
+| `src/terrain/TerrainMeshSurface.js:198` | object | per-query (per build) | quad record literal | pooled-object (with `:166`) | as `:166` |
+| `src/terrain/TerrainMeshSurface.js:327` | array | per-tick (sync, six per call) | `worldToFaceLocal(face, _camW, R)` returns arrays (external) | none in file | external callee |
+| `src/terrain/TerrainMeshSurface.js:119` | typed | per-tick (rebuildNearIndex, when stale) | `new Float64Array(near.length)` | preallocated-cleared-buffer | none |
+| `src/terrain/TerrainMeshSurface.js:121` | array | per-tick (stale) | `Array.prototype.slice.call(ext).sort(...)` | preallocated-cleared-buffer | none |
+| `src/terrain/TerrainMeshSurface.js:134` | array | per-tick (stale) | `a = []` per near-grid bucket | pooled-object (reuse on clear) | low |
+| `src/terrain/TerrainMeshSurface.js:276` | object | per-query (while unsynced) | `drawnCount()` → `quadsFn()` payload (external) | none in file | external callee |
+| `src/terrain/TerrainMeshSurface.js:420` | object | per-query | `stats()` returns `{...stats, cachedQuads, gridSize}` | none | diagnostic |
+| `src/terrain/HeightfieldStreamer.js:56`, `:58` | array | per-tick (pass, about 300 ms) | assignPlayers `owner` and `load` arrays | preallocated-cleared-buffer | none |
+| `src/terrain/HeightfieldStreamer.js:72` | array, closure | per-tick (pass) | `nextUncoveredCluster` `players.filter(...)` with two closures | preallocated-cleared-buffer, hoisted comparator | none |
+| `src/terrain/HeightfieldStreamer.js:75` | array, closure | per-tick (pass) | `uncovered.filter(...)` closure plus array | preallocated-cleared-buffer | none |
+| `src/terrain/HeightfieldStreamer.js:77` | destructure | per-tick (pass) | `for (const [x, z] of members)` | hoisted-variable | none |
+| `src/terrain/HeightfieldStreamer.js:78` | object | per-tick (pass) | cluster result `{center: [...], members, uncovered}` | none (consumed) | none |
+| `src/terrain/HeightfieldStreamer.js:139-140` | array, closure | per-tick (validCenters, start, coverPoints) | filter closure, `finite` array, `finite.map(...)` | preallocated-cleared-buffer | none |
+| `src/terrain/HeightfieldStreamer.js:200` | array | per-query (per held tick via `Relocation.js:146`) | `coversPosition` `[x, z]` literal without a lattice | preallocated-cleared-buffer (2-slot scratch) | none |
+| `src/terrain/HeightfieldStreamer.js:201` | closure | per-query (per held tick) | `fields.some(f => chebyshev(...))` | hoisted-variable (indexed loop) | none |
+| `src/terrain/HeightfieldStreamer.js:400` | closure | per-query (coverPoints) | `toLattice` closure, and `[p[0], p[1]]` without a lattice | none | none |
+| `src/terrain/HeightfieldStreamer.js:421` | closure | per-tick (tick → enqueue) | `queue.then(async () => ...)` closure plus promise | none | moderate; changes scheduling |
+| `src/terrain/HeightfieldStreamer.js:433` | closure | per-tick | `enqueue(pass).then(() => setTimeout(tick, ...))` per tick | none | moderate; scheduling |
+| `src/stage/Stage.js:98` | array | per-tick | `for (const id of this._runtime.getUnmanagedDynamicIds())` (callee array per sync) | none in file | external callee |
+| `src/stage/Stage.js:107` | array | per-query | `Array.from(this.entityIds)` in getAllEntityIds | none (output) | none |
+| `src/stage/stageShapes.js:80`, `:88` | object | per-query | flat and planet ring records per `relevanceRing` call | pooled-object (cache per radius) | low |
+| `src/behaviours/triggerVolume.js:91-93` | Set, Map | per-tick | `seen = new Set()`, `next = new Set()`, `positions = new Map()` per update | preallocated-cleared-buffer (swap two sets, clear a map) | moderate; `overlapping = next` (`:133`) keeps `next` live |
+| `src/behaviours/triggerVolume.js:106` | array | per-tick | `let released = []` | preallocated-cleared-buffer | none |
+| `src/behaviours/triggerVolume.js:113`, `:114` | array | per-tick | `entered`, `exited` arrays returned in the result | none (returned) | low |
+| `src/behaviours/triggerVolume.js:139` | array copy | per-tick | `overlapping: [...overlapping]` in the return | none (returned) | low |
+| `src/behaviours/projectileGravity.js:15-17` | array | per-step | stepProjectile `nextVelocity`, `nextPosition`, result per sweep step | preallocated-cleared-buffer (out parameters) | low; state carries them |
+| `src/behaviours/projectileGravity.js:35` | array | per-step | `points.push(state.position.slice())` | none (output) | none |
+| `src/behaviours/steering.js:49` | object | per-tick | `_stepImpl` returns `{position, velocity, arrived}` | pooled-object (per slot) | moderate; followPath callers may keep position |
+| `src/behaviours/steering.js:71` | array, object | per-tick (once the path is done) | followPath done branch `[...from]`, `[0,0,0]`, object | pooled-object (cached done result) | low |
+| `src/behaviours/steering.js:75` | object | per-tick | followPath return record | pooled-object | as `:49` |
+| `src/behaviours/shrinking-zone.js:162` | object | per-tick (outside zone, push mode) | `{type: 'zone_push', dirX, dirZ}` per player per tick | pooled-object | moderate; transport may keep it |
+| `src/behaviours/buoyancy.js:32` | array | per-tick | `appCtx.physics.addForce([0, upward, 0])` | hoisted-variable | low |
+| `src/behaviours/buoyancy.js:37` | array | per-tick (drag) | `setVelocity([v0*damp, ...])` | preallocated-cleared-buffer | low |
+| `src/behaviours/checkpoint.js:25` | destructure | per-tick (per player) | `for (const c of cps)` | hoisted-variable | none |
+| `src/behaviours/combat.js:384` | destructure | per-tick | `for (const [pid, reload] of reloading)` allocates an entry array per entry | hoisted-variable (forEach) | none |
+| `src/behaviours/combat.js:390` | array copy | per-tick | `for (const [pid, data] of [...respawning])`: a Map copy every tick | fixed-ring (live forEach) | low; `respawn()` only deletes |
+| `src/behaviours/decisionRuntime.js:32` | array copy | per-tick | `[...entries.values()].filter(...)` per tick | preallocated-cleared-buffer (due list) | the snapshot must stay, since the loop awaits |
+| `src/behaviours/destructible.js:228` | destructure | per-tick | `for (const [id, st] of _debrisTimers)` | hoisted-variable (forEach) | none |
+| `src/behaviours/destructible.js:149` | destructure | per-tick (impact scan) | `const [ox, oy, oz] = appCtx.entity.position` | hoisted-variable | none |
+| `src/behaviours/buffs.js:55` | destructure | per-tick | `for (const [k, v] of m)` per buff entry | hoisted-variable (forEach) | none |
+| `src/behaviours/fluid.js:93` | typed | per-tick | `new Float64Array(n*3)` in _refreshPositions, called every tick | preallocated-cleared-buffer (reuse `_positions` when the length matches) | moderate; `positions()` holders see the overwrite |
+| `src/behaviours/fluid.js:132` | typed | per-tick (publish, when moved more than eps) | `Float64Array.from(_positions)` for the epsilon compare | preallocated-cleared-buffer (`.set`) | none |
+| `src/behaviours/fluid3d.js:129` | typed | per-tick (publish) | `Float64Array.from(_positions)` | preallocated-cleared-buffer | none |
+| `src/behaviours/softbody.js:137` | object | per-tick, per particle, per substep (when wind is set) | `b.addForce({x, y, z}, true)` literal per particle per substep | hoisted-variable (one reused vector per tick) | none; RAPIER copies the values |
+| `src/behaviours/softbody.js:164` | typed | per-tick (publish) | `Float64Array.from(_positions)` | preallocated-cleared-buffer | none |
+| `src/behaviours/cameraRig.js:27`, `:29`, `:47`, `:48`, `:70`, `:72` | array | per-tick | orbit, chase and firstPerson `target` and `position` arrays | preallocated-cleared-buffer (per-layer state) | low; returned as `camera.target` |
+| `src/behaviours/cameraRig.js:34`, `:53`, `:77`, `:105`, `:194` | object | per-tick | the return records | pooled-object | low |
+| `src/behaviours/cameraRig.js:93` | array | per-tick | cutscene `lerp` returns a new array | preallocated-cleared-buffer (out parameter) | low |
+| `src/behaviours/cameraRig.js:159` | array | per-tick per player | `ordered(p)`: `[...p.active].map(...).sort(...)` on each update | preallocated-cleared-buffer (maintain order on push and pop) | low |
+| `src/behaviours/path.js:65-73` | object | per-query | segmentAt returns `{index, t}` | hoisted-variable | none |
+| `src/behaviours/path.js:75-85` | array | per-query | pointAt and directionAt return arrays | preallocated-cleared-buffer (out parameter) | low |
+| `src/behaviours/path.js:125` | object | per-query (per improving segment) | closest(): `best = {index, t, point, d2, distance}` | hoisted-variable | none |
+| `src/behaviours/spline.js:60`, `:64`, `:72` | array | per-query | `sub`, `scale`, `cross` arrays | preallocated-cleared-buffer | none |
+| `src/behaviours/spline.js:98` | object | per-query | segmentIndex returns `{index, t}` | hoisted-variable | none |
+| `src/behaviours/spline.js:103` | array | per-sample | `curve()` `const out = [0,0,0]` per evaluation | preallocated-cleared-buffer (out parameter) | low |
+| `src/behaviours/spline.js:115-124` | object | per-query | controls() returns `{p0, p1, p2, p3, t}` | pooled-object | none |
+| `src/behaviours/spline.js:158` | array | per-query | `bracket` returns `[samples[lo], samples[hi]]` | hoisted-variable (two-slot) | none |
+| `src/behaviours/spline.js:182-193` | array | per-query | quaternionFromBasis returns a new array in four branches | preallocated-cleared-buffer | none |
+| `src/behaviours/spline.js:199-200` | array | per-query | frame(): `normalize(curve(...))`, `sub(...)`, fallback `[1,0,0]` | preallocated-cleared-buffer | low |
+| `src/behaviours/weapon.js:28-30` | object | per-query (per fire attempt) | `{fired, reason}` records | none | none |
+| `src/behaviours/projectile.js:10`, `:15`, `:17` | array | per-query (per shot) | sweepProjectile `[...from]`, `[...r.position]`, `velocity.map` | none | none |
+| `src/behaviours/game-fsm.js:240` | object | per-tick | `actor.getSnapshot()` per tick (xstate callee) | none | external callee |
+| `src/behaviours/teams.js:99`, `:101` | array | per-query | getScores records; getTeams spread | none | diagnostic |
+| `src/behaviours/inventory.js:97` | array copy | per-query (per drop) | `[...b.items]` | none | none |
+| `src/behaviours/trade.js:116` | array copy | per-query | `[...trade.accepted]` | none | none |
+
+Witness: `scripts/grass-wind-field-seam-witness.mjs` (run by hand) for the grass wind lattice, `scripts/rock-model-exclusion-witness.mjs` for the placement rows (zero survivors), and the sha256 placement dump for every `GrassPlacement`, `VegPlacement` and `RockPlacement` row. The fire rows are covered by the existing fire witnesses. The relocation hold row (`src/sdk/Relocation.js`, per-tick while a spawn hold is active) is covered by `scripts/spawn-hold-reason-witness.mjs`.
+
+Not covered by the audit: `health.js`, `voxels.js`, `decisionPipe.js`, `specBoundary.js`, `vibe.js` (parse time only), and the non-tick parts of gamemode, teams, trade and inventory. Grep found no per-tick allocation tokens in them.
+
+### Area 4: client render loop and per-message client code (audit read `client/app.js`, `client/BrowserServer.js`, `client/core/*.js`, `client/xr/*.js`)
+
+Witness: `scripts/perf-run.mjs` (W-frame, p50 with p95 beside it, on the GPU runner, since none is online here) for the per-frame rows; `scripts/crowd-dot-render-witness.mjs` for the crowd dot rows; `scripts/program-readiness-render-witness.mjs` for the readiness rows; `scripts/xr-arc-frame-order-witness.mjs` for the XR rows; and W-hash on the grass and vegetation placement output for the setup-adjacent rows.
+
+Largest steady-state sources, in the audit's order: `client/xr/XRWidgets.js:145-173` (a full scene traverse per `surfaceBelow`, up to 20 per frame), `client/BrowserServer.js:42` (`TransformRing.readAll`, `src/transport/TransformRing.js:144-164`), `client/core/Grass.js:611-612` and `:448-470` (decal stamp arrays and a per-revisit Map), and `client/core/Grass.js:147-148` and `client/core/WebGPULodInstancer.js:889` (`Array.from` per blade migration). Several "medium" risks are about object identity or buffer transfer (uniform array identity, `postMessage` transfer, WebXR API objects), so each reuse needs a check against its consumer before it lands.
+
+| Site | Kind | Path | Expression | Reuse | Risk |
+|---|---|---|---|---|---|
+| `client/app.js:2505` | object | per-instance-per-frame | `equipNameOf(...)` returns a new object per player | hoisted-variable (cache by equip id) | low |
+| `client/app.js:2508` | spread | per-frame (gated) | `window.__animProbe` spread | none | low |
+| `client/app.js:2706` | string | per-frame (throttled 4 Hz) | template literal | hoisted-variable | low |
+| `client/app.js:2774` | destructure | per-frame (throttled 20 Hz) | Map destructure | hoisted-variable | low |
+| `client/app.js:2788` | spread | per-frame (editor only) | `hiddenInEditorIds` spread | preallocated-cleared-buffer | low |
+| `client/app.js:2802`, `:2803` | iterator | per-frame | `.values()` | hoisted-variable | low |
+| `client/app.js:2740` | object | per-frame | syncVRPosition argument literal (may be the same allocation as `XRSystem.js:232`) | pooled-object | low; counted once |
+| `client/app.js:964` | object | per-frame | `toAuthoritative(...)` called without an out argument | pooled-object (pass out) | low |
+| `client/BrowserServer.js:12` | typed | per-message | `new Uint8Array` per SNAPSHOT | fixed-ring | moderate; transfer detaches the buffer |
+| `client/BrowserServer.js:42` | Map | per-frame | `readTransformRing` → `TransformRing.readAll` (`src/transport/TransformRing.js:144-164`) | pooled-object (out parameter) | moderate; readers may retain results |
+| `client/BrowserServer.js:53`, `:73` | spread | per-message | request object spread | none | low |
+| `client/BrowserServer.js:181` | object | per-message | TIME_OF_DAY_SYNC unpack and literal | none | low |
+| `client/BrowserServer.js:197` | closure | per-message | flush closure per snapshot batch | hoisted-variable | low |
+| `client/BrowserServer.js:202` | timer | per-message | `setTimeout` per snapshot batch | none | moderate; changes scheduling |
+| `client/BrowserServer.js:228`, `:240` | object | per-message | PEER_FRAME and postMessage literals | pooled-object | low |
+| `client/BrowserServer.js:244` | promise | per-message | Blob promise closures | none | low |
+| `client/BrowserServer.js:247` | array | per-message | transfer-list array | hoisted-variable | moderate; transfer detaches |
+| `client/BrowserServer.js:292` | buffer | per-message | pack and buffer slice per send | preallocated-cleared-buffer | moderate; reused pack output |
+| `client/core/Vegetation.js:497`, `:516`, `:597` | iterator, destructure | unclassified | map iteration and queue destructure | hoisted-variable | low |
+| `client/core/Vegetation.js:522` | spread | unclassified | array copy | preallocated-cleared-buffer | low |
+| `client/core/Vegetation.js:647`, `:651`, `:657`, `:677`, `:679` | object | per-frame (debug, `_vanishProbe`) | probe allocations | none | low; debug only |
+| `client/core/Vegetation.js:741-766` | object | per-frame (0.25 s profile) | profile allocations (seven sites) | hoisted-variable | low |
+| `client/core/Vegetation.js:868-890` | array | per-frame (rebuild on cache reset) | `getOcclusionCandidates` allocations (range; sub-lines not pinned) | hoisted-variable (rebuild in place) | low |
+| `client/core/Vegetation.js:893` | iterator | per-frame | `applyOcclusion` iterator | hoisted-variable | low |
+| `client/core/VegetationAmbientTSL.js:49` | string | per-frame (7 per frame) | `window['__' + name]` | hoisted-variable (precomputed keys) | low |
+| `client/core/VegetationAmbientTSL.js:60`, `:63` | array | per-frame (WebGPU) | ambIrr arrays | preallocated-cleared-buffer | low |
+| `client/core/VegetationAmbientTSL.js:66` | object | per-frame (WebGPU) | options literal | pooled-object | low |
+| `client/core/GrassMaterial.js:116`, `:131`, `:135`, `:136`, `:140`, `:144`, `:145`, `:146` | string | per-frame | `grassWindowNum` concat and `windowNum` calls | hoisted-variable | low |
+| `client/core/GrassMaterial.js:129` | object | per-frame | vegetationAmbientDelta literal | pooled-object | low |
+| `client/core/GrassMaterial.js:134` | array | per-frame | ambIrr array | preallocated-cleared-buffer | low |
+| `client/core/Grass.js:147`, `:148` | array | per-instance-per-frame | `setUniformAt` `Array.from` on blade migration (WebGPU) | preallocated-cleared-buffer | moderate; uniform array identity |
+| `client/core/Grass.js:247` | array | unclassified | nearIdx and midIdx arrays | preallocated-cleared-buffer | low |
+| `client/core/Grass.js:448` | Map | per-frame (per LOD revisit, every 4 m of move) | `new Map` per `revisitNearLod` | pooled-object (clear and reuse) | low |
+| `client/core/Grass.js:458` | object | per-frame (per revisit) | group record with five arrays | pooled-object | low |
+| `client/core/Grass.js:470` | destructure | per-frame (per revisit) | destructure | hoisted-variable | low |
+| `client/core/Grass.js:495`, `:509`, `:546`, `:574`, `:586` | iterator | unclassified | iteration | hoisted-variable | low |
+| `client/core/Grass.js:611`, `:612` | array | per-frame (while the camera moves) | `nearestStamps` result (`src/terrain/GrassDecal.js:98-104`) | preallocated-cleared-buffer | moderate; caller must not alias |
+| `client/core/Grass.js:685-702` | array | per-frame | occlusion allocations (range) | preallocated-cleared-buffer | low |
+| `client/core/Grass.js:711` | iterator | per-frame | `applyOcclusion` iterator | hoisted-variable | low |
+| `client/core/Rocks.js:135` | array | unclassified | ids array | preallocated-cleared-buffer | low |
+| `client/core/Rocks.js:203`, `:222`, `:328` | iterator | unclassified | iteration | hoisted-variable | low |
+| `client/core/Rocks.js:303` | array | unclassified | out array | preallocated-cleared-buffer | low |
+| `client/core/Rocks.js:307-319` | array | per-frame | occlusion allocations (range) | preallocated-cleared-buffer | low |
+| `client/core/PlayerLOD.js:36` | typed view | per-frame | subarray view per tick | fixed-ring | low |
+| `client/core/PlayerLOD.js:37` | array | per-frame | sort (in place) | preallocated-cleared-buffer | low |
+| `client/core/PlayerLOD.js:50` | object | per-frame | return literal per tick | pooled-object | low |
+| `client/core/PlayerLOD.js:109` | closure | per-frame (WebGL only) | addInstances closure per frame | hoisted-variable | low |
+| `client/core/PlayerLOD.js:112`, `:171` | destructure | per-instance-per-frame | per-dot array destructure | hoisted-variable | low |
+| `client/core/WebGPULodInstancer.js:889` | array | per-instance-per-frame | `Array.from(value)` in setUniformAt on migration | preallocated-cleared-buffer | moderate; uniform array identity |
+| `client/core/WebGPULodInstancer.js:92`, `:116` | for-in | per-instance-per-frame | for-in over attrs in writeSlot and remove | hoisted-variable (module key array) | low |
+| `client/core/WebGPULodInstancer.js:945` | array | unclassified (per access) | `get tierIds()` `tiers.map` | fixed-ring (invalidate on change) | low |
+| `client/core/TerrainBackdrop.js:214` | object | per-frame | `_buildShadowInfo` return literal (called at `:273`) | pooled-object | low |
+| `client/core/TerrainBackdrop.js:254` | object | per-frame | `frame.localToWorld` (`PlanetFrame.js:316-319`) | pooled-object (out parameter) | low |
+| `client/core/TerrainBackdrop.js:270` | rest args | per-frame | `surfaceGroundHeight` into `guardedGroundHeight` rest args (`PlanetFrame.js:98`) | none in this file | moderate; external change |
+| `client/core/TerrainBackdrop.js:298` | object | per-frame | `_terrainOcclusion.getStats()` spread (`client/core/TerrainOcclusion.js:192-196`) | pooled-object, or read fields directly | low |
+| `client/core/SceneOcclusion.js:177` | object | unclassified (cullingHub poll, `app.js:793`) | getStats literal | pooled-object | low |
+| `client/core/SceneOcclusion.js:186` | array | unclassified (cullingHub poll) | `subsystems.map` | hoisted-variable | low |
+| `client/core/ShadowPipeline.js:126` | iterator | per-frame | for-of over `_cascades` | hoisted-variable (indexed loop) | low |
+| `client/core/Weather.js:295` | array | per-instance-per-frame | `_randomDiscPoint` returns `[cx, cz]` (called per landing and per splash) | preallocated scratch pair | low |
+| `client/core/RenderGraph.nodes.js:80`, `:85`, `:86`, `:187`, `:188` | object | per-frame | live, terrainDepth, terrainColor, sceneDepth, sceneColor literals | pooled-object | low |
+| `client/core/RenderGraph.nodes.js:135` | destructure | per-frame | for-of destructure over `pm.playerMeshes` | hoisted-variable | low |
+| `client/core/RenderGraph.nodes.js:151` | closure | per-frame | sort comparator closure | hoisted-variable (module comparator) | low |
+| `client/core/RenderGraph.nodes.js:210-225` | closure | per-frame | `budget.apply` closures (budget internals not audited) | hoisted-variable | low |
+| `client/core/RenderControls.js:286-291` | string | unclassified (throttled callers only) | `'__' + key` on set | none | low |
+| `client/xr/XRSystem.js:99`, `:102` | closure | per-frame (XR) | `findIndex` and `aimHandIndex` closures | hoisted-variable | low |
+| `client/xr/XRSystem.js:105` | array | per-frame (XR) | filter result | preallocated-cleared-buffer | low |
+| `client/xr/XRSystem.js:120` | object | per-frame (VR hands) | pointer literal | pooled-object | low |
+| `client/xr/XRSystem.js:121`, `:122` | vector | per-frame (VR hands) | `new Vector3` temps | hoisted-variable (module scratch) | low |
+| `client/xr/XRSystem.js:130`, `:131` | object | per-frame (per left gamepad controller) | literals | pooled-object | low |
+| `client/xr/XRSystem.js:141` | object | per-frame (VR) | `offsetXROrigin` XRRigidTransform, literals, `getOffsetReferenceSpace` | pooled-object (reuse the transform per session) | moderate; XR API object identity |
+| `client/xr/XRSystem.js:232` | object | per-frame (all modes) | syncVRPosition literal (see `app.js:2740`) | pooled-object | low |
+| `client/xr/XRWidgets.js:145`, `:146` | array, closure | per-instance-per-frame (up to 20 `surfaceBelow` per frame) | `groundCandidates` filter over scene roots and traverse closure | fixed-ring (cache, invalidate on scene change) | moderate; largest steady-state XR cost |
+| `client/xr/XRWidgets.js:151` | vector | per-instance-per-frame | `new Vector3` per `surfaceBelow` | hoisted-variable (module scratch) | low |
+| `client/xr/XRWidgets.js:152` | array | per-instance-per-frame | intersectObjects array and find closure | preallocated-cleared-buffer | low |
+| `client/xr/XRWidgets.js:164` | array | per-instance-per-frame | `surfaceBelow` per segment | preallocated-cleared-buffer | low |
+| `client/xr/XRWidgets.js:171`, `:173` | object | per-instance-per-frame | hit and prev literals per segment | pooled-object | low |
+| `client/xr/XRControls.js:55`, `:63` | vector (Matrix4) | per-frame (when the reticle shows, AR) | `new Matrix4` per call | hoisted-variable (module scratch) | low |
+| `client/xr/XRControls.js:64` | vector | per-frame (AR) | `new Vector3` | hoisted-variable (module scratch) | low |
+| `client/xr/XRControls.js:66` | array | per-frame (AR) | `getHitTestResults` array | preallocated-cleared-buffer | low |
+| `client/xr/XRControls.js:67` | object | per-frame (AR) | `getPose` result (WebXR API) | none | moderate; API-owned object |
+| `client/core/FloatingOrigin.js:36`, `:42` | vector | unclassified (only when `out` is omitted) | `out || new THREE.Vector3()` | hoisted-variable (module scratch) | low |
+
+Note: the audit's `client/app.js:2740` and `client/xr/XRSystem.js:232` may be one allocation seen from its call site and its body, so the total counts it once. `client/core/Vegetation.js:647-679` and `client/app.js:2508` are debug or gated probes; they are listed for completeness and are not steady-state cost.
+
+Not audited: the RenderGraph budget internals behind `RenderGraph.nodes.js:210-225`, the cullingHub poll cadence (`app.js:793`), and the one-off costs of `XRSystem.js:264` and `RenderControls.js:286-291`.
+
+### Area 5: netcode and wire (audit read `src/netcode/*.js`, `src/client/BaseClient.js`, `PredictionEngine.js`, `PhysicsNetworkClient.js`, `src/protocol/*.js`, `src/shared/collisionTile.js`)
+
+Witness: W-hash on every packet and record (`SnapshotEncoder`, `SnapshotPacker`, `InputCodec`, `controlFrame`, `collisionTile`), using the existing `scripts/expr-truncation-witness.mjs` for the input codec (it runs in `npm run check`), `scripts/prediction-reconcile-witness.mjs` for the prediction and replay rows (manual), and `scripts/groundy-replay-witness.mjs` for the rollback and lockstep rows. W-alloc on the per-tick rows.
+
+Headline findings, highest cost first:
+
+1. Rollback peer-sim capture: `PlayerManager.snapshotState` (`src/netcode/PlayerManager.js:219`) runs a JSON round trip per connected player on every tick, and the 32-tick ring keeps the results. Copy into fixed slots instead.
+2. `canonicalJSON` runs per roster peer per tick in the lockstep `step` (`LockstepGameLoop.js:150`) and rollback `inputsFor` (`RollbackGameLoop.js:49`), and once per remote input in `onRemoteInput` (`RollbackGameLoop.js:61`).
+3. Each inbound control frame (rollback, lockstep and consensus transports) builds four closures and an options object before dispatch (`RollbackInputTransport.js:50-55`, `LockstepInputTransport.js:39-44`, `ConsensusVoter.js:61-67`). The stats closures can be created once in the constructor.
+4. Snapshot fan-out is built per recipient: the tier arrays, `encodeSelfBlock`, `buildCrowdDots`, and two msgpack packs per packet. The numbers header is identical across recipients, and the entities tail is identical within a shared cell.
+5. The broadcast path's `encodeEntity` allocates `new Array(6)` and a 29-byte bin per entity per tick (`SnapshotEncoder.js:237`, `:552`), while `refreshEntryEnc` already double-buffers the same data.
+6. `EventEmitter.emit` runs on every inbound message of the WebTransport path, which `connect()` tries first (`src/protocol/EventEmitter.js:31-36`: rest args, `slice`, spread).
+7. Per tick: `TickSystemBase._schedule` creates a `setTimeout` arrow each tick (`TickSystemBase.js:113`), and `InputGuard.envelopeSpeedCap` allocates three times per player per tick (`InputGuard.js:40-42`).
+
+Constraint on reuse: anything retained as a baseline (entityMap rows, the broadcast nextMap, the cell share, the rollback ring, input history `e.data`, player input buffers, wall records) cannot be pooled per call. It needs a per-owner double buffer, or a ring sized to its retention window. Wire JSON and msgpack framing keep their format; only the wrappers around them can shrink.
+
+Array destructuring rows (`SnapshotEncoder.js:23`, `:49`, `:64`, `:531`, `:549`, `:520`, `CollisionTileStreamer.js:40`, `LockstepGameLoop.js:77`, `:180`, and other destructure rows) are low confidence, because V8 usually elides array and entry destructuring in optimized code. Confirm each with an allocation profile before changing it.
+
+| Site | Kind | Path | Expression | Reuse | Risk |
+|---|---|---|---|---|---|
+| `src/client/BaseClient.js:24` | array | per-packet | `const out = []` in splitCoalesced | preallocated-cleared-buffer | a re-entrant onMessage would clear it mid-loop |
+| `src/client/BaseClient.js:25` | typed | per-packet | `new DataView(bytes.buffer, ...)` | none | DataView is per buffer |
+| `src/client/BaseClient.js:31` | typed | per-packet | `bytes.subarray(off, off+len)` per record | none | the view is the decode input |
+| `src/client/BaseClient.js:73` | typed | per-message | `new Uint8Array(data)` for ArrayBuffer | none | view wrapper per ws message |
+| `src/client/BaseClient.js:90` | object | per-message | `msg.payload || {}` when absent | hoisted-variable | a frozen shared object breaks a handler that writes to payload |
+| `src/client/BaseClient.js:177` | object | per-input | `{data: input, cases: NO_INPUT_CASES}` | pooled-object | none; consumed in the same call |
+| `src/client/BaseClient.js:186`, `:187` | object, shift | per-input | `_plainInputs.push({sequence, data})` and `shift()` at capacity | fixed-ring | slot objects must not escape the 4-entry window |
+| `src/client/BaseClient.js:198`, `:200` | array, object | per-input | `const cases = []` and `{data, cases}` in _quantize | preallocated-cleared-buffer, pooled-object | none; read synchronously in sendInput |
+| `src/client/BaseClient.js:209` | string | per-input | template key `${code}|${field}|${index}` | none | built only when a case is reported |
+| `src/client/BaseClient.js:228` | object | per-message | `{players: [localState]}` per snapshot | pooled-object | none; onServerSnapshot reads synchronously |
+| `src/client/BaseClient.js:233`, `:235` | iterator | per-message | `getAllPlayerStates().values()`, `getAllEntities().values()` | none | none |
+| `src/client/BaseClient.js:254`, `:256`, `:265`, `:267`, `:268`, `:269` | closure, object | per-message (user action) | teleport closure and send literals with spread | none | none; user action |
+| `src/client/PredictionEngine.js:65` | array | per-input | `new Array(k)` in InputHistory.last (`BaseClient.js:183`) | preallocated-cleared-buffer | none if consumed before the next call |
+| `src/client/PredictionEngine.js:64` | iterator | per-message | generator `*[Symbol.iterator]` used by for-of at `:425` | hoisted-variable | none; indexed `at(i)` gives the same order |
+| `src/client/PredictionEngine.js:77` | object | per-message | `neutralStep(data)` per starved step | pooled-object | none; `_step` reads synchronously |
+| `src/client/PredictionEngine.js:154` | object | per-message | `{dir: [...dir], impulse, startTime}` on knockback | pooled-object | none; knockback is an event |
+| `src/client/PredictionEngine.js:195` | array | per-message | `_commandedTravel` returns `[dx, dz]` per usable ack | preallocated-cleared-buffer | none; read synchronously |
+| `src/client/PredictionEngine.js:328` | closure | per-message | `walls.find(x => ...)` per wall plane per snapshot | hoisted-variable | none |
+| `src/client/PredictionEngine.js:331`, `:332` | shift, object | per-message | `walls.shift()` at `WALL_CACHE_SIZE` and a new wall record | fixed-ring | an evicted record must not be referenced after shift |
+| `src/client/PredictionEngine.js:342` | shift | per-message | `walls.splice(i, 1)` returns removed array | none | in-place compaction gives the same result |
+| `src/client/PhysicsNetworkClient.js:373` | object | per-packet | `pack({type, payload})` envelope per send (every INPUT) | pooled-object | none; pack is synchronous (msgpack output still allocated) |
+| `src/client/PhysicsNetworkClient.js:72` | object | per-packet (1 Hz) | `pack({type: HEARTBEAT, payload: {timestamp}})` | pooled-object | none |
+| `src/protocol/InputCodec.js:76`, `:77` | object, closure | per-input | `inputCase` `{code, ...fields}` and `Object.defineProperty` getter for `reason` | none | case objects are frozen and returned; the getter must stay lazy |
+| `src/protocol/InputCodec.js:82`, `:87` | object | per-input (refusal path) | `Object.freeze({accepted: false, ...})` and `new RangeError` | none | refusal path only |
+| `src/protocol/InputCodec.js:131`, `:136` | object | per-input | `cases.push(inputCase(WRAPPED))` and `(CLAMPED)` | none | the case object is the output |
+| `src/protocol/InputCodec.js:220` | object | per-input | `{...recordTemplate(schema, analog)}` per record | fixed-ring | quantize output is kept as history `e.data`; one shared object would alias |
+| `src/protocol/InputCodec.js:257` | array | per-packet | `const cases = []` in tryEncodeInputPacket | preallocated-cleared-buffer | none; BaseClient reads it synchronously |
+| `src/protocol/InputCodec.js:258` | object | per-packet (overflow path) | `inputCase(DROPPED)` | none | overflow path |
+| `src/protocol/InputCodec.js:261`, `:262` | typed | per-packet | `new Uint8Array(size)` and `new DataView(out.buffer)` | preallocated-cleared-buffer | pack copies bytes in send; a caller keeping them would alias |
+| `src/protocol/InputCodec.js:271` | object | per-packet | `Object.freeze({accepted, code, bytes, count, dropped, cases})` | pooled-object | none; read synchronously |
+| `src/protocol/InputCodec.js:286` | typed | per-packet | `new DataView(bytes.buffer, ...)` on server decode | none | none |
+| `src/protocol/InputCodec.js:287` | array | per-packet | `const entries = []` in decodeInputPacket | preallocated-cleared-buffer | `ServerHandlers.js:326` consumes it synchronously; entry objects must not escape |
+| `src/protocol/InputCodec.js:298` | object | per-input | `{sequence: 0, data: null}` per decoded record | pooled-object | entry must not be held after the ServerHandlers loop |
+| `src/protocol/InputCodec.js:306` | object | per-packet | `Object.freeze({accepted, code, entries, chartEpoch})` | pooled-object | none |
+| `src/protocol/EventEmitter.js:31` | array | per-message | `emit(event, ...args)` rest array per emit (every transport message) | hoisted-variable | none if a fixed-arity fast path is added |
+| `src/protocol/EventEmitter.js:34` | array | per-message | `listeners.get(event).slice()` per emit | preallocated-cleared-buffer | re-entrant emit or removal needs a depth-indexed scratch |
+| `src/protocol/EventEmitter.js:36` | array | per-message | `fn(...args)` spread per listener | hoisted-variable | none |
+| `src/protocol/EventEmitter.js:25` | array | per-message | `once` wrapper `(...args)` and spread | hoisted-variable | none |
+| `src/netcode/LockstepGameLoop.js:149` | Map, object | per-tick | `new Map()` byPeer and `keys = {}` per step | preallocated-cleared-buffer (Map); fixed-ring (keys) | simulate must not retain the Map (PeerSimSession copies it); keys retained in `used` until prune |
+| `src/netcode/LockstepGameLoop.js:150` | string | per-tick | `canonicalJSON(inp)` per roster peer per step | none | memoizing by identity is unsafe if inputs mutate |
+| `src/netcode/LockstepGameLoop.js:142` | shift | per-tick | `latencyRing.shift()` at 1024 | fixed-ring | latencyStats keeps the same window |
+| `src/netcode/LockstepGameLoop.js:194` | array, closure | per-tick | `pendingPeers()` roster filter and closure per driver tick | preallocated-cleared-buffer | none |
+| `src/netcode/LockstepGameLoop.js:62` | array | per-tick (while stalled) | `waitingOn(tick)` filter | preallocated-cleared-buffer | none |
+| `src/netcode/LockstepGameLoop.js:180` | destructure | per-tick | `for (const [pk, adv] of remoteAdvantage)` | hoisted-variable | none |
+| `src/netcode/LockstepGameLoop.js:161` | iterator | per-tick | prune iterates `used.keys()` and `inputs.values()` x `m.keys()` | none | O(retained x roster) per tick, not allocation |
+| `src/netcode/LockstepGameLoop.js:75`, `:77` | array, destructure | per-message | `tailOf` out array and `out.push([t, inp])` | none | sent synchronously; low confidence on the destructure |
+| `src/netcode/LockstepGameLoop.js:72` | array | per-message | `survivors()` roster filter per finishDrops pass | preallocated-cleared-buffer | none |
+| `src/netcode/LockstepGameLoop.js:114` | array | per-message | `[...m.keys()]` copy per cut | none | none |
+| `src/netcode/LockstepGameLoop.js:118` | object | per-message | dropLog entry with `Object.fromEntries` | none | bounded by `DROP_LOG_LIMIT` |
+| `src/netcode/RollbackGameLoop.js:45` | Map | per-tick | `new Map()` inputs in inputsFor (also per replayed tick) and keys | preallocated-cleared-buffer (inputs); fixed-ring (keys) | simulate must not retain the Map; keys kept in `used` until prune |
+| `src/netcode/RollbackGameLoop.js:49` | string | per-tick | `canonicalJSON(inp)` per roster peer | none | memoizing needs identity-safe inputs |
+| `src/netcode/RollbackGameLoop.js:61` | string | per-message | `canonicalJSON(input ?? null)` per remote input | none | as `:49` |
+| `src/netcode/RollbackGameLoop.js:68` | Map | per-message | `new Map()` row per remote checksum tick | fixed-ring | rows held until pruned |
+| `src/netcode/RollbackGameLoop.js:76` | destructure | per-message | `for (const [peer, cs] of row)` | none | none |
+| `src/netcode/RollbackGameLoop.js:122`, `:145` | iterator | per-tick | `localChecksums.keys()` and prune `confirmed.values()` x `m.keys()` | none | O(window x roster) per tick |
+| `src/netcode/RollbackLoop.js:10`, `:12` | Map, iterator | per-tick | `ring.set(tick, capture(tick))` and `ring.delete(ring.keys().next().value)` | fixed-ring | snapshot slots live for the window; reuse needs copy-into slots keyed by tick |
+| `src/netcode/RollbackLoop.js:23` | array | per-message | `[...ring.keys()]` copy in restore | fixed-ring | none |
+| `src/netcode/TickSystemBase.js:109` | closure | per-tick (precise mode only) | `_yield(() => ...)` spin callback | hoisted-variable | none |
+| `src/netcode/TickSystemBase.js:113` | closure | per-tick | `setTimeout(() => ...)` arrow per scheduled wake | hoisted-variable | the Timeout object is still platform-allocated |
+| `src/netcode/TickSystem.js:27` | shift | per-tick | `_tickBudgetMs.shift()` after 60 samples | fixed-ring | none; the sum is kept incrementally |
+| `src/netcode/RollbackInputTransport.js:39` | string | per-input | `encodeCtrl({type, tick, input, adv})` then JSON.stringify | none | wire format between peers is JSON |
+| `src/netcode/RollbackInputTransport.js:50`, `:54`, `:55` | closure | per-packet | `countReject(this.stats)`, `tickOf`, `countOrder(this.stats)` per inbound frame | hoisted-variable | none; stats set once in the constructor |
+| `src/netcode/RollbackInputTransport.js:51` | object | per-packet | dispatch options literal per inbound frame | pooled-object | none; dispatch reads it synchronously |
+| `src/netcode/LockstepInputTransport.js:29` | string | per-input | `encodeCtrl({type: 'input', ...})` JSON | none | wire format |
+| `src/netcode/LockstepInputTransport.js:34` | string | per-message | `encodeCtrl` drop report JSON | none | wire format |
+| `src/netcode/LockstepInputTransport.js:39`, `:43`, `:44` | closure | per-packet | `countReject`, `tickOf`, `countOrder` per frame | hoisted-variable | none |
+| `src/netcode/LockstepInputTransport.js:40` | object | per-packet | dispatch options literal per frame | pooled-object | none |
+| `src/netcode/controlFrame.js:34` | string, json | per-input | `prefix + JSON.stringify(frame)` | none | wire format |
+| `src/netcode/controlFrame.js:40` | object | per-packet | `return {status: 'foreign-prefix'}` per foreign frame | pooled-object | only countReject reads it (frozen constants are safe) |
+| `src/netcode/controlFrame.js:43` | string, json | per-packet | `data.slice(prefix.length)` and `JSON.parse` per protocol frame | none | wire format |
+| `src/netcode/controlFrame.js:50` | destructure | per-packet | `for (const [field, admits] of contract)` | hoisted-variable | none |
+| `src/netcode/controlFrame.js:53` | object | per-packet | `return {status: 'accepted', frame}` | pooled-object | none |
+| `src/netcode/controlFrame.js:100` | closure | per-packet | `refuse` arrow built before any refusal check | hoisted-variable | none |
+| `src/netcode/controlFrame.js:117` | object | per-packet | `return {frame, apply, from, order}` | pooled-object | none; consumed synchronously |
+| `src/netcode/ConsensusVoter.js:6` | json | per-message | `encodeChecksumMsg` object plus JSON per checksum tick | none | wire format |
+| `src/netcode/ConsensusVoter.js:61`, `:65`, `:66`, `:67` | closure | per-packet | `countReject`, `tickOf`, `senderOf`, `countOrder` per frame | hoisted-variable | none |
+| `src/netcode/ConsensusVoter.js:62` | object | per-packet | dispatch options literal per frame | pooled-object | none |
+| `src/netcode/ConsensusVoter.js:110` | object | per-message | desyncLog entry with `Object.fromEntries` and `[...offenders]` | none | bounded by `DESYNC_LOG_LIMIT` |
+| `src/netcode/ConsensusVoter.js:114`, `:128`, `:152` | destructure | per-message | loops over `_peerDesync` | none | none |
+| `src/netcode/ConsensusVoter.js:120` | shift | per-message | `evidenceTicks.slice(-n)` when over 2n | fixed-ring | none |
+| `src/netcode/ConsensusVoter.js:124`, `:155` | array | per-message | `evidenceTicks = []` per peer per verified checksum | preallocated-cleared-buffer | getStats copies it out, so `length = 0` reuse is safe |
+| `src/netcode/DesyncDetector.js:33` | Map | per-message | `new Map()` row per checksum tick | fixed-ring | rows held in `_pending` until resolved or evicted |
+| `src/netcode/DesyncDetector.js:45` | iterator | per-message | `_resolvedTicks.values().next().value` per resolve | fixed-ring | none |
+| `src/netcode/DesyncDetector.js:47` | Map | per-message | `counts = new Map()` per resolve | preallocated-cleared-buffer | none |
+| `src/netcode/DesyncDetector.js:50`, `:59` | destructure | per-message | `for (const [cs, count] of counts)` and `for (const [peerId, cs] of row)` | none | none |
+| `src/netcode/DesyncDetector.js:58`, `:60` | array, object | per-message | `offenders` array and result literal per resolve | none | retained by the result and onDesync |
+| `src/netcode/LockstepChecksum.js:12`, `:17`, `:18` | closure, object | per-message | `fold` arrow, returned `{push, pushInt, digest}` handle, method closures | hoisted-variable | nested folds (`PeerSimSession.checksumOf`) need a depth-indexed pool |
+| `src/netcode/LockstepChecksum.js:26` | array | per-message | `ids = [...snap.keys()]` or `Object.keys(snap).map(Number)` | preallocated-cleared-buffer | none; sorted locally |
+| `src/netcode/LockstepChecksum.js:27` | closure | per-message | `ids.sort((x, y) => x - y)` per call | hoisted-variable | none |
+| `src/netcode/LockstepChecksum.js:20` | string | per-message | `digest()` hex concat and padStart | none | none |
+| `src/netcode/PeerSimSession.js:41` | object | per-tick | `{...lastLocalInput}` per getLocalInput | pooled-object | the copy is retained in `RollbackGameLoop.confirm`; the pool must cover that retention |
+| `src/netcode/PeerSimSession.js:45` | Map | per-tick | `toPlayerInputs` `new Map()` per simulate call | preallocated-cleared-buffer | the tick handler must not retain the Map |
+| `src/netcode/PeerSimSession.js:46` | destructure | per-tick | `for (const [pk, inp] of inputsByPeer)` | none | none |
+| `src/netcode/PeerSimSession.js:60`, `:61`, `:63` | Map, object | per-tick | capture `new Map()` lastInputs, `{...p.lastInput}` per player, capture result literal | fixed-ring | retained for `STATE_RING_TICKS` |
+| `src/netcode/PeerSimSession.js:81` | string | per-message | `checksumBodies(...).slice(0, 8)` | none | none |
+| `src/netcode/PeerSimSession.js:82` | array, closure | per-message | `[...snap.players.keys()]` and `(a, b) => a - b` | preallocated-cleared-buffer, hoisted-variable | none |
+| `src/netcode/PeerSimSession.js:94` | closure, array, Map | per-message | `observeRollback.before` arrow, `[p.id, [...p.state.position]]` pair, `new Map(...)` per rollback | hoisted-variable, preallocated-cleared-buffer | rollback-local |
+| `src/netcode/PeerSimSession.js:107` | string | per-message | `core.slice(0, 8)` and `slice(8)` in liveChecksum | none | none |
+| `src/netcode/PeerSimSession.js:108` | array | per-message | `[...ctx.appRuntime.entities.keys()].sort()` | preallocated-cleared-buffer | none |
+| `src/netcode/PlayerManager.js:97` | object | per-input | `inputs.push({sequence, data, timestamp})` | pooled-object | ring of `MAX_BUFFERED_INPUTS` per player; order must hold |
+| `src/netcode/PlayerManager.js:105` | array | per-input | `inputs.splice(i, 0, {...})` returns a removed array | none | manual insert gives the same order |
+| `src/netcode/PlayerManager.js:108` | shift | per-input | `inputs.shift()` past `MAX_BUFFERED_INPUTS` | fixed-ring | same as `:97` |
+| `src/netcode/PlayerManager.js:139` | typed | per-message | `pack(message)` output per broadcast or send | none | msgpack output is library-allocated |
+| `src/netcode/PlayerManager.js:191`, `:198`, `:200` | array, object | per-message | `failed` array per fanout, `failed.push({playerId, reason})`, result `{delivered, failed, skipped}` | preallocated-cleared-buffer, pooled-object | `failed` is returned inside the result; the caller may hold it |
+| `src/netcode/PlayerManager.js:74` | closure | per-message | `getAllPlayers().filter(...)` on join or leave | hoisted-variable | none |
+| `src/netcode/PlayerManager.js:218`, `:223`, `:224` | object, closure, array | per-tick | `out.set(id, {...})`, `pushQueue.map(...)`, `[...s]` and `[...p.pendingPush]` copies | fixed-ring | the snapshot is kept for the rollback window |
+| `src/netcode/PlayerManager.js:219`, `:225` | json | per-tick | `JSON.parse(JSON.stringify(p.state))` per player, and the `movementOverride` round trip | fixed-ring | copy-into slots remove it; JSON also drops non-JSON fields |
+| `src/netcode/PlayerManager.js:236`, `:242` | json | per-message | restoreState `JSON.parse(JSON.stringify(...))` for `state` and `movementOverride` | pooled-object | copy into the existing object |
+| `src/netcode/PlayerManager.js:240`, `:241` | closure, array | per-message | restore `pushQueue.map` and `[...x]`, `[...s.pendingPush]` copies | hoisted-variable, none | none |
+| `src/netcode/NetworkState.js:46` | closure | per-tick | `vecOK` runs `v.some(arrow)`, three calls per player (`:46-48`) | hoisted-variable | none; rewrite the some-arrow as a loop in `src/shared/vecGuard.js:3` |
+| `src/netcode/PhysicsIntegration.js:69`, `:75` | object | per-tick | `return {vy, dragMul}` per player | pooled-object | caller reads synchronously (`:141-143`, `:182`) |
+| `src/netcode/PhysicsIntegration.js:144` | array | per-tick | `setCharacterVelocity(charId, [vx, vy, vz])` | preallocated-cleared-buffer | the physics world must not keep the array |
+| `src/netcode/PhysicsIntegration.js:98` | Map | per-tick | `new Map(this._crouchStates)` per capture | fixed-ring | retained in the rollback snapshot |
+| `src/netcode/Hitscan.js:10` | array | per-message | `normalizeShotDirection` returns `[x, y, z]`; `rayVsCapsule` (`:33`) repeats it per target | hoisted-variable | none; pass the unit vector once per shot |
+| `src/netcode/Hitscan.js:20` | array | per-message | `eye = [...]` per shot | preallocated-cleared-buffer | origin is kept for the shot only |
+| `src/netcode/Hitscan.js:24` | object | per-message | `return {origin, viewTick}` per shot | pooled-object | none |
+| `src/netcode/Hitscan.js:29` | array, object | per-message | `[...rewound.position]` and `{tp, rewound}` per target | pooled-object | `tp` is kept in the returned hit, so one scratch cannot serve several targets |
+| `src/netcode/Hitscan.js:34` | array | per-message | `toTarget = [...]` per target in rayVsCapsule | hoisted-variable | none |
+| `src/netcode/Hitscan.js:37`, `:41`, `:53` | array, object | per-message | `proj = [...]`, `{proj, dot}`, and the hit record | none | retained in the returned hit |
+| `src/netcode/Hitscan.js:73` | Map | per-message | `new Map(players.map(...))` when `playersById` absent | preallocated-cleared-buffer | fallback only; `buildLiveIndex` always sets `playersById` |
+| `src/netcode/Hitscan.js:74` | Set | per-message | `seen = new Set()` per shot | preallocated-cleared-buffer | none |
+| `src/netcode/Hitscan.js:78` | closure | per-message | queryRay callback arrow per shot | hoisted-variable | the callback captures per-shot locals |
+| `src/netcode/RewindSpatialIndex.js:11` | string | per-message | `_key`: `cx + ',' + cy + ',' + cz` per cell | none | a numeric key is the fix; must stay collision-free (see the `packCellKey` int32 lesson) |
+| `src/netcode/RewindSpatialIndex.js:15` | array | per-message | `_cellOf` returns `[x, y, z]` per ray | hoisted-variable | none |
+| `src/netcode/RewindSpatialIndex.js:26`, `:27` | array, object | per-message | `bucket = []` per new cell and `bucket.push({id, pos})` per insert | pooled-object | the index is rebuilt per shot tick; pool buckets per index |
+| `src/netcode/RewindSpatialIndex.js:38` | closure | per-message | `nextBoundary` arrow per ray | hoisted-variable | none |
+| `src/netcode/RewindSpatialIndex.js:51` | Set | per-message | `visited = new Set()` per ray | preallocated-cleared-buffer | none |
+| `src/netcode/RewindSpatialIndex.js:6` | Map | per-message | three Maps per RewindSpatialIndex (`buildLiveIndex`) | preallocated-cleared-buffer | `combat.js` caches one index per tick; reuse only once the old one is dropped |
+| `src/netcode/OutlierDetector.js:21` | shift | per-message | `w.hits.shift()` past 20 | fixed-ring | none |
+| `src/netcode/OutlierDetector.js:23` | closure | per-message | `w.hits.reduce((n, h) => ...)` per hit | hoisted-variable | none; keep a running count |
+| `src/netcode/OutlierDetector.js:27`, `:38` | object | per-message | eventLog record literals on flags (cooldown-bounded) | none | none |
+| `src/netcode/InputGuard.js:40`, `:41`, `:42` | array, closure | per-tick | `candidates = [...]` per player per tick, `.filter(v => ...)`, `Math.max(...candidates)` | hoisted-variable | none if a plain max over the same finite > 0 values replaces the array |
+| `src/netcode/CollisionSystem.js:55`, `:57` | array | per-tick | `pendingPush = [0,0,0,0]` re-created each tick (`advancePushQueue` nulls it, `:25`) | pooled-object | the queue keeps the reference (`:24`); copy on queue push before pooling |
+| `src/netcode/CollisionSystem.js:26` | shift | per-tick | `queue.shift()` on the 16-slot queue per player | fixed-ring | `pushWindowOf` reads the queue in order |
+| `src/netcode/CollisionSystem.js:65` | array | per-tick | `pushQueueOf(player).slice(0, 16)` per player (`TickHandler.js:162`) | preallocated-cleared-buffer | stored in `networkState.pushWindow` and read at encode in the same tick |
+| `src/netcode/CollisionTileStreamer.js:49` | object | per-message | `c.sent.set(t.k, {tx, tz, hash})` per tile sent | pooled-object | update the existing entry in place when present |
+| `src/netcode/CollisionTileStreamer.js:77`, `:78` | Set, closure | per-tick (when a client has left) | `new Set(players.map(p => p.id))` and the map closure | preallocated-cleared-buffer, hoisted-variable | none |
+| `src/shared/collisionTile.js:31` | object | per-message | `encodeTileMessage` return literal per tile sent | none | none |
+| `src/shared/collisionTile.js:32`, `:33` | typed | per-message | `new Uint8Array(t.verts.buffer, ...)` and `(t.boxes.buffer, ...)` views | none | the view is the send input |
+| `src/shared/collisionTile.js:47`, `:48` | typed | per-message | `new Uint8Array(msg.v).buffer` and `(msg.b).buffer` copies on receive | none | alignment copies needed (msgpack bin is not guaranteed 4- or 8-byte aligned) |
+| `src/shared/collisionTile.js:53` | object | per-message | `return {tx, tz, hash, verts, boxes}` per received tile | none | retained by CollisionMirror |
+| `src/shared/collisionTile.js:24`, `:25` | array | per-message | `boxRecordsOf` out `[]` and `out.push(Array.from(...))` per box | none | boxes are kept per tile |
+| `src/netcode/SnapshotEncoder.js:23`, `:49`, `:64`, `:520`, `:531`, `:549` | destructure | per-tick | array destructuring of position, rotation, velocity, and entry loops | none | low confidence: V8 usually elides it |
+| `src/netcode/SnapshotEncoder.js:27` | array | per-tick | `[p.id, bin, ...8 fields]` row from encodePlayer | pooled-object (use `encodePlayerInto`) | none if fields identical |
+| `src/netcode/SnapshotEncoder.js:31` | array | per-packet | encodeSelfBlock 6-field array per recipient | pooled-object (per recipient) | packed synchronously in packSnapshot |
+| `src/netcode/SnapshotEncoder.js:66` | array | per-packet (reduced tier) | `packReducedPlayerPose` record (callee not audited) | pooled-object | callee-owned |
+| `src/netcode/SnapshotEncoder.js:74` | Map | per-packet | `new Map()` in buildCrowdDots per recipient | preallocated-cleared-buffer | local |
+| `src/netcode/SnapshotEncoder.js:78` | string | per-packet | dot key `${cx},${cz}` | none (numeric key needs collision-free packing) | a numeric key needs collision-free packing |
+| `src/netcode/SnapshotEncoder.js:81` | array | per-packet | `buckets.set(key, [cx, cz, 1])` per new bucket | pooled-object | dots are packed synchronously |
+| `src/netcode/SnapshotEncoder.js:83` | array | per-packet | `[...buckets.values()]` | preallocated-cleared-buffer | becomes `encoded.dots`, packed synchronously |
+| `src/netcode/SnapshotEncoder.js:72` | array | per-packet | `return []` when no players | hoisted-variable | none; frozen empty array; the caller reads length only |
+| `src/netcode/SnapshotEncoder.js:104`, `:112`, `:117`, `:126` | array, object | per-packet (more than 30 nearby) | `full`, `reduced`, `dotPlayers` arrays, return records, `out` in filterEncodedPlayersTiered | preallocated-cleared-buffer, pooled-object | consumed within the call chain, packed synchronously |
+| `src/netcode/SnapshotEncoder.js:141` | typed | per-entity-per-tick (no `into` argument) | packBinRecord allocates when `into` is absent | preallocated-double-buffer | `encodeDelta` retains enc as baseline |
+| `src/netcode/SnapshotEncoder.js:186`, `:191` | object, shift | per-tick | `this._list.push({id, tick})` per removal and `this._list.slice(i)` in pruneBefore | fixed-ring | `forClient` reads the list; `_list` identity is internal |
+| `src/netcode/SnapshotEncoder.js:227` | array | per-packet (changed entity) | `out = [enc[0], mask]` in computeFieldDelta | pooled-object | shared-cell rows span recipients; reset per tick, not per recipient |
+| `src/netcode/SnapshotEncoder.js:237` | array, typed | per-entity-per-tick (encodeDelta `:552`, static rebuild `:424`) | encodeEntity `new Array(6)` plus bin | pooled-object (double-buffer) | encodeDelta retains it as baseline (`:555`) |
+| `src/netcode/SnapshotEncoder.js:245` | string | per-entity-per-tick (dirty entry) | `'' + custKey` in buildEntityKey | none | `k` is change-detection only; a numeric hash changes collision classes |
+| `src/netcode/SnapshotEncoder.js:250` | JSON | per-entity-per-tick (custom identity change) | `JSON.stringify(cust)` | none | identity-keyed cache; in-place mutation without `_customV` is already stale |
+| `src/netcode/SnapshotEncoder.js:280`, `:281`, `:287` | typed, array, object | per-entity (enters cache) | buildEntry bins, `enc = new Array(6)`, entry literal | pooled-object | per-entity lifetime |
+| `src/netcode/SnapshotEncoder.js:303`, `:304` | typed, array | per-entity-per-tick (far tier) | packBinRecord in stripVelocityForFar and the `[enc[0], enc[1], noVelBin, ...]` row | pooled-object | the stripped row becomes the baseline (`:353`) |
+| `src/netcode/SnapshotEncoder.js:353` | array | per-entity-per-tick (every applied entity) | `nextMap.set(id, [k, entry.cust, entry.custStr, enc])` in applyEntry | pooled-object (double-buffer) | prev is read in the same call; in-place overwrite corrupts it |
+| `src/netcode/SnapshotEncoder.js:369` | Set | per-tick (cache or static size changed) | `new Set(dynCache.keys())` in updateTombstones | pooled-object (rotate two) | identity stored as knownIds |
+| `src/netcode/SnapshotEncoder.js:388` | object | per-tick (first sighting only) | new player encode record | pooled-object | the pool is the reuse; none after first sighting |
+| `src/netcode/SnapshotEncoder.js:401` | array | per-packet (30 or fewer nearby) | `out = []` in filterEncodedPlayersWithSelf | preallocated-cleared-buffer | consumed synchronously |
+| `src/netcode/SnapshotEncoder.js:418`, `:419`, `:420`, `:437` | Map, array, Set | per-tick (static change or keyframe) | `nextMap`, `allEntries`, `changedEntries`, `new Set(staticMap.keys())` | none | retained as state |
+| `src/netcode/SnapshotEncoder.js:429`, `:430`, `:431` | array, object | per-entity (static change) | `nextMap.set(e.id, [k, cust, custStr])`, `allEntries.push({enc, k, id})`, `changedEntries.push({enc, k, id})` | none | retained as the static baseline |
+| `src/netcode/SnapshotEncoder.js:465`, `:499` | array | per-tick | `[sleepingIds, suspendedIds]` literal per refresh and per rebuild | hoisted-variable | none (two loops or a helper) |
+| `src/netcode/SnapshotEncoder.js:486` | Map, array | per-tick (rebuild only) | `cache = new Map()` and `envIds = []` in buildDynamicCache | none | the cache is the baseline |
+| `src/netcode/SnapshotEncoder.js:517`, `:518`, `:536` | array, Map | per-tick (per cell, no scratch) | `scratch ? scratch.entities : []`, `scratch.spareMap : new Map()`, `removed = scratch.removed : []` | pooled-object (per cell), fixed-ring | the cell-shared entities and map are retained (`TickHandler.js:355-358`); pass a scratch instead of the fallback |
+| `src/netcode/SnapshotEncoder.js:526` | Set | per-tick (array relevantIds) | `new Set(relevantIds)` | pooled-object | TickHandler passes Sets |
+| `src/netcode/SnapshotEncoder.js:543`, `:565`, `:578` | object | per-tick | return records `{encoded, entityMap}` and `{tick, serverTime, players, entities}` | pooled-object | the cell share keeps them |
+| `src/netcode/SnapshotEncoder.js:547`, `:576`, `:577` | array | per-tick | `(snapshot.players || []).map(encodePlayer)` and `(snapshot.entities || []).map(encodeEntity)` | hoisted-variable (encode once per tick when shared) | `RegionWorkerEntry.js:187` shares it |
+| `src/netcode/SnapshotEncoder.js:548` | Set, array, Map | per-tick (broadcast) | `new Set()`, `[]` and `new Map()` (nextMap) in encodeDelta | preallocated-cleared-buffer (rotate Map) | nextMap is retained as the broadcast baseline; double-buffer it |
+| `src/netcode/SnapshotEncoder.js:552` | array, typed | per-entity-per-tick (broadcast) | `encodeEntity(e)` `new Array(6)` plus bin | pooled-object (double-buffer) | nextMap retains it (`:555`) |
+| `src/netcode/SnapshotEncoder.js:555` | array | per-entity-per-tick (broadcast) | baseline row `[k, cust, custStr, encoded]` | pooled-object | the row is the next tick's baseline; double-buffer |
+| `src/netcode/SnapshotEncoder.js:564` | array | per-tick (broadcast) | `const removed = []` | preallocated-cleared-buffer | packed synchronously |
+| `src/netcode/SnapshotPacker.js:97`, `:104` | typed | per-tick (bins-record or scalar-record miss) | `new Uint8Array(pack(rec))` | none | msgpackr reuses its output buffer, so the copy is required |
+| `src/netcode/SnapshotPacker.js:105` | object, array | per-tick (per miss) | `memo.byId.set(rec[0], {values: rec.slice(), bytes})` | pooled-object (copy into existing values) | none |
+| `src/netcode/SnapshotPacker.js:111` | Map, WeakMap | per-tick | `newRecordMemo()` per tick | preallocated-cleared-buffer (only `byId` is reusable) | pooled rows keep identity, so a reused WeakMap returns stale bytes |
+| `src/netcode/SnapshotPacker.js:120` | typed | per-packet | `pack(_numbers)` header (seq, tick, serverTime) | hoisted-variable (once per tick) | none; identical for all recipients |
+| `src/netcode/SnapshotPacker.js:123` | typed | per-packet | `pack(_fields)` tail re-encodes entities per recipient | hoisted-variable (entities segment only) | `me` differs per recipient; benefits shared cells |
+| `src/netcode/SnapshotPacker.js:56`, `:67` | typed | per-packet | `src.subarray(from)` in copyRange and `_arena.subarray` view per packet | none | returning an offset avoids the view; TickHandler copies anyway |
+| `src/netcode/SnapshotBinFormat.js:45` | array | per-packet | reduced pose `[id, x, z, yawN, tier]` | pooled-object | packed before the next encode of the same player |
+| `src/netcode/SnapshotBinFormat.js:69` | typed | per-packet | `new Uint8Array(29)` when packBinRecord has no `into` | preallocated-cleared-buffer | the bin is kept as the entity baseline; needs the per-entity double buffer |
+| `src/netcode/SnapshotBinFormat.js:81` | typed | per-tick | `new Uint8Array(22)` when packPlayerBinRecord has no `into` | pooled-object | `encodePlayerInto` already passes `rec.bins` |
+| `src/netcode/SnapshotBinFormat.js:89`, `:97` | typed | per-message | `new Uint8Array(buf.buffer, ...)` when a DataView is passed | none | conditional |
+| `src/netcode/TeleportHold.js:11` | array | per-tick (during a hold) | `[p[0], p[1], p[2]]` and `[0,-1,0]` per probe | hoisted-variable | none; the raycast does not keep the arrays |
+| `src/netcode/LagCompensator.js:59` | iterator | per-tick | `for (const ring of playerHistory.values())` in beginTick | none | none |
+| `src/netcode/LagCompensator.js:67` | array | per-tick (first sighting) | `Array.from({length: 256}, makeSample)` per player | pooled-object | none; rings can be recycled on clearPlayerHistory |
+| `src/netcode/LagCompensator.js:68`, `:121` | closure | per-tick, per-message | `const at = i => ...` per recordPlayerPosition call and per rewindAtTick call | hoisted-variable | none |
+| `src/netcode/LagCompensator.js:122` | object | per-message | `out || makeSample()` per rewind (`Hitscan.js:28` passes no out) | pooled-object | the rewound sample is kept in the hit; a shared scratch must live per shot |
+| `src/netcode/LagCompensator.js:141`, `:144` | array | per-message | `eye = [...]` per shot in validateShotOrigin and the returned copy | preallocated-cleared-buffer | returned as origin when rejected; kept for the shot only |
+| `src/netcode/ReplayRecorder.js:23`, `:51` | object | per-tick, per-input (while recording) | `this._ticks.push({tick, dt})` and `this._inputs.push({...})` | none | retained for the replay file; two typed arrays would avoid it |
+| `src/netcode/EventLog.js:14` | object | per-message | `parseEventKind` returns `{status, kind}` per record | hoisted-variable | frozen constants per known type |
+| `src/netcode/EventLog.js:32`, `:39`, `:83` | object | per-message | event literal per record, `meta: {...}` spread copy, and the `local` literal in ingestRemote | none | the ring keeps the event |
+| `src/netcode/EventLog.js:80`, `:102` | string | per-message | template keys `${originRegion}:${event.id}` and replicated keys at prune | none | prune is periodic |
+| `src/netcode/WorkerBridgeProxy.js:2` | object | per-message | `new Event(type)` per inbound frame | none | EventTarget needs an Event instance |
+| `src/netcode/WorkerBridgeProxy.js:14`, `:15` | object | per-message | `post({type: 'BRIDGE_BROADCAST', data})` and `BRIDGE_SEND` per send | pooled-object | postMessage structured-clones synchronously |
+| `src/netcode/WorkerBridgeProxy.js:20` | object | per-message | detail literal `{peerPubkey, data}` per inbound frame | pooled-object | listeners may keep `event.detail` |
+
+Out-of-scope callees that set the cost of the rows above: `shared/canonicalJSON.js` (`Object.create` and sorted keys per object, plus `JSON.stringify`); `shared/vecGuard.js:3` (the `some` arrow); `shared/wallPlaneWire.js:20` (`const out = []` per self block per recipient); physics `snapshotBodies`, `saveExactState`, `snapshotSimState` and `captureRuntimeClock` (per capture in `PeerSimSession:63`); msgpackr `pack` and `unpack` (output and decoded objects per call).
+
+Packet-path callers outside this area: `src/sdk/TickHandler.js:175` copies every packed snapshot once per recipient (`new Uint8Array(spliced)`), the largest per-packet allocation on the server, and is listed in Area 2. `ServerHandlers.js:326` calls addInput per decoded entry.
+
+Setup-only sites were excluded: CursorEventStream sink and backoff closures, msgpack `_wireOptions`, peerLoops factories, NetcodeProfile resolution, the PeerSimSession recorder pool, `makeReducedPlayerPose`, and `snapshotHead`.
+
+No production caller found: SnapshotEncoder `decode` and `decodeSelfBlock` (only `scripts/verify-session.mjs`; the client decodes in SnapshotProcessor), `encodePlayers`, `filterEncodedPlayers`, `encodeCustomBySchema` and `decodeCustomBySchema`, InputCodec `encodeInputPacket` (scripts only), and ComponentSchema encode and decode. If any becomes per-tick, each call allocates a parts array, a DataView and a Uint8Array per field, plus the output.
+
+Witness for this area: W-hash on every packet (`SnapshotEncoder`, `SnapshotPacker`, `InputCodec`, `controlFrame`, `collisionTile`), `scripts/expr-truncation-witness.mjs` (in `npm run check`), `scripts/prediction-reconcile-witness.mjs` (manual), `scripts/groundy-replay-witness.mjs` (rollback and lockstep), and W-alloc on the per-tick rows.
+
+### Counts for run 23
+
+Rows per area, setup-only excluded:
+
+- Area 1, collision mirror floor: 91 rows (the audit listed 125, of which 34 are setup-only).
+- Area 2, server tick: 177 rows, none setup-only.
+- Area 3, remaining `src/`: 200 rows (the audit listed 231, of which about 31 are setup-only).
+- Area 4, client render loop: 132 rows (the audit listed 168, of which 36 are setup-only, and `app.js:2740` and `XRSystem.js:232` may be one site).
+- Area 5, netcode: 294 rows. The audit did not separate setup-only rows, so this is an upper bound.
+
+Per-audit totals, as each auditor reported them:
+- Collision mirror: 125 entries (object 23, array 19, typed 13, Map/Set 9, closure 6, string key 12, spread 3, JSON 2, record 3, wasm 23, iterator 6, iterator pair 6). Per path class: per-message 50, per-step 30, per-query 11, setup-only 34. 91 remain after setup-only is excluded.
+- Server tick: 177 entries (object 46, array 67, typed 12, Map/Set 23, closure 10, string 7, destructure 6, JSON 3, wasm 2, promise 1). Per path class: per-tick 65, per-entity-per-tick 100, per-physics-step 12.
+- Remaining `src/`: 231 entries (array 107, object 51, copy 28, closure 17, destructure 11, typed 9, view 5, Map/Set 2, string 1). Per path class: per-tick 78, per-query 74, setup-only 31, per-cell 29, per-step 12, per-sample 7. 200 remain after setup-only is excluded.
+- Client render loop: 168 entries (object 52, array 29, string 20, closure 17, iterator 15, vector 8, typed 5, destructure 6, spread 6, Map 3, for-in 3, rest-args 1, promise 1, timer 1, buffer 1). Per path class: per-frame 79, per-instance-per-frame 16, per-message 13, setup-only 36, unclassified 24. 132 remain after setup-only is excluded.
+- Netcode: 294 rows (array 77, object 77, closure 32, Map/Set 25, typed 22, destructure 18, string 13, shift 10, iterator 9, JSON 11). Per path class: per-tick 98, per-packet 54, per-message 120, per-input 22, setup-only 0. The auditor did not separate setup-only rows, so these counts are an upper bound on the hot-path rows the table above lists.
+
+### Sites decided not to change, with the cause
+
+- `src/physics/World.js:523` and `:524` (`getBodyPosition`, `getBodyRotation`): callers depend on a fresh array today. Changing them to a shared buffer changes that contract, so it needs every caller checked first. Not changed in this pass.
+- `src/physics/World.js:526`: the Jolt object is not destroyed. The fix is a leak fix, not reuse, and it depends on whether Jolt owns the returned object. Not changed until Jolt ownership is confirmed.
+- `src/protocol/InputCodec.js:220` and `src/protocol/InputCodec.js:298`: a single reused record would alias quantize history (`e.data`) and decoded player input, so these stay per-record.
+- `src/netcode/SnapshotEncoder.js:353`, `:555` and `src/sdk/TickHandler.js:362`: the rows are the next tick's baselines. Reuse needs an ownership swap (double-buffer), not a per-call scratch, so they are deferred to a dedicated pass.
+- `src/netcode/PlayerManager.js:219`: the JSON round trip is the clone the rollback window depends on. Replacing it with copy-into slots changes what a snapshot keeps when a field is non-JSON, so it is deferred until the copy semantics are written down.
+- `src/netcode/RewindSpatialIndex.js:11` and `src/netcode/SnapshotEncoder.js:245`, `:78`: a string key is the identity. A numeric key is only a fix if it stays collision-free, and the `packCellKey` int32 lesson shows what a wrong one costs.
+- Wire JSON and msgpack framing (`controlFrame.js:34`, `:43`, `RollbackInputTransport.js:39`, `LockstepInputTransport.js:29`, `ConsensusVoter.js:6`): the wire format between peers stays fixed. Only wrappers can shrink.
+- `src/client/CollisionMirror.js:217` and `:224` (`floorOf` returns): `records` aliases tile state, and the only caller is a witness. A reuse would make a retained result change under the caller, so it is deferred until a real caller exists.
+- Array destructuring rows (`SnapshotEncoder.js:23`, `:49`, `:64`, `:531`, `:549`, `:520`, and the others marked low confidence): V8 usually elides them. Not changed without an allocation profile that shows otherwise.
+- Setup-only sites in all five areas: they run once, so reuse buys nothing.
