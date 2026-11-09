@@ -72,6 +72,10 @@ function saveEntry(e, state) {
   for (const k of MOVE_STATE_KEYS) e.move[k] = state[k]
 }
 
+function neutralStep(data) {
+  return { yaw: data.yaw || 0, pitch: data.pitch || 0, crouch: !!data.crouch, expr: data.expr || 0 }
+}
+
 function applyPush(state, push) {
   state.position[0] += push[0]; state.position[2] += push[1]
   state.velocity[0] += push[2]; state.velocity[2] += push[3]
@@ -353,6 +357,7 @@ export class PredictionEngine {
     this._copyState(serverPlayer, this.lastServerState)
     this.lastServerState.pushWindow = serverPlayer.pushWindow || null
     this.lastServerState.pushAckSeq = serverPlayer.inputSequence ?? -1
+    this.lastServerState.starvedSteps = serverPlayer.starvedSteps || 0
     this._rememberWalls(serverPlayer)
     const sv = this.lastServerState
     const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
@@ -409,11 +414,13 @@ export class PredictionEngine {
     const ls = this.localState
     const beforeX = ls.position[0], beforeY = ls.position[1], beforeZ = ls.position[2]
     const sp = server.position, sv = server.velocity
-    ls.position[0] = sp[0]; ls.position[1] = sp[1]; ls.position[2] = sp[2]
-    ls.velocity[0] = sv[0]; ls.velocity[1] = sv[1]; ls.velocity[2] = sv[2]
-    ls.onGround = server.onGround
-    ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
-    if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
+    if (!(predictedAtAck && (server.starvedSteps || 0) > 0 && this._rollForwardAcked(server, predictedAtAck))) {
+      ls.position[0] = sp[0]; ls.position[1] = sp[1]; ls.position[2] = sp[2]
+      ls.velocity[0] = sv[0]; ls.velocity[1] = sv[1]; ls.velocity[2] = sv[2]
+      ls.onGround = server.onGround
+      ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
+      if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
+    }
     for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
@@ -423,6 +430,19 @@ export class PredictionEngine {
     }
     this.reconciliationEngine.absorb(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ, ls.onGround)
     this._trail.shift(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
+  }
+
+  _rollForwardAcked(server, predictedAtAck) {
+    const ls = this.localState
+    const sp = server.position
+    for (let i = 0; i < 3; i++) { ls.position[i] = predictedAtAck.position[i]; ls.velocity[i] = predictedAtAck.velocity[i] }
+    ls.onGround = predictedAtAck.onGround
+    ls.groundY = predictedAtAck.groundY
+    for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
+    const neutral = neutralStep(predictedAtAck.data)
+    for (let i = 0; i < server.starvedSteps; i++) this._step(neutral, null, null)
+    const dx = ls.position[0] - sp[0], dy = ls.position[1] - sp[1], dz = ls.position[2] - sp[2]
+    return Math.hypot(dx, dy, dz) <= RECONCILE_POS_EPS_M
   }
 
   resimulate() { this._rebaseAndReplay(this.lastServerState, null, false) }

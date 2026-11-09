@@ -122,11 +122,12 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explic
     }
     let holdForInput = false
     let consumed = false
-    if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0; consumed = true }
+    if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0; player.starvedSteps = 0; consumed = true }
     else if (player.hasSentInput) {
       player.inputStarves = (player.inputStarves || 0) + 1
       player.starvedTicks = (player.starvedTicks || 0) + 1
       holdForInput = player.starvedTicks <= deps.starveHoldTicks
+      if (!holdForInput) player.starvedSteps = (player.starvedSteps || 0) + 1
       if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
     }
     if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
@@ -155,7 +156,7 @@ function recordPlayerTick(player, deps, tick) {
   lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
   const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
   networkState.setPushWindow(player.id, pushWindowOf(player))
-  networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null, st.wallNormals || null)
+  networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null, st.wallNormals || null, player.starvedSteps || 0)
   if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
 }
 

@@ -28,7 +28,7 @@ function encodePlayer(p) {
 }
 
 export function encodeSelfBlock(p) {
-  return p ? [p.inputSequence, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position), p.pushWindow] : undefined
+  return p ? [p.inputSequence, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position), p.pushWindow, p.starvedSteps || 0] : undefined
 }
 
 export function decodeSelfBlock(me, out) {
@@ -36,6 +36,7 @@ export function decodeSelfBlock(me, out) {
   out.groundNormal = unpackGroundNormal(me[2] || 0, out.groundNormal || [0, 1, 0])
   out.wallPlanes = unpackWallPlanes(me[3], out.wallPlanes || [])
   out.pushWindow = me[4] || null
+  out.starvedSteps = me[5] || 0
   return out
 }
 
