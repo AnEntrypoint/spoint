@@ -69,7 +69,7 @@ function linuxProcessTable() {
   return table
 }
 
-function psProcessTable() {
+export function psProcessTable() {
   const r = spawnSync('ps', ['-Ao', 'pid=,ppid=,lstart='], { encoding: 'utf8' })
   if (r.status !== 0 || !r.stdout) return null
   const table = []
@@ -89,7 +89,7 @@ function windowsProcessTable() {
   return (Array.isArray(rows) ? rows : [rows]).map((row) => ({ pid: Number(row.pid), ppid: Number(row.ppid), start: String(row.start) }))
 }
 
-function browserTreeNow(rootPid) {
+export function browserTreeNow(rootPid) {
   if (!Number.isInteger(rootPid) || rootPid <= 0) return []
   const table = processTable()
   if (!table) {
