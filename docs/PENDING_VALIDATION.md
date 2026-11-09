@@ -806,3 +806,17 @@ Decided by the dispatcher. The old power rule counted correction replays. Under 
 Not changed in this pass: the 1 cm threshold, the minimum of 100, the correction residual rule, the netcode behaviour and the mirror code. The spike cause is measured in Phase B from the new samples; its fix or its margin is recorded there.
 
 Status: Phase A is committed locally. The power rule, the residual set and the spike cause are measured in Phase B.
+
+## Phase A (run 12): the spike samples carry the step sequence and the server's Y
+
+Phase B run 11 measured the spikes but not their cause. Each of the five spikes is on a flat box floor (`HARNESS_ARENA`, the `box-static` floor with its top at y = 0), on flat ground (normal (0, 1, 0)), with no tile build in its window (`builds` constant across the three samples), and with an up and a down step of the same size (1.0 to 2.3 mm). A geometry bump cannot produce that on a box top, so the question is whether the server's own Jolt step shows the same bump at the same sequences, which would make it a character-controller effect, or whether only the mirror does.
+
+| area | change | file | witness |
+|---|---|---|---|
+| probe, spikes | The `_step` wrapper sets the current step sequence while the step runs, so each mirror sample carries the sequence it belongs to and the player id. | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| probe, spikes | At exit, each spike sample gets `serverY`: the server's position Y at the same player and sequence (`serverCalls`, the Jolt step). | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| gate, spikes | Each spike line prints the sequences, the client Y and the server Y for the three samples. | `scripts/groundy-replay-witness.mjs` | the gate, Phase B |
+
+Not changed in this pass: the mirror, the server, the netcode, the thresholds and the pass rule. The spike cause is measured in Phase B from `clientY` against `serverY`.
+
+Status: Phase A is committed locally. The spike cause is measured in Phase B.

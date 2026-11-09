@@ -24,6 +24,7 @@ const realStep = proto._step
 let activeClientSteps = null
 const MOVE_FLAG_KEYS = ['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding', '_physCrouch', '_crouchDy']
 const moveFlags = state => Object.fromEntries(MOVE_FLAG_KEYS.map(k => [k, state[k] ?? null]))
+let currentStepSeq = null
 proto._step = function (input, seq, groundNormal) {
   const ls = this.localState
   const probing = !!activeClientSteps && seq != null
@@ -38,7 +39,10 @@ proto._step = function (input, seq, groundNormal) {
     amVel = [amState.velocity[0], amState.velocity[2]]
   }
   const pushIn = probing ? this._pushForSequence(seq) : null
-  const out = realStep.call(this, input, seq, groundNormal)
+  const outerStepSeq = currentStepSeq
+  currentStepSeq = seq
+  let out
+  try { out = realStep.call(this, input, seq, groundNormal) } finally { currentStepSeq = outerStepSeq }
   if (probing) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!ls.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [ls.velocity[0], ls.velocity[2]], preVel, amVel, preFlags, preOnGround, flags: moveFlags(ls), onGround: !!ls.onGround, dt: dtS, dilation: this.dilation, path: this._env?.collider ? 'collider' : 'analytic', pushIn: pushIn ? [...pushIn] : null, movement: { ...this.movement } })
   return out
 }
@@ -50,7 +54,7 @@ const SPIKE_MAX_M = 0.0025
 const mirrorTracks = new WeakMap()
 
 const observeMirrorStep = (track, state) => {
-  const cur = { x: state.position[0], y: state.position[1], z: state.position[2], og: !!state.onGround, builds: track.mirror.getStats().builds, nrm: Array.isArray(state.groundNormal) ? [...state.groundNormal] : null }
+  const cur = { x: state.position[0], y: state.position[1], z: state.position[2], og: !!state.onGround, builds: track.mirror.getStats().builds, nrm: Array.isArray(state.groundNormal) ? [...state.groundNormal] : null, seq: currentStepSeq, playerId: track.playerId }
   const { prev2, prev1 } = track
   if (prev2 && prev1 && prev1.og) {
     const up = prev1.y - prev2.y, down = cur.y - prev1.y
@@ -168,7 +172,7 @@ proto.setCollisionMirror = function (mirror) {
   realSetCollisionMirror.call(this, mirror)
   const m = this._mirror
   if (!m || mirrorTracks.has(m)) return
-  const track = { engine: idOf(this), prev1: null, prev2: null, mirror: m }
+  const track = { engine: idOf(this), prev1: null, prev2: null, mirror: m, playerId: this.localPlayerId }
   mirrorTracks.set(m, track)
   const realStep = m.step
   m.step = function (state, input, dt, gravityY, wasGrounded) {
@@ -321,6 +325,7 @@ const attachTraces = () => {
 
 process.on('exit', () => {
   attachTraces()
+  for (const r of records) if (r.kind === 'spike') for (const s of r.samples) s.serverY = s.seq == null ? null : (serverCalls.get(`${s.playerId}|${s.seq}`)?.[0]?.position?.[1] ?? null)
   for (const [key, starvedBefore] of consumedStarved) records.push({ kind: 'consumed', key, starvedBefore })
   if (RECORD_PATH) writeFileSync(RECORD_PATH, JSON.stringify(records))
 })
