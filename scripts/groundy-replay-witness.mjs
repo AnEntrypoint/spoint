@@ -43,8 +43,10 @@ const sameStat = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(
 
 const engineMatchingHarness = (records, mispredict) => {
   const expected = mispredict?.correctionsApplied
+  if (!Number.isFinite(expected)) return null
+  if (expected === 0) return []
   const jumps = mispredict?.correctionJumpM
-  if (!Number.isFinite(expected) || !jumps || !Number.isFinite(jumps.n)) return null
+  if (!jumps || !Number.isFinite(jumps.n)) return null
   const byEngine = new Map()
   for (const r of records) byEngine.set(r.engine, [...(byEngine.get(r.engine) || []), r])
   const matches = [...byEngine.values()].filter(rs => {
@@ -153,7 +155,7 @@ const main = async () => {
 
   const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0
   console.log(ruledOut
-    ? `RESULT: PASS the replay base groundY adds no growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max growth ${maxGrowth.toFixed(4)} m, ${popRuns} run(s) with local pops)`
+    ? `RESULT: PASS the replay base groundY adds no growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
     : `RESULT: FAIL replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s); ${RUNS} requested, ${failures.length} failed, ${popRuns} run(s) with local pops`)
   await exitAfterQuiesce(ruledOut ? 0 : 1)
 }

@@ -28,25 +28,10 @@ function slideAlongWalls(p, walls, extentM) {
   }
 }
 
-function projectOutOfWedge(v, wedgeNormal) {
-  const nx = wedgeNormal ? wedgeNormal[0] : 0
-  const nz = wedgeNormal ? wedgeNormal[1] : 0
-  const into = v[0] * nx + v[2] * nz
-  if (into < 0) { v[0] -= nx * into; v[2] -= nz * into }
-}
-
-function stepCollider(state, input, dt, env, wasGrounded) {
-  if (!env.wedged) { env.collider.step(state, input, dt, env.gravityY, wasGrounded); return }
-  const v = state.velocity, vx = v[0], vz = v[2]
-  projectOutOfWedge(v, env.wedgeNormal)
-  env.collider.step(state, input, dt, env.gravityY, wasGrounded)
-  v[0] = vx; v[2] = vz
-}
-
 export function predictCharacterStep(state, input, movement, dt, env) {
   const wasGrounded = !!state.onGround
   const result = applyMovement(state, input, movement, dt)
-  if (env.collider) { stepCollider(state, input, dt, env, wasGrounded); return result }
+  if (env.collider && !env.wedged) { env.collider.step(state, input, dt, env.gravityY, wasGrounded); return result }
   if (input) { state._physCrouch = !!input.crouch; state._crouchDy = 0 }
   const v = state.velocity, p = state.position
   const vy = verticalVelocity(v[1], wasGrounded, env.gravityY, dt)
