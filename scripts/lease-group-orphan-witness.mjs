@@ -30,9 +30,10 @@ const run = async () => {
   try {
     const lease = await acquire({ root: dir, owner: 'lease-group-orphan-witness', waitMs: 10000 })
     launcher = spawn(process.execPath, ['-e', launcherSrc], { detached: true, stdio: ['ignore', 'pipe', 'inherit'] })
-    lease.record({ browserPid: launcher.pid, browserPgid: launcher.pid })
+    lease.record({ browserPid: launcher.pid, browserPgid: launcher.pid, browserStart: fields(launcher.pid)[19] })
     const rec0 = JSON.parse(fs.readFileSync(path.join(dir, 'lease', 'owner.json'), 'utf8'))
     check(rec0.browserPgid === launcher.pid, 'browserPgid ' + rec0.browserPgid + ' recorded at spawn for launcher ' + launcher.pid)
+    check(typeof rec0.browserStart === 'string' && rec0.browserStart.length > 0, 'browserStart ' + rec0.browserStart + ' recorded at spawn')
     check(fields(launcher.pid) !== null && Number(fields(launcher.pid)[2]) === launcher.pid, 'launcher leads its own process group')
     orphan = await new Promise((resolve) => launcher.stdout.once('data', (d) => resolve(Number(String(d).trim()))))
     await new Promise((resolve) => launcher.once('exit', resolve))
