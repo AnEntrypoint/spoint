@@ -1216,3 +1216,20 @@ RESULT: PASS collision tile floor is the server's box (19 of 19 checks)
 ```
 
 Three `npm run check` exit codes (`b21`): `CHECK_EXIT=0 run=1`, `CHECK_EXIT=0 run=2`, `CHECK_EXIT=0 run=3`. The same three exit codes for `b22`: `CHECK_EXIT=0 run=1`, `CHECK_EXIT=0 run=2`, `CHECK_EXIT=0 run=3`. Each run ends at `check: all app(s) resolve every import` with 139 `RESULT: PASS` and 0 `RESULT: FAIL`.
+
+## Run 21: pages failures on 71a1fc4 and 644e68a, diagnosed
+
+Two `pages` runs failed on `main`. Neither failure is in the Pages build: the build job passed in both, and the same build commands pass locally.
+
+- `CI` on `71a1fc4` (run 42668313130): `check` failed with `ENOENT` on `scripts/lib/witness-server.mjs` from `scripts/witness-server-assertions-witness.mjs`, which defaulted its repo root to the hardcoded `/workspace/spoint`. The runner checkout is `/home/runner/work/spoint/spoint`. Fixed in `644e68a` by resolving the root from the script's own location (`import.meta.url`); an argv root still overrides it. `CI` on `644e68a` (run 42670950107) succeeded, including `check`.
+
+- `pages` on `71a1fc4` (run 42668313627): cause is the deploy step, not the build. The `build` job succeeded and uploaded the artifact (`Final size is 80003805 bytes`, SHA256 `d58e6f9180f89d196fc0842ee53c176b5d57639ee9b5e8012dc47c97a21fd028`). `deploy-pages` created deployment `71a1fc41655a42910428682999200bff8f16d903` at 17:49:55Z, then its status stayed `syncing_files` from 17:59:08Z until `##[error]Timeout reached, aborting!` at 18:00:00Z, and it cancelled the deployment. The deployment record for `71a1fc4` is `state: failure`. The repo's artifact was complete; the wait was on the Pages service. This is a GitHub-side stall, not one this repo can fix.
+
+- `pages` on `644e68a` (run 42670949513, started 18:05:57Z, concluded failure at 18:07:39Z): the `build` job succeeded on every step (`npm ci`, `static-export.mjs --base=/spoint`, `generate-docs-site.js`, the upload). The `deploy` job was never created: the run's job list has `total_count` 1, `--log-failed` prints nothing, and the only annotations are the Node.js 20 deprecation and the `ubuntu-latest` migration notice. No Pages deployment record exists for `644e68a`. The cause is not known from the API. The `github-pages` environment allows `main` (branch policy `custom_branch_policies: true`), and the workflow file is unchanged between `71a1fc4` and `644e68a`. The unverified hypothesis is that the Pages deployment from `71a1fc4` still held the environment when the `644e68a` run was queued. Phase B's push and its pages run are the test of that.
+
+Local reproduction of the Pages build, with the workflow's commands at this tree, output in `/tmp/pages-local` (outside the repo):
+
+- `node scripts/static-export.mjs /tmp/pages-local/dist-static --base=/spoint`: exit 0 in 10.5 s, `static export at ../../tmp/pages-local/dist-static/`. One warning, `[empty-glob]` for `import("./TickHandler.js?hmr=*&p=*")` in `src/sdk/WorkerEntry.js`; it does not fail the build.
+- `node scripts/generate-docs-site.js --out /tmp/pages-local/dist-static/docs/index.html`: exit 0, `Wrote 30 sections`.
+
+The code change in this run is the root-path fix above. The Pages failures have no repo-side fix yet: `71a1fc4` is a deploy-service stall, and the `644e68a` cause is open until its own pages run finishes.
