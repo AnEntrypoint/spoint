@@ -54,10 +54,10 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   const offsetM = distance(before, after.position)
   const peers = this._peers
   let peerNearM = null
-  if (peers && this.localState) {
+  if (peers && Array.isArray(server.position)) {
     for (const [pid, peer] of peers) {
       if (pid === this.localPlayerId || !Array.isArray(peer.position)) continue
-      const d = Math.hypot(peer.position[0] - this.localState.position[0], peer.position[2] - this.localState.position[2])
+      const d = Math.hypot(peer.position[0] - server.position[0], peer.position[2] - server.position[2])
       if (peerNearM === null || d < peerNearM) peerNearM = d
     }
   }

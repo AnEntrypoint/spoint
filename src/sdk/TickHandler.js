@@ -509,6 +509,7 @@ export function createTickHandler(deps) {
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
     applyPlayerCollisions(players, physicsIntegration)
     planPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt)
+    for (const p of players) networkState.setCollisionPush(p.id, p.collisionPush)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
     if (explicitInputs === null) stepChartReanchor(tick)
     physics.step(dt)

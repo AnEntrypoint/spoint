@@ -124,6 +124,16 @@ Not pushed. `origin/main` is `a033468`. The local commits `b4941c5` through `312
 - Open, owner decision, not taken in this pass: (a) publish each tick's authoritative push for the local player in the self block (a wire change; the newest ticks still arrive after the replay); (b) make the separation a position-only correction, which removes the velocity term but changes gameplay feel and is not measured here; (c) restate the 1 cm expectation (a witness change). This pass does not smooth the pop and does not change the groundy witness, so the row stays open.
 - Not pushed. origin/main is `a033468`, and the Phase B bar (under 1 cm in every run) is not met.
 
+## Option (a): authoritative push in the self block (this pass)
+
+- Wire change, reversible: the self block (`encodeSelfBlock`, `src/netcode/SnapshotEncoder.js`) carries a fifth element, the push planned for the next tick (`collisionPush`, from `NetworkState.setCollisionPush` after `planPlayerCollisions`). The client's `applySelfBlock` reads it, `_reconcile` keeps it on `lastServerState`, and `_rebaseAndReplay` seeds the replay with it (`_seedPendingPush`, zero when the server planned none). `SNAPSHOT_ENTITY_ENC_CODE_VERSION` moved to `32582e7b160e` in `src/shared/cacheCodeVersions.js`.
+- Measurement fix: `scripts/lib/groundy-replay-hook.mjs` measured contact against the local position after the replay (a later tick), so it read 0 of 0. It now measures at the ack tick, with the ack position and the ack snapshot's peers. Contact now reads 61 of 62 contact replays in the 15-run witness.
+- `npm run check`: exit 0, 135 `RESULT: PASS` lines, no FAIL.
+- `node scripts/groundy-replay-witness.mjs` (15 runs, 50/10/2 `on`): `RESULT: FAIL replay growth over 1 cm in 100 of 133 replays across 15 of 15 completed run(s)`, exit 1, max growth 2.7567 m, 0 runs with local pops. The count did not fall, so the self block does not close the row.
+- Single 20 s run with the hook's record file (13 replays): 4 of 4 replays with contact at the ack tick are over 1 cm, and 6 of 9 replays without contact are over, up to 2.888 m. So contact at the ack tick is not the whole story.
+- Why the count does not fall: the replay already used the exact push for the first tick after an ack (from the snapshot's peers, which are exact), so the self block only removes the quantization of the peer positions (1 cm wire units). The growth is a velocity error from an impulse that the prediction planned from older peer positions. The impulse is learned at the ack that replays it, so it is measured as growth. A position-only correction, or a rule where the impulse is in the ack the prediction already used, would change this; neither is taken here.
+- Not pushed. Phase B bar (under 1 cm in every run) not met.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.

@@ -93,6 +93,7 @@ function applySelfBlock(s, me) {
   s.inputBuffer = inputDepthFromWire(me[1])
   unpackGroundNormal(me[2] || 0, s.groundNormal)
   unpackWallPlanes(me[3], s.wallPlanes || (s.wallPlanes = []))
+  s.collisionPush = me[4] || null
 }
 
 function fillPlayerObj(s, p) {

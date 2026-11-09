@@ -303,6 +303,12 @@ export class PredictionEngine {
     this._planPeerPush(seq === undefined ? 1 : seq - this._lastAckedSeq)
   }
 
+  _seedPendingPush(push) {
+    const pending = this._pendingPush
+    if (!push) { pending.fill(0); return }
+    pending[0] = push[0]; pending[1] = push[1]; pending[2] = push[2]; pending[3] = push[3]
+  }
+
   _planPeerPush(ticksPastSnapshot) {
     const pending = this._pendingPush
     pending.fill(0)
@@ -381,6 +387,7 @@ export class PredictionEngine {
   _reconcile(serverPlayer) {
     const prevX = this.lastServerState.position[0], prevY = this.lastServerState.position[1], prevZ = this.lastServerState.position[2]
     this._copyState(serverPlayer, this.lastServerState)
+    this.lastServerState.collisionPush = serverPlayer.collisionPush ? serverPlayer.collisionPush.slice() : null
     this._rememberWalls(serverPlayer)
     const sv = this.lastServerState
     const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
@@ -438,7 +445,7 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    this._planPeerPush(0)
+    this._seedPendingPush(server.collisionPush)
     let first = true
     for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null, first ? null : e.push); first = false; saveEntry(e, ls); saveEntryPush(e, this._stepPush) }
     this._preserveKnockbackVelocity(Date.now())
