@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DOC = join(ROOT, 'AGENTS.md')
+const DETAIL = join(ROOT, 'docs/AGENTS-DETAIL.md')
 const KNOWN_EXT = /\.(?:js|mjs|cjs|json|md|ts|tsx|glsl|wgsl|yml|yaml|txt|html|css|sh)$/
 const PATH_CHARS = /^[A-Za-z0-9_.@+\/-]+$/
 const URL_LIKE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//
@@ -64,7 +65,7 @@ function resolvePath(rel) {
   return []
 }
 
-const lines = readFileSync(DOC, 'utf8').split(/\r?\n/)
+const lines = [DOC, DETAIL].map((file) => readFileSync(file, 'utf8')).join('\n').split(/\r?\n/)
 const pathTokens = new Set()
 const claims = []
 for (const line of lines) {
