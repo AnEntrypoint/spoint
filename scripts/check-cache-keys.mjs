@@ -128,8 +128,10 @@ async function main() {
   else console.log(`[check-cache-keys] verifying ${heightfields.length} shipped .hf artifact(s)`)
   for (const rel of heightfields) {
     const buf = readFileSync(join(ROOT, rel))
-    const header = decodeHeightfield(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
-    if (!header) { problems.push(`  ${rel}: not a decodable .hf artifact`); continue }
+    let header = null
+    let decodeError = null
+    try { header = decodeHeightfield(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)) } catch (e) { decodeError = e?.message || String(e) }
+    if (!header) { problems.push(`  ${rel}: not a decodable .hf artifact${decodeError ? ` (${decodeError})` : ''}`); continue }
     if (header.codeVersion !== HEIGHTFIELD_BAKE_CODE_VERSION) {
       problems.push(`  ${rel}: baked with height code version ${header.codeVersion ?? '(none)'}, this tree bakes ${HEIGHTFIELD_BAKE_CODE_VERSION} -- re-run: node scripts/bake-heightfield.mjs --world <name> --extent ${header.extent} --res ${header.extent / (header.N - 1)} --sector ${header.sectors.nodesPerSector} --bits ${header.sectors.bits} --out ${rel}`)
     } else {

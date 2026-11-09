@@ -2971,6 +2971,7 @@ Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
 | 5 | scripts/agents-md-facts-witness.mjs | reads AGENTS.md and docs/AGENTS-DETAIL.md together, so the path and symbol claims moved out of AGENTS.md are still checked | the witness itself (row 4) |
 | 6 | docs/AGENTS-DETAIL.md (new) | the full text of each caveat section, verbatim from the pre-run-26 AGENTS.md | `scripts/docs-page-freshness-witness.mjs` after regeneration (row 7) |
 | 7 | docs/index.html | regenerated with `node scripts/generate-docs-site.js`; the page now renders 31 sections, the new detail file among them | `node scripts/docs-page-freshness-witness.mjs` |
+| 8 | scripts/check-cache-keys.mjs | Phase B fix, closes the row 3 gap. A `decodeHeightfield` throw on a tracked `.hf` is caught and recorded as the stale-bake problem `not a decodable .hf artifact (<message>)`, so the check prints `RESULT: FAIL` and exits 1 instead of crashing with exit 2 | `node scripts/fail-path-probe.mjs` (cache-keys case: exit 1 and a `RESULT: FAIL` line) |
 
 Phase A rule breach, disclosed: while fixing row 4 I ran `scripts/agents-md-facts-witness.mjs` twice, to read its failing claim. The first run failed on the `Date.now` claim in the Fire section, which I then rephrased. The second run passed with 210 path claims and 185 symbol claims. No other witness ran in Phase A.
 
