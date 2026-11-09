@@ -775,3 +775,17 @@ The flake: `scripts/shared-lattice-surface-witness.mjs` gated `AFTER is no slowe
 Not changed in this pass: the placement code, the lattice, the other checks. The other timing check in the witness (`one lattice sample is at least 10x cheaper than the chart-local solve`) is a timing ratio too; its margin is measured in Phase B and recorded in `docs/netcode.md`, not changed.
 
 Status: Phase A is committed locally. The flake is measured in Phase B (three `npm run check` exit codes, and the ratio values).
+
+## Phase B (run 10): the check is green three times; the gate result is unchanged
+
+- Build: `npm run build:bundles`, `BUILD_EXIT=0`.
+- Gate, three runs (`/tmp/phaseI/b10_gate1.log` to `b10_gate3.log`), each:
+  - `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`
+  - `RESULT: FAIL world peers cond 120/40/6: underpowered: 0 correction replay(s), below the 100 needed to gate replay residual; 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 2 run(s) with local pops`, `GATE_EXIT=1`.
+- `npm run check`, three runs (`b10_check1.log` to `b10_check3.log`): `CHECK_EXIT=0` in all three.
+- Lattice witness (`b10_lattice1.log` to `b10_lattice3.log`), wall-clock ratio, printed and not gated: 0.94989, 0.860939, 0.983867; all three `LATTICE_EXIT=0`. Earlier, one run measured 1.055981 against the old 1.05 gate, which is the failure that the counted gate replaces.
+- Margin of the other timing check (`one lattice sample is at least 10x cheaper than the chart-local solve`): 209, 80 and 225 across the three runs, against a floor of 10. Its margin is at least 8x, so it is not the flaky source; no change was made to it.
+
+Measured cause of the flake: the wall-clock ratio of two best-of-5 placement passes varies by about ±6 % on this host (0.86 to 1.06 across the runs recorded here). The counted gate (`after.solves <= before.solves`) cannot vary.
+
+Status: the check passes three times; the gate still FAILS on the same two counts as run 9 (underpowered, 0 of 100 correction replays; 5 mirror spikes).

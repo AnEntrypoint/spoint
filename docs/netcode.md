@@ -100,3 +100,4 @@ A touch is `create`, `update`, `rebindOwner`, `get` or `release`. `get` expires 
 ## Timing witnesses
 
 - `scripts/shared-lattice-surface-witness.mjs`: the AFTER/BEFORE check gates on counted sampler calls (`after.solves <= before.solves`), not on a wall-clock ratio. A ratio of two best-of-5 `process.hrtime` times failed once at 1.056 against a 1.05 limit and passed on three reruns; a host-dependent ratio is not a gate. The ratio is printed for reading. The one other timing check in that witness (a lattice sample at least 10x cheaper than the chart-local solve) has its measured margin recorded in `docs/PENDING_VALIDATION.md`, Phase B run 10.
+- Margin of the remaining timing check in that witness (a lattice sample at least 10x cheaper than the chart-local solve): 209, 80 and 225 across three runs, against a floor of 10 (`docs/PENDING_VALIDATION.md`, Phase B run 10). The lattice-vs-solve ratio is far from the floor; the AFTER/BEFORE ratio that flaked was not.
