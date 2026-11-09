@@ -583,3 +583,25 @@ Diagnostic run with the input probe (same behaviour, not the gate): 8 of 391 ove
 Defects found in this pass. (1) The first version of the new witness had a check that passed for either value of the constant and a RESULT line that claimed zero velocity under both values; both fixed before the Phase A commit. (2) The gate's over-1-cm count varies between runs of the same code (19 and 8 here). Both are recorded; neither is a product defect beyond the cause above.
 
 Status: the gate FAILS (19 of 387). Open. Not passing. The coast is removed and its cause is gone from 18 of 19 remaining over-limit corrections. The remaining breaches have identical inputs on both sides and a heading difference whose origin is not yet measured.
+
+## Phase A (run 6): velocity probe and the variance cause, no run
+
+Scope of this pass: the 120/40/6 gate's over-1-cm count varies between runs of the same code (19 and 8 on `7c8df1d`), and the remaining heading divergence is not yet measured. Per the pass's rules, no build, test, gate or witness was run in Phase A. The rows below are changes only; their witnesses are named and run in Phase B.
+
+Variance cause (read from code, not measured):
+- The conditioner is seeded. `scripts/netcode-conditioner-harness.mjs` gives each client a fixed seed (11, 23, 100+i), and `scripts/lib/net-conditioner.mjs` draws delays from `mulberry32(seed * 2 + 1)` and `mulberry32(seed * 2 + 2)`.
+- Delivery is not on that clock. `createLane` schedules each packet at `performance.now() + drawDelay()` on a real-time scheduler, so the wall-clock arrival of each packet relative to the server's tick varies from run to run. Which input each tick consumes, and which ack a replay reconciles against, therefore varies too.
+- `PredictionEngine._rebaseAndReplay` calls `_preserveKnockbackVelocity(Date.now())`. It changes the velocity only while `_pendingKnockback` is set (`setKnockbackPreservation` defaults true). Whether the gate ever sets knockback is not verified in this pass.
+- Making the counts repeatable needs the harness to run on a virtual tick clock, with conditioner deliveries scheduled on that clock. That is a harness change, not a probe change, and it is not made in this pass. It is ranked in `docs/netcode.md` as open work.
+
+| Row | Change | Files | Witness (Phase B) |
+|---|---|---|---|
+| probe: client step | The `_step` wrapper records, for each replayed entry, the client's horizontal velocity after the step (`vel`) and the ground normal it was stepped with (`normal`). | `scripts/lib/groundy-replay-hook.mjs` | `node scripts/groundy-replay-witness.mjs` over-limit lines print the new fields |
+| probe: server step | The server physics wrapper records, for each call, the horizontal velocity after the step (`vel`) and `state.groundNormal` when it is an array (`normal`). | `scripts/lib/groundy-replay-hook.mjs` | as above; `serverVel` and `serverNormal` appear in each trace entry |
+| probe: replay base | Each correction record carries `ackVel` (the ack's horizontal velocity), `predictedAckVel` (the client's predicted velocity at the ack), `ackNormal` and `predictedAckNormal`. These are the base the replay starts from. | `scripts/lib/groundy-replay-hook.mjs` | the over-limit console line prints them; `ackNormal` is null when the snapshot carries no `groundNormal`, which Phase B will show |
+| probe: trace | Each trace entry carries `serverVel`, `serverLastVel`, `serverNormal`, `clientVel`, `clientNormal`, so the first step where the two sides' horizontal velocity differs can be read per key. | `scripts/lib/groundy-replay-hook.mjs` | the over-limit traces file written at the end of the gate |
+| witness output | The over-limit console line adds `ackVel`, `predictedAckVel`, `ackNormal` and `predictedAckNormal` to the existing fields. | `scripts/groundy-replay-witness.mjs` | `node scripts/groundy-replay-witness.mjs` |
+
+No product code changed in this pass. The netcode behaviour is the same as `5643eaa`.
+
+Status: Phase A is committed locally. Nothing is pushed. The variance is not yet removed, the heading cause is not yet measured, and the gate is not known to pass.

@@ -165,7 +165,7 @@ const main = async () => {
   for (const r of overTraces) {
     const pre = firstDivergence(r.trace, 'pre'), post = firstDivergence(r.trace, 'post')
     const lag = r.lastSeq - r.ackSeq
-    console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} residual ${fmtM(r.residualM)} offset-minus-err ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
+    console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} residual ${fmtM(r.residualM)} offset-minus-err ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)} ackVel ${JSON.stringify(r.ackVel)} predictedAckVel ${JSON.stringify(r.predictedAckVel)} ackNormal ${JSON.stringify(r.ackNormal)} predictedAckNormal ${JSON.stringify(r.predictedAckNormal)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
   }
   if (overTraces.length) {
     const tracePath = join(dir, 'over-limit-traces.json')

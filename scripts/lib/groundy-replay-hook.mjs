@@ -23,7 +23,7 @@ const realStep = proto._step
 let activeClientSteps = null
 proto._step = function (input, seq, groundNormal) {
   const out = realStep.call(this, input, seq, groundNormal)
-  if (activeClientSteps && seq != null) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!this.localState.sliding })
+  if (activeClientSteps && seq != null) activeClientSteps.set(seq, { yaw: input?.yaw, crouch: !!input?.crouch, sprint: !!input?.sprint, forward: !!input?.forward, left: !!input?.left, right: !!input?.right, sliding: !!this.localState.sliding, normal: groundNormal ? [...groundNormal] : null, vel: [this.localState.velocity[0], this.localState.velocity[2]] })
   return out
 }
 
@@ -116,7 +116,9 @@ PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, de
   const position = [state.position[0], state.position[1], state.position[2]]
   const key = `${playerId}|${seq}`
   if (!serverCalls.has(key)) serverCalls.set(key, [])
-  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input })
+  const vel = [state.velocity[0], state.velocity[2]]
+  const normal = Array.isArray(state.groundNormal) ? [...state.groundNormal] : null
+  serverCalls.get(key).push({ dt: deltaTime, position, neutral, input, vel, normal })
   if (!callLogs.has(playerId)) callLogs.set(playerId, [])
   callLogs.get(playerId).push({ seq, before, after: position, neutral })
   return out
@@ -174,6 +176,10 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     path: pathOf(this),
     prePath,
     ackPosition: [server.position[0], server.position[1], server.position[2]],
+    ackVel: [server.velocity[0], server.velocity[2]],
+    predictedAckVel: predictedAtAck ? [predictedAtAck.velocity[0], predictedAtAck.velocity[2]] : null,
+    ackNormal: Array.isArray(server.groundNormal) ? [...server.groundNormal] : null,
+    predictedAckNormal: predictedAtAck && predictedAtAck.hasNormal ? [...predictedAtAck.normal] : null,
     wedge,
     push,
     ackTick: this.__ackTick,
@@ -240,7 +246,12 @@ const attachTraces = () => {
         serverCallPositions: calls.map(c => c.position),
         serverFirst: calls.length ? calls[0].position : null,
         serverInput: calls.length ? calls[0].input : null,
-        clientInput: new Map(r.clientSteps ?? []).get(seq) ?? null
+        clientInput: new Map(r.clientSteps ?? []).get(seq) ?? null,
+        serverVel: calls.length ? calls[0].vel : null,
+        serverLastVel: calls.length ? calls[calls.length - 1].vel : null,
+        serverNormal: calls.length ? calls[0].normal : null,
+        clientVel: (new Map(r.clientSteps ?? []).get(seq) ?? {}).vel ?? null,
+        clientNormal: (new Map(r.clientSteps ?? []).get(seq) ?? {}).normal ?? null
       }
     })
     r.residualPrePushM = residualAgainst(r.trace, t => t.serverFirst)
