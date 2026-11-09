@@ -34,6 +34,7 @@ try {
   const rec = JSON.parse(fs.readFileSync(path.join(dir, 'lease', 'owner.json'), 'utf8'))
   const pids = rec.browserTree.map((e) => e.pid)
   check(rec.browserPgid === rec.browserPid, 'browserPgid ' + rec.browserPgid + ' is the browser pid ' + rec.browserPid + ', recorded at spawn')
+  check(typeof rec.browserStart === 'string' && rec.browserStart.length > 0, 'browserStart recorded at spawn for the browser leader')
   check(pids.length >= 2, 'browser tree recorded ' + pids.length + ' process(es) under browser pid ' + rec.browserPid)
   check(pids.every(alive), 'every recorded process is alive before close')
   await browser.close()
