@@ -697,3 +697,32 @@ Run 7 recorded the server's velocity after the Jolt step, which is not the value
 Not changed in this pass: the gate's definition, the 1 cm threshold, the sample set, and any netcode behaviour.
 
 Status: Phase A is committed locally. The probe is measured in Phase B.
+
+## Phase B (run 8): the gate still FAILS; the replay base is the cause
+
+Committed code: `e52360b` plus the Phase A run 8 probe (`a5681ef`) and the probe measurement (`34b9c06`). No product code changed in this pass, so the gate measures the same netcode as run 7.
+
+- Build: `npm run build:bundles`, `BUILD_EXIT=0` (`/tmp/phaseI/build.log`).
+- Gate, three runs (`node scripts/groundy-replay-witness.mjs`), logs `/tmp/phaseI/final1.log` to `final3.log`:
+  - Run 1: `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 9 of 410 replays across 5 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 3 of 15 run(s); 15 requested, 5 run(s) with local pops`, `GATE_EXIT=1`.
+  - Run 2: the same RESULT line, `GATE_EXIT=1`.
+  - Run 3: the same RESULT line, `GATE_EXIT=1`.
+  - The three `totals:` lines are byte-identical (sha256 `6b5e0ff5...`).
+
+Measured with the run 8 probe (`/tmp/groundy-replay-*/over-limit-traces.json`, one gate run):
+
+1. The step functions agree. Over the 62 replayed steps where the server's pre-step velocity and the client's pre-step velocity agree within 1 cm/s, the post-step velocities agree in all 62, and the client's `applyMovement` output equals the server's post-step value in all 62. The earlier strafe classification (run 6, and kinds (a) and (b) in run 7) compared a post-Jolt server value against a different pre-state; it is withdrawn.
+2. The disagreement is the replay base. In six of the nine keys the first mismatched pre-step velocity follows a gap of 16 to 24 starved server ticks since the previous replayed step. At that point the server's pre-step horizontal velocity is exactly zero: `STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY = false` zeroes it on each starved tick after the hold (`stepPlayerMovement` through `holdStarvedNeutralVelocity`). The client never replays those ticks. Run 9 ack 352 has a stretch with no physics call recorded, so its gap is not counted. Run 14 ack 513 starts with a mismatch at its first replayed row, so the gap before it is not counted. Both are consistent with the same zeroing, not measured.
+3. The ack cannot carry the gap. `starvedSteps` in the ack counts only the trailing starved run. `takeNextInput` resets it to 0 when the next input is consumed, so a gap that ends before the ack, or inside the replay window, never reaches the client.
+
+Probe changes in this pass (no product code):
+
+| area | change | file | witness |
+|---|---|---|---|
+| probe, run 8 | `getMovementOverride` snapshots the server's pre-step velocity, flags, `onGround` and cumulative `inputStarves`; the next `updatePlayerPhysics` call pairs them. Trace rows carry `serverPreVel`, `serverPreFlags`, `serverPreOnGround`, `serverPreStarves`. | `scripts/lib/groundy-replay-hook.mjs` | the gate |
+| probe, run 8 | Each client step records `movement` (`this.movement`); trace rows carry `clientMovement`. The recorded value was `DEFAULT_MOVEMENT` on every row, so the client's movement config is not the cause. | `scripts/lib/groundy-replay-hook.mjs` | the gate |
+| gate, report | `firstVelocityDivergence` compares the server's pre-step velocity with the client's pre-push velocity (earlier run: the post-push value). | `scripts/groundy-replay-witness.mjs` | the gate |
+
+Not decided here. The fix needs an owner decision between: (a) a per-input starved-tick count in the ack, which changes the wire; (b) keeping horizontal velocity on starved ticks (`STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY = true`), which is not measured on the gate and would still leave friction on the server's starved ticks, so it would not remove the mismatch on its own; or (c) accepting the residual. The gate stays FAILED until one is chosen.
+
+Status: the gate FAILS (9 of 410, three identical runs). The cause is measured to the starved tick in six keys and to the replay base in all nine.
