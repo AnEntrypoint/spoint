@@ -530,5 +530,6 @@ if (!result || typeof result !== 'object' || Object.keys(result).length === 0) {
 }
 const broken = (EXPECTATIONS[SCENARIO] ? EXPECTATIONS[SCENARIO](result) : []).filter(([ok]) => !ok).map(([, message]) => message)
 for (const message of broken) console.error(`[wire-harness] FAIL: ${message}`)
+console.log(broken.length ? `RESULT: FAIL ${SCENARIO} scenario: ${broken.length} expectation(s) broken` : `RESULT: PASS ${SCENARIO} scenario: every expectation holds`)
 const pendingHandles = await exitAfterQuiesce(broken.length ? 1 : 0)
 log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')

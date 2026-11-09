@@ -78,6 +78,18 @@ Rows 7 and 44 (jayzee): not changed in spoint. They are recorded against jayzee'
 
 Other witnesses this pass: `scripts/peer-replay-witness.mjs` `RESULT: PASS` 4/4, exit 0; `scripts/prediction-reconcile-witness.mjs` `RESULT: PASS` 22/22, exit 0; `scripts/session-ttl-config-witness.mjs` 12/12; `scripts/session-store-ttl-witness.mjs` 7/7; `scripts/world-persistence-fingerprint-witness.mjs` 10/10, all `RESULT: PASS`, exit 0.
 
+Phase B witnesses run in the foreground for this pass:
+
+- `npm run check`: exit 0. The first run failed on the docs-page freshness witness after the ledger edit; `docs/index.html` was regenerated and the rerun passed, 135 PASS 0 FAIL.
+- `scripts/chart-reanchor-wire-harness.mjs`: exit 0, `RESULT: PASS forced scenario: every expectation holds`. The script printed no RESULT line before this pass, so a `RESULT:` line was added (uncommitted until this pass).
+- `scripts/snapshot-lod-tiers-witness.mjs`: exit 0, `RESULT: PASS` (9 checks).
+- `scripts/resolve-delivered-ids-witness.mjs`: exit 0, `RESULT: PASS` (10 checks).
+- `scripts/corridor-budget-witness.mjs`: exit 0, `RESULT: PASS` (8 checks).
+- `scripts/crowd-dot-render-witness.mjs --check`: exit 0, `RESULT: PASS`, all six checks ok.
+- `scripts/groundy-replay-witness.mjs`: exit 1, `RESULT: FAIL replay growth over 1 cm in 45 of 76 replays across 12 of 15 completed run(s)`. Still open, see the replay growth row.
+
+Combined condition check (jitter 50 ms, jitter 10 ms, loss 2%, 20 s, two runs): run 1 had 73 starves, 0 catch-ups, 0 skipped gaps and 9 of 12 replays over 1 cm; run 2 had 82 starves, 0 catch-ups, 0 skipped gaps and 4 of 6 replays over 1 cm. Skipped gaps are ruled out as the cause: the server consumed every input it received, so the growth comes from the timing of the starved ticks, not from lost inputs.
+
 Not pushed. `origin/main` is `a033468`. The local commits `b4941c5` through `312798c` are held because the replay growth and pop rows are open.
 
 ## Docs index
