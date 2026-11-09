@@ -2992,3 +2992,24 @@ Windows status: unverified on this Linux host. The Windows branch of `processTab
 
 Phase B results (live, Linux, this host). Orphan case (`.gm/tmp/orphan-live.mjs`, untracked): a stand-in launcher spawned a detached `sleep` and exited. The lease recorded the child in `browserTree` while the launcher was alive. After the exit the child had ppid 1 and its own process group, so `killBrowser` could not reach it. `release()` stopped it by its recorded PID, and its state went to gone. Headful Chromium (`.gm/tmp/chromium-live.mjs`, untracked, DISPLAY :1.0): the lease recorded 10 browser processes, all alive before `Browser.close()` and all gone after it. `npm run check`: 139 PASS, 0 FAIL, exit 0, 106 s. Windows: unverified on this host, because there is no Windows machine here, so the `powershell.exe` table read and `taskkill /PID /F` have never run.
 
+## Run 28: macOS ps branch, tracked lease witnesses, heartbeat cost, decisions (Phase A, code and docs)
+
+Commits are local, as lanmower, with no trailers. Nothing is pushed in Phase A.
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | scripts/lib/browser-lease.mjs | `psProcessTable` and `browserTreeNow` are exported, so the witnesses can call them. No behaviour change | scripts/lease-ps-table-witness.mjs and scripts/lease-scan-cost-witness.mjs |
+| 2 | scripts/lease-ps-table-witness.mjs (new) | checks the `ps -Ao pid=,ppid=,lstart=` parser on this process: its pid, its ppid equal `process.ppid`, its lstart parses as a date, and it repeats across two reads. Linux procps is the proxy for the macOS branch, which runs the same flags | itself |
+| 3 | scripts/lease-orphan-witness.mjs (new) | promoted from the untracked `.gm/tmp/orphan-live.mjs`. Linux only (reads /proc). Checks that a detached child of a launcher is recorded in `browserTree`, is reparented after the launcher exits, leads its own process group, and is stopped by its recorded PID at release | itself |
+| 4 | scripts/lease-chromium-witness.mjs (new) | promoted from the untracked `.gm/tmp/chromium-live.mjs`. Launches headful Chromium under the lease, checks that the recorded processes are alive before `Browser.close()` and gone after it. Needs a display | itself |
+| 5 | scripts/lease-scan-cost-witness.mjs (new) | measures `browserTreeNow` (the /proc walk) and `psProcessTable` (ps) on a tree of 10 processes, 200 and 50 reads. It passes when the scan finds all 10. The numbers are printed, and the ledger quotes them in Phase B | itself |
+| 6 | docs/PENDING_VALIDATION.md, docs/index.html | this section and the regenerated docs page | scripts/docs-page-freshness-witness.mjs |
+
+Decisions (owner asked for each to be decided and recorded here):
+
+- AGENTS.md "30 KB" means 30,000 bytes. Reason: the stricter reading. AGENTS.md is 29,993 bytes, so it meets both readings and needs no edit now; future edits are held to the smaller bound. Measure with `wc -c AGENTS.md`.
+- fail-path-probe stays manual and does not join `scripts/check.mjs`. Reason: it writes a fixture into `src/static` and runs `git add -N`, which changes the index and the tree during a gate run, and it runs three full checks, adding wall time to every gate run. Its witness is run by hand before a push.
+- Windows reap and orphan item: BLOCKED. Cause: no Windows host is available here, so the Windows branch of `processTable` and `killRecorded` has never run. The orphan witness is Linux-only by design. Unblock: run a Windows port of scripts/lease-chromium-witness.mjs on a Windows host and record its RESULT line.
+- macOS ps branch: partially verified. `psProcessTable` is exported and its parser is checked on Linux procps with the same flags. BSD `ps` on macOS has not run, so the lstart format there is unconfirmed. Unblock: run scripts/lease-ps-table-witness.mjs on macOS.
+- Heartbeat cost: measured on Linux with scripts/lease-scan-cost-witness.mjs as a proxy for the /proc walk and for the ps read. The Windows PowerShell cost is not measured, because it needs a Windows host. The heartbeat is unchanged (no throttle) until that cost is known.
+
