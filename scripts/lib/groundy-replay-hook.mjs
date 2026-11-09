@@ -94,14 +94,19 @@ NetworkState.prototype.updatePlayer = function (playerId, ...rest) {
 const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.get(tick) ?? null
 
 const serverCalls = new Map()
+const callLogs = new Map()
 const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
 PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
+  const before = [state.position[0], state.position[1], state.position[2]]
   const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
   const seq = livePlayerManager?.getPlayer(playerId)?.ackSequence
   if (seq == null) return out
+  const position = [state.position[0], state.position[1], state.position[2]]
   const key = `${playerId}|${seq}`
   if (!serverCalls.has(key)) serverCalls.set(key, [])
-  serverCalls.get(key).push({ dt: deltaTime, position: [state.position[0], state.position[1], state.position[2]] })
+  serverCalls.get(key).push({ dt: deltaTime, position })
+  if (!callLogs.has(playerId)) callLogs.set(playerId, [])
+  callLogs.get(playerId).push({ seq, before, after: position })
   return out
 }
 
@@ -162,18 +167,42 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     serverQueueDepth: serverQueueDepthAt(this.localPlayerId, this.__ackTick),
     lastSeq: last.sequence,
     playerId: this.localPlayerId,
+    clientPushes: [...this.inputHistory].map(e => { const w = this._pushForSequence(e.sequence); return [e.sequence, w ? [...w] : null] }),
     t: performance.now()
   })
 }
 
-const residualOf = trace => {
+const residualAgainst = (trace, referenceOf) => {
   let worst = null
   for (const t of trace) {
-    if (!t.post || !t.serverFirst) continue
-    const m = distance(t.post, t.serverFirst)
+    const reference = referenceOf(t)
+    if (!t.post || !reference) continue
+    const m = distance(t.post, reference)
     if (worst === null || m > worst) worst = m
   }
   return worst
+}
+
+const pushMatches = (disp, w) => {
+  if (!disp) return null
+  const cx = w ? w[0] : 0, cz = w ? w[1] : 0
+  return Math.abs(disp[0] - cx) <= 1e-5 && Math.abs(disp[1]) <= 1e-5 && Math.abs(disp[2] - cz) <= 1e-5
+}
+
+const pushProbe = (r, trace) => {
+  const log = callLogs.get(r.playerId) ?? []
+  const firstAt = new Map()
+  log.forEach((c, i) => { if (!firstAt.has(c.seq)) firstAt.set(c.seq, i) })
+  const pushOf = new Map(r.clientPushes)
+  for (const e of trace) {
+    const i = firstAt.get(e.seq)
+    const nxt = i === undefined ? undefined : log[i + 1]
+    e.serverPostPush = nxt ? nxt.before : null
+    e.serverPushDisp = nxt ? [nxt.before[0] - log[i].after[0], nxt.before[1] - log[i].after[1], nxt.before[2] - log[i].after[2]] : null
+    e.clientPush = pushOf.get(e.seq) ?? null
+    e.pushMatch = pushMatches(e.serverPushDisp, e.clientPush)
+  }
+  r.residualPostPushM = residualAgainst(trace, e => e.serverPostPush)
 }
 
 const attachTraces = () => {
@@ -194,8 +223,10 @@ const attachTraces = () => {
         serverFirst: calls.length ? calls[0].position : null
       }
     })
-    r.residualM = residualOf(r.trace)
+    r.residualPrePushM = residualAgainst(r.trace, t => t.serverFirst)
     r.ackKeyCalls = (serverCalls.get(`${r.playerId}|${r.ackSeq}`) ?? []).length
+    pushProbe(r, r.trace)
+    r.residualM = r.residualPostPushM
   }
 }
 

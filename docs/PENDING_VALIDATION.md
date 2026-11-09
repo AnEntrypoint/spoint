@@ -444,3 +444,48 @@ Build: `npm run build:bundles` exit 0 (`[bundle-client] stamped dist/client/app.
 `npm run check`: the first run (commit `50ac47a`) failed at `check-cache-keys`: `SNAPSHOT_ENTITY_ENC_CODE_VERSION: src/shared/cacheCodeVersions.js pins '298eb66d3d2f' but its producing source hashes to '989b5adb57af'`. `SnapshotEncoder.js` is in that closure, so the pin moved to `989b5adb57af` in commit `245da93`. `node scripts/check-cache-keys.mjs` then reported `8 bake transforms declare their whole import closure` and exit 0. The following run failed only at `docs/index.html is not the generator output`, fixed here by regenerating the page.
 
 Status: the gate still FAILS (64 of 491 over 1 cm). The starved-steps roll-forward is in place, is witnessed by the prediction-reconcile witness (22/22), and does not move the gate. The residual over 1 cm is 13 percent of replays, and the cause is open for 22 of the 64 (peer push, next probe above).
+
+## Phase A (run 3): residual against the server's post-push position; per-key push probe (120/40/6 close-out)
+
+Change table (local commit, not pushed in Phase A):
+
+| Row | Change | Files | Witness |
+|---|---|---|---|
+| reference | The gated `residualM` is the largest distance from a client replayed post position to the server's position after the consumed input's push (`serverPostPush`, the position before the next physics call). The pre-push position is kept as `residualPrePushM`. The server applies the push in `advancePushQueue` before it reports the tick, so the pre-push position was never a state the server reports. | `scripts/lib/groundy-replay-hook.mjs` (`residualAgainst`, `pushProbe`, `attachTraces`) | `node scripts/groundy-replay-witness.mjs` (120/40/6), the Phase B run 3 lines below |
+| push probe | Per physics call the hook records `before` and `after` (`callLogs`). Per replay it records the client's `_pushForSequence(seq)` for each replayed entry (`clientPushes`). Per trace entry it records `serverPushDisp` (the applied push), `clientPush`, `pushMatch`, `serverPostPush`. | same | the over-limit traces carry `pushMatch` (verified below) |
+| starved-tick probe | `ackKeyCalls` (physics calls under the acked key, starved steps after the snapshot included) and `serverCallCount` per sequence classify each over-limit replay. | same | the Phase B run 3 classification |
+
+Evidence from the probe run (15 runs, `/tmp/groundy-replay-vinGUw/over-limit-traces.json`, counted by `/tmp/phaseB/probeA.cjs` and `/tmp/phaseB/postClass.cjs`, not committed):
+- 893 trace entries compared; 0 with `pushMatch` false.
+- At each of the 64 first divergences `pushMatch` is true, so the server applied the same push the client's `_pushForSequence` returned. The "unexplained" 22 of run 2 (per-input displacement off by 0.050 to 0.101 m, dt nominal) are the push: the server-side displacement equals `clientPush`, and the gap is the push that the pre-push reference omitted.
+- Against the post-push reference, 26 of 64 replays fall within 3.5 mm (max 0.0035 m). Of those 26, 11 have a starved tick in the trace and 15 have none.
+- 38 stayed over 1 cm: 37 with a starved server tick after the ack (`serverCallCount` above 1), and 1 (ack 304, run 1) with `ackKeyCalls` 4.
+
+Cause of the change: a measurement reference error. It is not a push misalignment, because the push index matches on every compared entry.
+
+## Phase B (run 3): 120/40/6 gate with the post-push reference; open cause, gate FAILS
+
+Runs: `npm run build:bundles` (exit 0, before the commit), `node scripts/groundy-replay-witness.mjs` (world `peers`, 120/40/6, 15 runs of 20 s). Logs are in `/tmp/phaseB/` and are not tracked.
+
+Gate lines (`/tmp/phaseB/gateB.log`):
+- `totals: runs 15/15 replays 481 replays over 1 cm residual 32 (in peer contact 0 of 31 contact replays; with a groundY gap 0) in 15 run(s) max residual 1.1743 m injected replays 0 (over limit 0) runs with local pops 15 max pops/min 176.93 pops 654 matched 259 in peer contact 11 mirror spikes 4 corrections with server queue above 8 103 of which over 1 cm 11`
+- `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 32 of 481 replays across 15 of 15 completed run(s); 4 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 15 run(s) with local pops`
+- `GATE_EXIT=1`
+
+Before this change, on the same gate (run 2): 64 of 491 over 1 cm. The change moves 32 replays under the limit.
+
+The 32 remaining, classified from `/tmp/groundy-replay-kzlPjb/over-limit-traces.json` (counted by `/tmp/phaseB/gateBclass.cjs`, not committed):
+- 29 have a starved physics call for a sequence after the ack (`serverCallCount` above 1).
+- 3 have starved calls under the acked key only (`ackKeyCalls` 4, 4 and 5, in runs 1, 9 and 11). These are the post-snapshot starved steps the ack cannot carry.
+- `pushMatch` is true at the first divergence of all 32. The first divergence falls on the sequence after a starved one in all 32. The push is not the cause.
+
+Remaining divergence keys (`run ack div ackKeyCalls residual m`):
+run0 ack76 div80 1 0.213; run0 ack155 div167 1 1.174; run0 ack313 div315 1 0.411; run0 ack313 div324 1 0.206; run1 ack133 div137 1 0.208; run1 ack311 div312 4 0.587; run2 ack312 div320 1 0.597; run3 ack312 div320 1 0.598; run4 ack313 div315 1 0.430; run4 ack313 div321 1 0.599; run5 ack311 div314 1 0.213; run5 ack312 div323 1 0.209; run6 ack313 div316 1 0.209; run7 ack315 div317 1 0.210; run7 ack312 div321 1 1.122; run8 ack312 div315 1 0.212; run8 ack314 div325 1 0.208; run9 ack309 div310 5 0.777; run9 ack312 div321 1 1.118; run10 ack314 div317 1 0.212; run10 ack314 div325 1 0.201; run11 ack128 div132 1 0.211; run11 ack305 div306 4 0.591; run11 ack312 div322 1 0.392; run12 ack314 div316 1 0.217; run12 ack313 div322 1 0.994; run13 ack306 div308 1 0.593; run13 ack312 div321 1 1.118; run13 ack501 div505 1 0.221; run14 ack133 div137 1 0.213; run14 ack312 div321 1 0.593; run14 ack412 div416 1 0.419
+
+Cause: the server runs a neutral physics step on a held input after the sequence the client has acked. The client's replay has no way to know it at the ack, and the snapshot-tick base only holds steps before the snapshot. The replayed sequence after that starved step is then off by the size of the neutral step, 0.2 to 1.2 m.
+
+Open decision for the owner (not implemented here; the gate is not redefined to hide these): (a) keep the strict gate, and treat the starved-tick divergence as an open netcode defect; (b) gate on replays with no starved tick after the ack and report the starved ones separately, which the owner has not approved; (c) reduce starvation at the server (repeat the last input instead of a neutral step), which has not been tried and changes the server's input contract.
+
+Status: the gate FAILS (32 of 481 over 1 cm). Open. Not passing. The post-push reference is in place, the push index is verified, and the remaining 32 are all post-ack starved ticks.
+
+Build: `npm run build:bundles` exit 0 (`[bundle-client]` and `[bundle-worker] stamped dist/src/sdk/WorkerEntry.bundlehash.json 69aa3904a56c894a`).
