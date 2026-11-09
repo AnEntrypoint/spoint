@@ -851,3 +851,33 @@ Not established: which call inside `CollisionMirror.step` (`syncCharacter`, `set
 Margin, measured at this HEAD: the smallest spike is 1.029 mm up, 0.229 mm above the 0.8 mm floor (`SPIKE_MIN_M`). The largest is 2.297 mm down, 0.203 mm below the 2.5 mm ceiling. The spike gate is "any spike fails", so the margin does not change the result.
 
 Status: the gate FAILS on the spike rule (5 spikes) and on nothing else. The power rule and the residual are both met. The spike is client-side and bounded, but no fix was made in this pass, so the gate's spike rule stays as it is.
+
+## Phase B (run 13): the mirror spike is inside the character update; the gate still FAILS
+
+Temporary instrumentation (reverted; not in the tree): a per-call trace in `CollisionMirror.step` (the input, the commanded vertical velocity, and the Y after the sync, the velocity set and the update) and the probe attaching it to each spike sample. Single seeds were run with the witness's own command (`--cond=120/40/6 --predict=on --world=peers --duration=20000`, `SPOINT_VIRTUAL_SEED` = seed). Seeds 3, 5, 13 and 14 each reproduce their spike in the same sequence as run 12.
+
+| seed | engine | sequences | Y after `update` (before, spike, after) | input vy | commanded vy | moved before step | server Y (run 12) |
+|---|---|---|---|---|---|---|---|
+| 3 | 0 | 314, 315, 316 | 1.4000000, 1.4010289, 1.4000000 | 0 | 0 | false | 1.399999976 x3 |
+| 5 | 0 | 412, 413, 414 | 1.3999999, 1.4022444, 1.4000001 | 0 | 0 | false | 1.399999976 x3 |
+| 5 | 0 | 459, 460, 461 | 1.4000001, 1.4013201, 1.4000001 | 0 | 0 | false | 1.399999976 x3 |
+| 13 | 1 | 200, 201, 202 | 1.4001620, 1.4022969, 1.4000000 | 0 | 0 | false | 1.399999976 x3 |
+| 14 | 0 | 103, 104, 105 | 1.4000000, 1.4022096, 1.4000000 | 0 | 0 | false | 1.399999976 x3 |
+
+Findings:
+
+- The bump occurs inside `world.updateCharacter` on every spike. The velocity set before it is 0, and the sync before it is not called (the position did not move). Seed 3 is the cleanest case: sequences 314 and 315 begin from the same position (1.4), the same input (vy 0) and the same dt (1/60, constant across the trace), and the same call returns 1.4 at 314 and 1.4010289 at 315. So the result depends on the character's Jolt state after the previous update, not on the inputs or the timing.
+- `dt` is constant (1/60) across the trace, so the tick timing does not drive it.
+- The server's character runs the same three calls each tick and its Y stays at 1.399999976 at the same sequences, so the lift is specific to the client mirror's physics world (its contact history).
+- The mechanism is in the compiled Jolt build; the Jolt source is not in the tree, so the branch is not named. The fix would need a change in the mirror's call history or in Jolt, and no client-side change was measured to remove it, so none was made.
+
+Measured margin, unchanged from run 12: the smallest spike is 1.029 mm (0.229 mm above the 0.8 mm floor), the largest 2.297 mm (0.203 mm below the 2.5 mm ceiling). Recorded in `docs/netcode.md`, "Mirror one-tick spike".
+
+Status: the cause is measured as inside `updateCharacter` on the client mirror's character, with the server's character not showing it. Not fixed in this pass. The gate's spike rule stays as it is, so the gate FAILS on the five spikes.
+
+Phase B run 13 results (`/tmp/phaseI/b13_*.log`):
+
+- Build: `BUILD_EXIT=0`.
+- Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
+- Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 0.987364` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
+- `npm run check`, three runs: `CHECK_EXIT=0` in all three.
