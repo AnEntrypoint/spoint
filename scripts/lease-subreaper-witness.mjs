@@ -21,8 +21,9 @@ const fields = (pid) => {
 const state = (pid) => (fields(pid) ? fields(pid)[0] : 'gone')
 const dead = (pid) => state(pid) === 'gone' || state(pid) === 'Z'
 const LAUNCH = [
+  'use POSIX ();',
   '$|=1;',
-  'my $a=fork; if(!$a){ my $b=fork; if(!$b){ setsid(); print "$$\\n"; exec "sleep","600" } select(undef,undef,undef,0.5); exit 0 }',
+  'my $a=fork; if(!$a){ my $b=fork; if(!$b){ POSIX::setsid(); print "$$\\n"; exec "sleep","600" } select(undef,undef,undef,0.5); exit 0 }',
   'my $c=fork; if(!$c){ my $d=fork; if(!$d){ setpgrp(0,0); print "$$\\n"; exec "sleep","601" } select(undef,undef,undef,0.5); exit 0 }',
   'waitpid($a,0); waitpid($c,0); sleep 120;',
 ].join(' ')
