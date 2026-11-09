@@ -166,6 +166,16 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   })
 }
 
+const residualOf = trace => {
+  let worst = null
+  for (const t of trace) {
+    if (!t.post || !t.serverFirst) continue
+    const m = distance(t.post, t.serverFirst)
+    if (worst === null || m > worst) worst = m
+  }
+  return worst
+}
+
 const attachTraces = () => {
   for (const r of records) {
     if (r.kind !== 'correction' && r.kind !== 'resync') continue
@@ -180,9 +190,11 @@ const attachTraces = () => {
         server: last,
         serverCallCount: calls.length,
         serverCallDts: calls.map(c => c.dt),
-        serverCallPositions: calls.map(c => c.position)
+        serverCallPositions: calls.map(c => c.position),
+        serverFirst: calls.length ? calls[0].position : null
       }
     })
+    r.residualM = residualOf(r.trace)
   }
 }
 

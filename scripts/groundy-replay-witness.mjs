@@ -9,7 +9,7 @@ import { exitAfterQuiesce } from './lib/quiesce.mjs'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 const HOOK_URL = pathToFileURL(resolve(SDK_ROOT, 'scripts', 'lib', 'groundy-replay-hook.mjs')).href
-const GROWTH_LIMIT_M = 0.01
+const RESIDUAL_LIMIT_M = 0.01
 const MIN_RUNS = 15
 const MIN_REPLAYS = 100
 const SPIKE_MIN_M = 0.0008
@@ -89,9 +89,9 @@ const correlatePops = (records, popEvents) => {
 }
 
 const summarizeRun = (records, popsPerMin, popEvents) => {
-  const growths = records.map(r => r.growthM)
+  const residuals = records.map(r => r.residualM).filter(x => x !== null)
   const gaps = records.map(gapOf).filter(g => g !== null).map(Math.abs)
-  const over = records.filter(r => r.growthM > GROWTH_LIMIT_M)
+  const over = records.filter(r => r.residualM > RESIDUAL_LIMIT_M)
   const injected = records.filter(r => INJECT_M > 0 && gapOf(r) !== null && Math.abs(Math.abs(gapOf(r)) - INJECT_M) <= INJECT_MATCH_M)
   const pops = correlatePops(records, popEvents)
   return {
@@ -100,10 +100,10 @@ const summarizeRun = (records, popsPerMin, popEvents) => {
     overLimitWithGroundYGap: over.filter(r => gapOf(r) !== null && Math.abs(gapOf(r)) > SAME_STAT_M).length,
     overLimitInContact: over.filter(r => r.inContact).length,
     inContactReplays: records.filter(r => r.inContact).length,
-    maxGrowthM: growths.length ? Math.max(...growths) : null,
+    maxResidualM: residuals.length ? Math.max(...residuals) : null,
     maxGroundYGapM: gaps.length ? Math.max(...gaps) : null,
     injectedReplays: injected.length,
-    injectedOverLimit: injected.filter(r => r.growthM > GROWTH_LIMIT_M).length,
+    injectedOverLimit: injected.filter(r => r.residualM > RESIDUAL_LIMIT_M).length,
     popsPerMin,
     pops
   }
@@ -133,21 +133,21 @@ const main = async () => {
     const resyncs = records.filter(r => r.kind === 'resync').length
     const spikes = records.filter(r => r.kind === 'spike').length
     const deepQueue = corrections.filter(r => r.serverQueueDepth > INPUT_CATCHUP_DEPTH).length
-    const overDeepQueue = corrections.filter(r => r.serverQueueDepth > INPUT_CATCHUP_DEPTH && r.growthM > GROWTH_LIMIT_M).length
+    const overDeepQueue = corrections.filter(r => r.serverQueueDepth > INPUT_CATCHUP_DEPTH && r.residualM > RESIDUAL_LIMIT_M).length
     if (!engineMatchingHarness(corrections, harness.results?.[0]?.mispredict)) {
       failures.push(`run ${i}: no engine's corrections match the harness's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} applied corrections, so the hook missed a correction`)
       continue
     }
-    for (const r of corrections) if (r.growthM > GROWTH_LIMIT_M) overTraces.push({ run: i, ...r })
+    for (const r of corrections) if (r.residualM > RESIDUAL_LIMIT_M) overTraces.push({ run: i, ...r })
     const engines = new Set(corrections.map(r => r.engine)).size
     const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue }
     runs.push(summary)
-    console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for growth) over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush}) mirror spikes ${summary.spikes}`)
+    console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for residual) over-${RESIDUAL_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max residual ${fmtM(summary.maxResidualM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush}) mirror spikes ${summary.spikes}`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)
   const runsOverLimit = runs.filter(r => r.overLimit > 0).length
-  const maxGrowth = runs.reduce((m, r) => (r.maxGrowthM === null ? m : Math.max(m, r.maxGrowthM)), -Infinity)
+  const maxResidual = runs.reduce((m, r) => (r.maxResidualM === null ? m : Math.max(m, r.maxResidualM)), -Infinity)
   const popRuns = runs.filter(r => r.popsPerMin > 0).length
   const withGap = runs.reduce((s, r) => s + r.overLimitWithGroundYGap, 0)
   const injectedReplays = runs.reduce((s, r) => s + r.injectedReplays, 0)
@@ -161,11 +161,11 @@ const main = async () => {
   const popMatched = runs.reduce((s, r) => s + r.pops.matched, 0)
   const popOnPeer = runs.reduce((s, r) => s + r.pops.onPeerPush, 0)
   const popsPerMinMax = runs.reduce((m, r) => (r.popsPerMin === null ? m : Math.max(m, r.popsPerMin)), -Infinity)
-  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${GROWTH_LIMIT_M * 100} cm growth ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal} corrections with server queue above ${INPUT_CATCHUP_DEPTH} ${deepQueueTotal} of which over ${GROWTH_LIMIT_M * 100} cm ${overDeepQueueTotal}`)
+  console.log(`totals: runs ${runs.length}/${RUNS} replays ${replays} replays over ${RESIDUAL_LIMIT_M * 100} cm residual ${overLimit} (in peer contact ${overInContact} of ${inContactReplays} contact replays; with a groundY gap ${withGap}) in ${runsOverLimit} run(s) max residual ${Number.isFinite(maxResidual) ? maxResidual.toFixed(4) : '-'} m injected replays ${injectedReplays} (over limit ${injectedOver}) runs with local pops ${popRuns} max pops/min ${Number.isFinite(popsPerMinMax) ? popsPerMinMax.toFixed(2) : '-'} pops ${popTotal} matched ${popMatched} in peer contact ${popOnPeer} mirror spikes ${spikeTotal} corrections with server queue above ${INPUT_CATCHUP_DEPTH} ${deepQueueTotal} of which over ${RESIDUAL_LIMIT_M * 100} cm ${overDeepQueueTotal}`)
   for (const r of overTraces) {
     const pre = firstDivergence(r.trace, 'pre'), post = firstDivergence(r.trace, 'post')
     const lag = r.lastSeq - r.ackSeq
-    console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} growth ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
+    console.log(`over-limit run ${r.run} ack ${r.ackSeq} last ${r.lastSeq} lag ${lag} ackAdvance ${r.ackAdvance} queue ${r.serverQueueDepth} errM ${fmtM(r.errM)} residual ${fmtM(r.residualM)} offset-minus-err ${fmtM(r.growthM)} wedge ${JSON.stringify(r.wedge)} push ${JSON.stringify(r.push)}: prediction first off server at seq ${pre ? pre.seq + ' by ' + fmtM(pre.m) : 'none'}; replay first off server at seq ${post ? post.seq + ' by ' + fmtM(post.m) : 'none'}`)
   }
   if (overTraces.length) {
     const tracePath = join(dir, 'over-limit-traces.json')
@@ -176,10 +176,10 @@ const main = async () => {
 
   if (CONTROL) {
     const shown = injectedReplays > 0 && injectedOver > 0
-    console.log(`control: ${injectedReplays} mover replay(s) carried the injected ${INJECT_M} m groundY gap, ${injectedOver} of them over ${GROWTH_LIMIT_M * 100} cm growth`)
+    console.log(`control: ${injectedReplays} mover replay(s) carried the injected ${INJECT_M} m groundY gap, ${injectedOver} of them over ${RESIDUAL_LIMIT_M * 100} cm growth`)
     console.log(shown && failures.length === 0
-      ? `RESULT: PASS the injected ${INJECT_M} m ack error reaches the replay base and shows replay growth over ${GROWTH_LIMIT_M * 100} cm (${injectedOver} of ${injectedReplays} injected replays)`
-      : `RESULT: FAIL the injected ${INJECT_M} m ack error did not show replay growth over ${GROWTH_LIMIT_M * 100} cm in the replays that carry it (${injectedReplays} carried it, ${injectedOver} grew, ${failures.length} run(s) failed)`)
+      ? `RESULT: PASS the injected ${INJECT_M} m ack error reaches the replay base and shows replay residual over ${RESIDUAL_LIMIT_M * 100} cm (${injectedOver} of ${injectedReplays} injected replays)`
+      : `RESULT: FAIL the injected ${INJECT_M} m ack error did not show replay residual over ${RESIDUAL_LIMIT_M * 100} cm in the replays that carry it (${injectedReplays} carried it, ${injectedOver} grew, ${failures.length} run(s) failed)`)
     await exitAfterQuiesce(shown && failures.length === 0 ? 0 : 1)
     return
   }
@@ -187,12 +187,12 @@ const main = async () => {
   const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && replays >= MIN_REPLAYS && spikeTotal === 0
   const reasons = [
     ...(failures.length ? [`${failures.length} of ${RUNS} run(s) failed`] : []),
-    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate replay growth`] : []),
-    ...(overLimit > 0 ? [`replay growth over ${GROWTH_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
+    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate replay residual`] : []),
+    ...(overLimit > 0 ? [`replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
     ...(spikeTotal > 0 ? [`${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s)`] : [])
   ]
   console.log(ruledOut
-    ? `RESULT: PASS the replay base groundY adds no growth over ${GROWTH_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max growth ${Number.isFinite(maxGrowth) ? maxGrowth.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
+    ? `RESULT: PASS the replay base groundY adds no residual over ${RESIDUAL_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max residual ${Number.isFinite(maxResidual) ? maxResidual.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
     : `RESULT: FAIL world ${WORLD} cond ${COND}: ${reasons.join('; ')}; ${RUNS} requested, ${popRuns} run(s) with local pops`)
   await exitAfterQuiesce(ruledOut ? 0 : 1)
 }

@@ -374,3 +374,14 @@ Server spike probe (item 2, unchanged by this pass): `node /tmp/popdiag/srvspike
 `npm run check`: exit 0. The stick-floor ramp witness is in the output: `check: RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp (0.9355 >= 0.9); removing it drops grounded to 0.0645`. Final line: `check: all app(s) resolve every import`. Build: not run, because this pass changed only `scripts/lib/groundy-replay-hook.mjs` and no `src/` file.
 
 Status: replay growth over 1 cm at 120/40/6 is explained (class A metric drift, class B server starved ticks), and the fix for class B is an owner decision. Stick-to-floor trigger, canonical 50/10/2 and server spike rate are unchanged from the previous section.
+
+## Phase A: starved tick steps neutral; gate on replay residual (120/40/6 close-out)
+
+Decision 1, netcode (owner): a starved tick takes the server's neutral physics step at once, with no 0.25 s hold. Decision 2, gate (owner): pass or fail is the replay residual; `offsetM - errM` is recorded as a diagnostic only. 50/10/2 stays a stated limit: below `MIN_REPLAYS` (100) it reads `underpowered` and does not gate.
+
+| Row | Change | Commit | Files | Witness to run in Phase B |
+|---|---|---|---|---|
+| netcode | `processPlayerMovement` takes the neutral step on every starved tick. `STARVE_HOLD_SECONDS` and `starveHoldTicks` are removed, and the step budget accrues every tick. | Phase A | `src/sdk/TickHandler.js`, `docs/netcode.md` | `node scripts/groundy-replay-witness.mjs` (120/40/6, 15 runs), `npm run check`, server probe |
+| gate | The hook records `residualM` per correction: the largest distance from a replayed entry's position to the server's position right after that input was consumed (first physics call under its key). The witness gates on `residualM > 1 cm`. `growthM` (`offsetM - errM`) is printed as a diagnostic. | Phase A | `scripts/lib/groundy-replay-hook.mjs`, `scripts/groundy-replay-witness.mjs` | `node scripts/groundy-replay-witness.mjs` (120/40/6); `node scripts/groundy-replay-witness.mjs --control` must show residual over 1 cm |
+
+Not done in Phase A: the client does not predict a starved tick live, because it cannot know one before the ack. The ack's replay base is the server state at the snapshot tick, so it already holds the neutral steps before that tick. Neutral steps after the snapshot are unknown until the next ack, and the residual is what shows them. Phase B decides whether that residual is acceptable or needs a wire change.
