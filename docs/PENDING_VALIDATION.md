@@ -1143,3 +1143,76 @@ Code, docs and tests only. No build, test, gate or witness was run in this pass;
 - `docs/index.html`: regenerated from this ledger with `node scripts/generate-docs-site.js` (the docs freshness witness is part of `npm run check`).
 
 Not changed: `src/` (the box floor is in `8ca15f9`), `scripts/stick-floor-ramp-witness.mjs`, `docs/netcode.md`.
+
+## Phase B (run 20): the witness in the gate, three gate runs of the check, and a fault injection
+
+Tree: `55c9fbd` (Phase A). The witness is a step in `npm run check`, and a mirror-side fault was injected and reverted to prove the step fails.
+
+- Witness, `node scripts/collision-tile-shape-witness.mjs` (`WITNESS_EXIT=0`, `/tmp/phaseI/b20_witness.log`): the 19 checks, ending `mirror floor shape differs from the server's at 0 probe(s) of 3` and `RESULT: PASS collision tile floor is the server's box (19 of 19 checks)`. The negative control now runs the real mirror path: `check negative control: the server tile carries the perturbed floor record: ok (floor half 100.01)` and `check negative control: the mirror path reports the perturbed server record as a shape difference: ok (record 0: mirror [100.01, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1] server [100, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1])`.
+- `npm run check`, three runs on `55c9fbd` (`/tmp/phaseI/b20_check{1,2,3}.log`): `CHECK_EXIT=0` in each run, 139 `RESULT: PASS` lines and 0 `RESULT: FAIL`. The witness step runs inside the gate and prints `check: mirror floor shape differs from the server's at 0 probe(s) of 3`.
+- Fault injection (mirror-side, reverted afterwards): `src/client/CollisionMirror.js` `onTile` was changed to add 0.01 to each decoded box's half extent `hx`. `node scripts/collision-tile-shape-witness.mjs` then exited 1 with `FAIL` on `mirror floor records equal the server's at probe 0 (0,0): FAIL (record 0: mirror [100.01, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1] server [100, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1])`, the same at probes 1 and 2, and `RESULT: FAIL collision tile floor is the server's box (15 of 19 checks)`. The file was reverted with `git checkout`, and the tree is clean. So the gate step fails on a real mirror-side mismatch, not only on the comparator in isolation.
+
+Defects found in Phase B: none in the witness or the gate. The Phase A change needed no fix.
+
+## Phase B finish (run 20): final tree, detached rerun, and what the interrupted runs showed
+
+Change in this pass: this ledger entry and the regenerated `docs/index.html` only. No `src/` or `scripts/` change after `55c9fbd`.
+
+- Interrupted runs. The three `npm run check` runs started from the previous session (`/tmp/phaseI/b20_final{1,2,3}.log`) have no recorded exit code: run 1 (139 `RESULT: PASS`, 0 `RESULT: FAIL`) and run 2 (139 and 0) ended at `check: all app(s) resolve every import`, and run 3 stopped partway (138 PASS), so they do not count as a finished gate.
+- Detached rerun (`setsid`, status file `/tmp/phaseI/b21_status.txt`, logs `/tmp/phaseI/b21_*.log`), on `55c9fbd` plus this entry:
+  - Witness, `node scripts/collision-tile-shape-witness.mjs`: `WITNESS_EXIT=0`; `RESULT: PASS collision tile floor is the server's box (19 of 19 checks)`; the negative control line is `check negative control: the mirror path reports the perturbed server record as a shape difference: ok (record 0: mirror [100.01, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1] server [100, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1])`.
+  - `npm run check`: `CHECK_EXIT=0 run=1`, `CHECK_EXIT=0 run=2`, `CHECK_EXIT=0 run=3`, each finishing at `check: all app(s) resolve every import` with 139 `RESULT: PASS` and 0 `RESULT: FAIL` (the final entry's checks are repeated in the commit that carries this entry).
+- `docs/index.html` is the generator's output for this ledger (`node scripts/generate-docs-site.js`); the docs freshness step inside `npm run check` passes on it.
+
+## Run 20 record: status file and witness output for the checked tree
+
+Checked tree: `55c9fbd` (Phase A) plus the docs files in this commit. Two detached runs produced the exit codes below; neither changed `src/` or `scripts/` after `55c9fbd`.
+
+Status file `/tmp/phaseI/b21_status.txt` (witness and three checks, on the tree before the Phase B finish entry), verbatim:
+
+```
+running
+WITNESS_EXIT=0
+CHECK_EXIT=0 run=1
+CHECK_EXIT=0 run=2
+CHECK_EXIT=0 run=3
+done
+```
+
+Status file `/tmp/phaseI/b22_status.txt` (the same three checks, rerun on the tree that carries the Phase B finish entry and this record's predecessor), verbatim:
+
+```
+running
+CHECK_EXIT=0 run=1
+CHECK_EXIT=0 run=2
+CHECK_EXIT=0 run=3
+done
+```
+
+Witness output, `/tmp/phaseI/b21_witness.log` (`node scripts/collision-tile-shape-witness.mjs`, `[physics]` log lines removed), verbatim:
+
+```
+check server boxes carry their half extents and convex radius in meta: ok
+check server tiles carry no triangles for box-only bodies: ok (0,0,0)
+check every record a server tile carries matches a server body exactly: ok
+check the tilted box reaches the tile of its own centre: ok
+check mirror initialised with its own physics world: ok
+check the wire message carries format version 2: ok
+check mirror floor records equal the server's at probe 0 (0,0): ok
+check mirror holds no triangle floor at probe 0: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 0: ok (body -1, 2 bodies for 2 records)
+check mirror floor records equal the server's at probe 1 (5,-4): ok
+check mirror holds no triangle floor at probe 1: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 1: ok (body -1, 2 bodies for 2 records)
+check mirror floor records equal the server's at probe 2 (-40,30): ok
+check mirror holds no triangle floor at probe 2: ok (meshes 0)
+check mirror Jolt bodies hold the record exactly to float32 at probe 2: ok (body -1, 1 bodies for 1 records)
+check negative control: the server tile carries the perturbed floor record: ok (floor half 100.01)
+check negative control: the mirror path reports the perturbed server record as a shape difference: ok (record 0: mirror [100.01, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1] server [100, 1, 100, 0.05, 0, -1, 0, 0, 0, 0, 1])
+check a message without the version-2 format is refused, not installed: ok (refused 2 of 2)
+check restoring the good tile returns the server shape: ok
+mirror floor shape differs from the server's at 0 probe(s) of 3
+RESULT: PASS collision tile floor is the server's box (19 of 19 checks)
+```
+
+Three `npm run check` exit codes (`b21`): `CHECK_EXIT=0 run=1`, `CHECK_EXIT=0 run=2`, `CHECK_EXIT=0 run=3`. The same three exit codes for `b22`: `CHECK_EXIT=0 run=1`, `CHECK_EXIT=0 run=2`, `CHECK_EXIT=0 run=3`. Each run ends at `check: all app(s) resolve every import` with 139 `RESULT: PASS` and 0 `RESULT: FAIL`.
