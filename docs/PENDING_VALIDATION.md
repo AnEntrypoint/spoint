@@ -820,3 +820,34 @@ Phase B run 11 measured the spikes but not their cause. Each of the five spikes 
 Not changed in this pass: the mirror, the server, the netcode, the thresholds and the pass rule. The spike cause is measured in Phase B from `clientY` against `serverY`.
 
 Status: Phase A is committed locally. The spike cause is measured in Phase B.
+
+## Phase B (run 12): the mirror spike is client-only; the gate still FAILS
+
+- Build: `npm run build:bundles`, `BUILD_EXIT=0` (`/tmp/phaseI/b12_build.log`).
+- Gate, three runs (`/tmp/phaseI/b12_gate1.log` to `b12_gate3.log`), each identical:
+  - `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0); power counts starved-window replays, minimum 100`
+  - `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`
+  - `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 2 run(s) with local pops`, `GATE_EXIT=1`.
+- `npm run check`, three runs (`/tmp/phaseI/b12_check1.log` to `b12_check3.log`): `CHECK_EXIT=0` in all three.
+
+### Spike classification (from `clientY` against `serverY`, same player and sequence)
+
+| run | engine | sequences | clientY (before, spike, after) | serverY (three sequences) | up / down | builds | normal |
+|---|---|---|---|---|---|---|---|
+| 3 | 0 | 314, 315, 316 | 1.40000, 1.40103, 1.40000 | 1.39999998 x3 | +1.029 / -1.029 mm | 16 x3 | (0,1,0) |
+| 5 | 0 | 412, 413, 414 | 1.40000, 1.40224, 1.40000 | 1.39999998 x3 | +2.245 / -2.244 mm | 16 x3 | (0,1,0) |
+| 5 | 0 | 459, 460, 461 | 1.40000, 1.40132, 1.40000 | 1.39999998 x3 | +1.320 / -1.320 mm | 16 x3 | (0,1,0) |
+| 13 | 1 | 200, 201, 202 | 1.40016, 1.40230, 1.40000 | 1.39999998 x3 | +2.135 / -2.297 mm | 13 x3 | (0,1,0) |
+| 14 | 0 | 103, 104, 105 | 1.40000, 1.40221, 1.40000 | 1.39999998 x3 | +2.210 / -2.210 mm | 8 x3 | (0,1,0) |
+
+What this establishes:
+
+- The server's position does not move at the spike sequences. The bump is absent from the server's own step, so it is not a Jolt-side effect that the server also shows. It is in the client collision mirror.
+- No tile build sits in the spike window (`builds` is constant across the three samples), so the tile rebuild path (`CollisionMirror.tileAt`, `prebuildNeighbour`) is ruled out as the cause of these five.
+- The normal is (0,1,0) and the floor is flat, so the geometry does not change the height on this box top.
+
+Not established: which call inside `CollisionMirror.step` (`syncCharacter`, `setCharacterVelocity`, `updateCharacter`, or the post-step readback) produces the one-tick bump. That needs a per-call probe, which this pass did not add.
+
+Margin, measured at this HEAD: the smallest spike is 1.029 mm up, 0.229 mm above the 0.8 mm floor (`SPIKE_MIN_M`). The largest is 2.297 mm down, 0.203 mm below the 2.5 mm ceiling. The spike gate is "any spike fails", so the margin does not change the result.
+
+Status: the gate FAILS on the spike rule (5 spikes) and on nothing else. The power rule and the residual are both met. The spike is client-side and bounded, but no fix was made in this pass, so the gate's spike rule stays as it is.

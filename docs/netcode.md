@@ -105,3 +105,13 @@ A touch is `create`, `update`, `rebindOwner`, `get` or `release`. `get` expires 
 ## Gate power rule (run 11, dispatcher; reversible)
 
 The gate's power check counted correction replays. Under the freeze (`STARVED_TICKS_STEP_STATE = false`) no ack needs a correction above the 1.5 cm threshold, so the count is zero and the rule fails a correct result. The check now counts starved-window replays: ack windows (ackSeq, lastSeq] that contain at least one sequence consumed after starved server ticks (`consumed` records from `scripts/lib/groundy-replay-hook.mjs`). The minimum stays at 100. Reason: this measures what the freeze is built to remove, the replay of inputs across a starved window, rather than the coast it removed. The residual threshold stays 1 cm; the starved-window residual is the reconciliation error at the ack (`ackErrM`), and any such replay over 1 cm fails the gate. The correction residual is unchanged. Revert: set `POWER_COUNTS_STARVED_WINDOWS = false` in `scripts/groundy-replay-witness.mjs` to count correction replays again; the starved-window residual check is a separate failure reason and is removed with it by deleting its line in the gate's reasons list.
+
+## Mirror one-tick spike (run 12, measured; not yet fixed)
+
+The gate's spike rule fails on five one-tick bumps of 1.0 to 2.3 mm in the client's collision mirror (`CollisionMirror.step`). Phase B run 12 (`docs/PENDING_VALIDATION.md`) shows where they come from:
+
+- The server's Y is constant across the three sequences of every spike (1.399999976). The bump is therefore client-only; the server's Jolt step does not show it.
+- No tile build sits in any spike window, and the ground normal is (0,1,0) on a flat box top.
+- The client's Y returns to its pre-spike value on the next sample, so the error is one tick and does not accumulate. The correction residual and the ack error (max 0.0070 m, none over 1 cm) are unaffected.
+
+The gate's pass rule still treats any spike as a failure, so the gate stays FAIL. The next step is a per-call probe inside `CollisionMirror.step` (around `syncCharacter`, `setCharacterVelocity`, `updateCharacter` and the readback) to name the call that adds the bump. Until that is measured, the spike rule is not relaxed: its floor (0.8 mm) and ceiling (2.5 mm) are the measured band, and the smallest and largest spikes sit 0.23 mm and 0.20 mm inside it.
