@@ -656,3 +656,29 @@ Not changed in this pass: the probe's fields, the gate's definition, the 1 cm th
 Known risks to check in Phase B, not yet observed: (1) real I/O still running while virtual time advances (boot-time reads, such as the Jolt wasm and app loading, if they complete after the first timer fires); (2) code that captured a timer function at module load before the runtime is installed; (3) `node:timers/promises` or `process.hrtime` on the run path, which stay real.
 
 Status: Phase A is committed locally. Nothing is pushed. The gate has not been run on the virtual clock; whether the count repeats is measured in Phase B.
+
+## Phase B (run 7): the count repeats; the gate still FAILS
+
+Committed tree: `91b8a87` on top of `ff8e963` (code) and `54e5f27` (docs). Logs are in `/tmp/phaseH/`, not tracked. No defect was found in the clock, the socket stand-in, the runtime or the harness; the first witness, the first determinism check and the first gate run all behaved as designed.
+
+- Build: `npm run build:bundles`, `BUILD_EXIT=0`.
+- Clock and socket witness: `node scripts/virtual-clock-witness.mjs`: `12/12 checks passed`, `RESULT: PASS`, `CLOCK_EXIT=0`.
+- Determinism witness: `node scripts/netcode-virtual-determinism-witness.mjs` (120/40/6, peers, 4 s virtual): `determinism: seed 0 run A and run B bytes identical (15672 and 15672 bytes); seed 1 differs from seed 0`, `RESULT: PASS`, `DET_EXIT=0`.
+- Gate, three runs on `91b8a87` (`node scripts/groundy-replay-witness.mjs`):
+  - Run 1, `/tmp/phaseH/gate1.log`: `RESULT: FAIL world peers cond 120/40/6: replay residual over 1 cm in 9 of 410 replays across 5 of 15 completed run(s); 5 mirror one-tick spike(s) of 0.8-2.5 mm across 3 of 15 run(s); 15 requested, 5 run(s) with local pops`, `GATE_EXIT=1`.
+  - Run 2, `/tmp/phaseH/gate2.log`: the same RESULT line, `GATE_EXIT=1`.
+  - Run 3, `/tmp/phaseH/gate3.log`: the same RESULT line, `GATE_EXIT=1`.
+  - Totals line, identical in all three runs: `totals: runs 15/15 replays 410 replays over 1 cm residual 9 (in peer contact 0 of 19 contact replays; with a groundY gap 0) in 5 run(s) max residual 0.9834 m injected replays 0 (over limit 0) runs with local pops 5 max pops/min 12.00 pops 11 matched 6 in peer contact 6 mirror spikes 5 corrections with server queue above 8 124 of which over 1 cm 3`.
+  - The three logs differ only in the `traces:` line, which names a random temporary directory.
+- Check: `npm run check` on `91b8a87`: `CHECK_EXIT=0`, 138 `RESULT: PASS`. The first check run (`/tmp/phaseH/check.log`) failed on `docs/index.html is not the generator output` because the page was regenerated before the run 7 netcode edits; it was regenerated and committed in `91b8a87`, and the rerun passed.
+
+Variance: removed. Before run 7 the same code gave 16, 19 and 8 over-1-cm replays. Now three runs give 9, 9 and 9, with identical totals.
+
+Measured cause of the 9 remaining over-1-cm replays (traces in `/tmp/groundy-replay-3iHY7s/over-limit-traces.json`, from gate run 3):
+- Kind (a), 5 keys: the first replayed step whose horizontal velocity differs is a lateral input (`left` or `right`). Server and client step outputs differ from the same pre-state and input. Keys: run 7 ack 281 (`left`, server (9.899, -9.899), client (3.483, -16.316)); run 7 ack 509 (`right`); run 12 ack 65 (`left`, server (9.899, 9.899), client (4.018, 15.781)); run 12 ack 510 (`right`); run 14 ack 513 (`left`).
+- Kind (b), 3 keys: the first divergence is on a `forward` or no-input step. The client's step generates a lateral x-velocity of 3.8 to 6.1 m/s that the server's step does not (server x = 0). Keys: run 9 ack 159 (`forward`, client (3.799, 14.000) against (0, 14.000)); run 9 ack 352 (no input, client (3.801, -14.000) against (0, -14.000)); run 13 ack 142 (no input, client (6.051, -14.000) against (0, -14.000)).
+- One key, run 14 ack 94 (residual 0.0222 m), has no replayed-step velocity divergence.
+- The ack-velocity difference (client predicted velocity at the ack against the server's) is 0.4 to 7.2 m/s on these keys. The replay base copies the server's velocity on the non-starved path, so the ack difference is a separate observation, not the source of kind (b).
+- Not identified: the producing line on either side. The server's step runs the Jolt character path; the client's step is the analytical `_step` with its wall mirror.
+
+Status: the variance is removed (three identical gate runs). The gate still FAILS (9 of 410 over 1 cm). Open, not passing. The remaining cause is measured to the step level for both kinds; which code path produces the lateral velocity on each side is the next probe.
