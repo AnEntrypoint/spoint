@@ -10,6 +10,7 @@ const { CharacterManager } = await import(href('src/physics/CharacterManager.js'
 const { createCollisionMirror } = await import(href('src/client/CollisionMirror.js'))
 const { predictCharacterStep } = await import(href('src/shared/characterStep.js'))
 const { DEFAULT_MOVEMENT } = await import(href('src/shared/movement.js'))
+const { COLLISION_TILE_FORMAT } = await import(href('src/shared/collisionTile.js'))
 
 const STICK_M = 0.5
 const GROUNDED_MIN = 0.9
@@ -50,7 +51,7 @@ const groundedFraction = async stickM => {
   const mirror = createCollisionMirror()
   await mirror.configure({ radius: RADIUS_M, halfHeight: HALF_HEIGHT_M, crouchHalfHeight: 0.45, maxSlopeAngle: 0.7854, maxStepHeight: 0.4, stickToFloorDistance: stickM, mass: 120, gravity: [0, -9.81, 0], tileM: 16, marginM: 3, forgetRing: 2 })
   CharacterManager.prototype.init = realInit
-  for (let tx = -5; tx <= 8; tx++) for (let tz = -4; tz <= 3; tz++) mirror.onTile({ tx, tz, h: 0, v: new Uint8Array(verts.buffer.slice(0)) })
+  for (let tx = -5; tx <= 8; tx++) for (let tz = -4; tz <= 3; tz++) mirror.onTile({ tx, tz, h: 0, f: COLLISION_TILE_FORMAT, v: new Uint8Array(verts.buffer.slice(0)), b: new Uint8Array(0) })
   const state = { position: [-10, HALF_HEIGHT_M + RADIUS_M, 0], velocity: [0, 0, 0], onGround: false, groundNormal: null, groundY: NaN }
   const env = { collider: { step: (s, inp, dt, g, wg) => { mirror.covers(s.position); mirror.step(s, inp, dt, g, wg) } }, gravityY: -9.81, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: 0, wedgeNormal: null }
   const input = { forward: true, yaw: Math.PI / 2 }

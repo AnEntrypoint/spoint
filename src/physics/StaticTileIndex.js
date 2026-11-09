@@ -1,4 +1,5 @@
 import { fnv1aBytes } from '../shared/fnv1a.js'
+import { boxRecordOf, boxRecordsFlat } from '../shared/collisionTile.js'
 
 export const STATIC_TILE_M = 16
 export const STATIC_TILE_MARGIN_M = 3
@@ -10,6 +11,13 @@ const BOUNDS_LEN = 16
 const EMPTY_TRIS = new Float32Array(0)
 
 export function staticTileKey(tx, tz) { return tx + ',' + tz }
+
+function tileHash(verts, boxes) {
+  const bytes = new Uint8Array(verts.byteLength + boxes.byteLength)
+  bytes.set(new Uint8Array(verts.buffer), 0)
+  bytes.set(new Uint8Array(boxes.buffer), verts.byteLength)
+  return fnv1aBytes(bytes)
+}
 
 export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = STATIC_TILE_MARGIN_M) {
   const J = world.Jolt
@@ -23,7 +31,7 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
   function tile(tx, tz) {
     const k = staticTileKey(tx, tz)
     let t = tiles.get(k)
-    if (!t) { t = { k, tx, tz, bodies: new Set(), version: 0, builtVersion: -1, builtBig: -1, hash: 0, verts: null, usedAt: 0 }; tiles.set(k, t) }
+    if (!t) { t = { k, tx, tz, bodies: new Set(), version: 0, builtVersion: -1, builtBig: -1, hash: 0, verts: null, boxes: null, usedAt: 0 }; tiles.set(k, t) }
     return t
   }
 
@@ -95,10 +103,12 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
     const ids = [...t.bodies]
     for (const id of bigBodies) ids.push(id)
     ids.sort((a, b) => a - b)
-    const parts = []
+    const parts = [], boxes = []
     for (const id of ids) {
       const b = world.bodies.get(id)
       if (!b) continue
+      const meta = world.bodyMeta.get(id)
+      if (meta?.shape === 'box' && meta.half) { boxes.push(boxRecordOf(meta.half, meta.convexRadius, world.getBodyPosition(id), world.getBodyRotation(id))); continue }
       const gv = geoVersion.get(id)
       const sk = shapeKeys ? shapeKeys.get(id) : undefined
       let e = triCache.get(id)
@@ -122,8 +132,10 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
     const verts = new Float32Array(len)
     let o = 0
     for (const a of parts) { verts.set(a, o); o += a.length }
+    const boxFlat = boxRecordsFlat(boxes)
     t.verts = verts
-    t.hash = fnv1aBytes(new Uint8Array(verts.buffer))
+    t.boxes = boxFlat
+    t.hash = tileHash(verts, boxFlat)
     t.builtVersion = t.version; t.builtBig = bigVersion
     stats.builds++; stats.buildMs += performance.now() - t0; stats.triangles += len / 9
   }
@@ -138,7 +150,7 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
   function sweep(olderThanMs) {
     for (const [k, t] of tiles) {
       if (t.usedAt >= olderThanMs) continue
-      t.verts = null; t.builtVersion = -1
+      t.verts = null; t.boxes = null; t.builtVersion = -1
       if (!t.bodies.size) tiles.delete(k)
     }
   }

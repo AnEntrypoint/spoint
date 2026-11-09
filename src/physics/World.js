@@ -4,10 +4,16 @@ import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
 import { createStaticTileIndex } from './StaticTileIndex.js'
 import { createDormantStatics } from './DormantStatics.js'
+import { boxConvexRadius } from '../shared/collisionTile.js'
 import { swingTwistLimits, hingeLimits } from './constraintLimits.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
+
+function shapeMetaOf(shapeType, motionType, params) {
+  if (shapeType !== 'box') return { type: motionType, shape: shapeType }
+  return { type: motionType, shape: shapeType, half: [params[0], params[1], params[2]], convexRadius: boxConvexRadius(params) }
+}
 
 function toJoltMotionType(J, motionType) {
   return motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
@@ -263,7 +269,7 @@ export class PhysicsWorld {
     if (shapeType === 'box') {
       const bk = opts.shapeKey || null
       if (bk && this._shapeCache.has(bk)) { shape = this._shapeCache.get(bk); this._shapeReuses++ }
-      else { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); const bv = new J.Vec3(params[0], params[1], params[2]); shape = new J.BoxShape(bv, cr, null); J.destroy(bv); if (bk) { this._shapeCache.set(bk, shape); this._shapeBuilds++ } }
+      else { const cr = boxConvexRadius(params); const bv = new J.Vec3(params[0], params[1], params[2]); shape = new J.BoxShape(bv, cr, null); J.destroy(bv); if (bk) { this._shapeCache.set(bk, shape); this._shapeBuilds++ } }
     }
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') {
@@ -292,7 +298,7 @@ export class PhysicsWorld {
     }
     else return null
     const mt = toJoltMotionType(J, motionType)
-    return this._addBody(shape, position, mt, layerForMotionType(motionType), { ...opts, meta: { type: motionType, shape: shapeType } })
+    return this._addBody(shape, position, mt, layerForMotionType(motionType), { ...opts, meta: shapeMetaOf(shapeType, motionType, params) })
   }
 
   _revivePooledBody(id, position, motionType, shapeType, opts = {}) {
@@ -310,8 +316,11 @@ export class PhysicsWorld {
     if (this.bodyInterface.SetMotionQuality) {
       this.bodyInterface.SetMotionQuality(b.GetID(), opts.linearCast ? J.EMotionQuality_LinearCast : J.EMotionQuality_Discrete)
     }
-    const carriedMass = opts.mass ?? this.bodyMeta.get(id)?.mass
-    this.bodyMeta.set(id, carriedMass === undefined ? { type: motionType, shape: shapeType } : { type: motionType, shape: shapeType, mass: carriedMass })
+    const prev = this.bodyMeta.get(id)
+    const carriedMass = opts.mass ?? prev?.mass
+    const meta = carriedMass === undefined ? { type: motionType, shape: shapeType } : { type: motionType, shape: shapeType, mass: carriedMass }
+    if (prev?.half) { meta.half = prev.half; meta.convexRadius = prev.convexRadius }
+    this.bodyMeta.set(id, meta)
     return true
   }
 

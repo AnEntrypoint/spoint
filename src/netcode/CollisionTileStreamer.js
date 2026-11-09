@@ -1,4 +1,5 @@
 import { MSG } from '../protocol/MessageTypes.js'
+import { encodeTileMessage } from '../shared/collisionTile.js'
 
 export const COLLISION_TILE_RING = 1
 export const COLLISION_TILE_FORGET_RING = 2
@@ -28,9 +29,9 @@ export function createCollisionTileStreamer({ physics, physicsIntegration, conne
   let index = null, lastSweepAt = 0
 
   function sendTile(playerId, t) {
-    const bytes = new Uint8Array(t.verts.buffer, t.verts.byteOffset, t.verts.byteLength)
-    connections.send(playerId, MSG.COLLISION_TILE, { tx: t.tx, tz: t.tz, h: t.hash, v: bytes })
-    stats.tilesSent++; stats.bytesSent += bytes.byteLength
+    const msg = encodeTileMessage(t)
+    connections.send(playerId, MSG.COLLISION_TILE, msg)
+    stats.tilesSent++; stats.bytesSent += msg.v.byteLength + msg.b.byteLength
   }
 
   function streamTo(player, c, now) {
