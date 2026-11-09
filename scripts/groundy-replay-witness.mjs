@@ -17,7 +17,7 @@ const args = parseArgs(process.argv.slice(2))
 const CONTROL = args.control === true || args.control === 'true'
 const RUNS = numericFlag(args, 'runs', CONTROL ? 1 : MIN_RUNS)
 const COND = strArg(args.cond, '50/10/2')
-const WORLD = strArg(args.world, 'arena')
+const WORLD = strArg(args.world, 'peers')
 const DURATION_MS = numericFlag(args, 'duration', 20000)
 const INJECT_M = CONTROL ? numericFlag(args, 'inject', INJECT_DEFAULT_M) : 0
 

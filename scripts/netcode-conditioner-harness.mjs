@@ -87,7 +87,14 @@ const HARNESS_STAIRS = {
   ],
   harness: { shooterAt: [8, 1.2, 4], script: [[700, {}], [2500, { forward: true }], [700, {}], [2500, { backward: true }], [700, {}]] }
 }
-const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS, slope: HARNESS_SLOPE }
+const HARNESS_PEERS = {
+  ...HARNESS_ARENA, name: 'netcode-harness-peers',
+  harness: {
+    shooterAt: [0, 1.2, 1.6],
+    script: [[600, { forward: true }], [400, { forward: true, right: true }], [600, { backward: true }], [400, { backward: true, left: true }], [500, {}]]
+  }
+}
+const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS, slope: HARNESS_SLOPE, peers: HARNESS_PEERS }
 const FPS = numericFlag(args, 'fps', 60)
 const BOTS = numericFlag(args, 'bots', 0)
 const CHANNEL = strArg(args.channel, 'ws')

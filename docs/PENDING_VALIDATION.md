@@ -180,6 +180,29 @@ Changes in this pass, each with its measurement:
   - The toggle and the velocity branch are removed after the measurement. The kept code is the displacement arm.
 - Limit of the witness, stated so it is not read as more than it is: in this build the 20 s runs make no correction replays, so the witness passes on zero replays. The displacement arm's pass is therefore a pass with nothing to grow, and the all-replay count is 0, not a large sample.
 
+## Witness power: contact scenario and the one-tick spike (Phase A, code and docs only)
+
+Why: the displacement arm passed with 0 correction replays, so the witness measured nothing. The velocity arm's failures came from the same arena world with no contact, so they did not test the contact case either. The earlier 6 of 23 and 52 of 77 counts came from a contact case, and the current arena run has no corrections at all.
+
+Changes in this phase:
+
+- New harness world `peers` (`scripts/netcode-conditioner-harness.mjs`, `HARNESS_PEERS`). The mover walks forward, forward and right, backward, and backward and left, into an idle shooter placed at `[0, 1.2, 1.6]`, so the two players are in contact and the server's peer push applies. It uses the existing per-world `harness.script` and `harness.shooterAt`, and is registered in `INLINE_WORLDS`. Not measured yet; Phase B checks that it drives correction replays above zero. If it does not, the scenario is changed in Phase B, not the witness.
+- The groundy witness defaults to `peers` (`scripts/groundy-replay-witness.mjs`). `--world=arena` still selects the old world.
+- Power check: the witness's `--control` mode injects a 3 cm ack error into the mover and requires that the replays carrying it show growth above 1 cm. This is the existing test of whether the witness can see growth. Phase B runs it on `peers`.
+
+The one-tick spike (1 to 2 mm up, then back down on the next tick, grounded, flat normal): investigated, cause not found in our code.
+
+Measured facts:
+
+- It is client-only. The server's own positions for the same player have no spike at the same ticks (0 spikes in three captures).
+- It happens inside the collision mirror's Jolt step (`CollisionMirror.step`). Every grounded prediction step went through the collider (2290 of 2290 grounded steps), and the analytic path was not used.
+- At the spike the tile swap and build counters are both 0, the tile count is unchanged, and the ground normal is `[0, 1, 0]`, so it is not a tile boundary.
+- The static tile geometry is exact: each tile is the whole arena box (12 triangles), with top vertices at y = 0.000000 and bottom at y = -2.000000 in all 24 tiles received.
+- Removing the mirror's `RefreshContacts` and `refreshGroundCaches` after a position sync does not stop the spike (with refresh: 0, 0, 2; without: 0, 2, 4 spikes in three runs each). So that refresh is not the cause.
+- Spike occurrences are intermittent: 0 to 4 per run, at x and z values that differ by run.
+
+Not checked: whether the Jolt character's walk-stairs step or a contact on the box's large triangles produces the lift. Left open. The spike is below the 1 cm witness bar, and it is a predicted-state blip that the ack does not correct.
+
 ## Docs index
 
 `docs/index.html` was regenerated with `node scripts/generate-docs-site.js` after the `netcode.md` and `navmesh-pathfinding.md` edits, because the generator reads spoint's `docs/*.md`. It is a generated file, so check it again if either doc changes.
