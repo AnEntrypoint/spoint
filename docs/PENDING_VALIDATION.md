@@ -928,3 +928,52 @@ Phase B run 14 results (`/tmp/phaseI/b14_*.log`):
 - Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
 - Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 0.956932` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
 - `npm run check`, three runs: `CHECK_EXIT=0` in all three.
+
+## Phase A (run 15): the branch is identified in Jolt v5.6.0; the mirror's contact churn is the state difference; not fixed
+
+Source chain (fetched through the GitHub API, not cloned):
+
+- npm `jolt-physics` 1.1.0 is the JavaScript bindings (`node_modules/jolt-physics/package.json`, repository `JoltPhysics.js`). Its compiled code ships without headers or source (`find node_modules/jolt-physics -name '*.h' -o -name '*.cpp'` is empty).
+- The bindings' tag `1.1.0` (`jrouwe/JoltPhysics.js`) builds Jolt from `CMakeLists.txt` line 109: `GIT_REPOSITORY "https://github.com/jrouwe/JoltPhysics"`, `GIT_TAG "v5.6.0"`.
+- Read at `v5.6.0` (`Jolt/Physics/Character/CharacterVirtual.cpp`, 2017 lines; `.h`, 761 lines), copied to `/tmp/phaseI/jolt/`, outside the tree.
+
+Branch, with the quoted lines (`CharacterVirtual.cpp`):
+
+- Line 1079: \`&& c.mDistance < mCollisionTolerance\`, inside \`UpdateSupportingContact\` (1072). Lines 1076–1087: a contact with \`!c.mHadCollision\` that is closer than \`mCollisionTolerance\` is validated and \`ContactAdded(c, dummy)\` runs (line 1085), then \`c.mHadCollision = true\`.
+- Line 1461: \`MoveShape(mPosition, mLinearVelocity, inDeltaTime, &mActiveContacts, …)\` in \`Update\` (1442), then line 1468: \`UpdateSupportingContact(false, inAllocator)\`.
+- Lines 709–710: penetration recovery, \`if (c.mDistance < 0.0f) contact_velocity -= c.mContactNormal * c.mDistance * mPenetrationRecoverySpeed / inDeltaTime;\`.
+- Line 1809: \`bool ground_to_air = IsSupported();\` (before \`Update\`, in \`ExtendedUpdate\` at 1796); line 1824: \`StickToFloor(…)\` when \`ground_to_air\` and the character is not moving up.
+- \`CharacterVirtual.h\` line 51: \`float mCollisionTolerance = 1.0e-3f;\`.
+
+State difference (temporary contact-event logging on the mirror's and the server's characters, reverted; \`/tmp/phaseI/contacts/seed-*.json\`):
+
+| seed | spikes (seq, up) | mirror adds at the spike seq | mirror removes at seq+1 | mirror adds per run (all seqs) | mirror removes per run | server adds per run | server removes per run |
+|---|---|---|---|---|---|---|---|
+| 3 | 315, 1.029 mm | 1 | 1 | 44 | 42 | 2 | 0 |
+| 5 | 413, 2.245 mm; 460, 1.320 mm | 1, 1 | 1, 1 | 68 | 66 | 2 | 0 |
+| 13 | 201, 2.135 mm | 1 | 1 | 39 | 37 | 2 | 0 |
+| 14 | 104, 2.210 mm | 1 | 1 | 34 | 32 | 2 | 0 |
+
+- Seed 3, mirror engine 0, per-sequence events: seq 314 has no event and Y 1.4 → 1.4; seq 315 has one add between its updates and Y 1.4 → 1.4010289; seq 316 has one remove and Y 1.4010289 → 1.4. The server's seqs 313–317 have no event and Y 1.4.
+- On the mirror, the adds are not all spikes: 33 to 66 per run occur on steps with no spike. An add is necessary for a spike in these runs, but it is not sufficient.
+
+Standalone reproduction of the churn (\`/tmp/phaseI/charprobe/probe6.mjs\`; 9 cases, a character of radius 0.4, half height 0.9, mass 120, driven at 14 m/s across the diagonal; \`CharacterContactListenerJS\` counts):
+
+- Box floor (the server's shape): 9 adds, 0 removes.
+- Two-triangle floor (the mirror's shape, diagonal along x = z): 15 adds, 4 removes.
+- The standalone runs produce no lift (\`probe3.mjs\`, \`probe4.mjs\`, \`probe5.mjs\`), so the churn alone does not reproduce the 1 mm lift; the lift needs the mirror's world state. Not established: which contact (sub-shape) produces the penetration that the lift comes from.
+
+Penetration doubling: refuted in the standalone runs. With the character 0.2, 0.5 and 1.0 mm into the floor, one update recovers the full penetration on both the box and the two-triangle floor (lift = penetration, 1x), on the diagonal and off it (\`probe5.mjs\`).
+
+Changes in this pass, listed: none kept in the tree. The temporary contact logging in \`src/physics/CharacterManager.js\`, the mirror tag in \`src/client/CollisionMirror.js\` and the probe changes in \`scripts/lib/groundy-replay-hook.mjs\` were reverted (\`git checkout --\`). Earlier experiment switches were reverted in run 14. The only tree change is the docs.
+
+Why no fix: the mirror's floor is the server's triangle output, not the server's box. Matching the server's contact set needs the server to send the shape, which is a protocol change. The mirror cannot make a triangle floor churn like a box.
+
+Witness: none added. The gate's spike rule already fails on the spike (\`RESULT: FAIL … mirror one-tick spike(s)\`), which is the witness that fails when the spike returns. A standalone box-versus-mesh contact count would show the churn, not the spike, so it would not guard the defect.
+
+Phase B run 15 results (`/tmp/phaseI/b15_*.log`):
+
+- Build: `BUILD_EXIT=0`.
+- Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
+- Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 1.02506` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
+- `npm run check`, three runs: `CHECK_EXIT=0` in all three.
