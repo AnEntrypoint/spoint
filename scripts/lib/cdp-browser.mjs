@@ -501,7 +501,7 @@ export async function launch(opts = {}) {
     ]
     proc = spawn(chrome, args, { stdio: 'ignore', detached: process.platform !== 'win32' })
     liveBrowserProcs.add(proc)
-    lease.record({ browserPid: proc.pid, profileDir })
+    lease.record({ browserPid: proc.pid, browserPgid: process.platform === 'win32' ? 0 : proc.pid, profileDir })
     const portFile = path.join(profileDir, 'DevToolsActivePort')
     const dport = await waitFor(
       () => (fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null),
