@@ -63,7 +63,7 @@ Monitor logs, read back from `/tmp/popdiag/`:
 - Pre-fix baseline (`b4941c5` engine, 15 runs, clean rerun): `RESULT: FAIL`, exit 1. Totals: 85 replays, 56 over 1 cm (max growth 2.7370 m), 5 runs with pops, max 17.99 pops/min, 10 pops, 9 matched within 100 ms of a correction, 6 of them in peer contact. An earlier baseline attempt overlapped a second driver writing the same log, so its numbers (125 replays, 89 over) were discarded.
 - Fixed engine (`796c147`, 15 runs): `RESULT: FAIL`, exit 1. Totals: 79 replays, 50 over 1 cm (max 2.6405 m), 7 runs with pops, max 29.98 pops/min, 25 pops, 24 matched within 100 ms of a correction, 3 of them in peer contact.
 
-Row: replay natural growth. CODED IN PHASE A (option 1, row 3 under "Coded in Phase A"), NOT YET WITNESSED. Cause found (below): a server peer-collision impulse that the client does not predict in time.
+Row: replay natural growth. OPEN after Phase B. Option 1 (row 3 under "Coded in Phase A", commit 54229e9) is in, and the witness still fails at the baseline count (see "Replay growth after option 1" below). Cause found (below): a server peer-collision impulse that the client does not predict in time; the next-tick rule does not remove the growth it produces.
 
 Cause, measured this pass (instrumented server tick log, client replay probe, same process, three harness runs at `--cond=50/10/2`):
 - Server tick 345 (ack 311) for pid 2, t 5612 ms: pid 2 was idle at (0, 1.2, 10) with velocity 0 at tick 344. Pid 1 was running at about -9.8, 0, +10.0 m/s and was 0.71 m away at that tick (`CollisionSystem.js applyPlayerCollisions`, minimum 2 x capsuleRadius = 0.8 m). Pid 2's velocity became (1.005, 0, 1.695) and it moved onto a 0.2 m higher ground patch with no input, which is the push. `simulateTick` runs `applyPlayerCollisions` after `processPlayerMovement`, so the impulse is in the tick's state under that tick's ack.
@@ -112,6 +112,17 @@ Phase B witnesses run in the foreground for this pass:
 Combined condition check (jitter 50 ms, jitter 10 ms, loss 2%, 20 s, two runs): run 1 had 73 starves, 0 catch-ups, 0 skipped gaps and 9 of 12 replays over 1 cm; run 2 had 82 starves, 0 catch-ups, 0 skipped gaps and 4 of 6 replays over 1 cm. Skipped gaps are ruled out as the cause: the server consumed every input it received, so the growth comes from the timing of the starved ticks, not from lost inputs.
 
 Not pushed. `origin/main` is `a033468`. The local commits `b4941c5` through `312798c` are held because the replay growth and pop rows are open.
+
+## Replay growth after option 1 (Phase B, this pass)
+
+- Phase A commit: `54229e9` (lanmower, local, no trailers, not pushed). Rule: the separation push is planned from the published state and applied on the next tick. The client plans it from the acked state and its snapshot peers at lead 0, applies it after movement, and uses the planned push for the first input replayed after an ack. Later replayed inputs keep their stored push.
+- `npm run check` (after `node scripts/generate-docs-site.js`): exit 0, 135 `RESULT: PASS` lines, no FAIL line.
+- `node scripts/groundy-replay-witness.mjs` (15 runs, 50/10/2 `on`): `RESULT: FAIL replay growth over 1 cm in 52 of 77 replays across 15 of 15 completed run(s); 15 requested, 0 failed, 6 run(s) with local pops`, exit 1. Totals: max growth 2.7634 m, 18 pops (max 17.99 pops/min), all 18 matched to a correction within 100 ms. The witness's own contact flag reads 0 of 0 contact replays, which is not a reliable record (its peers are one snapshot old).
+- Baseline at 796c147 (15 runs): 50 of 79 replays over 1 cm. After option 1: 52 of 77. The count does not move, so the same-tick push was not the dominant term of the growth in this harness.
+- Harness adaptation: `scripts/netcode-conditioner-harness.mjs` wrapped `_separateFromPeers`, which the change renamed to `_planPeerPush`; the harness crashed on its first step. It now wraps `_planPeerPush` and records the planned push magnitude in `sepPushM`. The groundy witness and `scripts/lib/groundy-replay-hook.mjs` are unchanged.
+- Why the rule cannot close the row alone: a push planned from an acked state covers the first replayed tick only. Pushes at later ticks depend on peer positions that arrive in later snapshots, after the correction has been replayed, so their velocity error appears as growth. Growth is the replayed last-entry offset minus the ack error, so a velocity error grows linearly with the replayed steps.
+- Open, owner decision, not taken in this pass: (a) publish each tick's authoritative push for the local player in the self block (a wire change; the newest ticks still arrive after the replay); (b) make the separation a position-only correction, which removes the velocity term but changes gameplay feel and is not measured here; (c) restate the 1 cm expectation (a witness change). This pass does not smooth the pop and does not change the groundy witness, so the row stays open.
+- Not pushed. origin/main is `a033468`, and the Phase B bar (under 1 cm in every run) is not met.
 
 ## Docs index
 

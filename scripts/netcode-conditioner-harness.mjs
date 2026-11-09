@@ -245,8 +245,8 @@ function instrumentPrediction(h, rec, seqKinds) {
     if (rec.stepLeadTicks.length < 20000) rec.stepLeadTicks.push(pe._inputSeq - 1 - pe._lastAckedSeq)
     return step(input, seq, gn, stored)
   }
-  const sep = pe._separateFromPeers.bind(pe)
-  pe._separateFromPeers = (dt, tps) => {
+  const plan = pe._planPeerPush.bind(pe)
+  pe._planPeerPush = (tps) => {
     rec.sepSteps++
     const ls = pe.localState, peers = pe._peers
     let nearest = Infinity
@@ -258,14 +258,12 @@ function instrumentPrediction(h, rec, seqKinds) {
         if (d < nearest) nearest = d
       }
     }
+    const r = plan(tps)
     if (rec.sepPushM.length < 20000 && ls) {
-      const p = ls.position, x0 = p[0], z0 = p[2]
-      const r = sep(dt, tps)
-      rec.sepPushM.push(Math.hypot(p[0] - x0, p[2] - z0))
+      rec.sepPushM.push(Math.hypot(pe._pendingPush[0], pe._pendingPush[1]))
       if (Number.isFinite(nearest)) rec.peerMinDistM.push(nearest)
-      return r
     }
-    return sep(dt, tps)
+    return r
   }
   pe.onServerSnapshot = (snap, tick) => {
     const sp = snap.players?.[0]
