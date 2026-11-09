@@ -535,3 +535,22 @@ Freeze diagnostic (`/tmp/phaseC/gateFreeze.log`, not a gate): `failed: run 3: no
 Defects found in this pass. (1) The freeze switch breaks the hook's correction matching in one run (above); it is a diagnostic, off by default, and is not wired into the gate. (2) The over-1-cm count varies by 11 replays between runs of the same behaviour (above). Neither is a product defect. Both are recorded here.
 
 Status: the gate FAILS (21 of 474 on `c1cb3ef`; 32 of 481 on `fde8acb`). Open. Not passing. The starved-tick coast is the measured cause of every over-limit correction in both runs. Choosing a fix is an owner decision: (a) keep the strict gate and treat the post-hold coast as an open netcode defect; (b) change the post-hold server behaviour, for example freezing starved players or decelerating them; each is a gameplay change and the replay cannot predict either without knowing the starvation count; (c) gate only on replays with no post-ack starved tick, which the owner has not approved and which this pass did not do.
+
+## Phase A (run 5): the post-hold coast is removed; neutral steps after the hold carry zero horizontal velocity
+
+Decision (owner, this pass): the neutral steps after the 0.25 s hold carry zero horizontal velocity, on the server and in the client's roll-forward. The 120/40/6 gate definition, the 1 cm threshold and the sample set are unchanged. Option (c) (repeat the last input) is not taken.
+
+Evidence (run 4, not re-measured here): every over-limit correction on 120/40/6 begins after a starved server tick, 53 of 53 over two runs. The post-hold steps coast at the held horizontal velocity: 0.215 m per tick in the run 4 traces, and 0.2139 m for the first neutral step with the coast restored in this pass's witness. The client cannot predict these steps before its ack.
+
+Reversal path: in `src/shared/starvedNeutral.js` set `STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY = true`. `holdStarvedNeutralVelocity` then returns without zeroing, so `stepPlayerMovement` (server) and `_rollForwardAcked` (client) behave as they did before this change. `node scripts/starved-neutral-witness.mjs` passes with either value; with `true` it reports the coast.
+
+| Row | Change | Files | Witness |
+|---|---|---|---|
+| rule | New module: `STARVED_NEUTRAL_KEEPS_HORIZONTAL_VELOCITY = false` and `holdStarvedNeutralVelocity(velocity)`, which zeroes horizontal velocity unless the constant is true. One rule, imported by server and client. | `src/shared/starvedNeutral.js` (new) | `node scripts/starved-neutral-witness.mjs`: with `false`, 6 of 6 checks pass; with `true` (set and restored in this pass), 4 of 4 pass and report the coast |
+| server | `stepPlayerMovement` takes `starvedNeutral` and zeroes horizontal velocity before `applyMovement` on a starved neutral step. `processPlayerMovement` sets the flag only on a starved step past the hold, and is now exported so the witness can drive it. | `src/sdk/TickHandler.js` | the witness's server checks: the hold leaves the character in place, a neutral step moves nothing horizontally and leaves zero horizontal velocity |
+| client | `_rollForwardAcked` zeroes horizontal velocity before each roll-forward neutral step. | `src/client/PredictionEngine.js` | the witness's client checks (roll-forward moves 0 m, leaves zero velocity); `node scripts/prediction-reconcile-witness.mjs`: 22 of 22 pass |
+| test | New witness covering the server path (real `processPlayerMovement`, fake dependencies) and the client roll-forward. Added to the `npm run check` steps. | `scripts/starved-neutral-witness.mjs` (new), `scripts/check.mjs` | the witness above, and `npm run check` in Phase B |
+
+Defects found while writing the witness, fixed before this commit: the first version had a check that passed for either value of the constant (removed); its RESULT line claimed zero velocity under both values (now follows the constant).
+
+Phase B results for this pass are recorded below when measured.

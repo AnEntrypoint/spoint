@@ -9,6 +9,7 @@ import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
+import { holdStarvedNeutralVelocity } from '../shared/starvedNeutral.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { packSnapshotBytes, newRecordMemo } from '../netcode/SnapshotPacker.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolveDeliveredIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
@@ -81,7 +82,7 @@ function takeNextInput(player, inputs) {
   player.hasSentInput = true
 }
 
-function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts) {
+function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, starvedNeutral = false) {
   const { playerManager, physicsIntegration, applyMovement, movement } = deps
   const st = player.state
   const inp = player.lastInput || null
@@ -96,6 +97,7 @@ function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts) {
     playerIdleCounts.delete(player.id)
     return
   }
+  if (starvedNeutral) holdStarvedNeutralVelocity(st.velocity)
   applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
   if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
   const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
@@ -110,7 +112,7 @@ function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts) {
   playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
 }
 
-function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explicitInputs = null) {
+export function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explicitInputs = null) {
   const { playerManager } = deps
   for (const player of players) {
     const inputs = playerManager.getInputs(player.id)
@@ -122,15 +124,17 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, explic
     }
     let holdForInput = false
     let consumed = false
+    let starvedNeutral = false
     if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0; player.starvedSteps = 0; consumed = true }
     else if (player.hasSentInput) {
       player.inputStarves = (player.inputStarves || 0) + 1
       player.starvedTicks = (player.starvedTicks || 0) + 1
       holdForInput = player.starvedTicks <= deps.starveHoldTicks
-      if (!holdForInput) player.starvedSteps = (player.starvedSteps || 0) + 1
+      starvedNeutral = !holdForInput
+      if (starvedNeutral) player.starvedSteps = (player.starvedSteps || 0) + 1
       if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
     }
-    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts)
+    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, starvedNeutral)
     if (consumed) advancePushQueue(player, deps.physicsIntegration)
     accrueStepBudget(player, deps.tickMs, holdForInput ? 0 : 1)
     let extra = 0

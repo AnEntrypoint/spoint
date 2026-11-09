@@ -1,5 +1,6 @@
 import { ReconciliationEngine } from './ReconciliationEngine.js'
 import { DEFAULT_MOVEMENT } from '../shared/movement.js'
+import { holdStarvedNeutralVelocity } from '../shared/starvedNeutral.js'
 import { predictCharacterStep } from '../shared/characterStep.js'
 import { createStepTrail } from './StepTrail.js'
 import { reexpressMotionState, copyAckedEntry, saveStepNormal } from './PredictionChart.js'
@@ -440,7 +441,7 @@ export class PredictionEngine {
     ls.groundY = predictedAtAck.groundY
     for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
     const neutral = neutralStep(predictedAtAck.data)
-    for (let i = 0; i < server.starvedSteps; i++) this._step(neutral, null, null)
+    for (let i = 0; i < server.starvedSteps; i++) { holdStarvedNeutralVelocity(ls.velocity); this._step(neutral, null, null) }
     const dx = ls.position[0] - sp[0], dy = ls.position[1] - sp[1], dz = ls.position[2] - sp[2]
     return Math.hypot(dx, dy, dz) <= RECONCILE_POS_EPS_M
   }
