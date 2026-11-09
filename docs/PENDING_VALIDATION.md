@@ -977,3 +977,46 @@ Phase B run 15 results (`/tmp/phaseI/b15_*.log`):
 - Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
 - Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 1.02506` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
 - `npm run check`, three runs: `CHECK_EXIT=0` in all three.
+
+## Phase A (run 16): the mirror keeps its triangle floor; the box change needs a wire change and was not made
+
+Requested: the mirror takes the server's box for its floor shape, as a client-side change, not a protocol change. Found: that is not possible without a wire change, so it was not made.
+
+- The server builds each collision tile by concatenating the triangles of every static body that reaches it (`src/physics/StaticTileIndex.js` `build`, `parts`, `verts`). The message carries only `tx`, `tz`, `h` (hash) and `v` (triangles) (`src/netcode/CollisionTileStreamer.js` `sendTile`, `msg.v`, `msg.h`). A tile does not say which body a triangle came from, or that the body is a box.
+- The arena floor is a `box-static` entity (`scripts/netcode-conditioner-harness.mjs` `HARNESS_ARENA`: `config: { hx: 100, hy: 1, hz: 100 }`, `position: [0, -1, 0]`). The client's world definition strips entity configs (`AGENTS.md`, "client WORLD_DEF"), so the client has no box size to build from.
+- So the mirror would need either a new field in the tile message that carries each box's half extents, centre and rotation, and that excludes those triangles (a wire-format change), or a derivation from triangle groups (a heuristic that guesses shape from triangles and could misclassify real meshes).
+
+Decision: neither was made. The question went to the user with both options and a recommendation; no answer came within the wait, so the fallback named in the request was taken: keep the triangle floor and record the contact sets. No code changed.
+
+Contact sets for the box and triangle floors (standalone Jolt, `/tmp/phaseI/charprobe/probe7.mjs`: radius 0.4, half height 0.9, mass 120, rest at y = 1.4, 240 updates per case at 14 m/s or less, `CharacterContactListenerJS` counts):
+
+| floor | case start (x, z) | velocity (x, z) | contact adds | contact removes | end Y - rest |
+|---|---|---|---|---|---|
+| box | (-3, -3) | (-14, 0) | 1 | 0 | 0 |
+| box | (-1, -1) | (14, 0) | 1 | 0 | 0 |
+| box | (0, -2) | (9.9, 9.9) | 1 | 0 | 0 |
+| box | (-2, 1) | (0, -14) | 1 | 0 | 0 |
+| box | (2, 2) | (-10, 10) | 1 | 0 | 0 |
+| box | total | | 5 | 0 | |
+| triangles (two-triangle diagonal, x = z) | (-3, -3) | (-14, 0) | 2 | 1 | 0 |
+| triangles | (-1, -1) | (14, 0) | 2 | 1 | 0 |
+| triangles | (0, -2) | (9.9, 9.9) | 1 | 0 | 0 |
+| triangles | (-2, 1) | (0, -14) | 2 | 1 | 0 |
+| triangles | (2, 2) | (-10, 10) | 2 | 1 | 0 |
+| triangles | total | | 9 | 4 | |
+
+- The box gives one add (the initial contact) and no removes in all five cases. The triangle floor gives a remove in each case that crosses the diagonal (four of five), with one extra add per remove.
+- Neither floor lifts the standalone character (end Y - rest is 0 in every case). So the contact churn is necessary for the spike in the mirror's world, not sufficient on its own; see run 15.
+- The mirror's own counts (run 15): 33 to 66 adds and 32 to 66 removes per run, against the server's 2 adds and 0 removes.
+
+Witness: not added. A witness that fails when the mirror and server floor shapes differ needs the mirror to hold the server's shape, which this pass did not add. The gate's spike rule already fails when the spike returns.
+
+Changes in this pass, listed: none. The tree's only change is the docs.
+
+Phase B run 16 results (`/tmp/phaseI/b16_*.log`, `/tmp/phaseI/b16b_check*.log`):
+
+- Build: `BUILD_EXIT=0` (`/tmp/phaseI/b16_build.log`).
+- Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s); 15 requested, 2 run(s) with local pops`, `GATE_EXIT=1`.
+- Shared-lattice witness: `ok   AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0`; `wall-clock AFTER/BEFORE = 0.968688` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
+- `npm run check`, first attempt (`/tmp/phaseI/b16_check{1,2,3}.log`): `RESULT: FAIL docs/index.html is not the generator output: run node scripts/generate-docs-site.js and commit the page with the source change`, `CHECK_EXIT=1` in all three. The committed page lacked the Phase B run 16 text that had been appended to this ledger after the page was generated (first differing line 572).
+- Fix: `node scripts/generate-docs-site.js` (`DOCSITE_EXIT=0`), then `npm run check` again, three runs (`/tmp/phaseI/b16b_check{1,2,3}.log`): `CHECK_EXIT=0` in all three.
