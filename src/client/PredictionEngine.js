@@ -11,6 +11,7 @@ const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 const WEDGE_TRAVEL_MIN_M = 0.05
 const WEDGE_LOST_FRAC = 0.2
+const WEDGE_TRAVEL_FROM_DISPLACEMENT = true
 
 const WEDGE_STALL_ACKS = 2
 const RECONCILE_POS_EPS_M = 0.015
@@ -33,7 +34,7 @@ function isValidPlayerSnapshot(p) {
 }
 
 function makeEntry() {
-  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {}, normal: [0, 1, 0], hasNormal: false }
+  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {}, normal: [0, 1, 0], hasNormal: false, ungrounded: false }
 }
 
 class InputHistory {
@@ -108,6 +109,7 @@ export class PredictionEngine {
     this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
+    this._stepUngrounded = false
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -181,15 +183,34 @@ export class PredictionEngine {
     return true
   }
 
-  _updateServerBlock(dx, dz, ackedTicks) {
-    this._blockedByServer = false
+  _commandedTravel(ackedTicks) {
     const history = this.inputHistory
     const to = this._lastAckedSeq + ackedTicks
-    const fromIdx = history.indexOf(this._lastAckedSeq)
-    const toIdx = history.indexOf(to)
-    if (fromIdx < 0 || toIdx <= fromIdx) return
-    const p0 = history.at(fromIdx).position, p1 = history.at(toIdx).position
-    const cx = p1[0] - p0[0], cz = p1[2] - p0[2]
+    if (WEDGE_TRAVEL_FROM_DISPLACEMENT) {
+      const fromIdx = history.indexOf(this._lastAckedSeq)
+      const toIdx = history.indexOf(to)
+      if (fromIdx < 0 || toIdx <= fromIdx) return null
+      const p0 = history.at(fromIdx).position, p1 = history.at(toIdx).position
+      return [p1[0] - p0[0], p1[2] - p0[2]]
+    }
+    const start = history.indexOf(this._lastAckedSeq + 1)
+    if (start < 0) return null
+    const dtStep = (this.tickDuration * this.dilation) / 1000
+    let cx = 0, cz = 0, n = 0
+    for (let i = start; i < history.length; i++) {
+      const e = history.at(i)
+      if (e.sequence > to) break
+      cx += e.velocity[0]; cz += e.velocity[2]; n++
+    }
+    if (!n) return null
+    return [cx * dtStep, cz * dtStep]
+  }
+
+  _updateServerBlock(dx, dz, ackedTicks) {
+    this._blockedByServer = false
+    const travel = this._commandedTravel(ackedTicks)
+    if (!travel) return
+    const cx = travel[0], cz = travel[1]
     const commandedM = Math.hypot(cx, cz)
     if (commandedM <= WEDGE_TRAVEL_MIN_M) return
     let bx = cx - dx, bz = cz - dz
@@ -245,13 +266,25 @@ export class PredictionEngine {
     const p = this.localState.position
     if (!timed) this._trail.reset()
     else if (this._trail.length === 0) this._trail.push(stepAt, p[0], p[1], p[2])
+    if (this._mirrorCovers() && this._historyUngrounded()) this.resimulate()
     this._step(input, seq)
     if (timed) this._trail.push(stepAt + periodMs, p[0], p[1], p[2])
     const e = this.inputHistory.pushSlot()
     e.sequence = seq; e.data = input
     saveEntry(e, this.localState)
     saveStepNormal(e, this.lastServerState?.groundNormal)
+    e.ungrounded = this._stepUngrounded
     return seq
+  }
+
+  _mirrorCovers() {
+    const m = this._mirror
+    return !!m && m.ready && m.covers(this.localState.position)
+  }
+
+  _historyUngrounded() {
+    for (const e of this.inputHistory) if (e.ungrounded) return true
+    return false
   }
 
   getUnackedInputs(max = 4) { return this.inputHistory.last(max) }
@@ -276,6 +309,8 @@ export class PredictionEngine {
     env.collider = m && m.ready && m.covers(this.localState.position) ? m : null
     if (m && m.ready && !env.collider) m.noteUncovered()
     predictCharacterStep(this.localState, input, this.movement, dt, env)
+    const lp = this.localState.position
+    this._stepUngrounded = !env.collider && !(this._ground && Number.isFinite(this._ground(lp[0], lp[2])))
     const push = this._pushForSequence(seq)
     if (push) applyPush(this.localState, push)
   }
@@ -405,7 +440,7 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls) }
+    for (const e of this.inputHistory) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls); e.ungrounded = this._stepUngrounded }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {
