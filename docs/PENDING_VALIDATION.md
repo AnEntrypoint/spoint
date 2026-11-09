@@ -881,3 +881,50 @@ Phase B run 13 results (`/tmp/phaseI/b13_*.log`):
 - Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
 - Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 0.987364` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
 - `npm run check`, three runs: `CHECK_EXIT=0` in all three.
+
+## Phase A (run 14): call-by-call comparison; no fix; the spike is not reproduced in isolation
+
+Correction to run 13: the trace's "moved" flag compared only Y, so it hid the horizontal motion. The spike steps run at about 14 m/s (sampled X/Z move about 0.25 m per tick), and `syncCharacter` runs on a step only when the position changed outside the mirror. The "character stands still" reading in the run 13 entry is wrong.
+
+Per-tick calls, steady motion (no push, no reconcile):
+
+| step | mirror (`src/client/CollisionMirror.js`) | server (`src/netcode/PhysicsIntegration.js` `updatePlayerPhysics`) |
+|---|---|---|
+| tile | `activate(tileAt(p))`: `RemoveBody` and `AddBody` on a tile change | none |
+| position | `syncCharacter` only when `p` differs from the last readback: `SetPosition`, `RefreshContacts`, `refreshGroundCaches` | none (kill plane only) |
+| velocity | `SetLinearVelocity([wishedX, vy, wishedZ])` | `SetLinearVelocity([vx, vy, vz])` |
+| step | `ExtendedUpdate` (`updateCharacter`) | `ExtendedUpdate` (`updateCharacter`) |
+| read | position, velocity, ground state, ground normal | position, velocity, ground state, ground normal |
+| housekeeping | `prebuildNeighbour` every 200 ms: `_addBody` then `RemoveBody` | none |
+
+The velocity call, the step, and the reads are the same calls in the same order. The differences are the body churn and the sync.
+
+Experiments, on seeds 3, 5, 13 and 14 (baseline 5 spikes; `/tmp/phaseI/exp/<variant>/`; each variant was a temporary switch in `CollisionMirror.js`, reverted):
+
+| variant | spikes | corrections | result |
+|---|---|---|---|
+| baseline | 5 (1.029, 2.245, 1.320, 2.135, 2.210 mm) | 0 | the spike |
+| `noPrebuild` (no neighbour prebuild) | 5, same sizes | 0 | body churn is not the cause |
+| `keepBodies` (built tile bodies stay in the system; no swap) | 5, same sizes | 0 | body churn is not the cause |
+| `alwaysSync` (contact refresh every step) | 0 | 4: errM 0.0187 (seed 3), 0.0154 (seed 5), 0.0165 (seed 13), 0.0436 (seed 14); horizontal offsets 0.019 to 0.114 m | removes the spike and breaks the residual rule; not a fix |
+
+Standalone Jolt probes (`/tmp/phaseI/charprobe/`, outside the tree): a character of radius 0.4, half height 0.9, mass 120, on a box floor and on a two-triangle floor with the diagonal along x = z, driven at 14 m/s from the spike's start and velocity, with the server's call order: no lift in any case (25 cases, maximum deviation 0 mm). A moving character with the mirror's sync pattern also shows no lift. The spike is not reproduced outside the real mirror world.
+
+Facts that rule out the easy causes:
+
+- Config: `maxStepHeight`, `stickToFloorDistance`, `maxSlopeAngle`, radius, half height, mass and gravity are the same on both sides (`src/netcode/CollisionTileStreamer.js` `characterConfig`, `src/physics/CharacterManager.js` `addCharacter`, `init`).
+- Layer: the mirror's tile bodies are on layer 0 (`LAYER_STATIC`), the same as the server's static bodies.
+- dt: 1/60 at every traced sequence (constant).
+- Geometry source: the mirror's floor is `ShapeGetTriangles` of the box for each tile, so it holds the box's triangles, not only the top. The spike X/Z lie close to x = z.
+- Jolt: the package ships compiled code only, no header or source naming the branch.
+
+Not established: the branch inside `ExtendedUpdate` that lifts the character, and why the mirror's world reaches it and the server's does not. The next step is a reproduction in the real mirror world with its tile geometry (the box's side and bottom triangles in each tile).
+
+Changes in this pass, listed: none kept. The temporary trace in `CollisionMirror.js` and the probe in `scripts/lib/groundy-replay-hook.mjs` were reverted, and the experiment switches were reverted (`git checkout -- src/client/CollisionMirror.js`). The tree's only change is the docs. No witness was added, because the gate is already the witness that fails when the spike returns (its spike rule fails on any spike).
+
+Phase B run 14 results (`/tmp/phaseI/b14_*.log`):
+
+- Build: `BUILD_EXIT=0`.
+- Gate, three runs, each: `starved-window replays 8884 (over 1 cm 0); correction replays 0 (over 1 cm 0)`, `ack prediction error (every ack, before any correction): max 0.0070 m over 8907 acks; 0 over 1 cm`, `RESULT: FAIL world peers cond 120/40/6: 5 mirror one-tick spike(s) of 0.8-2.5 mm across 4 of 15 run(s)`, `GATE_EXIT=1`.
+- Shared-lattice witness: `AFTER makes no more sampler calls than BEFORE (counted, not timed) = 0` ok; `wall-clock AFTER/BEFORE = 0.956932` (printed, not gated); `RESULT: PASS`, `LATTICE_EXIT=0`.
+- `npm run check`, three runs: `CHECK_EXIT=0` in all three.
