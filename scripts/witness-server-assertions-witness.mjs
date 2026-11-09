@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = resolve(process.argv[2] || '/workspace/spoint')
+const root = resolve(process.argv[2] || join(dirname(fileURLToPath(import.meta.url)), '..'))
 const server = readFileSync(join(root, 'scripts/lib/witness-server.mjs'), 'utf8')
 const guard = readFileSync(join(root, 'scripts/lib/verdict-exit-guard.mjs'), 'utf8')
 
