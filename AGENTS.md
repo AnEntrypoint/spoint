@@ -58,7 +58,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Stopping Processes
 
 - Stop a process only by a PID you started or one a lease recorded: `browserPid`, `pid` and `browserTree` in the lease owner record that `scripts/lib/browser-lease.mjs` writes. `browserPid` is recorded at spawn by `scripts/lib/cdp-browser.mjs` `launch`. Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
-- A browser lease stops its recorded process group (`killBrowser`, `scripts/lib/browser-lease.mjs`) and, on Windows, its `taskkill /T` tree. Its `browserTree` takes group members (`browserPgid`, recorded at spawn) and descendants at each scan; release stops each still-matching PID (`killRecorded`). A child that leaves the group before a scan is missed.
+- A lease scans and kills a process group only while its leader's `browserStart` matches (`killOwnedBrowser`, `scripts/lib/browser-lease.mjs`); a mismatch is refused. `browserTree` takes group members and descendants per scan, and release stops each still-matching PID (`killRecorded`). A child that leaves the group before a scan is missed.
 
 ## PRD rows and witness binding
 
