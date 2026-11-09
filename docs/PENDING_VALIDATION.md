@@ -1254,3 +1254,29 @@ Workflow decision (`.github/workflows/pages.yml`, read in full): the file has `c
 Status of the `644e68a` pages cause: open. What the API shows: the run has one job (`build`, success) and no `deploy` job, and it concluded `failure` after about 1 minute 40 seconds. No annotation names a cause, and no `--log-failed` output exists. The hypothesis recorded in run 21, that the `71a1fc4` deployment still held the `github-pages` environment, is not confirmed. The timing is consistent with it, since the `71a1fc4` deploy was cancelled at 18:00:02Z and the `644e68a` run started at 18:06:04Z, but nothing shows the environment was held. The `2c68f7c` pages run succeeding does not settle the question: it shows the deploy path works on a later push, not what made the `644e68a` run skip its deploy job.
 
 Change in this run: `docs/PENDING_VALIDATION.md` (this section) and `docs/index.html` (regenerated from the ledger). No workflow, `src/` or `scripts/` change.
+
+### 644e68a deploy job: environment and run record (read-only, run 22)
+
+Fields read, from `gh api repos/AnEntrypoint/spoint/environments/github-pages`: `protection_rules` is one entry, `{"type":"branch_policy"}` (no required reviewers, no wait timer), `deployment_branch_policy` is `{"protected_branches":false,"custom_branch_policies":true}`, and `can_admins_bypass` is `true`. From `.../environments/github-pages/deployment-branch-policies`: `gh-pages` (`branch`) and `main` (`branch`). So a run on `main` matches a branch policy entry.
+
+Run records, from `gh api repos/AnEntrypoint/spoint/actions/runs/<id>`:
+
+- `42670949513` (644e68a): `conclusion` failure, `event` push, `run_attempt` 1, `created_at` 18:05:57Z, `run_started_at` 18:05:57Z, `updated_at` 18:07:39Z. Its jobs API returns `total_count` 1: `build`, `conclusion` success, `created_at` 18:06:01Z. No `deploy` job was created, and no later attempt exists.
+- `42668313627` (71a1fc4): `conclusion` failure, `run_attempt` 1, `updated_at` 18:00:03Z. Jobs: `build` success, `deploy` failure.
+- `42675351071` (2c68f7c): `conclusion` success, `run_attempt` 1, `updated_at` 18:36:30Z. Jobs: `build` success, `deploy` success.
+
+`github-pages` deployment records, from `gh api repos/AnEntrypoint/spoint/deployments?environment=github-pages`, with each deployment's last status from `.../deployments/<id>/statuses`:
+
+- `7662043946` (sha 71a1fc4, created 17:49:48Z): last status `failure` at 18:00:04Z.
+- `7662783573` (sha 2c68f7c, created 18:35:58Z): last status `success` at 18:36:30Z, then `inactive` at 18:50:37Z when `55ef241` deployed.
+- `7663079521` (sha 55ef241, created 18:50:14Z): last status `success` at 18:50:36Z.
+- No deployment record exists for sha 644e68a.
+
+Comparison, from the timestamps and the fields above:
+
+- Active deployment: not supported. The `71a1fc4` deployment was terminal (`failure`) at 18:00:04Z, and the `644e68a` run was created at 18:05:57Z, so no in-progress deployment existed when it ran.
+- Branch policy: not supported. `main` is an allowed branch, and the `2c68f7c` run on `main` passed the same environment rule.
+- Protection rules beyond the branch policy: none are configured, so none can have blocked it.
+- Service-side reject: consistent with the evidence, but not proven. The run failed with no `deploy` job record, and the API exposes no reason and no annotation for the missing job. The record cannot show which service check rejected it.
+
+Cause: open. The two repo-side causes are ruled out by the record. The remaining cause is a service-side reject that the API does not expose, and it can only be confirmed by a GitHub support reply or by a recurrence that carries a job record or annotation. No rule is stated, because no cause is confirmed. No run was re-run and no repository setting was changed.
