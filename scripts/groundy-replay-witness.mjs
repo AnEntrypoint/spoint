@@ -41,7 +41,7 @@ const INJECT_MATCH_M = 1e-3
 
 const sameStat = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= SAME_STAT_M
 
-const selectMover = (records, mispredict) => {
+const engineMatchingHarness = (records, mispredict) => {
   const expected = mispredict?.correctionsApplied
   const jumps = mispredict?.correctionJumpM
   if (!Number.isFinite(expected) || !jumps || !Number.isFinite(jumps.n)) return null
@@ -113,14 +113,16 @@ const main = async () => {
     const popsPerMin = harness.results?.[0]?.localVisual?.popsPerMin ?? null
     const popEvents = harness.results?.[0]?.localVisual?.popEvents ?? []
     const records = JSON.parse(await readFile(recordPath, 'utf8'))
-    const mover = selectMover(records, harness.results?.[0]?.mispredict)
-    if (!mover) {
-      failures.push(`run ${i}: no engine's replays match the mover's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} harness corrections`)
+    const corrections = records.filter(r => r.kind === 'correction')
+    const resyncs = records.length - corrections.length
+    if (!engineMatchingHarness(corrections, harness.results?.[0]?.mispredict)) {
+      failures.push(`run ${i}: no engine's corrections match the harness's ${harness.results?.[0]?.mispredict?.correctionsApplied ?? '-'} applied corrections, so the hook missed a correction`)
       continue
     }
-    const summary = summarizeRun(mover, popsPerMin, popEvents)
+    const engines = new Set(corrections.map(r => r.engine)).size
+    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs }
     runs.push(summary)
-    console.log(`run ${i}: mover replays ${summary.replays} over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush})`)
+    console.log(`run ${i}: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for growth) over-${GROWTH_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max growth ${fmtM(summary.maxGrowthM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush})`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)

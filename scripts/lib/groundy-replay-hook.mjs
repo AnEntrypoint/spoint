@@ -47,20 +47,21 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   for (const e of this.inputHistory) last = e
   const before = last ? [last.position[0], last.position[1], last.position[2]] : null
   realRebaseAndReplay.call(this, server, predictedAtAck, recordCorrection)
-  if (!recordCorrection || !last) return
+  if (!last) return
   const after = entryWithSequence(this, last.sequence)
   if (!after) return
   const reference = predictedAtAck ?? server
-  const errM = distance(server.position, reference.position)
+  const errM = recordCorrection ? distance(server.position, reference.position) : null
   const offsetM = distance(before, after.position)
   let inContact = false
   for (const e of this.inputHistory) if (this._pushForSequence(e.sequence)) { inContact = true; break }
   records.push({
+    kind: recordCorrection ? 'correction' : 'resync',
     engine: idOf(this),
     seq: last.sequence,
     errM,
     offsetM,
-    growthM: offsetM - errM,
+    growthM: recordCorrection ? offsetM - errM : null,
     jumpM: this.stats.lastCorrectionM,
     serverGroundY: server.onGround || this.verticallyBlocked ? server.position[1] : null,
     predictedGroundY: predictedAtAck && Number.isFinite(predictedAtAck.groundY) ? predictedAtAck.groundY : null,
