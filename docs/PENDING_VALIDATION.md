@@ -489,3 +489,28 @@ Open decision for the owner (not implemented here; the gate is not redefined to 
 Status: the gate FAILS (32 of 481 over 1 cm). Open. Not passing. The post-push reference is in place, the push index is verified, and the remaining 32 are all post-ack starved ticks.
 
 Build: `npm run build:bundles` exit 0 (`[bundle-client]` and `[bundle-worker] stamped dist/src/sdk/WorkerEntry.bundlehash.json 69aa3904a56c894a`).
+
+## Phase A (run 4): what the over-1-cm test measures, and where its value comes from (120/40/6, origin fde8acb)
+
+Scope: the 1 cm threshold, the sample set and the 120/40/6 definition are unchanged. The pushed state's gate run (`/tmp/phaseB/gateB.log`, commit `fde8acb`) reads `RESULT: FAIL ... in 32 of 481 replays`, not the 64 of 491 the request quotes; 64 of 491 is the `3917eae` run. Phase B re-measures the committed tree.
+
+What the test measures (code, unchanged). `scripts/groundy-replay-witness.mjs` marks a correction over the limit when `r.residualM > RESIDUAL_LIMIT_M` (0.01 m). `scripts/lib/groundy-replay-hook.mjs` `attachTraces` sets `residualM` to `residualPostPushM`: the largest distance, over the correction's replayed entries (seq above the acked seq), between the client's replayed post position and the server's post-push position for that seq. The server's post-push position for seq is the position at the server's next physics call for the player, which is after seq's consumed step and its push and before any later step.
+
+Where the value comes from (fde8acb over-limit traces, `/tmp/groundy-replay-kzlPjb/over-limit-traces.json`, read by `/tmp/phaseC/over.cjs` and `/tmp/phaseC/starved.cjs`, not committed):
+- 32 of 32 over-limit corrections: the first replayed entry over 1 cm comes right after a server tick that took neutral physics steps for an input the client had already sent (a starved tick, `serverCallCount` above 1 for the prior sequence). The breach is never recovered later in the replay (32 of 32). The replay's max is therefore one offset carried forward, not growth. Breach sizes run 0.201 to 1.174 m. Entries over the limit per replay run 1 to 15.
+- 32 distinct (run, first breaching seq) pairs: no two over-limit corrections share a cause, so the count is not inflated by repeats.
+- The neutral steps are 72 extra physics calls over 29 starved events, each at the nominal dt 1/60 s, each moving the character about 0.215 m. That is the held horizontal velocity, about 12.9 m/s, carried through each neutral step.
+- Mechanism (code): `src/sdk/TickHandler.js` `processPlayerMovement`. A tick with no input and `starvedTicks` at or below `starveHoldTicks` (15 at 60 Hz) takes no physics step. Past the hold, each starved tick runs `stepPlayerMovement`, and `stepPlayerMovement` restores the pre-call horizontal velocity after `updatePlayerPhysics` (lines 108 and 109), so a moving character coasts at constant speed until the next input is consumed. `updatePlayerPhysics` has one caller in `src` (`stepPlayerMovement`), so these steps are the server's own ticks, not an extra call.
+- The client learns of a neutral step only through `starvedSteps` in an ack. The ack that reports a step arrives after the replay that needs it, so the replay lacks the step. This is the post-ack starved-tick cause recorded in Phase B run 3, with its mechanism now measured.
+- Three over-limit corrections (acks 311, 309 and 305 in runs 1, 9 and 11) have their neutral steps under the acked key itself (`ackKeyCalls` 4, 4 and 5).
+- Measurement check: the server push matches the client push (`pushMatch`) at the first breach of all 32 corrections, and the post-push reference is the state the server reports. No reference defect was found in the hook for these 32.
+
+Changes in this pass (`scripts/lib/groundy-replay-hook.mjs` only; the gate and witness are untouched):
+
+| Row | Change | Witness |
+|---|---|---|
+| neutral tag | Each server physics call records `neutral` (`starvedSteps` above 0 at the call, which is a neutral step past the hold). `serverCalls` and `callLogs` carry it, and each trace entry carries `neutralCalls`. | `node --check scripts/lib/groundy-replay-hook.mjs` (SYNTAX_OK in this pass); the Phase B gate traces carry `neutralCalls` |
+| unreferenced entries | Each correction records `unreferencedEntries`: replayed entries with no server post-push reference. The max skipped these silently. | `node --check` (SYNTAX_OK); the Phase B gate traces carry the count |
+| freeze diagnostic | `GROUNDY_FREEZE_NEUTRAL=1` makes the server skip neutral physics calls, which tests the coast cause. Off by default. A run with it on is a diagnostic only and is never a passing gate. | Phase B diagnostic run (below) |
+
+Phase B results are recorded below this section when they are measured.

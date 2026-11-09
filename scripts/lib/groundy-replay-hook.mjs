@@ -96,7 +96,10 @@ const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.g
 const serverCalls = new Map()
 const callLogs = new Map()
 const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
+const FREEZE_NEUTRAL = process.env.GROUNDY_FREEZE_NEUTRAL === '1'
 PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, deltaTime) {
+  const neutral = (livePlayerManager?.getPlayer(playerId)?.starvedSteps || 0) > 0
+  if (FREEZE_NEUTRAL && neutral) return undefined
   const before = [state.position[0], state.position[1], state.position[2]]
   const out = realUpdatePlayerPhysics.call(this, playerId, state, deltaTime)
   const seq = livePlayerManager?.getPlayer(playerId)?.ackSequence
@@ -104,9 +107,9 @@ PhysicsIntegration.prototype.updatePlayerPhysics = function (playerId, state, de
   const position = [state.position[0], state.position[1], state.position[2]]
   const key = `${playerId}|${seq}`
   if (!serverCalls.has(key)) serverCalls.set(key, [])
-  serverCalls.get(key).push({ dt: deltaTime, position })
+  serverCalls.get(key).push({ dt: deltaTime, position, neutral })
   if (!callLogs.has(playerId)) callLogs.set(playerId, [])
-  callLogs.get(playerId).push({ seq, before, after: position })
+  callLogs.get(playerId).push({ seq, before, after: position, neutral })
   return out
 }
 
@@ -203,6 +206,7 @@ const pushProbe = (r, trace) => {
     e.pushMatch = pushMatches(e.serverPushDisp, e.clientPush)
   }
   r.residualPostPushM = residualAgainst(trace, e => e.serverPostPush)
+  r.unreferencedEntries = trace.filter(e => !e.serverPostPush).length
 }
 
 const attachTraces = () => {
@@ -218,6 +222,7 @@ const attachTraces = () => {
         post: [x, y, z],
         server: last,
         serverCallCount: calls.length,
+        neutralCalls: calls.filter(c => c.neutral).length,
         serverCallDts: calls.map(c => c.dt),
         serverCallPositions: calls.map(c => c.position),
         serverFirst: calls.length ? calls[0].position : null
