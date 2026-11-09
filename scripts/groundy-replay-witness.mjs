@@ -13,6 +13,7 @@ const RUNTIME_URL = pathToFileURL(resolve(SDK_ROOT, 'scripts', 'lib', 'virtual-r
 const RESIDUAL_LIMIT_M = 0.01
 const MIN_RUNS = 15
 const MIN_REPLAYS = 100
+const POWER_COUNTS_STARVED_WINDOWS = true
 const SPIKE_MIN_M = 0.0008
 const INPUT_CATCHUP_DEPTH = 8
 const TRACE_DIVERGE_M = 0.01
@@ -167,13 +168,26 @@ const main = async () => {
     const ackErrs = records.filter(r => r.kind === 'ack' && Number.isFinite(r.ackErrM)).map(r => r.ackErrM)
     const ackErrMaxM = ackErrs.length ? Math.max(...ackErrs) : null
     const acksOverLimit = ackErrs.filter(e => e > RESIDUAL_LIMIT_M).length
-    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue, acks: ackErrs.length, ackErrMaxM, acksOverLimit }
+    const consumedStarved = new Map(records.filter(r => r.kind === 'consumed').map(r => [r.key, r.starvedBefore]))
+    const windowHasStarve = r => { for (let s = r.ackSeq + 1; s <= r.lastSeq; s++) if ((consumedStarved.get(`${r.playerId}|${s}`) ?? 0) > 0) return true; return false }
+    const starvedWindows = records.filter(r => r.kind === 'ack' && Number.isFinite(r.ackErrM) && r.lastSeq > r.ackSeq && windowHasStarve(r))
+    const starvedWindowOver = starvedWindows.filter(r => r.ackErrM > RESIDUAL_LIMIT_M).length
+    const summary = { ...summarizeRun(corrections, popsPerMin, popEvents), engines, resyncs, spikes, deepQueue, overDeepQueue, acks: ackErrs.length, ackErrMaxM, acksOverLimit, starvedWindows: starvedWindows.length, starvedWindowOver }
     runs.push(summary)
+    for (const s of records.filter(r => r.kind === 'spike')) {
+      const [a, b, c] = s.samples
+      console.log(`spike run ${i} engine ${s.engine}: up ${(s.upM * 1000).toFixed(3)} mm down ${(s.downM * 1000).toFixed(3)} mm; xz ${[a.x, a.z].map(v => v.toFixed(3))} ${[b.x, b.z].map(v => v.toFixed(3))} ${[c.x, c.z].map(v => v.toFixed(3))}; builds ${a.builds} ${b.builds} ${c.builds}; onGround ${a.og} ${b.og} ${c.og}; normal ${JSON.stringify(c.nrm)}`)
+    }
     console.log(`run ${i} [world ${WORLD} cond ${COND}]: replays ${summary.replays} across ${engines} engine(s) (${resyncs} resync replay(s) carry no ack error and are not measured for residual) over-${RESIDUAL_LIMIT_M * 100}cm ${summary.overLimit} (in peer contact ${summary.overLimitInContact} of ${summary.inContactReplays} contact replays; with groundY gap ${summary.overLimitWithGroundYGap}) max residual ${fmtM(summary.maxResidualM)} m max groundY gap ${fmtM(summary.maxGroundYGapM)} m injected replays ${summary.injectedReplays} (over limit ${summary.injectedOverLimit}) local pops/min ${summary.popsPerMin ?? '-'} pops ${summary.pops.pops} matched to a correction within ${POP_MATCH_MS} ms ${summary.pops.matched} (in peer contact ${summary.pops.onPeerPush}) mirror spikes ${summary.spikes}`)
   }
   const replays = runs.reduce((s, r) => s + r.replays, 0)
   const overLimit = runs.reduce((s, r) => s + r.overLimit, 0)
   const runsOverLimit = runs.filter(r => r.overLimit > 0).length
+  const starvedWindowTotal = runs.reduce((s, r) => s + r.starvedWindows, 0)
+  const starvedWindowOverTotal = runs.reduce((s, r) => s + r.starvedWindowOver, 0)
+  const powerCount = POWER_COUNTS_STARVED_WINDOWS ? starvedWindowTotal : replays
+  const powerLabel = POWER_COUNTS_STARVED_WINDOWS ? 'starved-window replay(s)' : 'correction replay(s)'
+  console.log(`starved-window replays ${starvedWindowTotal} (over ${RESIDUAL_LIMIT_M * 100} cm ${starvedWindowOverTotal}); correction replays ${replays} (over ${RESIDUAL_LIMIT_M * 100} cm ${overLimit}); power counts ${POWER_COUNTS_STARVED_WINDOWS ? 'starved-window' : 'correction'} replays, minimum ${MIN_REPLAYS}`)
   const maxResidual = runs.reduce((m, r) => (r.maxResidualM === null ? m : Math.max(m, r.maxResidualM)), -Infinity)
   const popRuns = runs.filter(r => r.popsPerMin > 0).length
   const withGap = runs.reduce((s, r) => s + r.overLimitWithGroundYGap, 0)
@@ -216,11 +230,12 @@ const main = async () => {
     return
   }
 
-  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && replays >= MIN_REPLAYS && spikeTotal === 0
+  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && starvedWindowOverTotal === 0 && powerCount >= MIN_REPLAYS && spikeTotal === 0
   const reasons = [
     ...(failures.length ? [`${failures.length} of ${RUNS} run(s) failed`] : []),
-    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate replay residual`] : []),
+    ...(powerCount < MIN_REPLAYS ? [`underpowered: ${powerCount} ${powerLabel}, below the ${MIN_REPLAYS} needed to gate replay residual`] : []),
     ...(overLimit > 0 ? [`replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
+    ...(starvedWindowOverTotal > 0 ? [`starved-window replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${starvedWindowOverTotal} of ${starvedWindowTotal} starved-window replays`] : []),
     ...(spikeTotal > 0 ? [`${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s)`] : [])
   ]
   console.log(ruledOut

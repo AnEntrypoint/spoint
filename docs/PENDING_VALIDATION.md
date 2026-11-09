@@ -789,3 +789,20 @@ Status: Phase A is committed locally. The flake is measured in Phase B (three `n
 Measured cause of the flake: the wall-clock ratio of two best-of-5 placement passes varies by about ±6 % on this host (0.86 to 1.06 across the runs recorded here). The counted gate (`after.solves <= before.solves`) cannot vary.
 
 Status: the check passes three times; the gate still FAILS on the same two counts as run 9 (underpowered, 0 of 100 correction replays; 5 mirror spikes).
+
+## Phase A (run 11): the power rule counts starved-window replays; the mirror spikes get instrumented
+
+Decided by the dispatcher. The old power rule counted correction replays. Under the freeze the correct result has no corrections above the threshold, so the rule measured the coast it was built around and failed a correct result. The new rule counts replays that cover a starved-tick window, with the same minimum of 100.
+
+| area | change | file | witness |
+|---|---|---|---|
+| probe, starved windows | `getMovementOverride` records, for each consumed sequence, the number of starved ticks since the previous consumed sequence (`consumed` records, `starvedBefore`). | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| probe, ack windows | Ack records carry `playerId` and `lastSeq` (the last sequence the client sent), so the window (ackSeq, lastSeq] is known. | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| probe, spikes | Mirror samples carry x, z, the ground normal and the mirror's build count (`getStats().builds`). A spike record keeps its three samples, so each spike can be classified (a tile build in its window, or none). | `scripts/lib/groundy-replay-hook.mjs` | the gate, Phase B |
+| gate, power | `POWER_COUNTS_STARVED_WINDOWS = true`: the power check counts starved-window replays (ack windows covering at least one starved tick). `false` restores the correction count. Minimum unchanged (100). | `scripts/groundy-replay-witness.mjs` | the gate, Phase B |
+| gate, residual | Residual rule for starved-window replays: an ack window's residual is its reconciliation error at the ack (`ackErrM`, the error the client's own reconciliation tests). Any starved-window replay over 1 cm fails the gate. The correction residual (`residualM`, over 1 cm) is unchanged. This is the one place the residual set grows; see `docs/netcode.md`. | `scripts/groundy-replay-witness.mjs` | the gate, Phase B |
+| gate, spikes | Prints each spike's three samples, the build deltas and normals. The spike gate is unchanged (any spike fails) until the cause is measured. | `scripts/groundy-replay-witness.mjs` | the gate, Phase B |
+
+Not changed in this pass: the 1 cm threshold, the minimum of 100, the correction residual rule, the netcode behaviour and the mirror code. The spike cause is measured in Phase B from the new samples; its fix or its margin is recorded there.
+
+Status: Phase A is committed locally. The power rule, the residual set and the spike cause are measured in Phase B.

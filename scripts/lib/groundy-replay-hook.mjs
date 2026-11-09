@@ -50,11 +50,11 @@ const SPIKE_MAX_M = 0.0025
 const mirrorTracks = new WeakMap()
 
 const observeMirrorStep = (track, state) => {
-  const cur = { y: state.position[1], og: !!state.onGround }
+  const cur = { x: state.position[0], y: state.position[1], z: state.position[2], og: !!state.onGround, builds: track.mirror.getStats().builds, nrm: Array.isArray(state.groundNormal) ? [...state.groundNormal] : null }
   const { prev2, prev1 } = track
   if (prev2 && prev1 && prev1.og) {
     const up = prev1.y - prev2.y, down = cur.y - prev1.y
-    if (up >= SPIKE_MIN_M && up <= SPIKE_MAX_M && down <= -SPIKE_MIN_M) records.push({ kind: 'spike', engine: track.engine, upM: up, downM: down, t: performance.now() })
+    if (up >= SPIKE_MIN_M && up <= SPIKE_MAX_M && down <= -SPIKE_MIN_M) records.push({ kind: 'spike', engine: track.engine, upM: up, downM: down, samples: [prev2, prev1, cur], t: performance.now() })
   }
   track.prev2 = prev1
   track.prev1 = cur
@@ -93,7 +93,7 @@ proto._reconcile = function (serverPlayer) {
   const predictedAtAck = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
   const ackErrM = predictedAtAck ? distance(predictedAtAck.position, serverPlayer.position) : null
   realReconcile.call(this, serverPlayer)
-  records.push({ kind: 'ack', engine: idOf(this), ackSeq: serverPlayer.inputSequence, before, applied: this._lastAckedSeq !== before, ackedTicks: serverPlayer.inputSequence - before, tick: this.__ackTick, ackErrM, t: performance.now() })
+  records.push({ kind: 'ack', engine: idOf(this), ackSeq: serverPlayer.inputSequence, before, applied: this._lastAckedSeq !== before, ackedTicks: serverPlayer.inputSequence - before, tick: this.__ackTick, ackErrM, playerId: this.localPlayerId, lastSeq: this._inputSeq, t: performance.now() })
 }
 
 const queueDepthNow = new Map()
@@ -122,10 +122,19 @@ const serverQueueDepthAt = (playerId, tick) => queueDepthByTick.get(playerId)?.g
 const serverCalls = new Map()
 const callLogs = new Map()
 const pendingPreStep = new Map()
+const starveMarks = new Map()
+const consumedStarved = new Map()
 const realGetMovementOverride = PlayerManager.prototype.getMovementOverride
 PlayerManager.prototype.getMovementOverride = function (playerId) {
   const p = this.players.get(playerId)
   if (p?.state) pendingPreStep.set(playerId, { preVel: [p.state.velocity[0], p.state.velocity[2]], preFlags: moveFlags(p.state), preOnGround: !!p.state.onGround, starves: p.inputStarves ?? 0, starvedNow: p.starvedSteps ?? 0 })
+  if (p && p.ackSequence != null) {
+    const key = `${playerId}|${p.ackSequence}`
+    if (!consumedStarved.has(key)) {
+      consumedStarved.set(key, (p.inputStarves ?? 0) - (starveMarks.get(playerId) ?? p.inputStarves ?? 0))
+      starveMarks.set(playerId, p.inputStarves ?? 0)
+    }
+  }
   return realGetMovementOverride.call(this, playerId)
 }
 const realUpdatePlayerPhysics = PhysicsIntegration.prototype.updatePlayerPhysics
@@ -159,7 +168,7 @@ proto.setCollisionMirror = function (mirror) {
   realSetCollisionMirror.call(this, mirror)
   const m = this._mirror
   if (!m || mirrorTracks.has(m)) return
-  const track = { engine: idOf(this), prev1: null, prev2: null }
+  const track = { engine: idOf(this), prev1: null, prev2: null, mirror: m }
   mirrorTracks.set(m, track)
   const realStep = m.step
   m.step = function (state, input, dt, gravityY, wasGrounded) {
@@ -312,5 +321,6 @@ const attachTraces = () => {
 
 process.on('exit', () => {
   attachTraces()
+  for (const [key, starvedBefore] of consumedStarved) records.push({ kind: 'consumed', key, starvedBefore })
   if (RECORD_PATH) writeFileSync(RECORD_PATH, JSON.stringify(records))
 })
