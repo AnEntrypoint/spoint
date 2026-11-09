@@ -230,40 +230,27 @@ function instrumentPrediction(h, rec, seqKinds) {
   if (!pe || pe.__harness) return !!pe
   pe.__harness = true
   if (args.wallHints === 'off') pe._rememberWalls = () => {}
-  if (args.peerSeparation === 'off') { pe._peers = null; pe.setPeers = () => {} }
   const onSnap = pe.onServerSnapshot.bind(pe)
   let lastAck = -1
   rec.steps = 0
   rec.sepSteps = 0
   rec.sepPushM = []
-  rec.peerMinDistM = []
   rec.horizonTicks = []
   rec.stepLeadTicks = []
   const step = pe._step.bind(pe)
-  pe._step = (input, seq, gn, stored) => {
+  pe._step = (input, seq, gn) => {
     rec.steps++
     if (rec.stepLeadTicks.length < 20000) rec.stepLeadTicks.push(pe._inputSeq - 1 - pe._lastAckedSeq)
-    return step(input, seq, gn, stored)
+    return step(input, seq, gn)
   }
-  const plan = pe._planPeerPush.bind(pe)
-  pe._planPeerPush = (tps) => {
-    rec.sepSteps++
-    const ls = pe.localState, peers = pe._peers
-    let nearest = Infinity
-    if (ls && peers && rec.peerMinDistM.length < 20000) {
-      const p = ls.position
-      for (const [pid, peer] of peers) {
-        if (pid === pe.localPlayerId || !Array.isArray(peer.position)) continue
-        const d = Math.hypot(peer.position[0] - p[0], peer.position[2] - p[2])
-        if (d < nearest) nearest = d
-      }
+  const pushFor = pe._pushForSequence.bind(pe)
+  pe._pushForSequence = (seq) => {
+    const push = pushFor(seq)
+    if (push) {
+      rec.sepSteps++
+      if (rec.sepPushM.length < 20000) rec.sepPushM.push(Math.hypot(push[0], push[1]))
     }
-    const r = plan(tps)
-    if (rec.sepPushM.length < 20000 && ls) {
-      rec.sepPushM.push(Math.hypot(pe._pendingPush[0], pe._pendingPush[1]))
-      if (Number.isFinite(nearest)) rec.peerMinDistM.push(nearest)
-    }
-    return r
+    return push
   }
   pe.onServerSnapshot = (snap, tick) => {
     const sp = snap.players?.[0]
@@ -439,9 +426,9 @@ async function runOne(cond, predict, worldDef) {
       localMs: summarize(onsets.map(o => o.local)), remoteMs: summarize(onsets.map(o => o.remote)), serverMs: summarize(onsets.map(o => o.server)), onsets: onsets.length
     },
     mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, correctionRate: rec.corrections / Math.max(1, rec.mispredict.length), correctionJumpM: summarize(rec.correctionJumpM), shooterCorrections: shooterRec.corrections, worst: rec.worst, byKind: Object.fromEntries(Object.entries(rec.byKind).map(([k, b]) => [k, { acks: b.acks, misRate: b.mis / b.acks, errM: summarize(b.errs), vErrM: summarize(b.vErrs), samples: b.samples }])), respawns: rec.respawns || 0 } : null,
-    peerSeparation: predict ? {
+    pushWindow: predict ? {
       steps: rec.steps, sepSteps: rec.sepSteps, sepFiredFrac: rec.sepSteps / Math.max(1, rec.steps),
-      sepPushM: summarize(rec.sepPushM), peerMinDistM: summarize(rec.peerMinDistM),
+      sepPushM: summarize(rec.sepPushM),
       horizonTicks: summarize(rec.horizonTicks), stepLeadTicks: summarize(rec.stepLeadTicks)
     } : null,
     routeSpan: localFrames.length ? [0, 1, 2].map(k => [Math.min(...localFrames.map(f => f.p[k])), Math.max(...localFrames.map(f => f.p[k]))]) : null,

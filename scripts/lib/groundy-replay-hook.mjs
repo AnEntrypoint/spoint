@@ -28,6 +28,7 @@ const INJECT_EVERY = Number(process.env.GROUNDY_INJECT_EVERY || 25)
 const localAckCounts = new WeakMap()
 
 proto.onServerSnapshot = function (snapshot, tick) {
+  this.__ackTick = tick
   if (INJECT_M && Array.isArray(snapshot.players)) {
     const players = snapshot.players.map(p => {
       if (!p || p.id !== this.localPlayerId || !p.position || p.position.length !== 3) return p
@@ -52,16 +53,8 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
   const reference = predictedAtAck ?? server
   const errM = distance(server.position, reference.position)
   const offsetM = distance(before, after.position)
-  const peers = this._peers
-  let peerNearM = null
-  if (peers && Array.isArray(server.position)) {
-    for (const [pid, peer] of peers) {
-      if (pid === this.localPlayerId || !Array.isArray(peer.position)) continue
-      const d = Math.hypot(peer.position[0] - server.position[0], peer.position[2] - server.position[2])
-      if (peerNearM === null || d < peerNearM) peerNearM = d
-    }
-  }
-  const separationDistM = this.separationDistM
+  let inContact = false
+  for (const e of this.inputHistory) if (this._pushForSequence(e.sequence)) { inContact = true; break }
   records.push({
     engine: idOf(this),
     seq: last.sequence,
@@ -74,9 +67,12 @@ proto._rebaseAndReplay = function (server, predictedAtAck, recordCorrection = tr
     serverOnGround: !!server.onGround,
     verticallyBlocked: !!this.verticallyBlocked,
     injectedM: INJECT_M,
-    peerNearM,
-    separationDistM,
-    inContact: peerNearM !== null && peerNearM < separationDistM,
+    inContact,
+    path: [...this.inputHistory].map(e => [e.sequence, e.position[0], e.position[1], e.position[2]]),
+    ackTick: this.__ackTick,
+    ackSeq: server.inputSequence,
+    lastSeq: last.sequence,
+    playerId: this.localPlayerId,
     t: performance.now()
   })
 }
