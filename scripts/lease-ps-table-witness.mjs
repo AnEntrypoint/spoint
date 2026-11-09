@@ -12,6 +12,7 @@ if (!first) {
     failures.push('pid ' + process.pid + ' is absent from the ps table')
   } else {
     console.log('self: pid ' + row.pid + ' ppid ' + row.ppid + ' start ' + JSON.stringify(row.start))
+    if (!(Number.isInteger(row.pgid) && row.pgid > 0)) failures.push('pgid ' + row.pgid + ' is not a positive integer')
     if (row.ppid !== process.ppid) failures.push('ppid ' + row.ppid + ' differs from process.ppid ' + process.ppid)
     if (!Number.isFinite(Date.parse(row.start))) failures.push('start ' + JSON.stringify(row.start) + ' does not parse as a date')
     const again = mine(psProcessTable())
