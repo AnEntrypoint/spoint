@@ -4,7 +4,9 @@ const STALE_MS = 15000
 const DRAG_SEND_THROTTLE_MS = 250
 const PRESENCE_NEVER_SENT = undefined
 const _worldScratch = new THREE.Vector3()
-const _pointScratch = { x: 0, y: 0 }
+const _pointBuf = new Float64Array(2)
+const _rectBuf = new Float64Array(4)
+const _clock = new Float64Array(1)
 
 export function createEditorPresence({ client, MSG, camera, renderer, entityMeshes }) {
   const remote = new Map()
@@ -66,22 +68,28 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     if (remote.delete(playerId)) _dropBadge(playerId)
   }
 
-  function _projectInto(mesh, rect, out) {
+  function _readRect() {
+    const r = renderer.domElement.getBoundingClientRect()
+    _rectBuf[0] = r.left; _rectBuf[1] = r.top; _rectBuf[2] = r.width; _rectBuf[3] = r.height
+  }
+
+  function _projectInto(mesh) {
     const world = mesh.getWorldPosition ? mesh.getWorldPosition(_worldScratch) : _worldScratch.copy(mesh.position)
     world.project(camera)
     if (world.z > 1 || world.z < -1) return false
-    out.x = rect.left + (world.x * 0.5 + 0.5) * rect.width
-    out.y = rect.top + (1 - (world.y * 0.5 + 0.5)) * rect.height
+    _pointBuf[0] = _rectBuf[0] + (world.x * 0.5 + 0.5) * _rectBuf[2]
+    _pointBuf[1] = _rectBuf[1] + (1 - (world.y * 0.5 + 0.5)) * _rectBuf[3]
     return true
   }
 
-  function _paint(id, entry, pt) {
+  function _paint(id, entry) {
     const b = _ensureBadge(id)
     let p = placed.get(id)
     if (!p) { p = { x: NaN, y: NaN, dragging: null, shown: false }; placed.set(id, p) }
     if (!p.shown) { b.style.display = 'block'; p.shown = true }
-    if (pt.x !== p.x) { p.x = pt.x; b.style.left = pt.x + 'px' }
-    if (pt.y !== p.y) { p.y = pt.y; b.style.top = pt.y + 'px' }
+    const x = _pointBuf[0], y = _pointBuf[1]
+    if (x !== p.x) { p.x = x; b.style.left = x + 'px' }
+    if (y !== p.y) { p.y = y; b.style.top = y + 'px' }
     const dragging = !!entry.dragging
     if (dragging !== p.dragging) { p.dragging = dragging; b.textContent = (dragging ? '✋ ' : '◉ ') + id.slice(0, 6) }
   }
@@ -93,20 +101,20 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     if (p) p.shown = false
   }
 
-  let _tickNow = 0, _tickRect = null, _tickAny = false
+  let _tickAny = false, _tickHasRect = false
   function _visitRemote(entry, id) {
-    if (_tickNow - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); return }
+    if (_clock[0] - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); return }
     const mesh = entityMeshes.get(entry.entityId)
     if (!mesh) { _dropBadge(id); return }
-    if (!_tickRect) _tickRect = renderer.domElement.getBoundingClientRect()
-    if (!_projectInto(mesh, _tickRect, _pointScratch)) { _hide(id); return }
+    if (!_tickHasRect) { _readRect(); _tickHasRect = true }
+    if (!_projectInto(mesh)) { _hide(id); return }
     _tickAny = true
-    _paint(id, entry, _pointScratch)
+    _paint(id, entry)
   }
   function tick() {
-    _tickNow = Date.now()
+    _clock[0] = Date.now()
     _tickAny = false
-    _tickRect = null
+    _tickHasRect = false
     remote.forEach(_visitRemote)
     root.style.display = _tickAny ? 'block' : 'none'
   }
