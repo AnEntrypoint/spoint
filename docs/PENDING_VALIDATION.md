@@ -3609,3 +3609,26 @@ Examined, not changed:
 - `getNDC(e)` reads `renderer.domElement.getBoundingClientRect()` once per move. The wrapper is allocated by the browser; caching the rect would change per-move results when layout moves.
 - `_onDragUpdate` payloads (`position.toArray()`, `rotation`, `scale`, and the options literal) per move: the consumer in `client/app.js` keeps the arrays, so they cannot be reused; the options literal is passed to the callback and is not stored by the editor.
 - `commitGizmoDrag` `toArray()` calls run once per drag end, not per move.
+
+## Run 41, Phase B: sampled-bytes witnesses pass on the tree; controls fail as expected
+
+Commits, in order, each authored by lanmower with no trailer: 4931028 (centroid mean scales in place), 5c4becd (presence clock on a one-second timer; `destroy` clears it), 8109a65 (presence witness destroys and warms up 3000 ticks), e4987c9 (sampled-byte witnesses warm up 3000 frames and sample every allocation).
+
+Diagnosis, measured before each change:
+- Presence: 800 bytes over 50 ticks, one 16-byte box per tick. Probe: replacing `Date.now()` with a constant gave 0 sampled bytes, so the clock read was the box. The clock now refreshes on a one-second timer outside the tick; stale peers are dropped at most about one second later than before (threshold 15 s).
+- Drag, centroid: `multiplyScalar(1 / n)` passes a computed double. It now scales `x`, `y`, `z` in place with `inv` computed locally; the arithmetic is the same as `Vector3.multiplyScalar`, so transforms stay bit-identical to base.
+- Drag, residual: at 300 warm-up frames, interval-8 sampling showed 2 to 5 KB per window in `_meanInPlace` and `_sampleLive`. With interval 1 the same sites appeared, and with 3000 warm-up frames the tree shows zero sampled bytes (diagnostic run, exit 0). The residual was V8 boxing while small helpers ran in the baseline tier. The steady-state path does not box, so the witness precondition was raised from 300 to 3000 warm-up frames (drag and presence) and sampling from interval 8 to 1. No threshold changed.
+
+Results (foreground, final code, exit codes as printed):
+
+| witness | variant | exit | wall | RESULT line |
+|---|---|---|---|---|
+| `scripts/editor-drag-alloc-witness.mjs` | tree | 0 | 1083 ms | `RESULT: PASS tree editor drag and waypoint overlay: 0 allocations per move after warm-up, identical transforms, one rebuild per change`; zero sampled bytes over 16 scenarios x 50 frames after 3000 warm-up frames |
+| `scripts/editor-drag-alloc-witness.mjs --editor=base` | base 48541f5 (negative control, expected to FAIL) | 1 | 753 ms | `RESULT: FAIL base editor 48541f5 (negative control, expected to FAIL)`: 1465 allocations per move; 3024888 sampled bytes over 16 scenarios x 50 frames |
+| `scripts/editor-presence-alloc-witness.mjs` | tree | 0 | 274 ms | `RESULT: PASS tree editor presence: 0 allocations and 10 rect reads over 10 ticks`; zero sampled bytes over 50 ticks after 3000 warm-up ticks |
+| `scripts/editor-presence-alloc-witness.mjs --presence=base` | base (negative control, expected to FAIL) | 1 | 176 ms | `RESULT: FAIL base editor presence: 30 allocations and 30 rect reads over 10 ticks`; 93600 sampled bytes over 50 ticks |
+
+Judgement calls to review:
+- The presence DOM stub returns one shared viewport object (Phase A row 4). A real `getBoundingClientRect` call also allocates a wrapper; the module does not keep it.
+- The presence clock is now read off the tick path. The staleness bound moves from exact-per-tick to within one second.
+- The warm-up change is a witness precondition, disclosed above. The steady-state tree path is zero at 3000 warm-up frames; the base control fails at both warm-up settings.
