@@ -3292,3 +3292,21 @@ The getters also change their Jolt calls. getBodyVelocity used GetLinearVelocity
 | 3 | AGENTS.md line 234; docs/AGENTS-DETAIL.md line 230 | rule text: copy `getBody*` results before the next call of that getter | scripts/agents-md-facts-witness.mjs (Phase B), with AGENTS.md size from wc -c |
 
 Not changed: the Jolt objects inside the position and rotation getters (the bulk output objects, already reused) and the setBody* paths.
+
+### Run 36 Phase B results (Linux, this host)
+
+No defect was found in Phase B, so no fix commit was needed. AGENTS.md is 29,991 bytes (wc -c).
+
+| witness | exit | wall ms | RESULT line |
+|---|---|---|---|
+| npm run build:bundles | 0 | 1943 | build completes |
+| scripts/body-getter-buffer-witness.mjs | 0 | 10390 | RESULT: PASS body getters reuse one array each and create no Jolt velocity object (14 of 14 checks) |
+| scripts/body-getter-buffer-witness.mjs --module=src/physics/World.pre-buffers.js (negative control: git HEAD copy, removed after the run) | 1 | 10248 | RESULT: FAIL body getters reuse one array each and create no Jolt velocity object (9 of 14 checks); 1001 GetLinearVelocity and 1000 GetAngularVelocity calls in 1000 reads |
+| scripts/collision-tile-shape-witness.mjs (CollisionMirror and StaticTileIndex callers) | 0 | 10388 | RESULT: PASS collision tile floor is the server's box (19 of 19 checks) |
+| scripts/world-persistence-fingerprint-witness.mjs (WorldPersistence caller) | 0 | 10147 | RESULT: PASS spoint's world restore compares the world definition fingerprint as well as the name (10 checks) |
+| scripts/stick-floor-ramp-witness.mjs (physics step caller) | 0 | 977 | RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp |
+| scripts/chart-reanchor-wire-harness.mjs (chart re-anchor and migrateEntities caller) | 0 | 25642 | RESULT: PASS forced scenario: every expectation holds |
+| scripts/agents-md-facts-witness.mjs | 0 | 443 | RESULT: PASS 216 path claim(s) exist, 188 symbol claim(s) appear in their cited file(s) |
+| scripts/docs-page-freshness-witness.mjs | see below | | regenerated before the check |
+
+The witnesses that load Jolt each take about 10 s on this host. This run did not split that time between the wasm initialisation and the checks.
