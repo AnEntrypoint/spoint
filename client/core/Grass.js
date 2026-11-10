@@ -116,8 +116,11 @@ export async function createGrass(opts = {}) {
   const loaded = new Map()
   const deferredChunks = new Set()
   const chunkNearIdx = [], chunkMidIdx = []
-  const revisitBatches = new Map()
   const revisitGroupPool = []
+  const revisitTouched = []
+  let revisitTouchedN = 0
+  let revisitPass = 0
+  let revisitPx = 0, revisitPz = 0
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
@@ -157,31 +160,37 @@ export async function createGrass(opts = {}) {
     }
   }
 
-  function addBlades(cell, idx, near) {
+  const _addState = { cell: null, idx: null, near: false, k: 0 }
+  function placeAddedBlade(e, id) {
+    const s = _addState, cell = s.cell, i = s.idx[s.k++]
+    writeBlade(e, cell, i)
+    cell.entries[i] = { id, near: s.near }
+    cell.lod[i] = s.near ? 1 : 0
+    cell.on[i] = 1
+  }
+
+  function addBlades(cell, idx, n, near) {
     const to = near ? im : imMid
-    let _n = 0
-    to.addInstances(idx.length, (e, id) => {
-      const i = idx[_n++]
-      writeBlade(e, cell, i)
-      cell.entries[i] = { id, near }
-      cell.lod[i] = near ? 1 : 0
-      cell.on[i] = 1
-    })
-    totalInstances += idx.length
-    cell.onCount += idx.length
-    if (near) { cell.nearCount += idx.length; nearInstances += idx.length }
+    _addState.cell = cell; _addState.idx = idx; _addState.near = near; _addState.k = 0
+    to.addInstances(n, placeAddedBlade)
+    _addState.cell = null; _addState.idx = null
+    totalInstances += n
+    cell.onCount += n
+    if (near) { cell.nearCount += n; nearInstances += n }
     const hide = cell.inFrustum === false || cell.occluded === true
-    for (const i of idx) {
+    for (let k = 0; k < n; k++) {
+      const i = idx[k]
       try {
         writeInstanceUniforms(to, cell, i)
         if (hide) to.setVisibilityAt(cell.entries[i].id, false)
       } catch (_) {}
     }
-    profile.densityAdds += idx.length
+    profile.densityAdds += n
   }
 
-  function removeBlades(cell, idx) {
-    for (const i of idx) {
+  function removeBlades(cell, idx, n) {
+    for (let k = 0; k < n; k++) {
+      const i = idx[k]
       const en = cell.entries[i]
       if (!en) continue
       try { (en.near ? im : imMid).removeInstances(en.id) } catch (_) {}
@@ -191,7 +200,7 @@ export async function createGrass(opts = {}) {
       cell.entries[i] = null
       cell.on[i] = 0
     }
-    profile.densityRemoves += idx.length
+    profile.densityRemoves += n
   }
 
   function writeRow(p, i, xf, pf, lod, keepR2, px, pz, classify, chunkNear) {
@@ -276,8 +285,8 @@ export async function createGrass(opts = {}) {
       nearCount: 0, onCount: 0, occluded: false, inFrustum: true,
       minY: _minY, maxY: _maxY, src: src || null,
     }, v)
-    if (nearIdx.length) addBlades(cell, nearIdx, true)
-    if (midIdx.length) addBlades(cell, midIdx, false)
+    if (nearIdx.length) addBlades(cell, nearIdx, nearIdx.length, true)
+    if (midIdx.length) addBlades(cell, midIdx, midIdx.length, false)
     const extent = commitTileExtent('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), [centerX, centerZ], [minX, minZ, maxX, maxZ], _minY, _maxY, 1)
     for (const k in extent) cell[k] = extent[k]
     loaded.set(key, cell)
@@ -346,33 +355,46 @@ export async function createGrass(opts = {}) {
 
   let lodRevisit = true
   const _flipCell = [], _flipIdx = []
+  let _flipN = 0
   let _lodEvalPx = NaN, _lodEvalPz = NaN
 
-  function moveClumpsToLod(cell, idx, near) {
+  function flipPush(cell, i) { _flipCell[_flipN] = cell; _flipIdx[_flipN] = i; _flipN++ }
+
+  function clearFlips() {
+    for (let r = 0; r < _flipN; r++) _flipCell[r] = null
+    _flipN = 0
+  }
+
+  const _moveState = { cell: null, idx: null, near: false, k: 0 }
+  function placeMovedBlade(e, id) {
+    const s = _moveState, cell = s.cell, i = s.idx[s.k++]
+    const en = cell.entries[i]
+    writeBlade(e, cell, i)
+    en.id = id
+    en.near = s.near
+    cell.lod[i] = s.near ? 1 : 0
+  }
+
+  function moveClumpsToLod(cell, idx, n, near) {
     const from = near ? imMid : im
     const to = near ? im : imMid
-    for (const i of idx) { try { from.removeInstances(cell.entries[i].id) } catch (_) {} }
-    let _n = 0
-    to.addInstances(idx.length, (e, id) => {
-      const i = idx[_n++]
-      const en = cell.entries[i]
-      writeBlade(e, cell, i)
-      en.id = id
-      en.near = near
-      cell.lod[i] = near ? 1 : 0
-    })
-    const delta = near ? idx.length : -idx.length
+    for (let k = 0; k < n; k++) { try { from.removeInstances(cell.entries[idx[k]].id) } catch (_) {} }
+    _moveState.cell = cell; _moveState.idx = idx; _moveState.near = near; _moveState.k = 0
+    to.addInstances(n, placeMovedBlade)
+    _moveState.cell = null; _moveState.idx = null
+    const delta = near ? n : -n
     cell.nearCount += delta
     nearInstances += delta
     const hide = cell.inFrustum === false || cell.occluded === true
-    for (const i of idx) {
+    for (let k = 0; k < n; k++) {
+      const i = idx[k]
       const en = cell.entries[i]
       try {
         writeInstanceUniforms(to, cell, i)
         if (hide) to.setVisibilityAt(en.id, false)
       } catch (_) {}
     }
-    profile.lodMigrations += idx.length
+    profile.lodMigrations += n
   }
 
   function scanChunk(cell, px, pz) {
@@ -389,10 +411,10 @@ export async function createGrass(opts = {}) {
       const o = i * XF_FLOATS
       const bdx = xf[o] - px, bdz = xf[o + 2] - pz
       const inReach = bdx * bdx + bdz * bdz < keepR2[i]
-      if (inReach !== (on[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i); continue }
+      if (inReach !== (on[i] === 1)) { flipPush(cell, i); continue }
       if (!inReach) continue
       const wantNear = chunkOutside ? false : clumpLodNear(xf[o], xf[o + 2], px, pz)
-      if (wantNear !== (lod[i] === 1)) { _flipCell.push(cell); _flipIdx.push(i) }
+      if (wantNear !== (lod[i] === 1)) flipPush(cell, i)
     }
   }
 
@@ -401,7 +423,7 @@ export async function createGrass(opts = {}) {
     if (!n || !drop.length) return
     const live = []
     for (const i of drop) if (cell.on[i] === 1) live.push(i)
-    if (live.length) { removeBlades(cell, live); profile.densityRemoves += live.length }
+    if (live.length) { removeBlades(cell, live, live.length); profile.densityRemoves += live.length }
     let w = 0, ri = 0, r = 0
     while (r < n) {
       if (ri < drop.length && drop[ri] === r) { ri++; r++; continue }
@@ -426,64 +448,90 @@ export async function createGrass(opts = {}) {
 
   function dropFlips(cell) {
     let w = 0, dropped = 0
-    for (let r = 0; r < _flipIdx.length; r++) {
+    for (let r = 0; r < _flipN; r++) {
       if (_flipCell[r] === cell) { dropped++; continue }
       _flipCell[w] = _flipCell[r]; _flipIdx[w] = _flipIdx[r]; w++
     }
-    _flipCell.length = w; _flipIdx.length = w
+    for (let r = w; r < _flipN; r++) _flipCell[r] = null
+    _flipN = w
     return dropped
+  }
+
+  function createIdxList() { return { a: new Int32Array(64), n: 0 } }
+
+  function idxPush(list, i) {
+    if (list.n === list.a.length) { const grown = new Int32Array(list.a.length * 2); grown.set(list.a); list.a = grown }
+    list.a[list.n++] = i
+  }
+
+  function createRevisitGroup() {
+    return { addNear: createIdxList(), addMid: createIdxList(), drop: createIdxList(), toNear: createIdxList(), toMid: createIdxList() }
+  }
+
+  function scanLoadedCell(cell) { scanChunk(cell, revisitPx, revisitPz) }
+
+  function applyRevisitGroup(cell, g) {
+    if (g.drop.n) { removeBlades(cell, g.drop.a, g.drop.n); profile.revisitRemoves += g.drop.n }
+    if (g.toMid.n) moveClumpsToLod(cell, g.toMid.a, g.toMid.n, false)
+    if (g.toNear.n) moveClumpsToLod(cell, g.toNear.a, g.toNear.n, true)
+    if (g.addMid.n) { addBlades(cell, g.addMid.a, g.addMid.n, false); profile.revisitAdds += g.addMid.n }
+    if (g.addNear.n) { addBlades(cell, g.addNear.a, g.addNear.n, true); profile.revisitAdds += g.addNear.n }
   }
 
   function revisitNearLod(px, pz) {
     if (!lodRevisit) {
-      if (_flipIdx.length) { _flipIdx.length = 0; _flipCell.length = 0 }
+      clearFlips()
       return
     }
     if (!(Number.isFinite(px) && Number.isFinite(pz))) return
     const dx = px - _lodEvalPx, dz = pz - _lodEvalPz
     const moved = !Number.isFinite(_lodEvalPx) || !(dx * dx + dz * dz < LOD_REVISIT_STEP_M * LOD_REVISIT_STEP_M)
-    if (!moved && _flipIdx.length === 0) return
+    if (!moved && _flipN === 0) return
     _lodEvalPx = px; _lodEvalPz = pz
     if (moved) {
-      _flipIdx.length = 0; _flipCell.length = 0
+      clearFlips()
       profile.lodRevisits++
-      for (const cell of loaded.values()) scanChunk(cell, px, pz)
+      revisitPx = px; revisitPz = pz
+      loaded.forEach(scanLoadedCell)
     }
-    const batches = revisitBatches
-    batches.clear()
+    const pass = ++revisitPass
     let budget = LOD_REVISIT_BUDGET
-    while (_flipIdx.length > 0 && budget > 0) {
-      const cell = _flipCell.pop(), i = _flipIdx.pop()
+    while (_flipN > 0 && budget > 0) {
+      _flipN--
+      const cell = _flipCell[_flipN], i = _flipIdx[_flipN]
+      _flipCell[_flipN] = null
       if (!cell || cell.detached || cell.pending || !cell.xf) continue
       const o = i * XF_FLOATS
       const bdx = cell.xf[o] - px, bdz = cell.xf[o + 2] - pz
       const inReach = bdx * bdx + bdz * bdz < cell.keepR2[i]
       const live = cell.on[i] === 1
-      let g = batches.get(cell)
-      if (!g) { g = revisitGroupPool.pop() || { addNear: [], addMid: [], drop: [], toNear: [], toMid: [] }; batches.set(cell, g) }
-      if (!inReach && live) g.drop.push(i)
+      if (cell.revisitPass !== pass) {
+        cell.revisitPass = pass
+        cell.revisitGroup = revisitGroupPool.pop() || createRevisitGroup()
+        revisitTouched[revisitTouchedN++] = cell
+      }
+      const g = cell.revisitGroup
+      if (!inReach && live) idxPush(g.drop, i)
       else if (inReach && !live) {
-        if (clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)) g.addNear.push(i)
-        else g.addMid.push(i)
+        if (clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)) idxPush(g.addNear, i)
+        else idxPush(g.addMid, i)
       } else if (inReach && live) {
         const wantNear = clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)
-        if (wantNear !== (cell.lod[i] === 1)) { if (wantNear) g.toNear.push(i); else g.toMid.push(i) }
+        if (wantNear !== (cell.lod[i] === 1)) { if (wantNear) idxPush(g.toNear, i); else idxPush(g.toMid, i) }
         else continue
       } else continue
       budget--
     }
-    for (const [cell, g] of batches) {
-      if (g.drop.length) { removeBlades(cell, g.drop); profile.revisitRemoves += g.drop.length }
-      if (g.toMid.length) moveClumpsToLod(cell, g.toMid, false)
-      if (g.toNear.length) moveClumpsToLod(cell, g.toNear, true)
-      if (g.addMid.length) { addBlades(cell, g.addMid, false); profile.revisitAdds += g.addMid.length }
-      if (g.addNear.length) { addBlades(cell, g.addNear, true); profile.revisitAdds += g.addNear.length }
-    }
-    for (const g of batches.values()) {
-      g.addNear.length = 0; g.addMid.length = 0; g.drop.length = 0; g.toNear.length = 0; g.toMid.length = 0
+    for (let t = 0; t < revisitTouchedN; t++) {
+      const cell = revisitTouched[t]
+      const g = cell.revisitGroup
+      revisitTouched[t] = null
+      applyRevisitGroup(cell, g)
+      cell.revisitGroup = null
+      g.addNear.n = 0; g.addMid.n = 0; g.drop.n = 0; g.toNear.n = 0; g.toMid.n = 0
       revisitGroupPool.push(g)
     }
-    batches.clear()
+    revisitTouchedN = 0
   }
 
   let _ringClean = false, _scanKey = NaN
