@@ -749,8 +749,7 @@ export async function createGrass(opts = {}) {
       if (cell.empty) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
-        const perProxyOccBoxGeo = _occBoxGeo.clone()
-        const boxMesh = new THREE.Mesh(perProxyOccBoxGeo, _occBoxMat)
+        const boxMesh = new THREE.Mesh(_occBoxGeo, _occBoxMat)
         boxMesh.visible = false
         boxMesh.raycast = () => {}
         root.add(boxMesh)
@@ -768,15 +767,24 @@ export async function createGrass(opts = {}) {
     _occCands = out
     return out
   }
-  function applyOcclusion(occludedKeys) {
-    for (const [key, cell] of loaded) {
-      if (cell.pending) continue
-      const shouldHide = occludedKeys.has(key)
-      if (shouldHide === cell.occluded) continue
-      cell.occluded = shouldHide
-      if (!cell.inFrustum) continue
-      for (const en of cell.entries) { if (!en) continue; try { (en.near ? im : imMid).setVisibilityAt(en.id, !shouldHide) } catch (_) {} }
+  const _occApply = { keys: null }
+  function applyOcclusionToCell(cell, key) {
+    if (cell.pending) return
+    const shouldHide = _occApply.keys.has(key)
+    if (shouldHide === cell.occluded) return
+    cell.occluded = shouldHide
+    if (!cell.inFrustum) return
+    const entries = cell.entries
+    for (let k = 0; k < entries.length; k++) {
+      const en = entries[k]
+      if (!en) continue
+      try { (en.near ? im : imMid).setVisibilityAt(en.id, !shouldHide) } catch (_) {}
     }
+  }
+  function applyOcclusion(occludedKeys) {
+    _occApply.keys = occludedKeys
+    loaded.forEach(applyOcclusionToCell)
+    _occApply.keys = null
   }
 
   function dispose() {

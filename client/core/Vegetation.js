@@ -831,7 +831,9 @@ export async function createVegetation(opts = {}) {
 
   function applyCellOcclusion(cell) {
     const visible = !cell.occluded
-    for (const en of cell.entries) {
+    const entries = cell.entries
+    for (let k = 0; k < entries.length; k++) {
+      const en = entries[k]
       try { en.rec.branch.setVisibilityAt(en.branchId, visible) } catch (_) {}
       try { en.rec.leaf.setVisibilityAt(en.leafId, visible) } catch (_) {}
       if (sharedImpostor && en.impId != null && en.impId >= 0) {
@@ -874,8 +876,7 @@ export async function createVegetation(opts = {}) {
       if (cell.empty) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
-        const perProxyOccBoxGeo = _occBoxGeo.clone()
-        const boxMesh = new THREE.Mesh(perProxyOccBoxGeo, _occBoxMat)
+        const boxMesh = new THREE.Mesh(_occBoxGeo, _occBoxMat)
         boxMesh.visible = false
         boxMesh.raycast = () => {}
         root.add(boxMesh)
@@ -893,14 +894,18 @@ export async function createVegetation(opts = {}) {
     _occCands = out
     return out
   }
+  const _occApply = { keys: null }
+  function applyOcclusionToCell(cell, key) {
+    const shouldHide = _occApply.keys.has(key)
+    if (shouldHide === cell.occluded) return
+    cell.occluded = shouldHide
+    _cullDirty = true
+    applyCellOcclusion(cell)
+  }
   function applyOcclusion(occludedKeys) {
-    for (const [key, cell] of loaded) {
-      const shouldHide = occludedKeys.has(key)
-      if (shouldHide === cell.occluded) continue
-      cell.occluded = shouldHide
-      _cullDirty = true
-      applyCellOcclusion(cell)
-    }
+    _occApply.keys = occludedKeys
+    loaded.forEach(applyOcclusionToCell)
+    _occApply.keys = null
   }
 
   const api = {

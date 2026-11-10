@@ -305,8 +305,7 @@ export async function createRocks(opts = {}) {
       if (cell.empty) continue
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
-        const perProxyOccBoxGeo = _occBoxGeo.clone()
-        const boxMesh = new THREE.Mesh(perProxyOccBoxGeo, _occBoxMat)
+        const boxMesh = new THREE.Mesh(_occBoxGeo, _occBoxMat)
         boxMesh.visible = false
         boxMesh.raycast = () => {}
         root.add(boxMesh)
@@ -324,13 +323,18 @@ export async function createRocks(opts = {}) {
     _occCands = out
     return out
   }
+  const _occApply = { keys: null }
+  function applyOcclusionToCell(cell, key) {
+    const shouldHide = _occApply.keys.has(key)
+    if (shouldHide === cell.occluded) return
+    cell.occluded = shouldHide
+    const ids = cell.ids
+    for (let k = 0; k < ids.length; k++) { try { bm.setVisibleAt(ids[k], !shouldHide) } catch (_) {} }
+  }
   function applyOcclusion(occludedKeys) {
-    for (const [key, cell] of loaded) {
-      const shouldHide = occludedKeys.has(key)
-      if (shouldHide === cell.occluded) continue
-      cell.occluded = shouldHide
-      for (const id of cell.ids) { try { bm.setVisibleAt(id, !shouldHide) } catch (_) {} }
-    }
+    _occApply.keys = occludedKeys
+    loaded.forEach(applyOcclusionToCell)
+    _occApply.keys = null
   }
 
   function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN }
