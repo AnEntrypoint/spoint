@@ -3769,3 +3769,72 @@ Witnesses (command, exit code, wall time, RESULT line or the decisive check):
 Not run in Phase B, with the reason (each is also recorded in its row above): the Grass revisit and occlusion witnesses were not written (row 4 and row 5 harness); the Weather witness was not written (row 7); the crowd-dot render witness needs a headful browser (row 6); `scripts/lease-windows-witness.mjs` is Windows-only (row 15); the perf-run measurement needs an NVIDIA adapter (row 15).
 
 Still open after Phase B: the presence one-off (cause not identified); the groundy correction population on this host (0 replays against 497 in Run 42, not isolated, owner-facing evidence in the replay rows); the client `lastServerState.pushWindow` candidate (row 12); row 14 and row 16 (owner and foreign).
+
+## Run 43, Phase A continuation and Phase B: Grass revisit, occlusion, Weather, groundy, perf-run, harness records
+
+Each change is one lanmower commit with no trailer. Nothing was pushed in Phase A. Phase B was pushed once after `npm run check` exited 0.
+
+Phase A commits (this continuation):
+- 5ee7f8bc, `client/core/Grass.js`: the LOD revisit reuses blade entries from a pool and passes no boxed doubles (`_revisitPoint`, `_scanPose`, `_scaleArr`, `fromArray` writes).
+- 1708e35c, `scripts/grass-revisit-alloc-witness.mjs` and the `functions` filter in `scripts/lib/alloc-witness-hooks.mjs`: the grass LOD revisit witness.
+- a70b3db1, `scripts/occlusion-proxy-alloc-witness.mjs`: occlusion proxies for grass and rocks (the client change is af104fd from Phase A row 5).
+- 42ec5791, `client/core/Weather.js`: snow and rain carries live in one `Float64Array` (`_carry`).
+- 15a0286f, `scripts/weather-snow-landing-alloc-witness.mjs`: the Weather landing witness (row 7).
+- 64b8e4d0, the same witness: the decal store reads a simulated clock while `createWeather` runs (see the Weather defect below).
+- 71867fe2, `scripts/groundy-replay-witness.mjs`: the groundy population decision (below).
+- d7abb145, `scripts/lib/frame-percentile.mjs`, `scripts/perf-run.mjs`, `scripts/perf-run-percentile-witness.mjs`: the frame percentile rule moves out of perf-run into one lib, with a fixture witness for the index rule and the no-average output (row 15 code and test).
+- 5ec2103d, `scripts/perf-run-nvidia-witness.mjs`: the NVIDIA measurement runner (row 15 hardware harness, BLOCKED off win32).
+
+Harness for each new witness, and why it is runnable here:
+- Grass revisit and occlusion run in Node. The real planet frame comes from `apps/world/tps-game.js` through `createHeightSampler` (`mapspinner/height-cpu`) and `createPlanetFrame`. The WebGL renderer is a stub. Each child runs with `--no-turbo-inlining`, and `cfg.grassPlacementLod: false` removes the time-budgeted LOD placement so the state digest is deterministic. The gate is the lowest of three sampled windows, so a JIT transient does not fail a steady-state zero. The base is the pre-change revision `20e9389` and must FAIL.
+- Weather runs in Node with the same world frame. Math.random is reseeded just before `createWeather` (module import consumed a different count in base and tree). The gate is differential (tree lowest window below base lowest window), and the tree's remaining bytes are recorded as info. Zero per landing needs a GrassDecal API change: `markScorched` takes doubles across non-inlined calls.
+
+Groundy population decision (71867fe2): the correction population is 0 at 120/40/6 on this host, so a gate on corrections could never pass. The replay produces 8,884 starved-window acks at that condition. The gate now measures the starved-window population (MIN_REPLAYS 100), and it records the correction population as a veto that applies only when nonzero. Reason: the population this replay produces is the one that carries signal. Run 42 reported 497 corrections and 32 over 1 cm at this condition. That was not reproduced here, and its cause is not isolated (open item below).
+
+Defects found in this continuation, and their fixes:
+- Weather, 64b8e4d0: the base windows fell run to run (63816, 19032, 12064 standalone against 63816, 63640, 63336 in the full run). Cause: `createGrassDecal` takes `Date.now` when it is constructed, and its stamps prune on the wall clock (strength below 0.02, half-life 120 s). So the stamp population depended on how fast the process ran, and tree and base saw different populations. Fix: `createWeather` runs under a simulated `Date.now` that advances `DT` per update, then the real clock is restored. Windows now repeat (tree 54040, 53864, 53688; base 63016, 62840, 62536 in the full run and in the base-only run).
+- Weather, raising warm-up to 600 updates made the tree child crash with `Cannot create a string longer than 0x1fffffe8 characters` in the heap profile. Cause: stamps accumulate on the simulated clock, and each `markScorched` rebuilds the cell map from every stamp, so the profile at interval 1 grows past V8's string limit. The warm-up is back to 300.
+- perf-run, d7abb145: `percentile` was private to `perf-run.mjs`, which runs its main at import, so no test could reach it. It moved to `scripts/lib/frame-percentile.mjs` with no change in output: the frame summary and the pass percentiles call the same lib.
+
+Witnesses (command, exit code, wall time, RESULT line or the decisive check). Wall times are from `time` (bash builtin) and were run one at a time in the foreground:
+
+| witness | exit | wall ms | result |
+|---|---|---|---|
+| `node scripts/grass-seam-card-witness.mjs` (regression, grass) | 0 | 19185 | `RESULT: PASS 25 of 25 measurement(s)` |
+| `node scripts/grass-decal-nearest-alloc-witness.mjs` (regression) | 0 | 1253 | `RESULT: PASS tree grass decal nearest stamps: 0 sampled bytes over 50 queries, order and values equal the pre-change query` |
+| `node scripts/transform-ring-read-alloc-witness.mjs` (regression) | 0 | 192 | `RESULT: PASS tree transform ring reads: 0 sampled bytes over 50 reads, reads equal the pre-change reader` |
+| `node scripts/player-lod-tiers-alloc-witness.mjs` (regression, row 6) | 0 | 551 | `RESULT: PASS tree player LOD tiers: 0 sampled bytes over 50 calls, tiers equal the pre-change classifier` |
+| `node scripts/xr-system-per-frame-witness.mjs` (regression, row 8) | 0 | 634 | `RESULT: PASS tree XR system per-frame work: 0 origin re-applies over 200 static frames, 0 settings bytes` |
+| `node scripts/chart-push-reanchor-witness.mjs` (regression, row 12) | 0 | 134 | `RESULT: PASS tree queued and pending pushes re-expressed at a 2 degree re-anchor: largest push error 1.093e-11 m` |
+| `node scripts/editor-drag-alloc-witness.mjs` (regression) | 0 | 958 | `RESULT: PASS tree editor drag and waypoint overlay: 0 allocations per move after warm-up, identical transforms, one rebuild per change` |
+| `node scripts/editor-presence-alloc-witness.mjs` (regression) | 0 | 239 | `RESULT: PASS tree editor presence: 0 allocations and 10 rect reads over 10 ticks` |
+| `node scripts/xr-arc-alloc-witness.mjs` (regression, row 3) | 0 | 6759 | `RESULT: PASS tree XR teleport arc: 0 sampled bytes over 50 updates in XRWidgets, arc equal the pre-change arc` |
+| `node scripts/xr-arc-cost-witness.mjs` (regression, row 3) | 0 | 442 | `RESULT: PASS teleport arc steady-state p95 2.01 ms under the 5 ms budget on a 320000-triangle terrain (Node CPU, not a browser frame)` |
+| `node scripts/xr-arc-frame-order-witness.mjs` (regression, row 3) | 0 | 77 | `RESULT: PASS the arc runs in the frame section before the render, and reads the matrices the previous render left` |
+| `node scripts/starved-neutral-witness.mjs` (regression) | 0 | 72 | `RESULT: PASS a starved tick freezes the character until a sequenced input is consumed (constant false)` |
+| `node scripts/grass-revisit-alloc-witness.mjs` (row 4, tree) | 0 | 11577 | `RESULT: PASS tree grass LOD revisit: 0 sampled bytes over 50 moves, state equal to the pre-change revisit after each of 120 moves` (18 revisits over 120 moves, 11 distinct states, windows 0, 0, 0) |
+| `node scripts/grass-revisit-alloc-witness.mjs --grass=base` (negative control) | 1 | 10047 | `RESULT: FAIL base grass LOD revisit: 13121600 sampled bytes over 50 moves` (windows 15115200, 13121600, 15115200) |
+| `node scripts/occlusion-proxy-alloc-witness.mjs` (row 5, tree) | 0 | 6091 | `RESULT: PASS tree occlusion proxies (grass, rocks): grass tree 0 B; rocks tree 0 B sampled bytes per 50 applies, one shared box geometry` |
+| `node scripts/occlusion-proxy-alloc-witness.mjs --occ=base` (negative control) | 1 | 3677 | `RESULT: FAIL base occlusion proxies (grass, rocks): grass base 22400 B; rocks base 1670400 B` |
+| `node scripts/weather-snow-landing-alloc-witness.mjs` (row 7, tree; full run) | 0 | 163572 | `RESULT: PASS tree snow landings: 53688 sampled bytes per 50 updates, 280 landings over 120 updates equal the pre-change landings` (tree windows 54040, 53864, 53688; base windows 63016, 62840, 62536) |
+| `node scripts/weather-snow-landing-alloc-witness.mjs --weather=base` (negative control) | 1 | 78423 | `RESULT: FAIL base snow landings: 62536 sampled bytes per 50 updates` |
+| `node scripts/groundy-replay-witness.mjs` (row 12 regression, netcode) | 0 | 27900 | `RESULT: PASS the replay base groundY adds no residual over 1 cm in 15 runs of 120/40/6: no starved-window ack error over 1 cm in 8884 starved-window replays and no correction over it in 0 correction replays (2 run(s) with local pops)` |
+| `node scripts/perf-run-percentile-witness.mjs` (row 15 code and test) | 0 | 40 | `RESULT: PASS scripts/lib/frame-percentile.mjs: p50, p95, p99 and max follow the index rule on fixtures, and perf-run.mjs reports them from the shared lib with no average` |
+| `node scripts/perf-run-no-average-witness.mjs` (row 15) | 0 | 39 | `RESULT: PASS scripts/perf-run.mjs reports p50Ms and p95Ms only: 0 average fields` |
+| `node scripts/perf-run-nvidia-witness.mjs` (row 15 measurement) | 2 | 35 | `RESULT: BLOCKED perf-run NVIDIA measurement: this host is linux, not win32` |
+| `node scripts/lease-windows-witness.mjs` (row 15) | 2 | 40 | `RESULT: BLOCKED windows lease witness: this host is linux, not win32` |
+| `node scripts/crowd-dot-render-witness.mjs` (row 6, usage only) | 2 | not timed | `usage: node scripts/crowd-dot-render-witness.mjs --serve [--port=N] | --check=<result.json>`; the timer returned a negative value for this run, so no wall time is recorded |
+| `npm run check` | 0 | 70682 | 0 `RESULT: FAIL` lines; the final steps report `generated SDK typings match src/apps/AppContext.js` and `all app(s) resolve every import` |
+
+Harness records for the witnesses this host cannot finish:
+- Crowd-dot render (row 6): `scripts/crowd-dot-render-witness.mjs` is two-step. `--serve` hosts the page at `/`, and `--check=<result.json>` grades a result a headful browser captured from it. This host has `DISPLAY=:1.0`, so the browser step can run here through playwriter (invariant 11). It was not run in this pass: `--serve` blocks the shell, and the rule forbids backgrounding a check. Next run: start `--serve` under a supervising agent, capture the result to JSON with playwriter, stop the server by its PID, then run `--check`.
+- Lease-windows (row 15): Windows only. It exits 2 with BLOCKED off win32, which is the honest result here. It needs a Windows host from the repo root.
+- Perf-run measurement (row 15): needs a Windows host with an NVIDIA DirectX adapter. `scripts/perf-run-nvidia-witness.mjs` runs `perf-run --gpu=nvidia --expect-vendor=nvidia --label=nvidia-witness`, reads `data/perf-run/nvidia-witness.json`, and checks that the frame count is positive, that p50Ms ≤ p95Ms ≤ p99Ms ≤ maxMs, that fps matches the p50 frame time, and that the result has no average key. It has not run with real frames.
+- Vegetation occlusion (row 5): the Vegetation module cannot load in Node. `ez-tree` decodes images through `Image` (`image.addEventListener is not a function`). The harness needs a browser page with an image decoder, the same as the crowd-dot path.
+
+Open after Phase B:
+- Presence one-off: the cause is not identified (unchanged from the Run 43 Phase B section).
+- Run 42 correction population (497 corrections, 32 over 1 cm): not reproduced at 120/40/6 on this host. The cause is not isolated.
+- Weather boxing residual: about 53.7 KB per 50 updates, from doubles that cross non-inlined calls (`markScorched`, `_exactGround`, `_groundInsideFallWindow`). Recorded as info; zero needs a GrassDecal API change.
+- GrassDecal scaling (src/terrain/GrassDecal.js): `markScorched` calls `rebuildCells`, which rebuilds the cell map from every applied stamp, twice per call. Stamps prune only on strength below 0.02, which for half-life 120 s takes about 70 s of game time. At 280 landings per 120 updates, the live stamp count (and the cost of each landing) grows with the update rate. That is why a 600-update warm-up exhausts the profile string. Not fixed here: the fix is incremental cell updates, and the editor shares this module. Owner decision.
+- Rows 14 and 16 (owner and foreign), unchanged.
