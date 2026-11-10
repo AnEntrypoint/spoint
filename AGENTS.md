@@ -160,12 +160,12 @@ Detail: `docs/AGENTS-DETAIL.md#debugging-discipline`.
 - Silent-no-op class: codesearch the reader and the enable bit first (`?noveg`, `__vdrsScale`, `?legacygl=1`, `window.__fsCheap`).
 - Silent-default class: parse the whole record at ONE boundary and refuse there (`ColliderStreamer.js`, `src/stage/stageShapes.js`); never `v ?? DEFAULT` on invalid input.
 - Test `NO_GROUND_HEIGHT` only with `isNoGroundHeight`, never with `=== 0`; convert it to NaN before a height consumer. `guardedGroundHeight` takes two arguments.
-- A non-finite height is no data, never no crossing (`client/core/RelocationSearch.js`); a search with only no-data samples throws `RelocationSearchNoDataError`.
-- Refusals carry a code (`reasonCode`), not prose.
+- A non-finite height is no data (`client/core/RelocationSearch.js`): `crossesShore` is false for a pair with one, and the search counts it as a gap or no-data; a search with only no-data samples throws `RelocationSearchNoDataError`.
+- A refusal that a caller branches on carries a code (`reasonCode`, as `src/client/touchSurfaces.js` does).
 - Put a "report once" latch on the returned closure (`PlanetFrame.guardedGroundHeight`), not at module level.
-- Witnesses mint integer ids, never strings; the sender is stamped by `stampSender`.
+- The sender of a server event is stamped by `stampSender` (`src/sdk/ServerHandlers.js`), not by the witness.
 - A bare CLI flag parses to the string `'true'`; guard `Number()` against it.
-- A witness that needs the server to act passes `--params=multiplayer`; one `expect()` per measurement.
+- A witness makes one `expect()` per measurement.
 - Read the driver's console string for a `gl.getError()` code; use `page.evaluate()` for `window` and `document`.
 - A dying witness child must surface its stderr (`scripts/lib/witness-server.mjs`).
 - `scripts/perf-run.mjs` `--knob=<key>=<value>` takes registry keys verbatim (`maxLevel`, not `__maxLevel`); one bad key fails the run.
