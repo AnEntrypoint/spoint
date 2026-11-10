@@ -21,15 +21,20 @@ export function treeTextureQueryValue(search, key) {
   return m ? m[1] : null
 }
 
+const DECIMAL_DIGITS = /^[0-9]+$/
+
 export function parseTreeTextureMaxPx(raw, source) {
   if (raw === null || raw === undefined) return null
   if (typeof raw === 'string' && raw.trim() === '') {
     throw new TreeTextureBudgetError('empty-value', `${source} supplied no value`)
   }
-  const n = typeof raw === 'number' ? raw : Number(raw)
   if (typeof raw !== 'number' && typeof raw !== 'string') {
     throw new TreeTextureBudgetError('not-a-number', `${source} = ${String(raw)} (${typeof raw})`)
   }
+  if (typeof raw === 'string' && !DECIMAL_DIGITS.test(raw)) {
+    throw new TreeTextureBudgetError('not-a-number', `${source} = ${JSON.stringify(raw)}`)
+  }
+  const n = typeof raw === 'number' ? raw : Number(raw)
   if (!Number.isFinite(n)) throw new TreeTextureBudgetError('not-a-number', `${source} = ${JSON.stringify(raw)}`)
   if (!Number.isInteger(n)) throw new TreeTextureBudgetError('not-an-integer', `${source} = ${String(raw)}`)
   if (n <= 0 || (n & (n - 1)) !== 0) throw new TreeTextureBudgetError('not-a-power-of-two', `${source} = ${n}`)
