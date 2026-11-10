@@ -32,6 +32,15 @@ function saveCameraBookmark(slot, position, rotation) {
 
 export function createEditor({ scene, camera, renderer, client, entityMeshes, playerStates, machine, onCommitEdit, onEmptyDrag, raycastHitPoint, isLocked, floatingOrigin, onDestroyEntities }) {
   const _authScratch = new THREE.Vector3()
+  const _ndc = new THREE.Vector2()
+  const _dragPoint = new THREE.Vector3(), _dragDelta = new THREE.Vector3(), _dragOffset = new THREE.Vector3()
+  const _dragScale = new THREE.Vector3(), _dragScaleExtra = new THREE.Vector3(), _dragQuat = new THREE.Quaternion()
+  const _dragMove = new THREE.Vector3(), _dragNewPos = new THREE.Vector3(), _dragWorldDelta = new THREE.Vector3()
+  const _centroidScratch = new THREE.Vector3()
+  const _axisScratch = { x: new THREE.Vector3(), y: new THREE.Vector3(), z: new THREE.Vector3() }
+  const _snapPool = []
+  let _snapCount = 0
+  const _snapBest = new THREE.Vector3()
   const _authArr = (renderPos) => { if (!floatingOrigin) return [renderPos.x, renderPos.y, renderPos.z]; const a = floatingOrigin.toAuthoritative(renderPos, _authScratch); return [a.x, a.y, a.z] }
   let selectedEntityId = null, gizmoGroup = null, minimapOverlayMesh = null
   const waypointPath = createWaypointPathOverlay({ scene, entityMeshes })
@@ -111,7 +120,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
 
   function getNDC(e) {
     const r = renderer.domElement.getBoundingClientRect()
-    return new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1)
+    return _ndc.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1)
   }
 
   function sendEditorUpdate(changes) {
@@ -158,8 +167,8 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
   let _pivotMode = 'active'
   const _PIVOT_MODES = ['active', 'centroid', 'individual']
   let _dragPositionStart = null
-  function _computeCentroid(ids) {
-    const c = new THREE.Vector3(); let n = 0
+  function _computeCentroid(ids, out = new THREE.Vector3()) {
+    const c = out.set(0, 0, 0); let n = 0
     for (const id of ids) { const m = entityMeshes.get(id); if (!m) continue; c.add(m.position); n++ }
     return n ? c.multiplyScalar(1 / n) : c
   }
@@ -167,7 +176,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     if (_gizmoSpace !== 'local') return _AX[axis]
     const mesh = entityMeshes.get(selectedEntityId)
     if (!mesh) return _AX[axis]
-    return _AX[axis].clone().applyQuaternion(mesh.quaternion)
+    return _axisScratch[axis].copy(_AX[axis]).applyQuaternion(mesh.quaternion)
   }
   function setGizmoSpace(space) { _gizmoSpace = space === 'local' ? 'local' : 'world' }
   function setPivotMode(mode) {
@@ -192,28 +201,36 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
 
   const SNAP_TO_ENTITY_THRESHOLD = 0.75
   const _snapBox = new THREE.Box3()
+  function _putSnapPoint(x, y, z) {
+    const v = _snapPool[_snapCount] ??= new THREE.Vector3()
+    v.set(x, y, z)
+    _snapCount++
+  }
   function _entityCandidatePoints(mesh) {
+    _snapCount = 0
     _snapBox.setFromObject(mesh)
-    if (_snapBox.isEmpty()) return [mesh.position.clone()]
+    if (_snapBox.isEmpty()) { _putSnapPoint(mesh.position.x, mesh.position.y, mesh.position.z); return _snapCount }
     const { min, max } = _snapBox
-    const c = _snapBox.getCenter(new THREE.Vector3())
-    const pts = [c]
-    for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) pts.push(new THREE.Vector3(x, y, z))
-    pts.push(new THREE.Vector3(c.x, c.y, min.z), new THREE.Vector3(c.x, c.y, max.z))
-    pts.push(new THREE.Vector3(c.x, min.y, c.z), new THREE.Vector3(c.x, max.y, c.z))
-    pts.push(new THREE.Vector3(min.x, c.y, c.z), new THREE.Vector3(max.x, c.y, c.z))
-    return pts
+    const cx = (min.x + max.x) / 2, cy = (min.y + max.y) / 2, cz = (min.z + max.z) / 2
+    _putSnapPoint(cx, cy, cz)
+    _putSnapPoint(min.x, min.y, min.z); _putSnapPoint(min.x, min.y, max.z); _putSnapPoint(min.x, max.y, min.z); _putSnapPoint(min.x, max.y, max.z)
+    _putSnapPoint(max.x, min.y, min.z); _putSnapPoint(max.x, min.y, max.z); _putSnapPoint(max.x, max.y, min.z); _putSnapPoint(max.x, max.y, max.z)
+    _putSnapPoint(cx, cy, min.z); _putSnapPoint(cx, cy, max.z)
+    _putSnapPoint(cx, min.y, cz); _putSnapPoint(cx, max.y, cz)
+    _putSnapPoint(min.x, cy, cz); _putSnapPoint(max.x, cy, cz)
+    return _snapCount
   }
   function _nearestEntitySnapPoint(candidatePos, excludeId) {
-    let best = null, bestDist = SNAP_TO_ENTITY_THRESHOLD
+    let found = false, bestDist = SNAP_TO_ENTITY_THRESHOLD
     entityMeshes.forEach((mesh, id) => {
       if (id === excludeId || !mesh.userData?.isEditable) return
-      for (const p of _entityCandidatePoints(mesh)) {
-        const d = p.distanceTo(candidatePos)
-        if (d < bestDist) { bestDist = d; best = p }
+      const n = _entityCandidatePoints(mesh)
+      for (let i = 0; i < n; i++) {
+        const d = _snapPool[i].distanceTo(candidatePos)
+        if (d < bestDist) { bestDist = d; _snapBest.copy(_snapPool[i]); found = true }
       }
     })
-    return best
+    return found ? _snapBest : null
   }
 
   const _radiusPlane = new THREE.Plane()
@@ -221,7 +238,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     if (!_dragRadiusCenter) return
     raycaster.setFromCamera(getNDC(e), camera)
     _radiusPlane.setFromNormalAndCoplanarPoint(_AX.y, _dragRadiusCenter)
-    const pt = new THREE.Vector3()
+    const pt = _dragPoint.set(0, 0, 0)
     if (!raycaster.ray.intersectPlane(_radiusPlane, pt)) return
     let radius = pt.distanceTo(_dragRadiusCenter) * _precisionScale(e)
     if (machine.snapOn) radius = Math.round(radius / machine.snapSize) * machine.snapSize
@@ -248,15 +265,15 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     let pt
     if (_dragUsesAxisLine) {
       const lineAxis = _mode() === 'rotate' ? (dragAxis === 'x' ? 'y' : 'x') : dragAxis
-      pt = _closestPointOnAxisLine(raycaster.ray, gizmoGroup.position, _axisVec(lineAxis))
+      pt = _closestPointOnAxisLine(raycaster.ray, gizmoGroup.position, _axisVec(lineAxis), _dragPoint)
     } else {
-      pt = new THREE.Vector3(); raycaster.ray.intersectPlane(_plane, pt); if (!pt) return
+      pt = _dragPoint.set(0, 0, 0); raycaster.ray.intersectPlane(_plane, pt); if (!pt) return
     }
-    const delta = pt.clone().sub(dragStart).multiplyScalar(_precisionScale(e))
+    const delta = _dragDelta.copy(pt).sub(dragStart).multiplyScalar(_precisionScale(e))
     const mesh = entityMeshes.get(selectedEntityId); if (!mesh) return
-    const _centroidPivot = (_pivotMode === 'centroid' && _dragPositionStart) ? _computeCentroid(_dragPositionStart.keys()) : null
+    const _centroidPivot = (_pivotMode === 'centroid' && _dragPositionStart) ? _computeCentroid(_dragPositionStart.keys(), _centroidScratch) : null
     if (_mode() === 'scale') {
-      const s = dragEntityStart.clone()
+      const s = _dragScale.copy(dragEntityStart)
       const d = delta.dot(_axisVec(dragAxis))
       if (dragAxis==='x') s.x = Math.max(0.01, s.x + d)
       else if (dragAxis==='y') s.y = Math.max(0.01, s.y + d)
@@ -264,27 +281,27 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       mesh.scale.copy(s)
       if (_centroidPivot) {
         const startPos = _dragPositionStart.get(selectedEntityId)
-        const offset = startPos.clone().sub(_centroidPivot)
+        const offset = _dragOffset.copy(startPos).sub(_centroidPivot)
         offset.x *= dragEntityStart.x ? s.x / dragEntityStart.x : 1
         offset.y *= dragEntityStart.y ? s.y / dragEntityStart.y : 1
         offset.z *= dragEntityStart.z ? s.z / dragEntityStart.z : 1
-        mesh.position.copy(_centroidPivot.clone().add(offset))
+        mesh.position.copy(_centroidPivot).add(offset)
         if (gizmoGroup) gizmoGroup.position.copy(_centroidPivot)
       }
       if (_extraDragStart) for (const [eid, startScale] of _extraDragStart) {
         const em = entityMeshes.get(eid); if (!em) continue
-        const es = startScale.clone()
+        const es = _dragScaleExtra.copy(startScale)
         if (dragAxis==='x') es.x = Math.max(0.01, es.x + d)
         else if (dragAxis==='y') es.y = Math.max(0.01, es.y + d)
         else es.z = Math.max(0.01, es.z + d)
         em.scale.copy(es)
         if (_centroidPivot) {
           const startPos = _dragPositionStart.get(eid)
-          const offset = startPos.clone().sub(_centroidPivot)
+          const offset = _dragOffset.copy(startPos).sub(_centroidPivot)
           offset.x *= startScale.x ? es.x / startScale.x : 1
           offset.y *= startScale.y ? es.y / startScale.y : 1
           offset.z *= startScale.z ? es.z / startScale.z : 1
-          em.position.copy(_centroidPivot.clone().add(offset))
+          em.position.copy(_centroidPivot).add(offset)
         }
       }
     } else if (_mode() === 'rotate') {
@@ -296,25 +313,25 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         d = Math.round(d / stepRad) * stepRad
       }
       const rotAxis = _axisVec(dragAxis)
-      const q = new THREE.Quaternion().setFromAxisAngle(rotAxis, d)
-      mesh.quaternion.copy(dragEntityStart.clone()).multiply(q)
+      const q = _dragQuat.setFromAxisAngle(rotAxis, d)
+      mesh.quaternion.copy(dragEntityStart).multiply(q)
       if (_centroidPivot) {
         const startPos = _dragPositionStart.get(selectedEntityId)
-        mesh.position.copy(startPos.clone().sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
+        mesh.position.copy(_dragOffset.copy(startPos).sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
         if (gizmoGroup) gizmoGroup.position.copy(_centroidPivot)
       }
       if (_extraDragStart) for (const [eid, startQuat] of _extraDragStart) {
         const em = entityMeshes.get(eid); if (!em) continue
-        em.quaternion.copy(startQuat.clone()).multiply(q)
+        em.quaternion.copy(startQuat).multiply(q)
         if (_centroidPivot) {
           const startPos = _dragPositionStart.get(eid)
-          em.position.copy(startPos.clone().sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
+          em.position.copy(_dragOffset.copy(startPos).sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
         }
       }
     } else {
       const axisVec = _axisVec(dragAxis)
-      const moveDelta = _gizmoSpace === 'local' ? axisVec.clone().multiplyScalar(delta.dot(axisVec)) : delta
-      const newPos = dragEntityStart.clone().add(moveDelta)
+      const moveDelta = _gizmoSpace === 'local' ? _dragMove.copy(axisVec).multiplyScalar(delta.dot(axisVec)) : delta
+      const newPos = _dragNewPos.copy(dragEntityStart).add(moveDelta)
       let snapDx = 0, snapDy = 0, snapDz = 0
       if (machine.snapOn) {
         const sz=machine.snapSize
@@ -333,10 +350,10 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       }
       gizmoGroup.position.copy(newPos); mesh.position.copy(newPos)
       if (_extraDragStart) {
-        const worldDelta = newPos.clone().sub(dragEntityStart)
+        const worldDelta = _dragWorldDelta.copy(newPos).sub(dragEntityStart)
         for (const [eid, startPos] of _extraDragStart) {
           const em = entityMeshes.get(eid); if (!em) continue
-          em.position.copy(startPos.clone().add(worldDelta))
+          em.position.copy(startPos).add(worldDelta)
         }
       }
     }
