@@ -156,7 +156,7 @@ export class TransformRingReader {
   _recordFor(pid) {
     let record = this._records.get(pid)
     if (record === undefined) {
-      record = { position: [0, 0, 0], rotation: [0, 0, 0, 0], velocity: [0, 0, 0], stale: false, seen: 0 }
+      record = { position: new Float64Array(3), rotation: new Float64Array(4), velocity: new Float64Array(3), stale: false, seen: 0 }
       this._records.set(pid, record)
     }
     return record
@@ -167,7 +167,7 @@ export class TransformRingReader {
     const out = this._players
     for (let i = 0; i < this._capacity; i++) {
       const cbase = i * CTRL_INTS_PER_SLOT, pbase = i * PAYLOAD_FLOATS_PER_SLOT
-      let attempt = 0, gen1 = 0, gen2 = -1, pid, px, py, pz, qx, qy, qz, qw, vx, vy, vz
+      let attempt = 0, gen1 = 0, gen2 = -1, pid = -1, px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0, qw = 0, vx = 0, vy = 0, vz = 0
       do {
         gen1 = Atomics.load(this._ctrl, cbase + GEN_OFF)
         if (gen1 & 1) { attempt++; continue }
@@ -178,7 +178,7 @@ export class TransformRingReader {
         gen2 = Atomics.load(this._ctrl, cbase + GEN_OFF)
         attempt++
       } while (gen1 !== gen2 && attempt < SLOT_READ_RETRIES)
-      if (pid === undefined || pid === -1) continue
+      if (pid === -1) continue
       if (gen1 !== gen2 || genLocked(gen1)) continue
       const record = this._recordFor(pid)
       record.position[0] = px; record.position[1] = py; record.position[2] = pz
