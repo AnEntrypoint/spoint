@@ -3385,7 +3385,7 @@ Size marks (⚠️). Causes from the bundle-hash stamps, which list every bundle
 | output | size | cause | status |
 |---|---|---|---|
 | dist/client/ez-tree.es-*.js | 3.8 mb | @dgreenheck/ez-tree 1.1.0 build, 4,016,624 source bytes; 20 base64 image data URIs make up 3,969,796 of those characters | open: vendor-embedded textures; fixing it means patching the vendor package |
-| dist/client/app.js | 1.2 mb | @pixiv/three-vrm is inlined (988,239 source bytes) because the client externalPlugin lists only three, mapspinner and jolt-physics; SPOINT_FEATURE_VRM is 'true' | open: externalising it needs an importmap entry in client/index.html, the static-export copy, and a browser run to show VRM avatars still load; no browser is verified here |
+| dist/client/app.js | 0.91 mb (910,725 bytes) | three-vrm is external (externalPlugin, Phase A). The lazy editor (cf1b7a6) moves the editor chunks (EditorShell 139,714 bytes, editor 25,521 bytes) out of the entry; it was 1,101,228 bytes | closed for the 1,000,000 size mark: bundle-vrm-external-witness PASS 14 of 14 and editor-lazy-boot-witness PASS. The browser boot path is not verified (Run 38 row 1) |
 | dist/src/sdk/WorkerEntry.js | 4.0 mb | @dimforge/rapier3d-compat (2,238,719 source bytes), imported by a literal dynamic import in src/behaviours/softbody.js, is inlined because the worker bundle does not split | open: externalising rapier alone leaves about 1.9 mb by source-size arithmetic, so the mark would stay |
 
 In app.js, `REVISION` is three's constant (`OE.REVISION`, an external three namespace) and three-vrm's shader preprocessor text, not a second copy of three. grep -c counts 26 lines and matchAll counts 28 occurrences in this build.
@@ -3422,27 +3422,39 @@ Ranked open items in this pass. Order: the size marks left open in Run 37 first,
 | 19 | rows 7 and 44 | foreign (jayzee) | none | jayzee |
 | 20 | HeightfieldStreamer per-step timing entry point, for jayzee's phase 5 comparison | added to Phase A before validation | `timeFieldSteps` (src/terrain/HeightfieldStreamer.js, exported) samples the field through `sampleTerrainGridChunked`, then times `physics.addHeightField` on its own, and returns `{ bodyId, N, sampleMs, addMs, totalMs }`. A refused add returns `bodyId: null` with its timing. The streamer's build path is unchanged. | `node scripts/heightfield-step-timing-witness.mjs` (expect `RESULT: PASS positive` with 11 checks), then `node scripts/heightfield-step-timing-witness.mjs --neg` (expect `RESULT: FAIL negative: add-step-timed`, exit 1) |
 
-Phase A witnesses written (none run in Phase A): scripts/bundle-vrm-external-witness.mjs, scripts/ez-tree-texture-witness.mjs, scripts/netcode-reuse-alloc-witness.mjs, scripts/client-mirror-reuse-witness.mjs, scripts/heightfield-step-timing-witness.mjs (row 20).
+Phase A witnesses written (none run in Phase A): scripts/bundle-vrm-external-witness.mjs, scripts/ez-tree-texture-witness.mjs, scripts/netcode-reuse-alloc-witness.mjs, scripts/client-mirror-reuse-witness.mjs, scripts/heightfield-step-timing-witness.mjs (row 20), scripts/editor-lazy-boot-witness.mjs and scripts/editor-lazy-boot-browser-witness.mjs (row 1).
 
 Phase A commit list: this commit (see git log -- docs/PENDING_VALIDATION.md).
 
 ### Run 38 Phase B results (run on the checkout, not pushed)
 
+Commits in this stretch on local main: 603a541 (row 20 timing entry point, typings digest), 3d2b263 (netcode witness rotation is a unit quaternion), cf1b7a6 (editor loads on demand, Toast moves to core, boot witnesses).
+
 | row | witness | result | status |
 |---|---|---|---|
-| 1 | `node scripts/bundle-vrm-external-witness.mjs` | `RESULT: FAIL 1 of 14 checks failed (external)`. The failing check is `dist-app-size`: dist/client/app.js is 1,101,114 bytes against the 1,000,000 limit. The other 13 pass, including the external three-vrm import and the importmap entries. The remaining size is repo source (the stamp lists about 1.9 MB of repo inputs), so this row does not clear the mark. | open |
-| 1 | `node scripts/bundle-vrm-external-witness.mjs --expect-inline` (negative) | `RESULT: FAIL 3 of 14 checks failed (expect-inline)` | control holds |
-| 2 | `node scripts/ez-tree-texture-witness.mjs` | `RESULT: PASS external-assets: all checks ok` | pass |
-| 2 | `node scripts/ez-tree-texture-witness.mjs --expect-inline` (negative) | `RESULT: FAIL expect-inline: built-chunk-asset-refs-absent, built-chunk-size, built-chunk-inline-runs` | control holds |
-| 4, 5 | `node scripts/netcode-reuse-alloc-witness.mjs` | `RESULT: FAIL 2 of 12 check(s) failed`: `new Map 239` (steady-state Map allocated each tick) and a string cell key. Both are the pre-row-4 code. The checkout's working tree and index revert `SnapshotEncoder.js`, `TickHandler.js` and `RewindSpatialIndex.js` against HEAD (staged, written 03:40, not committed). HEAD itself is not verified. | blocked on the checkout state |
-| 6 | `npm run check` | exit 1 at `check-cache-keys`: `SNAPSHOT_ENTITY_ENC_CODE_VERSION` pins `ca76ef6f0079`, and the producing source in the checkout hashes to `13f8aa641b8b`. Same cause as rows 4 and 5. check.mjs stops at the first failing step, so later steps did not run. | blocked on the checkout state |
-| 10, 11 | `node scripts/client-mirror-reuse-witness.mjs` | `RESULT: PASS client mirror floor reads and player snapshot clone (18 of 18 checks)`. The witness has no negative flag. | pass |
-| 15 | canonical 50/10/2 replay gate, longer duration | not run: replay growth is held for the owner (row 12). | held |
-| 17 | `scripts/lease-windows-witness.mjs` | not run: held for the owner. | held |
-| 18 | perf-run, crowd-dot-render-witness | not run: blocked here (no NVIDIA DirectX adapter; headful browser). | blocked |
-| 20 | `node scripts/heightfield-step-timing-witness.mjs` | `RESULT: PASS positive: all checks ok` (11 checks) | pass |
-| 20 | `node scripts/heightfield-step-timing-witness.mjs --neg` | `RESULT: FAIL negative: add-step-timed`, exit 1 | control holds |
+| 1 | `node scripts/editor-lazy-boot-witness.mjs` | `RESULT: PASS ... entry 910725 bytes, editor only behind dynamic import` (5 checks, exit 0) | pass (static) |
+| 1 | `node scripts/editor-lazy-boot-witness.mjs --dir /tmp/pb38/pre --entry app.pre38.js` (negative: pre-change bundle, 1,101,228 bytes) | `RESULT: FAIL /tmp/pb38/pre/app.pre38.js: entry-under-size-limit, entry-free-of-editor-markers, editor-reached-by-dynamic-import` (exit 1) | control holds |
+| 1 | `node scripts/bundle-vrm-external-witness.mjs` | `RESULT: PASS 14 checks (external)`, dist-app-size 910,725 of 1,000,000 (exit 0) | pass |
+| 1 | `node scripts/bundle-vrm-external-witness.mjs --expect-inline` (negative) | `RESULT: FAIL 4 of 14 checks failed (expect-inline)` (exit 1) | control holds |
+| 1 | `node scripts/editor-lazy-boot-browser-witness.mjs` (boot path, headful chromium) | `RESULT: FAIL browser boot: harness error: client never reached play`; no page errors; `window.__app` is never set | blocked, see below |
+| 2 | `node scripts/ez-tree-texture-witness.mjs` | `RESULT: PASS external-assets: all checks ok` (exit 0) | pass |
+| 2 | `node scripts/ez-tree-texture-witness.mjs --expect-inline` (negative) | `RESULT: FAIL expect-inline: built-chunk-asset-refs-absent, built-chunk-size, built-chunk-inline-runs` (exit 1) | control holds |
+| 4, 5 | `node scripts/netcode-reuse-alloc-witness.mjs` | `RESULT: PASS 12 of 12 checks: 240 encodeDelta ticks matched a fresh reference with no Map in steady state, 402 rays matched the string-keyed reference with no Map` (exit 0), on HEAD code | pass |
+| 6 | `npm run check`, step check-cache-keys | `SNAPSHOT_ENTITY_ENC_CODE_VERSION: ca76ef6f0079 matches its producing source`, and COLLISION_GRID and SNAPSHOT_ENCODE match too | pass |
+| 6 | `npm run check`, first run | exit 1 at docs-page-freshness-witness: docs/index.html was not regenerated after the row 1 edits; regenerated with `node scripts/generate-docs-site.js` | fixed by regeneration |
+| 10, 11 | `node scripts/client-mirror-reuse-witness.mjs` | `RESULT: PASS client mirror floor reads and player snapshot clone (18 of 18 checks)` (exit 0) | pass |
+| 20 | `node scripts/heightfield-step-timing-witness.mjs` | `RESULT: PASS positive: all checks ok` (11 checks, exit 0) | pass |
+| 20 | `node scripts/heightfield-step-timing-witness.mjs --neg` (negative) | `RESULT: FAIL negative: add-step-timed` (exit 1) | control holds |
+| 15 | canonical 50/10/2 replay gate, longer duration | not run: replay growth is held for the owner (row 12) | held |
+| 17 | `scripts/lease-windows-witness.mjs` | not run: held for the owner | held |
+| 18 | perf-run, crowd-dot-render-witness | not run: blocked here (no NVIDIA DirectX adapter; headful browser) | blocked |
+
+Row 1 browser boot is blocked by the static file containment, not by the lazy-editor code. The bundle's module graph never finishes evaluating: the `boot:modules-evaluated` mark never fires and no page error is raised. Thirteen module fetches return 404 under `/node_modules/streaming-gltf/` and `/node_modules/mapspinner/` (for example `/node_modules/streaming-gltf/index.js` and `/node_modules/mapspinner/src/tsl/sky-tsl.js`). The files exist. `node_modules/streaming-gltf` and `node_modules/mapspinner` are npm workspace symlinks into `packages/`. `containedRealFile` (src/static/containedFile.js, hardened in 04ca08d) serves a `node_modules` path only when its realpath stays under the `node_modules` realpath, so the symlinks are refused. `/node_modules/three/` is a real directory and loads, and the module-import probe resolves `three`, `xstate` and the design CDN script. The pre-change bundle imports the same packages through the same import map; that baseline was not run.
+
+Decision needed before the browser witness can pass: (a) allow workspace symlink targets in `containedRealFile`, which relaxes the hardening in 04ca08d, or (b) replace the two symlinks with real copies in the shared `node_modules`, which `npm run links` may recreate. Neither was changed.
+
+Also observed, not diagnosed: the design stylesheet `https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css` fails with status 0. The stylesheet `<link>` has no `crossorigin` attribute under COEP `require-corp`.
 
 Background job from 01:51 (Bash task bnt2gv0jd, "Run the final regression gate and two long research measurements"): stopped with status `killed` at 02:08:18, with no live process left. Logs in /tmp/pb: gate-120-final exit 0, `RESULT: PASS` (15 runs of 120/40/6, 8884 starved-window replays, 0 over 1 cm). meas-120-600s exit 1, `RESULT: FAIL world peers cond 120/40/6: 15 of 15 run(s) failed`, where every run failed with "no engine's corrections match the harness's applied corrections, so the hook missed a correction", a harness defect rather than a replay result. meas-50-600s produced no output. These numbers are from the replay gate, which is held for the owner, so they are recorded and not acted on.
 
-Not pushed. origin/main is 6c7f266; local main carries b2e7828 and the row 20 commit. The push waits until rows 1, 4, 5 and 6 pass.
+Not pushed. origin/main is 6c7f266; local main carries b2e7828, 603a541, 3d2b263 and cf1b7a6. The push waits for the row 1 browser witness to pass, or for the owner to accept it open, after the containment decision above.
