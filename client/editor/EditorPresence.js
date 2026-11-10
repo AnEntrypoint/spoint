@@ -1,6 +1,10 @@
+import * as THREE from 'three'
+
 const STALE_MS = 15000
 const DRAG_SEND_THROTTLE_MS = 250
 const PRESENCE_NEVER_SENT = undefined
+const _worldScratch = new THREE.Vector3()
+const _pointScratch = { x: 0, y: 0 }
 
 export function createEditorPresence({ client, MSG, camera, renderer, entityMeshes }) {
   const remote = new Map()
@@ -12,6 +16,7 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
   root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:8500;display:none'
   document.body.appendChild(root)
   const badges = new Map()
+  const placed = new Map()
 
   function _colorFor(id) {
     let h = 0
@@ -24,6 +29,7 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     if (b) return b
     b = document.createElement('div')
     b.style.cssText = 'position:absolute;transform:translate(-50%,-130%);white-space:nowrap;font:11px var(--ff-mono,monospace);padding:2px 6px;border-radius:4px;color:#0b0d12;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,0.4)'
+    b.style.background = _colorFor(id)
     root.appendChild(b)
     badges.set(id, b)
     return b
@@ -33,6 +39,7 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     const b = badges.get(id)
     if (b) b.remove()
     badges.delete(id)
+    placed.delete(id)
   }
 
   function sendPresence(entityId, dragging) {
@@ -59,32 +66,45 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     if (remote.delete(playerId)) _dropBadge(playerId)
   }
 
-  function _project(mesh) {
-    const p = mesh.position.clone ? mesh.position.clone() : mesh.position
-    const world = mesh.getWorldPosition ? mesh.getWorldPosition(p) : p
-    const ndc = world.project(camera)
-    const behindCameraOrPastFarPlane = ndc.z > 1 || ndc.z < -1
-    if (behindCameraOrPastFarPlane) return null
-    const r = renderer.domElement.getBoundingClientRect()
-    return { x: r.left + (ndc.x * 0.5 + 0.5) * r.width, y: r.top + (1 - (ndc.y * 0.5 + 0.5)) * r.height }
+  function _projectInto(mesh, rect, out) {
+    const world = mesh.getWorldPosition ? mesh.getWorldPosition(_worldScratch) : _worldScratch.copy(mesh.position)
+    world.project(camera)
+    if (world.z > 1 || world.z < -1) return false
+    out.x = rect.left + (world.x * 0.5 + 0.5) * rect.width
+    out.y = rect.top + (1 - (world.y * 0.5 + 0.5)) * rect.height
+    return true
+  }
+
+  function _paint(id, entry, pt) {
+    const b = _ensureBadge(id)
+    let p = placed.get(id)
+    if (!p) { p = { x: NaN, y: NaN, dragging: null, shown: false }; placed.set(id, p) }
+    if (!p.shown) { b.style.display = 'block'; p.shown = true }
+    if (pt.x !== p.x) { p.x = pt.x; b.style.left = pt.x + 'px' }
+    if (pt.y !== p.y) { p.y = pt.y; b.style.top = pt.y + 'px' }
+    const dragging = !!entry.dragging
+    if (dragging !== p.dragging) { p.dragging = dragging; b.textContent = (dragging ? '✋ ' : '◉ ') + id.slice(0, 6) }
+  }
+
+  function _hide(id) {
+    const b = badges.get(id)
+    if (b) b.style.display = 'none'
+    const p = placed.get(id)
+    if (p) p.shown = false
   }
 
   function tick() {
     const now = Date.now()
     let any = false
+    let rect = null
     for (const [id, entry] of remote) {
       if (now - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); continue }
       const mesh = entityMeshes.get(entry.entityId)
       if (!mesh) { _dropBadge(id); continue }
-      const pt = _project(mesh)
-      if (!pt) { const b = badges.get(id); if (b) b.style.display = 'none'; continue }
+      if (!rect) rect = renderer.domElement.getBoundingClientRect()
+      if (!_projectInto(mesh, rect, _pointScratch)) { _hide(id); continue }
       any = true
-      const b = _ensureBadge(id)
-      b.style.display = 'block'
-      b.style.left = pt.x + 'px'
-      b.style.top = pt.y + 'px'
-      b.style.background = _colorFor(id)
-      b.textContent = (entry.dragging ? '✋ ' : '◉ ') + id.slice(0, 6)
+      _paint(id, entry, _pointScratch)
     }
     root.style.display = any ? 'block' : 'none'
   }
