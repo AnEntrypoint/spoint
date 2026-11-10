@@ -13,7 +13,7 @@ const ENTITIES = [
 ]
 const PATH = [[6, 2], [12, 5], [18, 8], [25, 3], [31, -4], [40, -10]]
 const FRAMES = 5
-const WARM_FRAMES = 300
+const WARM_FRAMES = 3000
 const SAMPLED_FRAMES = 50
 const EDITOR_PATTERN = /client\/editor\/(editor|EditorGizmoBuild|WaypointPath)\.js$/
 const WAYPOINT_NODES = [

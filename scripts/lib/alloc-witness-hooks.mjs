@@ -114,7 +114,7 @@ export async function sampledAllocationBytes(run, pattern) {
   session.connect()
   const post = (method, params = {}) => new Promise((resolve, reject) => session.post(method, params, (err, result) => (err ? reject(err) : resolve(result))))
   await post('HeapProfiler.enable')
-  await post('HeapProfiler.startSampling', { samplingInterval: 8, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
+  await post('HeapProfiler.startSampling', { samplingInterval: 1, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
   run()
   const { profile } = await post('HeapProfiler.stopSampling')
   await post('HeapProfiler.disable')
