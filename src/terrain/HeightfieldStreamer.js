@@ -44,6 +44,15 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
   return { samples, sampleMs: _now() - t0, reused, solved: samples.length - reused }
 }
 
+export async function timeFieldSteps({ physics, heightFn, N, extent, cornerX, cornerZ, budgetMs = 2 }) {
+  const spacing = extent / (N - 1)
+  const g = await sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs })
+  const addStart = _now()
+  const bodyId = physics.addHeightField(g.samples, N, [spacing, 1, spacing], [cornerX, 0, cornerZ])
+  const addMs = _now() - addStart
+  return { bodyId, N, sampleMs: g.sampleMs, addMs, totalMs: g.sampleMs + addMs }
+}
+
 const chebyshev = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]))
 
 export const HEIGHTFIELD_REFUSALS = Object.freeze({

@@ -3420,7 +3420,29 @@ Ranked open items in this pass. Order: the size marks left open in Run 37 first,
 | 17 | scripts/lease-windows-witness.mjs | held for owner | none. The owner holds this on a Windows host; it is not queued in this pass. | held |
 | 18 | perf-run (no NVIDIA DirectX adapter), crowd-dot-render-witness (headful browser) | blocked here | none | blocked |
 | 19 | rows 7 and 44 | foreign (jayzee) | none | jayzee |
+| 20 | HeightfieldStreamer per-step timing entry point, for jayzee's phase 5 comparison | added to Phase A before validation | `timeFieldSteps` (src/terrain/HeightfieldStreamer.js, exported) samples the field through `sampleTerrainGridChunked`, then times `physics.addHeightField` on its own, and returns `{ bodyId, N, sampleMs, addMs, totalMs }`. A refused add returns `bodyId: null` with its timing. The streamer's build path is unchanged. | `node scripts/heightfield-step-timing-witness.mjs` (expect `RESULT: PASS positive` with 11 checks), then `node scripts/heightfield-step-timing-witness.mjs --neg` (expect `RESULT: FAIL negative: add-step-timed`, exit 1) |
 
-Phase A witnesses written (none run in Phase A): scripts/bundle-vrm-external-witness.mjs, scripts/ez-tree-texture-witness.mjs, scripts/netcode-reuse-alloc-witness.mjs, scripts/client-mirror-reuse-witness.mjs.
+Phase A witnesses written (none run in Phase A): scripts/bundle-vrm-external-witness.mjs, scripts/ez-tree-texture-witness.mjs, scripts/netcode-reuse-alloc-witness.mjs, scripts/client-mirror-reuse-witness.mjs, scripts/heightfield-step-timing-witness.mjs (row 20).
 
 Phase A commit list: this commit (see git log -- docs/PENDING_VALIDATION.md).
+
+### Run 38 Phase B results (run on the checkout, not pushed)
+
+| row | witness | result | status |
+|---|---|---|---|
+| 1 | `node scripts/bundle-vrm-external-witness.mjs` | `RESULT: FAIL 1 of 14 checks failed (external)`. The failing check is `dist-app-size`: dist/client/app.js is 1,101,114 bytes against the 1,000,000 limit. The other 13 pass, including the external three-vrm import and the importmap entries. The remaining size is repo source (the stamp lists about 1.9 MB of repo inputs), so this row does not clear the mark. | open |
+| 1 | `node scripts/bundle-vrm-external-witness.mjs --expect-inline` (negative) | `RESULT: FAIL 3 of 14 checks failed (expect-inline)` | control holds |
+| 2 | `node scripts/ez-tree-texture-witness.mjs` | `RESULT: PASS external-assets: all checks ok` | pass |
+| 2 | `node scripts/ez-tree-texture-witness.mjs --expect-inline` (negative) | `RESULT: FAIL expect-inline: built-chunk-asset-refs-absent, built-chunk-size, built-chunk-inline-runs` | control holds |
+| 4, 5 | `node scripts/netcode-reuse-alloc-witness.mjs` | `RESULT: FAIL 2 of 12 check(s) failed`: `new Map 239` (steady-state Map allocated each tick) and a string cell key. Both are the pre-row-4 code. The checkout's working tree and index revert `SnapshotEncoder.js`, `TickHandler.js` and `RewindSpatialIndex.js` against HEAD (staged, written 03:40, not committed). HEAD itself is not verified. | blocked on the checkout state |
+| 6 | `npm run check` | exit 1 at `check-cache-keys`: `SNAPSHOT_ENTITY_ENC_CODE_VERSION` pins `ca76ef6f0079`, and the producing source in the checkout hashes to `13f8aa641b8b`. Same cause as rows 4 and 5. check.mjs stops at the first failing step, so later steps did not run. | blocked on the checkout state |
+| 10, 11 | `node scripts/client-mirror-reuse-witness.mjs` | `RESULT: PASS client mirror floor reads and player snapshot clone (18 of 18 checks)`. The witness has no negative flag. | pass |
+| 15 | canonical 50/10/2 replay gate, longer duration | not run: replay growth is held for the owner (row 12). | held |
+| 17 | `scripts/lease-windows-witness.mjs` | not run: held for the owner. | held |
+| 18 | perf-run, crowd-dot-render-witness | not run: blocked here (no NVIDIA DirectX adapter; headful browser). | blocked |
+| 20 | `node scripts/heightfield-step-timing-witness.mjs` | `RESULT: PASS positive: all checks ok` (11 checks) | pass |
+| 20 | `node scripts/heightfield-step-timing-witness.mjs --neg` | `RESULT: FAIL negative: add-step-timed`, exit 1 | control holds |
+
+Background job from 01:51 (Bash task bnt2gv0jd, "Run the final regression gate and two long research measurements"): stopped with status `killed` at 02:08:18, with no live process left. Logs in /tmp/pb: gate-120-final exit 0, `RESULT: PASS` (15 runs of 120/40/6, 8884 starved-window replays, 0 over 1 cm). meas-120-600s exit 1, `RESULT: FAIL world peers cond 120/40/6: 15 of 15 run(s) failed`, where every run failed with "no engine's corrections match the harness's applied corrections, so the hook missed a correction", a harness defect rather than a replay result. meas-50-600s produced no output. These numbers are from the replay gate, which is held for the owner, so they are recorded and not acted on.
+
+Not pushed. origin/main is 6c7f266; local main carries b2e7828 and the row 20 commit. The push waits until rows 1, 4, 5 and 6 pass.
