@@ -185,7 +185,7 @@ Detail: `docs/AGENTS-DETAIL.md#xr-teleport-arc`.
 Detail: `docs/AGENTS-DETAIL.md#entry-points`.
 
 - Client `ctx.state` is the entity `custom` block: `ctx.state.<key> ?? literal` takes the literal forever. Read position from `engine.client.getLocalState().position`, because `engine.cam` has no `position`.
-- Wireweave attach helpers re-check at call time, since host migration reassigns `client` in `app.js`; `boot()` signals are process-global, stopped with `RoomDirectory.stopAll`.
+- Wireweave attach helpers re-check at call time, since host migration reassigns `client` in `app.js`; `boot()` signals are process-global, and `RoomDirectory.stopAll` runs only on the SHUTDOWN IPC in `src/sdk/RoomProcessWorker.js`.
 - Witness a remote server's `netcode.profile` on `?connect=...&multiplayer=1`.
 - Spawn release is gated by `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) and capped at `SPAWN_HOLD_MAX_MS` (20 s).
 - `client/BrowserServer.js` keeps `_lastTodSync` and `_deliveredWorldFingerprints` at module level, so a fresh BrowserServer in the same page inherits them.
