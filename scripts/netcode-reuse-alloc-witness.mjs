@@ -47,7 +47,7 @@ function snapshotAt(t) {
       model: `m${i % 3}`,
       bodyType: i % 5 === 0 ? 'static' : 'dynamic',
       position: [base[0] + Math.sin(ph) * 30, base[1], base[2] + Math.cos(ph) * 30],
-      rotation: [0, Math.sin(ph / 2) * 0.1, 0, Math.cos(ph / 2)],
+      rotation: [0, Math.sin(ph / 2), 0, Math.cos(ph / 2)],
       velocity: still ? [0, 0, 0] : [Math.cos(ph), 0, -Math.sin(ph)],
       scale: [1, 1, 1],
       custom: i % 6 === 0 ? { hp: (t >> 4) % 3 } : null,
