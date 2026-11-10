@@ -74,23 +74,21 @@ function encodeReducedPlayer(p, slot) {
 
 function dist2(ax, ay, az, bx, by, bz) { const dx = ax-bx, dy = ay-by, dz = az-bz; return dx*dx+dy*dy+dz*dz }
 
-const _crowdBuckets = new Map()
 const NO_CROWD_DOTS = Object.freeze([])
 
 export function buildCrowdDots(players, viewerPos, dotCellM) {
   if (!players || players.length === 0) return NO_CROWD_DOTS
   const cell = dotCellM || 25
-  const buckets = _crowdBuckets
-  buckets.clear()
+  const dots = []
   for (const p of players) {
     const pos = p.position; if (!pos) continue
     const cx = Math.floor(pos[0] / cell), cz = Math.floor(pos[2] / cell)
-    const key = `${cx},${cz}`
-    const bucket = buckets.get(key)
-    if (bucket) bucket[2]++
-    else buckets.set(key, [cx, cz, 1])
+    let dot = null
+    for (let i = 0; i < dots.length; i++) if (dots[i][0] === cx && dots[i][1] === cz) { dot = dots[i]; break }
+    if (dot) dot[2]++
+    else dots.push([cx, cz, 1])
   }
-  return [...buckets.values()]
+  return dots
 }
 
 const _tierIds = []
