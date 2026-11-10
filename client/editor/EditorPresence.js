@@ -93,20 +93,22 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     if (p) p.shown = false
   }
 
+  let _tickNow = 0, _tickRect = null, _tickAny = false
+  function _visitRemote(entry, id) {
+    if (_tickNow - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); return }
+    const mesh = entityMeshes.get(entry.entityId)
+    if (!mesh) { _dropBadge(id); return }
+    if (!_tickRect) _tickRect = renderer.domElement.getBoundingClientRect()
+    if (!_projectInto(mesh, _tickRect, _pointScratch)) { _hide(id); return }
+    _tickAny = true
+    _paint(id, entry, _pointScratch)
+  }
   function tick() {
-    const now = Date.now()
-    let any = false
-    let rect = null
-    for (const [id, entry] of remote) {
-      if (now - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); continue }
-      const mesh = entityMeshes.get(entry.entityId)
-      if (!mesh) { _dropBadge(id); continue }
-      if (!rect) rect = renderer.domElement.getBoundingClientRect()
-      if (!_projectInto(mesh, rect, _pointScratch)) { _hide(id); continue }
-      any = true
-      _paint(id, entry, _pointScratch)
-    }
-    root.style.display = any ? 'block' : 'none'
+    _tickNow = Date.now()
+    _tickAny = false
+    _tickRect = null
+    remote.forEach(_visitRemote)
+    root.style.display = _tickAny ? 'block' : 'none'
   }
 
   function hide() { root.style.display = 'none' }

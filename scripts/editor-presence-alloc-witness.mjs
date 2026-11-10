@@ -1,12 +1,15 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { BASE_REV, materializeBase, treeUrl, installAllocHooks } from './lib/alloc-witness-hooks.mjs'
+import { BASE_REV, materializeBase, treeUrl, installAllocHooks, sampledAllocationBytes } from './lib/alloc-witness-hooks.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const REL = 'client/editor/EditorPresence.js'
 const COUNTED = ['Vector2', 'Vector3', 'Quaternion']
 const W = 800, H = 600
 const TICKS = 10
+const WARM_TICKS = 300
+const SAMPLED_TICKS = 50
+const PRESENCE_PATTERN = /client\/editor\/EditorPresence\.js$/
 
 function childRun(which) {
   const out = spawnSync(process.execPath, [SELF, '--child', `--presence=${which}`], { encoding: 'utf8', timeout: 240000, maxBuffer: 64 * 1024 * 1024 })
@@ -58,6 +61,7 @@ async function runChild(which) {
   presence.onPresenceMessage({ clientId: 'peer-b', entityId: 'e2', dragging: false })
   presence.onPresenceMessage({ clientId: 'peer-c', entityId: 'e3', dragging: false })
   presence.tick()
+  for (let w = 0; w < WARM_TICKS; w++) presence.tick()
   const perTickAlloc = []
   const perTickRect = []
   for (let t = 0; t < TICKS; t++) {
@@ -66,9 +70,10 @@ async function runChild(which) {
     perTickAlloc.push(allocTotal() - a0)
     perTickRect.push(rectCalls - r0)
   }
+  const sampledBytes = await sampledAllocationBytes(() => { for (let t = 0; t < SAMPLED_TICKS; t++) presence.tick() }, PRESENCE_PATTERN)
   const badges = created.map(el => ({ display: el.style.display ?? null, left: el.style.left ?? null, top: el.style.top ?? null, background: el.style.background ?? null, text: el.textContent }))
   presence.hide()
-  return { perTickAlloc, perTickRect, badges }
+  return { perTickAlloc, perTickRect, sampledBytes, badges }
 }
 
 async function main() {
@@ -82,6 +87,7 @@ async function main() {
   const target = runs[which === 'base' ? 'base' : 'tree']
   const allocs = target.perTickAlloc.reduce((a, b) => a + b, 0)
   const rects = target.perTickRect.reduce((a, b) => a + b, 0)
+  const sampledBytes = target.sampledBytes
   const checks = []
   const report = (label, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${detail}`); checks.push(ok) }
   if (which !== 'base') {
@@ -89,6 +95,7 @@ async function main() {
     report('badge display, position, colour and label equal the base presence module', same, `${runs.tree.badges.length} badges compared`)
   }
   report('zero allocations per presence tick after warm-up', allocs === 0, `${which === 'base' ? 'base' : 'tree'}: ${allocs} constructions/clones over ${TICKS} ticks`)
+  report('zero sampled bytes allocated by presence code per tick', sampledBytes === 0, `${which === 'base' ? 'base' : 'tree'}: ${sampledBytes} sampled bytes over ${SAMPLED_TICKS} ticks after ${WARM_TICKS} warm-up ticks`)
   report('one viewport rect read per tick, not per remote peer', rects === TICKS, `${which === 'base' ? 'base' : 'tree'}: ${rects} getBoundingClientRect calls over ${TICKS} ticks (3 peers)`)
   const ok = checks.every(Boolean)
   console.log(ok
