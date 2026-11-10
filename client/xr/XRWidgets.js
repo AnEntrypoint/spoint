@@ -111,7 +111,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
 
   function executeTeleport(pt) {
     if (teleportPending) return
-    teleportPending = { pt }
+    teleportPending = { pt: _pendingPoint.copy(pt) }
     if (fadePhase === FADE_IDLE) fadePhase = FADE_IN
     teleportTimer = setTimeout(moveTeleport, TELEPORT_MOVE_MS)
   }
@@ -134,6 +134,8 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   const _groundHits = []
   const _rayOrigin = new THREE.Vector3()
   const _arcPrev = { t: 0, diff: 0 }
+  const _arcHit = { point: new THREE.Vector3(), valid: true }
+  const _pendingPoint = new THREE.Vector3()
   const _isVisibleMeshHit = h => h.object.isMesh && h.object.visible
   const _ensureMeshBoundsTree = o => { if (o.isMesh) ensureBoundsTree(o.geometry) }
 
@@ -148,9 +150,11 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   }
 
   function groundCandidates() {
-    _groundCandidates.length = 0
-    for (const o of scene.children) if (isGroundCandidate(o)) _groundCandidates.push(o)
-    for (const root of _groundCandidates) root.traverse(_ensureMeshBoundsTree)
+    const children = scene.children
+    let n = 0
+    for (let i = 0; i < children.length; i++) if (isGroundCandidate(children[i])) _groundCandidates[n++] = children[i]
+    if (_groundCandidates.length !== n) _groundCandidates.length = n
+    for (let i = 0; i < n; i++) _groundCandidates[i].traverse(_ensureMeshBoundsTree)
     return _groundCandidates
   }
 
@@ -176,7 +180,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
         const f = prev.diff / (prev.diff - diff), ht = prev.t + f * ARC_STEP_S
         const hx = origin.x + direction.x * ARC_VELOCITY * ht, hz = origin.z + direction.z * ARC_VELOCITY * ht
         const hy = surfaceBelow(hx, hz, origin.y)
-        if (hy !== null) hit = { point: new THREE.Vector3(hx, hy, hz), valid: true }
+        if (hy !== null) { _arcHit.point.set(hx, hy, hz); hit = _arcHit }
       }
       prev = _arcPrev; _arcPrev.t = t; _arcPrev.diff = diff
     }
