@@ -3522,3 +3522,31 @@ Phase B witness results (wall time is the foreground run of that command):
 | `node scripts/heightfield-step-timing-witness.mjs` (row 20) | `RESULT: PASS positive: all checks ok` (71 ms) | `--neg`: `RESULT: FAIL negative: add-step-timed` (37 ms) |
 
 Held and not run in this stretch, as instructed: replay growth (Run 38 row 12 and the row 15 long measurement), lease-windows (row 17), and perf-run and crowd-dot (row 18, blocked here). Owner decisions remain open for these.
+
+### Correction after the Phase B review (run 39)
+
+The base control's "715" was measured before the witness fixture set `userData.isEditable`. Real editable meshes set that flag (`client/EntityLoader.js`, the entity mesh setup). Without it `_nearestEntitySnapPoint` in the base skipped every other entity, so rank 1 was never exercised by the witness. With the flag set, the base control measures 1465 allocations per move after warm-up, and the working tree still measures 0 with the snap lookup running on every move.
+
+Where the base allocations come from (`ALLOC_SITES=1 node scripts/editor-drag-alloc-witness.mjs --editor=base`; the sum over every move, including each scenario's first move, is 1758; excluding first moves it is 1465):
+
+| base 48541f5 line | constructions and clones | rank |
+|---|---|---|
+| `_entityCandidatePoints` (editor.js 199–204) | 900 | 1 |
+| `applyGizmoDrag` (editor.js 253–339) | 384 | 2, 5 |
+| `_axisVec` (editor.js 170) | 168 | 6 |
+| `_closestPointOnAxisLine` (EditorGizmoBuild.js 9, 18) | 144 | 3 |
+| `getNDC` (editor.js 114) | 96 | 4 |
+| `buildRadiusGizmo` (EditorGizmoBuild.js 91, 93, 101) and `_setRadiusGizmoRadius` (editor.js 80) | 42 | 12 |
+| `_computeCentroid` (editor.js 162) | 18 | 7 |
+| `_applyRadiusDrag` (editor.js 224) | 6 | 5 |
+
+Each of these paths is fixed in the committed history (cdb96a2, 33c09d7, 0a70454). The base revision 48541f5 is the negative control and is not changed. No working-tree code change was needed for the allocation item in this round.
+
+Changes this round, each committed on its own as lanmower:
+
+1. `scripts/editor-drag-alloc-witness.mjs`: the fixture entities set `userData.isEditable = true`, as the entity mesh setup does, so the snap lookup runs. Witness: tree `RESULT: PASS tree editor drag and waypoint overlay: 0 allocations per move after warm-up, identical transforms, one rebuild per change`; base control `1465` allocations.
+2. `scripts/lib/alloc-witness-hooks.mjs` and `scripts/editor-drag-alloc-witness.mjs`: optional per-site attribution behind `ALLOC_SITES=1`, counted only inside each `onMove` call. Witness: the table above.
+3. `scripts/editor-drag-alloc-witness.mjs`: the control's RESULT line now reads "negative control, expected to FAIL". Its exit code is unchanged at 1, because a negative control has to exit 1.
+4. `scripts/check.mjs`: a step whose output contains a `RESULT: FAIL` line now fails the run even when it exits 0.
+
+Why `npm run check` exited 0 next to a FAIL line: the drag witness is not one of the check steps, and the witnesses are run by hand (AGENTS.md). The FAIL line came from the hand-run negative control, which exits 1 (`BASE_EXIT=1`). The final check log has no `RESULT: FAIL` line, so no step passed a FAIL. Change 4 guards steps added later. Its failing branch was checked by reading only; no step in the current list prints a FAIL.
