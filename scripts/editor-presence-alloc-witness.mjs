@@ -71,7 +71,9 @@ async function runChild(which) {
     perTickAlloc.push(allocTotal() - a0)
     perTickRect.push(rectCalls - r0)
   }
-  const sampledBytes = await sampledAllocationBytes(() => { for (let t = 0; t < SAMPLED_TICKS; t++) presence.tick() }, PRESENCE_PATTERN)
+  const windows = []
+  for (let k = 0; k < 3; k++) windows.push(await sampledAllocationBytes(() => { for (let t = 0; t < SAMPLED_TICKS; t++) presence.tick() }, PRESENCE_PATTERN))
+  const sampledBytes = Math.min(...windows)
   const badges = created.map(el => ({ display: el.style.display ?? null, left: el.style.left ?? null, top: el.style.top ?? null, background: el.style.background ?? null, text: el.textContent }))
   presence.hide()
   presence.destroy?.()

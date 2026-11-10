@@ -230,10 +230,11 @@ const main = async () => {
     return
   }
 
-  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && starvedWindowOverTotal === 0 && powerCount >= MIN_REPLAYS && spikeTotal === 0
+  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && starvedWindowOverTotal === 0 && powerCount >= MIN_REPLAYS && replays >= MIN_REPLAYS && spikeTotal === 0
   const reasons = [
     ...(failures.length ? [`${failures.length} of ${RUNS} run(s) failed`] : []),
     ...(powerCount < MIN_REPLAYS ? [`underpowered: ${powerCount} ${powerLabel}, below the ${MIN_REPLAYS} needed to gate replay residual`] : []),
+    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate correction residual`] : []),
     ...(overLimit > 0 ? [`replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
     ...(starvedWindowOverTotal > 0 ? [`starved-window replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${starvedWindowOverTotal} of ${starvedWindowTotal} starved-window replays`] : []),
     ...(spikeTotal > 0 ? [`${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s)`] : [])

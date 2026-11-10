@@ -87,7 +87,7 @@ async function main() {
   const add = (label, ok, detail) => { rows.push(ok); console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${detail}`) }
   const name = which === 'base' ? 'base' : 'tree'
   add('an unchanged XR origin is not re-applied on a frame (no offset reference space made)', target.staticCalls === 0, `${name}: ${target.staticCalls} offset reference spaces over ${STATIC_FRAMES} static frames`)
-  if (which !== 'base') add('a moving origin is applied on every moving frame, with the same origin as before', runs.tree.movingCalls === runs.base.movingCalls && runs.tree.digest === runs.base.digest, `tree ${runs.tree.movingCalls} applied, base ${runs.base.movingCalls} applied, digests ${runs.tree.digest === runs.base.digest ? 'equal' : 'differ'}`)
+  if (which !== 'base') add('the origin in effect on every moving frame equals the pre-change origin (a frame at the origin already in effect is not re-applied)', runs.tree.digest === runs.base.digest && runs.tree.movingCalls <= runs.base.movingCalls, `tree ${runs.tree.movingCalls} applied, base ${runs.base.movingCalls} applied, digests ${runs.tree.digest === runs.base.digest ? 'equal' : 'differ'}`)
   add('zero sampled bytes in the settings input per call while the panel is hidden, after warm-up', target.settingsBytes === 0, `${name}: ${target.settingsBytes} sampled bytes over ${SAMPLED_CALLS} calls after ${WARM_CALLS} warm-up calls`)
   const ok = rows.every(Boolean)
   console.log(ok
