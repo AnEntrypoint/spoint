@@ -12,7 +12,7 @@ await installSpecifierHooks()
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const WORLD = 'e2e-ci-arena'
-const EDITOR_CHUNK = /\/(EditorShell|editor)-[^/]+\.js$/
+const EDITOR_CHUNK = /(\/editor\/(editor|EditorShell)|\/(EditorShell|editor)-[A-Z0-9]{8})\.js$/
 const BOOT_TIMEOUT_MS = 120000
 const EDITOR_TIMEOUT_MS = 30000
 
@@ -40,6 +40,10 @@ try {
   page = await context.newPage()
   page.on('pageerror', e => pageErrors.push(String(e?.message || e)))
 
+  await page.addInitScript(() => {
+    window.__resourceNames = []
+    new PerformanceObserver(list => { for (const e of list.getEntries()) window.__resourceNames.push(e.name) }).observe({ type: 'resource', buffered: true })
+  })
   await page.goto(`http://127.0.0.1:${PORT}/?world=${WORLD}&forcewebgl=1`, { waitUntil: 'domcontentloaded' })
   await page.evaluate((timeoutMs) => new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs
@@ -51,26 +55,31 @@ try {
     tick()
   }), BOOT_TIMEOUT_MS)
 
-  const bootChunks = await page.evaluate(() => performance.getEntriesByType('resource').map(e => e.name))
-  const editorAtBoot = bootChunks.filter(u => /\/(EditorShell|editor)-[^/]+\.js$/.test(u))
+  const bootChunks = await page.evaluate(() => window.__resourceNames.slice())
+  const bootLength = bootChunks.length
+  const editorAtBoot = bootChunks.filter(u => EDITOR_CHUNK.test(u))
   check('boot-requests-no-editor-chunk', editorAtBoot.length === 0, `${editorAtBoot.length} editor chunk(s) fetched before play [${editorAtBoot.map(u => u.split('/').pop()).join(', ')}]`)
 
   const constructedAtBoot = await page.evaluate(() => ({ editor: window.__app?.editor != null, editPanel: window.__app?.editPanel != null }))
   check('editor-not-constructed-at-boot', !constructedAtBoot.editor && !constructedAtBoot.editPanel, `window.__app.editor=${constructedAtBoot.editor} editPanel=${constructedAtBoot.editPanel}`)
   check('no-page-errors-at-boot', pageErrors.length === 0, `${pageErrors.length} page error(s) ${pageErrors.slice(0, 3).join(' | ')}`)
+  const designCss = await page.evaluate(() => performance.getEntriesByName('https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css')[0]?.responseStatus ?? null)
+  check('design-stylesheet-loads', designCss === 200, `design stylesheet responseStatus ${designCss} (0 means the response was blocked, for example by COEP without crossorigin)`)
 
   await page.keyboard.press('KeyP')
-  const afterPress = await page.evaluate((timeoutMs) => new Promise((resolve) => {
+  const afterPress = await page.evaluate(({ timeoutMs, bootLength }) => new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs
     const tick = () => {
-      const chunks = performance.getEntriesByType('resource').map(e => e.name).filter(u => /\/(EditorShell|editor)-[^/]+\.js$/.test(u))
+      const chunks = window.__resourceNames.slice(bootLength).filter(u => /(\/editor\/(editor|EditorShell)|\/(EditorShell|editor)-[A-Z0-9]{8})\.js$/.test(u))
       const editing = window.__app?.clientMachine?.isEditor === true
       if (chunks.length && editing) return resolve({ chunks, editing })
       if (Date.now() > deadline) return resolve({ chunks, editing })
       setTimeout(tick, 100)
     }
     tick()
-  }), EDITOR_TIMEOUT_MS)
+  }), { timeoutMs: EDITOR_TIMEOUT_MS, bootLength })
+  const timeline = await page.evaluate(() => ({ entries: window.__resourceNames.length }))
+  console.log(`diagnostic resource timeline: ${timeline.entries} resource entries observed by page start`)
   check('keyP-loads-editor-chunk', afterPress.chunks.length > 0, `${afterPress.chunks.length} editor chunk(s) fetched after KeyP [${afterPress.chunks.map(u => u.split('/').pop()).join(', ')}]`)
   check('keyP-enters-editor-mode', afterPress.editing === true, `clientMachine.isEditor=${afterPress.editing} after KeyP`)
 
