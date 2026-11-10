@@ -5,8 +5,9 @@ const _coarsePointer = () => (typeof matchMedia === 'function' && matchMedia('(p
 const RADIUS_HANDLE_COUNT = 4
 const _RADIUS_COLOR = 0xffaa00
 
-function _closestPointOnAxisLine(ray, origin, axis) {
-  const w0 = ray.origin.clone().sub(origin)
+const _axisLineW0 = new THREE.Vector3()
+function _closestPointOnAxisLine(ray, origin, axis, out = new THREE.Vector3()) {
+  const w0 = _axisLineW0.copy(ray.origin).sub(origin)
   const a = ray.direction.dot(ray.direction)
   const b = ray.direction.dot(axis)
   const c = axis.dot(axis)
@@ -15,7 +16,7 @@ function _closestPointOnAxisLine(ray, origin, axis) {
   const denom = a * c - b * b
   const rayParallelToAxis = Math.abs(denom) < 1e-8
   const t2 = rayParallelToAxis ? 0 : (a * e - b * d) / denom
-  return origin.clone().addScaledVector(axis, t2)
+  return out.copy(origin).addScaledVector(axis, t2)
 }
 
 function _addHitProxy(group, axis, geom, place) {
