@@ -277,6 +277,11 @@ async function main() {
     try {
       const { stdout } = await execFileAsync(process.execPath, [file])
       for (const line of stdout.split('\n')) if (line.trim()) console.log(fmt(line))
+      const failLines = stdout.split('\n').filter(line => /RESULT: FAIL/.test(line))
+      if (failLines.length) {
+        console.error(`check: ${label} exited 0 but printed ${failLines.length} RESULT: FAIL line(s); a FAIL fails the run`)
+        process.exit(1)
+      }
     } catch (e) {
       console.error(`check: ${label}:`, [e.stdout, e.stderr, e.message].filter(Boolean).join('\n').trim())
       process.exit(1)
