@@ -51,11 +51,14 @@ export function createGrassDecal(stamps, opts) {
     return changed
   }
 
-  function tick(minIntervalS) {
-    const t = now()
+  function tickAt(t, minIntervalS) {
     const interval = Number.isFinite(minIntervalS) && minIntervalS > 0 ? minIntervalS : 1
     if (appliedStamps.length > 0 && (t - cellsBuiltAt) / 1000 >= interval) return rebuildCells(t)
     return false
+  }
+
+  function tick(minIntervalS) {
+    return tickAt(now(), minIntervalS)
   }
 
   function markScorched(x, z, radius, strength) {
@@ -95,21 +98,31 @@ export function createGrassDecal(stamps, opts) {
     return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
   }
 
-  function nearestStamps(px, pz, max, radius) {
-    tick()
-    if (appliedStamps.length === 0) return []
+  const nearDistSq = []
+  function nearestStampsInto(out, px, pz, max, radius) {
     const t = now()
+    tickAt(t, 1)
+    const cap = Number.isFinite(max) ? Math.max(0, max) : Infinity
+    if (appliedStamps.length === 0 || cap === 0) return 0
     const r2 = Number.isFinite(radius) ? radius * radius : Infinity
-    const withDist = []
-    for (const s of appliedStamps) {
+    let k = 0
+    for (let i = 0; i < appliedStamps.length; i++) {
+      const s = appliedStamps[i]
       const dx = s.x - px, dz = s.z - pz
       const distSq = dx * dx + dz * dz
       if (distSq > r2) continue
-      withDist.push({ s: { x: s.x, z: s.z, radius: s.radius, strength: effectiveStrength(s, t) }, distSq })
+      if (k === cap && distSq >= nearDistSq[k - 1]) continue
+      let p = k
+      while (p > 0 && nearDistSq[p - 1] > distSq) p--
+      if (k < cap) k++
+      const last = k - 1
+      const spare = out[last] || (out[last] = { x: 0, z: 0, radius: 0, strength: 0 })
+      for (let j = last; j > p; j--) { out[j] = out[j - 1]; nearDistSq[j] = nearDistSq[j - 1] }
+      out[p] = spare
+      nearDistSq[p] = distSq
+      spare.x = s.x; spare.z = s.z; spare.radius = s.radius; spare.strength = effectiveStrength(s, t)
     }
-    withDist.sort((a, b) => a.distSq - b.distSq)
-    const cap = Number.isFinite(max) ? max : withDist.length
-    return withDist.slice(0, cap).map(w => w.s)
+    return k
   }
 
   function toJSON() { return { version: 2, cellM: DECAL_CELL_M, halfLifeS, stamps: appliedStamps.map(s => ({ x: s.x, z: s.z, radius: s.radius, strength: s.strength, appliedAt: s.appliedAt })) } }
@@ -124,7 +137,7 @@ export function createGrassDecal(stamps, opts) {
   }
 
   return {
-    markScorched, sampleAt, nearestStamps, toJSON, clear, tick, _seedStamp,
+    markScorched, sampleAt, nearestStampsInto, toJSON, clear, tick, _seedStamp,
     get cellCount() { return cells.size },
     get stampCount() { return appliedStamps.length },
     get version() { return version },

@@ -617,13 +617,13 @@ export async function createGrass(opts = {}) {
   const decalStore = createGrassDecal(null, { halfLifeS: decalHalfLifeS })
   let _decalVersion = -1
 
+  const _nearStamps = []
   function _refreshDecalUniforms(px, pz) {
     const arr = wind.uDecalPosXZRS.value
-    const near = decalStore.nearestStamps(px, pz, MAX_DECALS, ringRadius + DROP_MARGIN)
-    let n = 0
-    for (; n < near.length; n++) {
-      const s = near[n]
-      arr[n * 4] = s.x; arr[n * 4 + 1] = s.z; arr[n * 4 + 2] = s.radius; arr[n * 4 + 3] = Number.isFinite(s.strength) ? s.strength : 1
+    const n = decalStore.nearestStampsInto(_nearStamps, px, pz, MAX_DECALS, ringRadius + DROP_MARGIN)
+    for (let j = 0; j < n; j++) {
+      const s = _nearStamps[j]
+      arr[j * 4] = s.x; arr[j * 4 + 1] = s.z; arr[j * 4 + 2] = s.radius; arr[j * 4 + 3] = Number.isFinite(s.strength) ? s.strength : 1
     }
     for (let i = n; i < MAX_DECALS; i++) { arr[i * 4] = 0; arr[i * 4 + 1] = 0; arr[i * 4 + 2] = 0; arr[i * 4 + 3] = 0 }
     wind.uDecalCount.value = n
