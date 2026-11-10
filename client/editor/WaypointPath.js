@@ -107,7 +107,8 @@ export function createWaypointPathOverlay({ scene, entityMeshes }) {
     update(entities, selectedId) {
       const points = _pointsFrom(entities)
       if (entityMeshes) {
-        for (const p of points) {
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i]
           const m = entityMeshes.get(p.id)
           if (m) { p.position[0] = m.position.x; p.position[1] = m.position.y; p.position[2] = m.position.z }
         }

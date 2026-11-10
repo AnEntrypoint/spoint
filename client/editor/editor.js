@@ -169,12 +169,16 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     return n ? c.multiplyScalar(1 / n) : c
   }
   const _selectionIds = []
+  let _selectionCount = 0
   const _selectionCentroid_out = new THREE.Vector3()
+  function _pushSelectionId(id) { _selectionIds[_selectionCount++] = id }
   function _selectionCentroid(leadId) {
-    _selectionIds.length = 0
-    _selectionIds.push(leadId)
-    for (const id of extraSelectedIds) _selectionIds.push(id)
-    return _computeCentroid(_selectionIds, _selectionCentroid_out)
+    _selectionCount = 0
+    _pushSelectionId(leadId)
+    extraSelectedIds.forEach(_pushSelectionId)
+    const c = _selectionCentroid_out.set(0, 0, 0); let n = 0
+    for (let i = 0; i < _selectionCount; i++) { const m = entityMeshes.get(_selectionIds[i]); if (!m) continue; c.add(m.position); n++ }
+    return n ? c.multiplyScalar(1 / n) : c
   }
   function _axisVec(axis) {
     if (_gizmoSpace !== 'local') return _AX[axis]
