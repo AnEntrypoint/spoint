@@ -201,7 +201,7 @@ Detail: `docs/AGENTS-DETAIL.md#entry-points`.
 
 Detail: `docs/AGENTS-DETAIL.md#fire`.
 
-- `src/shared/fire/fireKernel.js` `burnCell`: the kernel is integer-only, with no float, Math.random or Date.now.
+- `src/shared/fire/fireKernel.js` `burnCell`: the kernel draws no randomness or clock (no `Math.random`, `Date.now` or `performance.now`); regrow floors a float product, so keep that `Math.floor`.
 - A per-tile array in `snapshot()`/`restore()` joins `TILE_ARRAYS` and bumps VERSION.
 - `rewindTo` verifies against `counters`, never `delta`.
 - A fire record that promises work with no sampler is refused at construction (`src/behaviours/fireTerrain.js`).
@@ -211,7 +211,7 @@ Detail: `docs/AGENTS-DETAIL.md#fire`.
 Detail: `docs/AGENTS-DETAIL.md#planet-wide-multiplayer`.
 
 - The Jolt heap is fixed at `JOLT_WASM_HEAP_BYTES` (`src/shared/clusterConfig.js`); overflow raises `Aborted(OOM)`.
-- Size `maxContactConstraints` and `maxBodies` for the population: contacts drop silently, and overflow bodies share body id 0.
+- Size `maxContactConstraints` and `maxBodies` for the population: `World.js` throws once a contact or body limit is exceeded.
 - Collider rings are per connected player, never the centroid; evict farthest-first (`classifyRings`, `ColliderStreamer.js`).
 - Clusters stay disabled in every shipped world; the world-def parser refuses a mismatch in either direction.
 - `packCellKey` (`src/terrain/CubeSphereCells.js`) throws `RangeError` past a safe integer; never reintroduce `| 0`.
@@ -221,7 +221,7 @@ Detail: `docs/AGENTS-DETAIL.md#planet-wide-multiplayer`.
 
 Detail: `docs/AGENTS-DETAIL.md#chart-re-anchor`.
 
-- Re-anchor is a change of basis, not rotation: position, velocity and forward stay invariant (`src/sdk/chartState/`).
+- Re-anchor is a change of basis: `createReexpressPass` (`src/shared/chartReexpress.js`) re-expresses point, vector and rotation, so world-space position, velocity and forward are kept.
 - `CHART_REANCHOR_ANGLE_DEG` must exceed the worst angle of `createChartAnchorLattice`, or the anchor thrashes.
 - `chartEpoch` keys re-anchor in `ChartReanchorService.js`, `ChartReanchorTerrain.js`, `FieldLattice.js`, `ColliderStreamer.js` and the `groundHeightLocal` memo gate.
 
@@ -229,15 +229,15 @@ Detail: `docs/AGENTS-DETAIL.md#chart-re-anchor`.
 
 Detail: `docs/AGENTS-DETAIL.md#physics-and-jolt`.
 
-- `physics.setBodyMotionType` returns a NEW body id or `false`; use `IsActive()` as the discriminator and recreate a static-created body.
-- Create the new body BEFORE destroying the old, on `LAYER_DYNAMIC`; refuse a body holding a constraint, vehicle chassis or trimesh/mesh/heightfield shape.
+- `physics.setBodyMotionType` returns the same id for an in-place change, a NEW id when it recreates the body, and `false` when it cannot; use `IsActive()` as the discriminator.
+- Create the new body BEFORE destroying the old, on the layer its motion type maps to (`LAYER_STATIC` for static, else `LAYER_DYNAMIC`); refuse a body holding a constraint or vehicle chassis, and a trimesh/mesh/heightfield body moving to a simulated type.
 - Replace a pooled body whose `bodyMeta.type` differs from the requested motion type; copy `getBodyPosition` before the next call.
 - Use `GetSampleCount()` (per-side N) and `GetMinHeightValue()`; `get_mMinHeightValue` is not a Jolt method.
 - Trimesh and convex build failures propagate as `ColliderBuildError` and refuse boot (`assertTrimeshBuildsClean`, `src/apps/AppRuntime.js`); never degrade to a box.
-- `AppRuntimePhysics.js` skips `e._vehicleId != null` in both `_tickPhysicsLOD` and `_enforceBodyBudget`.
+- `AppRuntimePhysics.js` pins a vehicle chassis (`e._vehicleId != null`) to physical in `_tickPhysicsLOD` and skips it in `_enforceBodyBudget`.
 - `VehiclePhysics.js`: never `J.destroy` `v.constraint` or `v.tester` after `RemoveConstraint`, nor `get_mTracks()` copies after `set_mTracks`.
 - EDITOR_UPDATE calls `syncEntityCollider` AFTER `changeBodyType`; `runtime.applyImpulseToEntity` answers `false` for a force no body received.
-- `src/physics/World.js` `removeBody` parks a pooled dynamic body; `deactivateBody` is the explicit API.
+- `src/physics/World.js` `removeBody` parks a shape-pooled body unless `force` is set; `deactivateBody` is the explicit API.
 
 ## Terrain and colliders
 
