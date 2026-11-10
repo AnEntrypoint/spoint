@@ -101,7 +101,7 @@ Detail: `docs/AGENTS-DETAIL.md#witness-and-publish-tooling`.
 - `src/apps/AppRuntime.js` `nearbyEntities` and `relevantEntities` answer the same radius query with or without a stage loader.
 - A world's `port` applies unless the `PORT` environment variable is set (`src/sdk/ServerBoot.js`).
 - `scripts/cross-map-parity.mjs` reads jayzee's working-tree PARITY.md; a dirty file makes the run PROVISIONAL, so commit or revert it first.
-- `scripts/perf-run.mjs` still emits `avgMs`: quote `p50Ms` with `p95Ms`, never the average.
+- `scripts/perf-run.mjs` emits `p50Ms` with `p95Ms` only: quote both, never an average.
 
 ## Client render placement
 
