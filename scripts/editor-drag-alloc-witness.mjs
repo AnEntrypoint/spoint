@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { BASE_REV, materializeBase, treeUrl, installAllocHooks } from './lib/alloc-witness-hooks.mjs'
+import { BASE_REV, materializeBase, treeUrl, installAllocHooks, sampledAllocationBytes } from './lib/alloc-witness-hooks.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const EDITOR_RELS = ['client/editor/editor.js', 'client/editor/EditorGizmoBuild.js', 'client/editor/WaypointPath.js']
@@ -13,6 +13,9 @@ const ENTITIES = [
 ]
 const PATH = [[6, 2], [12, 5], [18, 8], [25, 3], [31, -4], [40, -10]]
 const FRAMES = 5
+const WARM_FRAMES = 300
+const SAMPLED_FRAMES = 50
+const EDITOR_PATTERN = /client\/editor\/(editor|EditorGizmoBuild|WaypointPath)\.js$/
 const WAYPOINT_NODES = [
   { id: 'e1', position: [0, 0.5, 0], custom: { _waypoint: true, order: 0 } },
   { id: 'e2', position: [3, 0.5, 1], custom: { _waypoint: true, order: 1 } },
@@ -27,6 +30,7 @@ const SCENARIOS = [
 function childRun(which, part) {
   const out = spawnSync(process.execPath, [SELF, `--child=${part}`, `--editor=${which}`], { encoding: 'utf8', timeout: 240000, maxBuffer: 64 * 1024 * 1024 })
   if (out.error) throw new Error(`[editor-drag-alloc] ${part} ${which} child: ${out.error.message}`)
+  if (process.env.ALLOC_SITES === '1') process.stderr.write(out.stderr || '')
   const line = (out.stdout || '').split('\n').find(l => l.startsWith('WITNESS_JSON '))
   if (out.status !== 0 || !line) {
     throw new Error(`[editor-drag-alloc] ${part} ${which} child exited ${out.status}\n${out.stderr || out.stdout}`)
@@ -130,14 +134,16 @@ async function runEditor(THREE, urls) {
     }
     ptr.onEnd({ ...base, clientX: start.x + PATH.at(-1)[0], clientY: start.y + PATH.at(-1)[1] }, false)
     ed.updateWaypointPath(WAYPOINT_NODES)
+    for (let w = 0; w < WARM_FRAMES; w++) ed.updateGizmo()
     const frames = []
     for (let f = 0; f < FRAMES; f++) {
       const before = allocTotal()
       ed.updateGizmo()
       frames.push(allocTotal() - before)
     }
+    const frameBytes = await sampledAllocationBytes(() => { for (let f = 0; f < SAMPLED_FRAMES; f++) ed.updateGizmo() }, EDITOR_PATTERN)
     ed.destroy()
-    results.push({ name: scenario.name, moves, frames })
+    results.push({ name: scenario.name, moves, frames, frameBytes })
   }
   return { part: 'editor', scenarios: results, sites: globalThis.__allocCounts.sites }
 }
@@ -199,6 +205,9 @@ async function main() {
   const frameAllocs = editor[target].scenarios.map(s => s.frames.slice(1).reduce((n, a) => n + a, 0))
   const frameTotal = frameAllocs.reduce((a, b) => a + b, 0)
   checks.push(report('zero editor allocations per frame after the first frame (updateGizmo with waypoints)', frameTotal === 0, `${target}: ${frameTotal} constructions/clones over ${SCENARIOS.length} scenarios x ${FRAMES - 1} frames (per scenario ${frameAllocs.join(',')})`))
+  const frameBytes = editor[target].scenarios.map(s => s.frameBytes)
+  const frameByteTotal = frameBytes.reduce((a, b) => a + b, 0)
+  checks.push(report('zero sampled bytes allocated by editor code per frame (updateGizmo with waypoints)', frameByteTotal === 0, `${target}: ${frameByteTotal} sampled bytes over ${SCENARIOS.length} scenarios x ${SAMPLED_FRAMES} frames (per scenario ${frameBytes.join(',')}), after ${WARM_FRAMES} warm-up frames`))
   const allocs = editor[target].scenarios.map(s => s.moves.slice(1).reduce((n, m) => n + m.alloc, 0))
   const total = allocs.reduce((a, b) => a + b, 0)
   checks.push(report('zero editor allocations per move after the first move', total === 0, `${target}: ${total} constructions/clones across ${SCENARIOS.length} scenarios (per scenario ${allocs.join(',')})`))

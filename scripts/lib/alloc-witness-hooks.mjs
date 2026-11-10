@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { Session } from 'node:inspector'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, posix } from 'node:path'
@@ -99,3 +100,26 @@ export function treeUrl(rel) {
 }
 
 export const BASE_REV = '48541f5'
+
+function attributedBytes(node, pattern, inScope = false, sites = []) {
+  const here = inScope || pattern.test(node.callFrame?.url ?? '')
+  let total = here ? node.selfSize : 0
+  if (here && node.selfSize > 0) sites.push(`${node.selfSize} ${node.callFrame?.functionName || '(anonymous)'} ${node.callFrame?.url}:${node.callFrame?.lineNumber + 1}`)
+  for (const child of node.children ?? []) total += attributedBytes(child, pattern, here, sites).total
+  return { total, sites }
+}
+
+export async function sampledAllocationBytes(run, pattern) {
+  const session = new Session()
+  session.connect()
+  const post = (method, params = {}) => new Promise((resolve, reject) => session.post(method, params, (err, result) => (err ? reject(err) : resolve(result))))
+  await post('HeapProfiler.enable')
+  await post('HeapProfiler.startSampling', { samplingInterval: 8, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true })
+  run()
+  const { profile } = await post('HeapProfiler.stopSampling')
+  await post('HeapProfiler.disable')
+  session.disconnect()
+  const { total, sites } = attributedBytes(profile.head, pattern)
+  if (process.env.ALLOC_SITES === "1") for (const site of sites) console.error(`sampled ${site}`)
+  return total
+}
