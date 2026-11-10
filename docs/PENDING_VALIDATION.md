@@ -3632,3 +3632,40 @@ Judgement calls to review:
 - The presence DOM stub returns one shared viewport object (Phase A row 4). A real `getBoundingClientRect` call also allocates a wrapper; the module does not keep it.
 - The presence clock is now read off the tick path. The staleness bound moves from exact-per-tick to within one second.
 - The warm-up change is a witness precondition, disclosed above. The steady-state tree path is zero at 3000 warm-up frames; the base control fails at both warm-up settings.
+
+## Run 42, Phase A: ranked remaining items, per-frame and per-move allocations (code, docs and tests only, not built or run)
+
+Base: origin/main 0b76d94 (the pre-change revision for both negative controls). Phase A changed code and tests with no build, test, gate or witness run. Scope: per-frame and per-move allocations, the rule for this pass. Per-tick items (server tick, netcode, collision mirror, streamer) are listed for completeness and are not in scope.
+
+Ranking. Order: reachable and checkable on this host first, then items that need a harness this host does not have, then decisions, then blocked and foreign.
+
+| rank | item | class | status this pass | witness |
+|---|---|---|---|---|
+| 1 | `TransformRingReader` read (`BrowserServer.readTransformRing`, every frame): a new Map, a record and three arrays per player, a result object per read, and an extra read on the inconsistent path | reachable, per frame | done, commit 8e702f6 | `scripts/transform-ring-read-alloc-witness.mjs` (new) |
+| 2 | `decalStore.nearestStamps` (`client/core/Grass.js` `_refreshDecalUniforms`, every frame while the camera moves): a withDist array, a record per stamp in range, a sort, a slice and a map per call; `tick()` and `now()` read the clock twice | reachable, per frame | done, commit 9802706 | `scripts/grass-decal-nearest-alloc-witness.mjs` (new) |
+| 3 | `computeParabolicArc` (`client/xr/XRWidgets.js`): a `new THREE.Vector3` and a `{ point, valid }` result per frame when the arc meets ground; `groundCandidates` for-of over `scene.children` | reachable, per frame; the largest steady-state XR source per the audit | not done: the arc needs an allocation probe; `scripts/xr-arc-cost-witness.mjs` is the candidate harness, not yet checked | none this pass |
+| 4 | `Grass.revisitNearLod` (`client/core/Grass.js`, per revisit every 4 m of move): a new Map and a group record with five arrays | reachable, per move | not done: `Grass.js` loads WebGPU and TSL modules, and no Node harness loads it | none this pass |
+| 5 | occlusion candidate arrays: `Grass.js:685-702` and `Rocks.js:307-319` (kept, retained by cell records); `Vegetation.js:868-893` (open) | reachable, per frame | not done: Vegetation needs a render harness | none this pass |
+| 6 | `PlayerLOD.js` per-frame subarray view, sort, return literal and addInstances closure | reachable, per frame | not done: the crowd-dot witness needs a headful browser | none this pass |
+| 7 | `Weather._randomDiscPoint` returns `[cx, cz]` per landing and per splash | reachable, per event | not done: low, and it needs a Weather harness | none this pass |
+| 8 | XR per-frame literals (`XRSystem.js`, `XRControls.js`): pointer literal, gamepad literals, Matrix4 temps, `getHitTestResults` array | reachable, per frame | not done: XR API objects and the XR harness | none this pass |
+| 9 | editor drag per move: `_onDragUpdate` payloads (`toArray()`, the options literal); `getNDC`'s browser rect | examined, not reusable | not changed: the consumer keeps the position array (`client/app.js`); the rect wrapper is browser-owned | none |
+| 10 | per-tick items: server tick, netcode encode and deltas, collision mirror, `HeightfieldStreamer.validCenters`, `FieldLattice.toLattice` | out of this pass | not changed (per tick, not per frame or move); deferred designs keep their proofs (Run 38 rows 7 to 11) | none |
+| 11 | `parseTreeTextureMaxPx` uses `Number(raw)` (the AGENTS "never coerce" line) | decision | not changed: the function throws for every value except a decimal digit string, which it converts to a number; that is parsing, not silent coercion, so the conflict is wording | none |
+| 12 | row 3 gap: a chart re-anchor between a collision impulse's plan and its application is not witnessed | reachable test gap, per tick | not done this pass: needs a re-anchor harness in netcode | open |
+| 13 | SES bypass: `AppLoader.loadFromString` imports editor-supplied source with native `import()` | owner decision (Run 37 rank 12) | not changed | owner |
+| 14 | replay growth at 120/40/6, the 1 cm pop outlier, the 1–2 mm spike, 50/10/2 underpowered, the conditioner outlier, groundY | research and owner decisions (rows 12–16, 26) | not run: long measurements, held for the owner | owner or open |
+| 15 | `scripts/lease-windows-witness.mjs`; perf-run (no NVIDIA DirectX adapter); crowd-dot-render-witness (headful browser) | blocked here | not run | host |
+| 16 | rows 7 and 44 | foreign (jayzee) | not touched | jayzee |
+
+Changes, each committed on its own as lanmower with no trailer:
+| # | commit | file | change | witness (run in Phase B) |
+|---|---|---|---|---|
+| 1 | 8e702f6 | `src/transport/TransformRing.js` (`TransformRingReader`) | the reader keeps one Map (`_players`) and one record per player (`_records`, with `position`, `rotation`, `velocity` arrays and `seen`); a read writes into the records, sets `seen` to the pass, and a `Map.forEach` sweep with a bound callback removes players not seen; `readCut` builds its result object only for external callers, and `readAll` returns the Map | `scripts/transform-ring-read-alloc-witness.mjs`: digests of 240 reads equal the pre-change reader (`0b76d94`), including a locked header (stale path) and a locked slot; zero sampled bytes per read after 3000 warm-up reads; the pre-change control must FAIL |
+| 2 | 9802706 | `src/terrain/GrassDecal.js` (`nearestStampsInto`, `tickAt`), `client/core/Grass.js` (`_refreshDecalUniforms`, `_nearStamps`) | `nearestStampsInto(out, px, pz, max, radius)` returns the count and fills reused records; a stable insertion keeps the nearest `max` (ties keep stamp order, as the old stable sort did); one clock read per call; `tick` and `nearestStamps` are replaced by `tickAt` and `nearestStampsInto` | `scripts/grass-decal-nearest-alloc-witness.mjs`: 400 queries across max 1/4/8/16/Infinity and radius 4/15/40/all give the same stamps in the same order as the pre-change query; zero sampled bytes per call after 3000 warm-up calls on a live clock; the pre-change control must FAIL |
+
+Judgement calls to review in Phase B:
+- The transform ring map and records are reused: a caller that keeps a result across reads sees later values. The only consumer is `SceneGraph.setPlayerTransformsFromRing`, which copies values synchronously in the same frame.
+- The map's insertion order follows first appearance, not slot order on every read. The consumer does not depend on order.
+- `nearestStamps` is no longer exported. Its only caller was `Grass.js`.
+- The grass decal query reads the clock once per call with `Date.now` (the store's default). That single read is a boxed number in V8 and may show in the sampled bytes; Phase B decides whether to fix it (as the presence clock was fixed) or to record it.
