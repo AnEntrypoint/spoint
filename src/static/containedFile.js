@@ -1,5 +1,5 @@
 import { existsSync, statSync, realpathSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 
 function nodeModulesRealRoots(fpResolved, baseResolved) {
   const roots = []
@@ -12,6 +12,11 @@ function nodeModulesRealRoots(fpResolved, baseResolved) {
   return roots
 }
 
+function workspaceRealRoots(baseResolved) {
+  if (basename(baseResolved) !== 'node_modules') return []
+  try { return [realpathSync(join(baseResolved, '..', 'packages'))] } catch { return [] }
+}
+
 export function containedRealFile(fp, dir) {
   const baseResolved = resolve(dir)
   const fpResolved = resolve(fp)
@@ -19,6 +24,6 @@ export function containedRealFile(fp, dir) {
   if (!existsSync(fp) || !statSync(fp).isFile()) return false
   let realFp
   try { realFp = realpathSync(fp) } catch { return false }
-  const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved)]
+  const allowedRoots = [baseResolved, ...nodeModulesRealRoots(fpResolved, baseResolved), ...workspaceRealRoots(baseResolved)]
   return allowedRoots.some((root) => realFp === root || realFp.startsWith(root + sep))
 }
