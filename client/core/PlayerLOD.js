@@ -14,7 +14,10 @@ export const TIER_DOT = 2
 let _idxScratch = new Int32Array(0)
 let _d2Scratch = new Float64Array(0)
 const _full = new Set(), _reduced = new Set(), _dot = new Set()
+const _setOfTier = [_full, _reduced, _dot]
 const _tierById = new Map()
+const _passById = new Map()
+let _pass = 0
 const _order = []
 const _tiers = { full: _full, reduced: _reduced, dot: _dot, order: _order, tierById: _tierById }
 
@@ -22,6 +25,50 @@ function ensureScratchCapacity(n) {
   if (_idxScratch.length >= n) return
   _idxScratch = new Int32Array(n)
   _d2Scratch = new Float64Array(n)
+}
+
+function indexBefore(a, b) {
+  const da = _d2Scratch[a], db = _d2Scratch[b]
+  return da < db || (da === db && a < b)
+}
+
+function siftDown(root, end) {
+  let r = root
+  for (;;) {
+    let child = 2 * r + 1
+    if (child >= end) return
+    if (child + 1 < end && indexBefore(_idxScratch[child], _idxScratch[child + 1])) child++
+    if (!indexBefore(_idxScratch[r], _idxScratch[child])) return
+    const t = _idxScratch[r]; _idxScratch[r] = _idxScratch[child]; _idxScratch[child] = t
+    r = child
+  }
+}
+
+function sortIndicesByD2(n) {
+  for (let start = (n >> 1) - 1; start >= 0; start--) siftDown(start, n)
+  for (let end = n - 1; end > 0; end--) {
+    const top = _idxScratch[0]
+    _idxScratch[0] = _idxScratch[end]; _idxScratch[end] = top
+    siftDown(0, end)
+  }
+}
+
+function setTier(id, tier) {
+  const old = _tierById.get(id)
+  if (old !== tier) {
+    if (old !== undefined) _setOfTier[old].delete(id)
+    _setOfTier[tier].add(id)
+    _tierById.set(id, tier)
+  }
+  _passById.set(id, _pass)
+}
+
+function sweepStale(pass, id) {
+  if (pass === _pass) return
+  const old = _tierById.get(id)
+  if (old !== undefined) _setOfTier[old].delete(id)
+  _tierById.delete(id)
+  _passById.delete(id)
 }
 
 export function classifyPlayerTiers(entries, viewerPos, fullCount = PLAYER_LOD_FULL_COUNT, reducedD2 = PLAYER_LOD_REDUCED_D2) {
@@ -34,23 +81,21 @@ export function classifyPlayerTiers(entries, viewerPos, fullCount = PLAYER_LOD_F
     _idxScratch[i] = i
     _d2Scratch[i] = dx * dx + dy * dy + dz * dz
   }
-  const idxView = _idxScratch.subarray(0, n)
-  idxView.sort(_byD2)
-  _full.clear(); _reduced.clear(); _dot.clear(); _order.length = 0; _tierById.clear()
+  sortIndicesByD2(n)
+  _pass++
   for (let i = 0; i < n; i++) {
-    const srcIdx = idxView[i]
+    const srcIdx = _idxScratch[i]
     const e = entries[srcIdx]
     const id = e.id
     const d2 = _d2Scratch[srcIdx]
     e.d2 = d2
-    _order.push(id)
-    if (i < fullCount) { _full.add(id); _tierById.set(id, TIER_FULL) }
-    else if (d2 < reducedD2) { _reduced.add(id); _tierById.set(id, TIER_REDUCED) }
-    else { _dot.add(id); _tierById.set(id, TIER_DOT) }
+    _order[i] = id
+    setTier(id, i < fullCount ? TIER_FULL : d2 < reducedD2 ? TIER_REDUCED : TIER_DOT)
   }
+  if (_order.length !== n) _order.length = n
+  _passById.forEach(sweepStale)
   return _tiers
 }
-function _byD2(a, b) { return _d2Scratch[a] - _d2Scratch[b] }
 
 function makeDotGeo(size) {
   const geo = new THREE.PlaneGeometry(size, size)
@@ -98,6 +143,25 @@ function createCrowdDotRendererWebGL(scene, opts) {
     im.resizeBuffers(Math.max(n, im.capacity * 2))
   }
 
+  let curDots = null, curBuckets = false, curViewerY = 0, curGround = null, curIndex = 0
+
+  function placeDot(entity) {
+    let x, z, y, scale
+    if (curBuckets) {
+      const bucket = curDots[curIndex]
+      x = (bucket[0] + 0.5) * dotCellM; z = (bucket[1] + 0.5) * dotCellM
+      y = curGround ? curGround(x, z) : curViewerY
+      scale = dotSize * Math.min(3, 0.6 + Math.sqrt(bucket[2]) * 0.35)
+    } else {
+      const p = curDots[curIndex]
+      x = p.x; z = p.z; y = curGround ? curGround(x, z) : p.y
+      scale = dotSize
+    }
+    curIndex++
+    entity.position.set(x, y + 0.05, z)
+    entity.scale.set(scale, scale, scale)
+  }
+
   function update(dots, viewerY, groundHeightFn) {
     if (!dots || dots.length === 0) {
       if (activeCount > 0) { im.clearInstances(); activeCount = 0 }
@@ -106,23 +170,9 @@ function createCrowdDotRendererWebGL(scene, opts) {
     const isBuckets = Array.isArray(dots[0])
     ensureCapacity(dots.length)
     im.clearInstances()
-    let i = 0
-    im.addInstances(dots.length, (entity) => {
-      let x, z, y, scale
-      if (isBuckets) {
-        const [cx, cz, count] = dots[i]
-        x = (cx + 0.5) * dotCellM; z = (cz + 0.5) * dotCellM
-        y = groundHeightFn ? groundHeightFn(x, z) : viewerY
-        scale = dotSize * Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
-      } else {
-        const p = dots[i]
-        x = p.x; z = p.z; y = groundHeightFn ? groundHeightFn(x, z) : p.y
-        scale = dotSize
-      }
-      i++
-      entity.position.set(x, y + 0.05, z)
-      entity.scale.set(scale, scale, scale)
-    })
+    curDots = dots; curBuckets = isBuckets; curViewerY = viewerY; curGround = groundHeightFn; curIndex = 0
+    im.addInstances(dots.length, placeDot)
+    curDots = null; curGround = null
     activeCount = dots.length
   }
 
@@ -169,10 +219,10 @@ function createCrowdDotRendererWebGPU(scene, opts) {
     for (let i = 0; i < dots.length; i++) {
       let x, z, y, scale
       if (isBuckets) {
-        const [cx, cz, count] = dots[i]
-        x = (cx + 0.5) * dotCellM; z = (cz + 0.5) * dotCellM
+        const bucket = dots[i]
+        x = (bucket[0] + 0.5) * dotCellM; z = (bucket[1] + 0.5) * dotCellM
         y = groundHeightFn ? groundHeightFn(x, z) : viewerY
-        scale = dotSize * Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
+        scale = dotSize * Math.min(3, 0.6 + Math.sqrt(bucket[2]) * 0.35)
       } else {
         const p = dots[i]
         x = p.x; z = p.z; y = groundHeightFn ? groundHeightFn(x, z) : p.y

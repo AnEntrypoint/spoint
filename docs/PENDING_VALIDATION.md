@@ -3695,3 +3695,11 @@ Witnesses (command, exit code, wall time, quoted RESULT line):
 Not run in Phase B: the XR arc, Grass revisit, occlusion, PlayerLOD, Weather and XR rows (ranked 3 to 8 above). Each needs a harness this host does not have, so they stay open in the ledger.
 
 Quoted witness checks, for the record. The drag witness prints one `ok` per check; the failing base run prints `FAIL` for the per-frame, per-move, waypoint rebuild and label-canvas checks. The presence base run prints `FAIL` for allocations, sampled bytes and the rect count.
+
+## Run 43, Phase A: ledger items 3 to 8 and 12 to 16 (code, docs and tests only, not built or run)
+
+Base: origin/main 20e9389 (the pre-change revision for every negative control in this pass). Phase A runs no build, test, gate or witness. Each change is one lanmower commit with no trailer, and each row below names the commit, the file, the change, the witness it needs, and the host harness that witness needs.
+
+| row | commit | file | change | witness (run in Phase B) | harness and why it is missing here |
+|---|---|---|---|---|---|
+| 6 | (this commit) | `client/core/PlayerLOD.js` (`classifyPlayerTiers`, `placeDot`, `update` in both renderers) | the per-frame subarray view, the comparator sort, the `Set.clear`/`Map.clear` and the `order` truncation are replaced: a non-allocating heap sort on the index buffer with an index tie-break (the same order as the old stable sort), tiers updated in place with a pass stamp and a swept stale list, `order` written by index; the WebGL `addInstances` closure is created once; both renderers read a dot's fields by index, not destructuring | `scripts/player-lod-tiers-alloc-witness.mjs` (new): tiers, order, tierById and d2 equal the pre-change classifier at 20e9389 over 400 calls; zero sampled bytes per call after 3000 warm-up calls; `--lod=base` must FAIL | none for the classifier (pure JS, loaded through the alloc hooks). The render path (`installPlayerLOD().tick`, the WebGL and WebGPU dot renderers) needs a browser with WebGL or WebGPU: `scripts/crowd-dot-render-witness.mjs` (headful). Not run here |
