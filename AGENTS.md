@@ -52,7 +52,7 @@ Skills encode environment-specific constraints that override general knowledge.
 ## Validation
 
 - Debug a failing path live before writing any test: reproduce it on the running dev server or with the one witness that names it, read the failure, then pin the fix with a witness.
-- Iterate on `npm run dev` with HMR (see Dev HMR bodies), not on `npm run check`, which takes about 3 minutes.
+- Iterate on `npm run dev` with HMR (see Dev HMR bodies), not on `npm run check`, which takes about 2 to 3 minutes.
 - Run `npm run check` once per push, as the last step before the push.
 
 ## Stopping Processes

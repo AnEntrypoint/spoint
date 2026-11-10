@@ -3155,3 +3155,4 @@ Changes (Phase A, one commit each, as lanmower, no trailers; each row is the AGE
 | # | AGENTS.md section | change | witness |
 |---|---|---|---|
 | 1 | Working rules | check.mjs walks the working tree and runs every step; bake command takes --world tps-game; check-cache-keys names its three pins; CI node pins and frame-time-coverage corrected; .wasm scoped to .gm/witness-out; the data/ gitignore paragraph kept to what the file shows (size 29556 bytes) | scripts/agents-md-facts-witness.mjs (Phase B) and wc -c AGENTS.md |
+| 2 | Validation | npm run check takes about 2 to 3 minutes (105 s and 153 s measured in Run 31); size 29561 bytes | wc -c AGENTS.md |
