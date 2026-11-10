@@ -614,7 +614,10 @@ export async function createGrass(opts = {}) {
   if (Number.isFinite(cfg.grassBendStrength)) wind.uGrassBendStrength.value = cfg.grassBendStrength
 
   const decalHalfLifeS = (cfg.grassDecalRegrowth === false) ? REGROWTH_DISABLED_HALF_LIFE_S : (Number.isFinite(cfg.grassDecalHalfLifeS) && cfg.grassDecalHalfLifeS > 0 ? cfg.grassDecalHalfLifeS : undefined)
-  const decalStore = createGrassDecal(null, { halfLifeS: decalHalfLifeS })
+  const decalClock = new Float64Array(1)
+  decalClock[0] = Date.now()
+  setInterval(() => { decalClock[0] = Date.now() }, 1000)
+  const decalStore = createGrassDecal(null, { halfLifeS: decalHalfLifeS, nowCell: decalClock })
   let _decalVersion = -1
 
   const _nearStamps = []

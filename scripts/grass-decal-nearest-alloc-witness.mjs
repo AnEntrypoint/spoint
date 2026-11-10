@@ -53,7 +53,9 @@ async function runChild(which) {
     const max = MAXES[q % MAXES.length], radius = RADII[(q >> 2) % RADII.length]
     hash.update(JSON.stringify(query(store, px, pz, max, radius)) + '\n')
   }
-  const live = createGrassDecal(null, { halfLifeS: 120 })
+  const liveClock = new Float64Array(1)
+  liveClock[0] = Date.now()
+  const live = createGrassDecal(null, { halfLifeS: 120, nowCell: liveClock })
   const lrnd = lcg(13)
   for (let i = 0; i < STAMPS; i++) live.markScorched(lrnd() * 120 - 60, lrnd() * 120 - 60, 1 + lrnd() * 5, 0.2 + lrnd() * 0.8)
   const liveBuf = []

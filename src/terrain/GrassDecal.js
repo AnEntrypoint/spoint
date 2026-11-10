@@ -10,6 +10,8 @@ function cellKey(cx, cz) {
 export function createGrassDecal(stamps, opts) {
   const halfLifeS = (opts && Number.isFinite(opts.halfLifeS) && opts.halfLifeS > 0) ? opts.halfLifeS : DEFAULT_HALF_LIFE_S
   const now = (opts && typeof opts.now === 'function') ? opts.now : Date.now
+  const nowCell = (opts && opts.nowCell instanceof Float64Array) ? opts.nowCell : null
+  const clockCell = nowCell !== null ? nowCell : new Float64Array(1)
   const cells = new Map()
   const appliedStamps = []
   let version = 0
@@ -100,8 +102,9 @@ export function createGrassDecal(stamps, opts) {
 
   const nearDistSq = []
   function nearestStampsInto(out, px, pz, max, radius) {
-    const t = now()
-    tickAt(t, 1)
+    if (nowCell === null) clockCell[0] = now()
+    const t = clockCell[0]
+    if (appliedStamps.length > 0 && (t - cellsBuiltAt) / 1000 >= 1) rebuildCells(t)
     const cap = Number.isFinite(max) ? Math.max(0, max) : Infinity
     if (appliedStamps.length === 0 || cap === 0) return 0
     const r2 = Number.isFinite(radius) ? radius * radius : Infinity
