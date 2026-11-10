@@ -3471,3 +3471,45 @@ Row 22: the design stylesheet `https://unpkg.com/anentrypoint-design@1.0.34/dist
 Background job from 01:51 (Bash task bnt2gv0jd, "Run the final regression gate and two long research measurements"): stopped with status `killed` at 02:08:18, with no live process left. Logs in /tmp/pb: gate-120-final exit 0, `RESULT: PASS` (15 runs of 120/40/6, 8884 starved-window replays, 0 over 1 cm). meas-120-600s exit 1, `RESULT: FAIL world peers cond 120/40/6: 15 of 15 run(s) failed`, where every run failed with "no engine's corrections match the harness's applied corrections, so the hook missed a correction", a harness defect rather than a replay result. meas-50-600s produced no output. These numbers are from the replay gate, which is held for the owner, so they are recorded and not acted on.
 
 Phase B: `npm run check` must exit 0 on the last commit of this series, and then the series is pushed to `origin/main` once. Commits on local main: 603a541, 3d2b263, cf1b7a6 and c9615a4 (earlier), then the containment fix, the stylesheet fix, the witness fixes and this ledger commit.
+
+## Run 39: per-frame allocation audit (Phase A, code and docs only, not built or run)
+
+Base: origin/main 48541f5. No build, test, gate or witness was run in this pass, so every change below is verified by reading only. Each Phase B witness named here is still to be written and run, with its negative control. Nothing in this section is pushed.
+
+Audit: the editor's per-move work is the gizmo drag handler (`applyGizmoDrag`), the radius drag (`_applyRadiusDrag`), `getNDC` on each pointer event, and the snap-to-entity lookup, which runs on every move while snapping is off. The streamer's per-query work is `coversPosition`, called from `AppRuntime` and `Relocation`, and its rebuild path, which runs once per reuse build. The streamer's 300 ms tick and its sampling loop allocate nothing per sample.
+
+Ranked items (reachable without an owner decision or hardware), worked top to bottom:
+
+| rank | item | file | change | status | witness (Phase B) |
+|---|---|---|---|---|---|
+| 1 | snap-to-entity lookup built about 19 Vector3s and an array per editable entity on every move | client/editor/editor.js (`_entityCandidatePoints`, `_nearestEntitySnapPoint`, `_putSnapPoint`) | candidates go into a reused pool; the nearest result is copied into `_snapBest`; candidate order is unchanged, so tie-breaking is unchanged | committed cdb96a2 | none exists. Write `scripts/editor-drag-alloc-witness.mjs`: fixed scene of editable boxes, fixed query set; nearest point equals the HEAD implementation; zero Vector3 constructions per query after warm-up. Negative: HEAD copy of editor.js fails the construction count |
+| 2 | gizmo drag move allocated clones and new vectors and quaternions per move | client/editor/editor.js (`applyGizmoDrag`) | pt, delta, scale, offset, quaternion, move and new-position vectors use module scratch; `mesh.quaternion.copy(dragEntityStart).multiply(q)` replaces a clone with the same value | committed cdb96a2 | same witness: translate, scale, rotate, world and local, centroid pivot, extra selection. Compare transforms per move with HEAD; negative: HEAD copy |
+| 3 | `_closestPointOnAxisLine` allocated a w0 and a result per call on each scale, rotate and local-translate move | client/editor/EditorGizmoBuild.js; client/editor/editor.js (move path only) | optional output vector; module scratch for w0. The drag-start call keeps a fresh vector because `dragStart` keeps it | committed 33c09d7 | same witness as row 2 |
+| 4 | `getNDC` built a Vector2 per pointer event in drag paths | client/editor/editor.js (`getNDC`) | returns a module scratch Vector2; all three callers pass it straight to `setFromCamera` | committed cdb96a2 | same witness as row 2 |
+| 5 | `_applyRadiusDrag` built a Vector3 per move | client/editor/editor.js (`_applyRadiusDrag`) | uses `_dragPoint.set(0, 0, 0)`; the set keeps the old zero start when the ray misses | committed cdb96a2 | radius drag in the row 2 witness |
+| 6 | `_axisVec` cloned an axis per call in local space, several times per move | client/editor/editor.js (`_axisVec`) | per-axis scratch; every caller reads the result (checked) | committed cdb96a2 | row 2 witness, local space |
+| 7 | `_computeCentroid` built a Vector3 per move in centroid pivot | client/editor/editor.js (`_computeCentroid`, `applyGizmoDrag`) | optional output; the move passes `_centroidScratch`; other callers keep the default | committed cdb96a2 | row 2 witness, centroid pivot |
+| 8 | waypoint overlay: the unchanged-update early return never fired, because `_teardown` cleared the signature that `update` had just stored; every update rebuilt the overlay. Defect | client/editor/WaypointPath.js | numeric signature (ids, selection, positions) with no string building; cleared only in `destroy()`; teardown no longer clears it | committed fb8a94e | `scripts/editor-drag-alloc-witness.mjs` (waypoint case): two identical updates build once; a moved point rebuilds once; a negative with the HEAD overlay rebuilds on the second identical update |
+| 9 | waypoint labels: each rebuild created a canvas and a CanvasTexture per label | client/editor/WaypointPath.js (`_labelTexture`, `_makeOrderLabelSprite`, `_teardown`) | one cached texture per index, held at module level and not disposed on teardown; sprite materials are still per sprite | committed fb8a94e | row 8 witness: canvas constructions per rebuild after the first are zero |
+| 10 | streamer coverage query: `toLattice` allocated an input and an output array per query | src/terrain/FieldLattice.js (`toLatticeInto`); src/terrain/HeightfieldStreamer.js (`coversPosition`) | `toLatticeInto(x, z, out)` reuses probe arrays; `toLattice` keeps its contract; `coversPosition` writes into its own probe | **blocked**: in working tree, uncommitted. `FieldLattice.js` is in the AppContext import closure, so the pre-commit hook refuses a commit without `npm run gen-typings` (checked by reading the closure: 111 members; both files are members). Not run in Phase A | Phase B: `npm run gen-typings`, commit with `client/editor/sdk-typings.generated.d.ts`, then `node scripts/gen-sdk-typings.mjs --check`; witness `scripts/streamer-coverage-alloc-witness.mjs` (to write): `coversPosition` results equal HEAD over a fixed probe grid; zero array constructions per query; negative: HEAD `toLattice` path |
+| 11 | streamer rebuild: `seedFromSolved` allocated an N-squared float array and an N-squared mask on every reuse build | src/terrain/HeightfieldStreamer.js (`seedFromSolved`, `seedScratch`) | one per-streamer scratch pair, grown on demand and reset per build; builds run serially on the streamer queue, and the scratch is read only inside `sampleTerrainGridChunked` | **blocked** with row 10: same file, same hook refusal, uncommitted | Phase B: the rebuild witness, `scripts/streamer-rebuild-seed-witness.mjs` (to write): a seeded rebuild samples the same field as HEAD on a fixed two-field scene; negative: HEAD copy |
+
+Defect found while auditing (row 8): `createWaypointPathOverlay.update` stored its key, then called `_teardown()`, which cleared it. The early return for an unchanged key therefore never fired. The fix changes behaviour in one direction only: an unchanged update no longer rebuilds the overlay.
+
+Examined and not changed:
+- streamer `validCenters` (per 300 ms tick): `pass()` keeps its player snapshot across awaits in `buildField`, so a shared buffer would change what the retirement loop sees. Needs restructuring first.
+- streamer `assignPlayers` result object (per tick): trivial, and the buffers it returns are already reused.
+- `applyGizmoDrag` `_onDragUpdate` payload and the radius `custom` object: the payload goes to a callback that may retain it, and the custom object is persistent entity state.
+- drag-start allocations (`dragStart`, `dragEntityStart`, `_extraDragStart`, the `_dragPositionStart` map): once per drag. `dragStart` must stay a fresh object because it persists across moves.
+- `collectWaypointPathPoints` (per update, O(entities)): not per frame.
+- `_nearestEntitySnapPoint`'s `forEach` closure: one per move, kept to keep the change small.
+- `updateGizmo`, the PerfOverlay interval, the RenderGraphViewer and EventLog polls: not per frame.
+- Run 38 rows 7 to 11: unchanged; their proofs in the ledger still hold.
+
+Phase B to-do, in order:
+1. `npm run gen-typings`, then commit rows 10 and 11 with `client/editor/sdk-typings.generated.d.ts`.
+2. Write and run the witnesses named in rows 1 to 11, each with its negative control. The witnesses are not written yet.
+3. `node scripts/generate-docs-site.js`. Phase A did not regenerate `docs/index.html`, so the docs freshness step fails until this runs.
+4. `npm run check` on the final commit, then the single push.
+
+Commits in this pass (local, lanmower): 33c09d7 (EditorGizmoBuild.js), cdb96a2 (editor.js), fb8a94e (WaypointPath.js). This commit adds the section above. Rows 10 and 11 are uncommitted.
