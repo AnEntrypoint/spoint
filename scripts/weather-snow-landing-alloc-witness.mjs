@@ -54,7 +54,12 @@ async function runChild(which) {
   const { createWeather } = await import(url)
   const frame = await worldFrame()
   seed = RNG_SEED
+  let simNow = 0
+  const realDateNow = Date.now
+  Date.now = () => simNow
   const weather = createWeather({ renderer: stubRenderer(), scene: new THREE.Scene(), frame, cfg: { type: 'snow', intensity: 1 } })
+  Date.now = realDateNow
+  const step = () => { simNow += DT * 1000; weather.update(DT, camera, undefined) }
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 500)
   camera.position.set(0, frame.groundHeightLocal(0, 0) + 2, 0)
   camera.updateMatrixWorld(true)
@@ -62,19 +67,19 @@ async function runChild(which) {
   const accum = weather._snowAccum
   const original = accum.markScorched.bind(accum)
   accum.markScorched = (x, z, r, s) => { landings.push(`${x},${z},${r},${s}`); return original(x, z, r, s) }
-  for (let w = 0; w < WARM_UPDATES; w++) { weather.update(DT, camera, undefined); landings = [] }
+  for (let w = 0; w < WARM_UPDATES; w++) { step(); landings = [] }
   const digest = createHash('sha256')
   let totalLandings = 0, updatesWithLandings = 0
   for (let d = 0; d < DIGEST_UPDATES; d++) {
     landings = []
-    weather.update(DT, camera, undefined)
+    step()
     totalLandings += landings.length
     if (landings.length) updatesWithLandings++
     digest.update(landings.join(';') + '\n')
   }
   const windows = []
   for (let w = 0; w < SAMPLED_WINDOWS; w++) {
-    windows.push(await sampledAllocationBytes(() => { for (let s = 0; s < SAMPLED_UPDATES; s++) { landings.length = 0; weather.update(DT, camera, undefined) } }, PATTERN, { own: true, functions: FUNCTIONS }))
+    windows.push(await sampledAllocationBytes(() => { for (let s = 0; s < SAMPLED_UPDATES; s++) { landings.length = 0; step() } }, PATTERN, { own: true, functions: FUNCTIONS }))
   }
   return { digest: digest.digest('hex'), totalLandings, updatesWithLandings, windows, bytes: Math.min(...windows) }
 }
