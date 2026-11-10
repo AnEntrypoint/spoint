@@ -285,10 +285,10 @@ Detail: `docs/AGENTS-DETAIL.md#netcode-and-wire`.
 - MSG ids in `src/protocol/MessageTypes.js` must be unique; `nameMap` throws on a duplicate.
 - `src/protocol/msgpack.js` `_ensurePackr`: `pack()` throws until `ensurePacked()` resolves.
 - `src/protocol/InputCodec.js` `quantizeInput` truncates `expr`; keep the truncation (`scripts/expr-truncation-witness.mjs`).
-- `PhysicsNetworkClient.connect()` rejects with `TransportConnectError`; retry belongs in the caller (`_doReconnect`).
+- The transport's `connect(timeoutMs)` rejects with `TransportConnectError`; retry belongs in `PhysicsNetworkClient._doReconnect`.
 - Probes connect with `?probe=1`; never leave an unresolvable RECONNECT open (`rejectSession` flushes and closes).
 - `src/netcode/LockstepGameLoop.js` refuses an `inputDelayTicks` above `INPUT_RETAIN_TICKS` (240).
-- Headless witnesses that construct `PhysicsNetworkClient` assign `globalThis.WebSocket` from `ws` first (`scripts/chart-reanchor-wire-harness.mjs`).
+- On Node without a global WebSocket, a headless witness that constructs `PhysicsNetworkClient` assigns `globalThis.WebSocket` from `ws` first (`scripts/chart-reanchor-wire-harness.mjs`).
 - `src/netcode/RollbackGameLoop.js`: keep `maxRollbackTicks + inputDelayTicks` below the state ring window.
 
 ## Patched dependencies
@@ -309,4 +309,4 @@ Detail: `docs/AGENTS-DETAIL.md#hot-swap`.
 
 Detail: `docs/AGENTS-DETAIL.md#dev-hmr-bodies`.
 
-- A `?hmr=` body depends only on the file, the version floor and the active versions of its direct imports; `Cache-Control: no-cache` makes a reload answer 304.
+- A `?hmr=` body depends only on the file, the version floor and the active versions of its direct imports; `Cache-Control: no-cache` lets a reload answer 304 only when `If-None-Match` equals the ETag (`src/sdk/DevHmr.js`).
