@@ -18,7 +18,9 @@ export function collectWaypointPathPoints(entities) {
 const _LINE_COLOR = 0xffcc00
 const _LINE_COLOR_SELECTED = 0x00ffff
 
-function _makeOrderLabelSprite(index) {
+const _labelTextures = []
+function _labelTexture(index) {
+  if (_labelTextures[index]) return _labelTextures[index]
   const canvas = document.createElement('canvas')
   canvas.width = 64; canvas.height = 64
   const ctx = canvas.getContext('2d')
@@ -29,8 +31,11 @@ function _makeOrderLabelSprite(index) {
   ctx.font = 'bold 32px sans-serif'
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
   ctx.fillText(String(index), 32, 34)
-  const tex = new THREE.CanvasTexture(canvas)
-  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })
+  _labelTextures[index] = new THREE.CanvasTexture(canvas)
+  return _labelTextures[index]
+}
+function _makeOrderLabelSprite(index) {
+  const mat = new THREE.SpriteMaterial({ map: _labelTexture(index), depthTest: false, transparent: true })
   const sprite = new THREE.Sprite(mat)
   sprite.scale.set(0.6, 0.6, 1)
   sprite.renderOrder = 998
@@ -39,10 +44,22 @@ function _makeOrderLabelSprite(index) {
 
 export function createWaypointPathOverlay({ scene, entityMeshes }) {
   let _group = null
-  let _lastKey = ''
+  let _lastIds = null, _lastSel = '', _lastPos = new Float64Array(0)
 
-  function _pointsKey(points) {
-    return points.map(p => `${p.id}:${p.position[0].toFixed(3)},${p.position[1].toFixed(3)},${p.position[2].toFixed(3)}`).join('|')
+  function _unchanged(points, selectedId) {
+    if (!_lastIds || _lastIds.length !== points.length || _lastSel !== (selectedId || '')) return false
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i], o = i * 3
+      if (p.id !== _lastIds[i] || p.position[0] !== _lastPos[o] || p.position[1] !== _lastPos[o + 1] || p.position[2] !== _lastPos[o + 2]) return false
+    }
+    return true
+  }
+
+  function _remember(points, selectedId) {
+    _lastIds = points.map(p => p.id)
+    _lastSel = selectedId || ''
+    _lastPos = new Float64Array(points.length * 3)
+    points.forEach((p, i) => { _lastPos[i * 3] = p.position[0]; _lastPos[i * 3 + 1] = p.position[1]; _lastPos[i * 3 + 2] = p.position[2] })
   }
 
   function _teardown() {
@@ -50,13 +67,9 @@ export function createWaypointPathOverlay({ scene, entityMeshes }) {
     scene.remove(_group)
     _group.traverse(o => {
       if (o.geometry) o.geometry.dispose()
-      if (o.material) {
-        if (o.material.map) o.material.map.dispose()
-        o.material.dispose()
-      }
+      if (o.material) o.material.dispose()
     })
     _group = null
-    _lastKey = ''
   }
 
   function _build(points, selectedId) {
@@ -90,16 +103,15 @@ export function createWaypointPathOverlay({ scene, entityMeshes }) {
           if (m) p.position = [m.position.x, m.position.y, m.position.z]
         }
       }
-      const key = _pointsKey(points) + '|sel:' + (selectedId || '')
-      if (key === _lastKey) return
-      _lastKey = key
+      if (_unchanged(points, selectedId)) return
+      _remember(points, selectedId)
       _teardown()
       if (points.length < 1) return
       _group = _build(points, selectedId)
       scene.add(_group)
     },
     get visible() { return !!_group },
-    destroy() { _teardown() }
+    destroy() { _teardown(); _lastIds = null }
   }
 }
 
