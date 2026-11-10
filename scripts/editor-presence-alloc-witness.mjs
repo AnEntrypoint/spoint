@@ -7,7 +7,7 @@ const REL = 'client/editor/EditorPresence.js'
 const COUNTED = ['Vector2', 'Vector3', 'Quaternion']
 const W = 800, H = 600
 const TICKS = 10
-const WARM_TICKS = 300
+const WARM_TICKS = 3000
 const SAMPLED_TICKS = 50
 const PRESENCE_PATTERN = /client\/editor\/EditorPresence\.js$/
 
@@ -74,6 +74,7 @@ async function runChild(which) {
   const sampledBytes = await sampledAllocationBytes(() => { for (let t = 0; t < SAMPLED_TICKS; t++) presence.tick() }, PRESENCE_PATTERN)
   const badges = created.map(el => ({ display: el.style.display ?? null, left: el.style.left ?? null, top: el.style.top ?? null, background: el.style.background ?? null, text: el.textContent }))
   presence.hide()
+  presence.destroy?.()
   return { perTickAlloc, perTickRect, sampledBytes, badges }
 }
 
