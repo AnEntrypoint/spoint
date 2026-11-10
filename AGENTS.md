@@ -110,7 +110,7 @@ Detail: `docs/AGENTS-DETAIL.md#client-render-placement`.
 - `client/core/PlayerLOD.js` `makeDotMaterial` and `client/core/PlayerLODTSL.js` `createDotMaterialTSL` share the basis `right = toCam × up`, `camUp = right × toCam`; apply the instance scale once, through the instance matrix.
 - `client/core/Vegetation.js` `createVegetation` declares tier-warm state above the species loop; a species failure is rethrown, never a shorter `meshes` list.
 - `client/core/Vegetation.js` `prewarm`: each phase yields its own `macrotaskYield`.
-- `client/core/ProgramReadiness.js` `pendingPipelineCount`: read `renderer._pipelines`; an entry with `error === true` is not counted.
+- `client/core/ProgramReadiness.js` `pendingProgramCount` reads `renderer._pipelines`; `pendingPipelineCount` does not count an entry with `error === true`.
 - `client/core/ProgramReadiness.js` `installAsyncRenderPipelines`: escort stranded pipelines after `ASYNC_PIPELINE_ESCORT_MS`, one rescue per frame, clearing `pipelineData.error`.
 - `client/core/ProgramReadiness.js` `installDeferredFirstUsePipelines`: build an object that is not ready at bundle-encode time at once.
 - `client/core/ProgramReadiness.js` `asyncPipelineState`: gate on `requested`, not on timing-dependent pending counts (`scripts/program-readiness-render-witness.mjs`).
@@ -126,9 +126,9 @@ Detail: `docs/AGENTS-DETAIL.md#client-render-placement`.
 - `packages/mapspinner/src/tsl/planet-tsl.js` `TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS`: do not expect an early-Z gain from terrain draw order.
 - `client/app.js` `animate()`: never park a wait that needs a frame inside warmup (`window.__warmupInFlight`).
 - `client/AppModuleSystem.js` `renderAppUI`: mount imperative overlays outside the HUD container, because `applyDiff` removes children it does not list.
-- `client/core/SceneSetup.js` `probeAndCreateWebGPURenderer`: `?legacygl=1` is the only route to the GLSL renderer.
-- `client/core/ShadowPipeline.js` `forceUpdate`: sets `needsUpdate` on every cascade.
-- `packages/streaming-gltf/src/model-pool.js`: drains run only while their budget is above zero; never set `opts.impostorCellBudget: 0`.
+- `?legacygl=1` selects the legacy WebGLRenderer, and is ignored on a remote join (`client/app.js`); `?forcewebgl=1` runs WebGPURenderer on its WebGL2 backend (`client/core/SceneSetup.js` `probeAndCreateWebGPURenderer`).
+- `client/core/ShadowPipeline.js` `forceUpdate`: sets `needsUpdate` on every cascade only in its early returns (one cascade, no movers, no eye); otherwise per band.
+- `packages/streaming-gltf/src/model-pool.js`: drains run only while their budget is above zero, and the budget is floored at 1, so `opts.impostorCellBudget: 0` does not turn them off.
 
 ## Repo boundaries
 
