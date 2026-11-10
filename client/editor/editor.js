@@ -8,7 +8,7 @@ import { createWaypointPathOverlay } from './WaypointPath.js'
 import {
   _closestPointOnAxisLine, _addHitProxy, _axisHitProxy, _ringHitProxy, _tagBaseColor,
   buildTranslateGizmo, buildRotateGizmo, buildScaleGizmo,
-  _entityHasRadiusGizmo, _entityRadius, buildRadiusGizmo, RADIUS_HANDLE_COUNT
+  _entityHasRadiusGizmo, _entityRadius, buildRadiusGizmo, setRadiusGizmoRadius, RADIUS_HANDLE_COUNT
 } from './EditorGizmoBuild.js'
 
 function _bookmarkStorageKey() {
@@ -86,11 +86,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
   }
   function _setRadiusGizmoRadius(radius) {
     if (!radiusGizmoGroup) return
-    const pos = radiusGizmoGroup.position.clone()
-    scene.remove(radiusGizmoGroup)
-    radiusGizmoGroup = buildRadiusGizmo(Math.max(0.1, radius))
-    radiusGizmoGroup.position.copy(pos)
-    scene.add(radiusGizmoGroup)
+    setRadiusGizmoRadius(radiusGizmoGroup, Math.max(0.1, radius))
   }
 
   function attachGizmo(id) {

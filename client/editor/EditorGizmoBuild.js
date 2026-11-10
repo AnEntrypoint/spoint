@@ -107,9 +107,37 @@ function buildRadiusGizmo(radius) {
   }
   return g
 }
+function _writeTorusPositions(geometry, radius) {
+  const { tube, radialSegments, tubularSegments, arc } = geometry.parameters
+  const array = geometry.attributes.position.array
+  let k = 0
+  for (let j = 0; j <= radialSegments; j++) {
+    const v = (j / radialSegments) * (Math.PI * 2)
+    for (let i = 0; i <= tubularSegments; i++) {
+      const u = i / tubularSegments * arc
+      const r = radius + tube * Math.cos(v)
+      array[k++] = r * Math.cos(u)
+      array[k++] = r * Math.sin(u)
+      array[k++] = tube * Math.sin(v)
+    }
+  }
+  geometry.attributes.position.needsUpdate = true
+  geometry.parameters.radius = radius
+  geometry.boundingSphere = null
+  geometry.boundingBox = null
+}
+function setRadiusGizmoRadius(group, radius) {
+  const [ring, ...knobs] = group.children
+  _writeTorusPositions(ring.geometry, radius)
+  knobs.forEach((knob, i) => {
+    const ang = (i / RADIUS_HANDLE_COUNT) * Math.PI * 2
+    knob.position.set(Math.cos(ang) * radius, 0, Math.sin(ang) * radius)
+  })
+  return group
+}
 
 export {
   _closestPointOnAxisLine, _addHitProxy, _axisHitProxy, _ringHitProxy, _tagBaseColor,
   buildTranslateGizmo, buildRotateGizmo, buildScaleGizmo,
-  _entityHasRadiusGizmo, _entityRadius, buildRadiusGizmo, RADIUS_HANDLE_COUNT
+  _entityHasRadiusGizmo, _entityRadius, buildRadiusGizmo, setRadiusGizmoRadius, RADIUS_HANDLE_COUNT
 }
