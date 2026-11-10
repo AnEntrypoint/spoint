@@ -3593,3 +3593,19 @@ What changed and what is measured:
 - Run-to-run noise in sampled bytes is about 2x for the same tree, so the zero threshold is not stable on these counters.
 
 Open: the two tree sampled-bytes checks (drag and presence) remain FAIL. The base controls FAIL as intended. The thresholds were not changed.
+
+## Run 41, Phase A: per-move and per-tick allocations on the drag and presence paths (code only, not built or run)
+
+Base: origin/main 910567f. Commits, in order, each authored by lanmower with no trailer:
+
+| change | commit | file | what allocated | replacement | witness (run in Phase B) |
+|---|---|---|---|---|---|
+| 1 | 08be090 | client/editor/WaypointPath.js (`update`, `_sampleLive`, `_unchanged`, `_adoptLive`, `destroy`) | every frame the overlay wrote mesh positions into the point arrays and compared them, so arrays held doubles and the sync loop kept re-storing them; the sampled residual sat in `update` | a module `Float64Array` (`_live`) holds the positions; a frame reads mesh positions into it and compares with `_lastPos`; point arrays are written only when a change is adopted, before a rebuild | `scripts/editor-drag-alloc-witness.mjs` sampled-bytes check (tree and base control) |
+| 2 | c1dfd39 | client/editor/editor.js (`applyGizmoDrag`, `_computeCentroidOfMap`, `_scaleExtraVisitor`, `_rotateExtraVisitor`, `_translateExtraVisitor`) | per move: `_dragPositionStart.keys()` iterator for the centroid; `for…of` over `_extraDragStart` in translate, scale and rotate (entry arrays and iterators) | centroid folds the drag map with `Map.forEach` and a stable member visitor; the three branches use stable visitors with module state (`_mvD`, `_mvQuat`, `_mvPivot`, `_dragWorldDelta`) | `scripts/editor-drag-alloc-witness.mjs`: transforms equal base on every move; zero THREE allocations per move after the first move |
+| 3 | bb3770c | client/editor/EditorPresence.js (`_readRect`, `_projectInto`, `_paint`, `_visitRemote`, `tick`) | per tick: `Date.now()` stored into a context slot (a boxed double each tick); `getBoundingClientRect` read once per tick but its result kept as an object; projection scratch was a plain object with integer-initialised fields | a `Float64Array(1)` clock, a `Float64Array(4)` viewport buffer filled from the rect, and a `Float64Array(2)` point buffer | `scripts/editor-presence-alloc-witness.mjs` sampled-bytes check (tree and base control) |
+| 4 | ce955bf | scripts/editor-presence-alloc-witness.mjs (`runChild`, DOM stub) | the test double built a fresh viewport object on each `getBoundingClientRect` call inside the sampled window | one shared viewport object, as the stub's own allocation, not the module's | `scripts/editor-presence-alloc-witness.mjs`; judgement call, flagged here because a real DOM call also allocates a rect wrapper |
+
+Examined, not changed:
+- `getNDC(e)` reads `renderer.domElement.getBoundingClientRect()` once per move. The wrapper is allocated by the browser; caching the rect would change per-move results when layout moves.
+- `_onDragUpdate` payloads (`position.toArray()`, `rotation`, `scale`, and the options literal) per move: the consumer in `client/app.js` keeps the arrays, so they cannot be reused; the options literal is passed to the callback and is not stored by the editor.
+- `commitGizmoDrag` `toArray()` calls run once per drag end, not per move.
