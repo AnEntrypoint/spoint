@@ -322,7 +322,8 @@ export function createWeather(opts = {}) {
       _snowLandCarry -= Math.floor(_snowLandCarry)
       if (_snowAccumEnabled()) {
         for (let k = 0; k < landings; k++) {
-          const [x, z] = _randomDiscPoint(cx, cz)
+          const disc = _randomDiscPoint(cx, cz)
+          const x = disc[0], z = disc[1]
           if (_groundInsideFallWindow(_exactGround(x, z), cy)) {
             try { snowAccum.markScorched(x, z, 0.6, 0.03 * intensity) } catch (_) {}
           }
@@ -333,7 +334,8 @@ export function createWeather(opts = {}) {
       const splashes = Math.min(Math.floor(_rainSplashCarry), MAX_SPLASHES)
       _rainSplashCarry -= Math.floor(_rainSplashCarry)
       for (let k = 0; k < splashes; k++) {
-        const [x, z] = _randomDiscPoint(cx, cz)
+        const disc = _randomDiscPoint(cx, cz)
+        const x = disc[0], z = disc[1]
         const gh = _groundHeight(x, z)
         if (hasGroundY(gh) && _groundInsideFallWindow(gh, cy)) _spawnSplash(x, gh + 0.02, z, nowS)
       }
