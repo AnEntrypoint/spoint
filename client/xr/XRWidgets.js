@@ -158,11 +158,17 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
     return _groundCandidates
   }
 
-  function surfaceBelow(x, z, ceilingY) {
-    groundRay.set(_rayOrigin.set(x, ceilingY, z), DOWN)
+  const _probe = new Float64Array(3)
+  const _surfaceY = new Float64Array(1)
+
+  function probeSurface() {
+    _rayOrigin.x = _probe[0]; _rayOrigin.y = _probe[2]; _rayOrigin.z = _probe[1]
+    groundRay.set(_rayOrigin, DOWN)
     _groundHits.length = 0
     const hit = groundRay.intersectObjects(groundCandidates(), true, _groundHits).find(_isVisibleMeshHit)
-    return hit ? hit.point.y : null
+    if (!hit) return false
+    _surfaceY[0] = hit.point.y
+    return true
   }
 
   function computeParabolicArc(origin, direction) {
@@ -173,14 +179,16 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
       const y = origin.y + direction.y * ARC_VELOCITY * t + 0.5 * ARC_GRAVITY * t * t
       const z = origin.z + direction.z * ARC_VELOCITY * t
       positions[idx++] = x; positions[idx++] = y; positions[idx++] = z
-      const surface = hit === null ? surfaceBelow(x, z, origin.y) : null
-      if (surface === null) { prev = null; continue }
-      const diff = y - surface
+      let hasSurface = false
+      if (hit === null) { _probe[0] = x; _probe[1] = z; _probe[2] = origin.y; hasSurface = probeSurface() }
+      if (!hasSurface) { prev = null; continue }
+      const diff = y - _surfaceY[0]
       if (prev !== null && prev.diff >= 0 && diff < 0) {
         const f = prev.diff / (prev.diff - diff), ht = prev.t + f * ARC_STEP_S
-        const hx = origin.x + direction.x * ARC_VELOCITY * ht, hz = origin.z + direction.z * ARC_VELOCITY * ht
-        const hy = surfaceBelow(hx, hz, origin.y)
-        if (hy !== null) { _arcHit.point.set(hx, hy, hz); hit = _arcHit }
+        _probe[0] = origin.x + direction.x * ARC_VELOCITY * ht
+        _probe[1] = origin.z + direction.z * ARC_VELOCITY * ht
+        _probe[2] = origin.y
+        if (probeSurface()) { _arcHit.point.x = _probe[0]; _arcHit.point.y = _surfaceY[0]; _arcHit.point.z = _probe[1]; hit = _arcHit }
       }
       prev = _arcPrev; _arcPrev.t = t; _arcPrev.diff = diff
     }
@@ -190,7 +198,7 @@ export function createXRWidgets(scene, camera, initialSettings, moveXROrigin) {
   function updateTeleportArc(pointer) {
     if (!teleportArc || !settings.teleportEnabled || !pointer) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
     const hit = computeParabolicArc(pointer.origin, pointer.direction)
-    if (hit?.valid) { teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z); teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (pointer.trigger && !teleportPending) executeTeleport(hit.point) }
+    if (hit?.valid) { teleportMarker.position.copy(hit.point); teleportMarker.position.y += 0.02; teleportMarker.material.color.setHex(0x00ff00); teleportMarker.visible = true; if (pointer.trigger && !teleportPending) executeTeleport(hit.point) }
     else { teleportMarker.visible = false }
   }
 
