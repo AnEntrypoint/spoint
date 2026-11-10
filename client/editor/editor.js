@@ -224,17 +224,20 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     _putSnapPoint(min.x, cy, cz); _putSnapPoint(max.x, cy, cz)
     return _snapCount
   }
+  let _snapQuery = null, _snapExclude = null, _snapFound = false, _snapBestDist = 0
+  function _visitSnapEntity(mesh, id) {
+    if (id === _snapExclude || !mesh.userData?.isEditable) return
+    const n = _entityCandidatePoints(mesh)
+    for (let i = 0; i < n; i++) {
+      const d = _snapPool[i].distanceTo(_snapQuery)
+      if (d < _snapBestDist) { _snapBestDist = d; _snapBest.copy(_snapPool[i]); _snapFound = true }
+    }
+  }
   function _nearestEntitySnapPoint(candidatePos, excludeId) {
-    let found = false, bestDist = SNAP_TO_ENTITY_THRESHOLD
-    entityMeshes.forEach((mesh, id) => {
-      if (id === excludeId || !mesh.userData?.isEditable) return
-      const n = _entityCandidatePoints(mesh)
-      for (let i = 0; i < n; i++) {
-        const d = _snapPool[i].distanceTo(candidatePos)
-        if (d < bestDist) { bestDist = d; _snapBest.copy(_snapPool[i]); found = true }
-      }
-    })
-    return found ? _snapBest : null
+    _snapQuery = candidatePos; _snapExclude = excludeId; _snapFound = false; _snapBestDist = SNAP_TO_ENTITY_THRESHOLD
+    entityMeshes.forEach(_visitSnapEntity)
+    _snapQuery = null
+    return _snapFound ? _snapBest : null
   }
 
   const _radiusPlane = new THREE.Plane()
