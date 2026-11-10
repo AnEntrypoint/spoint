@@ -287,8 +287,7 @@ export function createWeather(opts = {}) {
     try { imSplash.setUniformAt(id, 'spawnTime', nowS) } catch (_) {}
   }
 
-  let _rainSplashCarry = 0
-  let _snowLandCarry = 0
+  const _carry = new Float64Array(2)
 
   const _discPoint = [0, 0]
   function _randomDiscPoint(cx, cz) {
@@ -317,9 +316,9 @@ export function createWeather(opts = {}) {
 
     const impactsPerSecond = wantActive / NEAR_BOX.span
     if (isSnow) {
-      _snowLandCarry += impactsPerSecond * SNOW_FALL_SPEED * dtc
-      const landings = Math.min(Math.floor(_snowLandCarry), 24)
-      _snowLandCarry -= Math.floor(_snowLandCarry)
+      _carry[0] += impactsPerSecond * SNOW_FALL_SPEED * dtc
+      const landings = Math.min(Math.floor(_carry[0]), 24)
+      _carry[0] -= Math.floor(_carry[0])
       if (_snowAccumEnabled()) {
         for (let k = 0; k < landings; k++) {
           const disc = _randomDiscPoint(cx, cz)
@@ -330,9 +329,9 @@ export function createWeather(opts = {}) {
         }
       }
     } else {
-      _rainSplashCarry += impactsPerSecond * FALL_SPEED * dtc
-      const splashes = Math.min(Math.floor(_rainSplashCarry), MAX_SPLASHES)
-      _rainSplashCarry -= Math.floor(_rainSplashCarry)
+      _carry[1] += impactsPerSecond * FALL_SPEED * dtc
+      const splashes = Math.min(Math.floor(_carry[1]), MAX_SPLASHES)
+      _carry[1] -= Math.floor(_carry[1])
       for (let k = 0; k < splashes; k++) {
         const disc = _randomDiscPoint(cx, cz)
         const x = disc[0], z = disc[1]
