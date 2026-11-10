@@ -270,7 +270,7 @@ Detail: `docs/AGENTS-DETAIL.md#grass-distance-density`.
 Detail: `docs/AGENTS-DETAIL.md#grass-wind-field`.
 
 - `client/core/GrassWindField.js` evaluates the gust once per lattice cell; both shader paths read it with one bilinear fetch.
-- Rewrite every cell at the frame's time: with 8 bands the wind jerked (jerk ratio 231; 1 band gives 6.4). `scripts/grass-wind-field-seam-witness.mjs` is in the `npm run check` gate.
+- Rewrite every cell at the frame's time: with 8 bands the wind jerked (jerk ratio 231; the current lattice gives 6.4). `scripts/grass-wind-field-seam-witness.mjs` is in the `npm run check` gate.
 - `client/core/GrassMaterial.js` vertex stage: `gw` is the only wind term that varies within a blade, so it is evaluated per vertex.
 
 ## Netcode and wire
