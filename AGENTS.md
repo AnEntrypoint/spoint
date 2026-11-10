@@ -37,7 +37,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - CI: completing jobs = `check` + `frame-time-coverage`; `frame-time` needs `vars.CI_GPU_RUNNER_ONLINE == 'true'` (else SKIPPED). Judge the newest CI-evaluated commit: `check-runs` on a `[skip ci]` bump is zero and reads as pass.
 - CRLF: `core.autocrlf=true` only in SYSTEM config; `w/crlf` in `git ls-files --eol` = no diff.
 - `.gitignore` ignores `runs/` and `sources/` as generated artifacts, and scratch captures under `data/` (`data/*.json`, `data/*/`, `*.tmp`, and others). The negation `!data/prefabs/` re-includes prefabs, and `data/placed-models.json` and `data/prefabs.json` stay tracked despite `data/*.json`.
-- `.gitignore` re-includes `.gm/*` only for the memories, `disciplines/project`, witness-log, witness-out and pool-log paths. `.gm/witness-log.md`, `.gm/witness-out/` evidence text and `.gm/pool/pool.log` are the tracked witness audit trail; `.gm/witness-out/**/*.wasm` binary plugin copies are ignored because they are not evidence text, and no `.wasm` file is tracked under `.gm/witness-out/`.
+- `.gitignore` re-includes only the `.gm/` memories, `disciplines/project`, witness-log, witness-out and pool-log paths; `.gm/witness-log.md`, `.gm/witness-out/` text and `.gm/pool/pool.log` are the tracked witness trail, and no `.wasm` file is tracked under `.gm/witness-out/`.
 - Untracking: `git_rm {cached:true}` + paths-scoped `git_commit {index_commit:true}`; `.git/index.lock` fails `git_commit`.
 - Generated artifacts ship with source: `AppContext.js` -> `client/editor/sdk-typings.generated.d.ts` from the AppContext import closure; a pre-commit hook refuses a closure change without it. `scripts/gen-sdk-typings.mjs` generates it from `src/apps/AppContext.js`; inference is structural, parameter and return types are mostly `any`, and it is not a drop-in replacement for the hand-curated `client/editor/sdk-typings.d.ts` Monaco typings. Regenerate with `npm run gen-typings`; do not edit the generated file by hand.
 - The generated file carries `export declare const SOURCE_DIGEST: '<64 hex>';` as a non-comment declaration. `scripts/lib/appcontext-closure.mjs` `DIGEST_LINE` and `recordedDigest` use that declaration, and `scripts/gen-sdk-typings.mjs --check` compares it with the current `src/apps/AppContext.js` import-closure digest.
@@ -45,7 +45,7 @@ Skills encode environment-specific constraints that override general knowledge.
 - gm MCP is HTTP on `127.0.0.1:8787/mcp`, never retries, so a startup gap detaches it (`/mcp` recovers).
 - `@spoint/ecs` resolves only via `@spoint/*`; the link can vanish mid-session (`npm run links`).
 - Never `git worktree remove` a `scripts/worktree-setup.mjs` worktree (its node_modules junction deletes `node_modules/.bin`); use `scripts/worktree-teardown.mjs`.
-- `src/static/BakeCodeVersion.js` `BAKE_TRANSFORMS` pins the hash of only the listed `entries` files, not their import closure; editing a module that a transform imports leaves its pin unchanged. `src/shared/cacheCodeVersions.js` holds the `*_CODE_VERSION` constants that those pins hash into.
+- `src/static/BakeCodeVersion.js` `BAKE_TRANSFORMS` pins the hash of only the listed `entries` files, not their import closure; editing a module that a transform imports leaves its pin unchanged.
 - `.github/workflows/ci.yml` concurrency group is `ci-<ref>-<sha>` with `cancel-in-progress: false`; the GPU job (gated on `CI_GPU_RUNNER_ONLINE`) pins `node-version: 20`, `check` pins 24, and `frame-time-coverage` sets up no Node.
 - AGENTS.md targets 30 KB (2fa8159); no gate enforces it, so measure with `wc -c AGENTS.md`.
 
@@ -57,7 +57,7 @@ Skills encode environment-specific constraints that override general knowledge.
 
 ## Stopping Processes
 
-- Stop a process only by a PID you started or one a lease recorded: `browserPid`, `pid` and `browserTree` in the lease owner record that `scripts/lib/browser-lease.mjs` writes. `browserPid` is recorded at spawn by `scripts/lib/cdp-browser.mjs` `launch`. Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
+- Stop a process only by a PID you started or one a lease recorded (`browserPid`, `pid`, `browserTree` in the owner record `scripts/lib/browser-lease.mjs` writes). Never run `pkill`, `killall` or `pkill -0`: a name or pattern match also stops other lanes' processes.
 - A lease scans and kills a process group only while its leader's `browserStart` matches (`killOwnedBrowser`, `scripts/lib/browser-lease.mjs`). `browserTree` records group members and descendants per scan; release stops each still-matching PID (`killRecorded`). The browser is a child subreaper (`leasedSpawnArgv`): setsid and setpgid orphans are recorded; a group joiner after its leader exits is too.
 
 ## PRD rows and witness binding
@@ -70,9 +70,9 @@ Skills encode environment-specific constraints that override general knowledge.
 
 ## Workspace links
 
-- `scripts/ensure-workspace-links.mjs` never deletes a real install where a workspace link belongs. `ensureWorkspaceLink` renames a `real-directory` or `file` aside through `keepsakePath` (`.stale-copy` suffix), because that install is the only record of the bytes the dev server was serving. `rmSync` runs only on link kinds (`broken-link`, `link-elsewhere`).
+- `scripts/ensure-workspace-links.mjs` never deletes a real install: `ensureWorkspaceLink` renames it aside through `keepsakePath` (`.stale-copy`), and `rmSync` runs only on `broken-link` and `link-elsewhere`.
 - `assertWritesStayInTree` raises `WorkspaceLinkOutsideTreeError` before any write when a repair path does not resolve inside the tree being repaired. An archive whose node_modules is a junction onto another tree would otherwise rename and relink that tree's `@spoint` links, which live in the shared `C:/dev/spoint/node_modules`.
-- `installPaths` must consider scoped specifiers: `packages/mapspinner` declares the unscoped name `mapspinner`, so a name-only check never inspects `node_modules/@spoint/mapspinner`, the real installed copy.
+- `installPaths` must consider scoped specifiers: `packages/mapspinner` declares `mapspinner`, but the real install is `node_modules/@spoint/mapspinner`.
 - `classifyInstall` asks whether a path resolves INTO `packages/<dir>`. A stale installed copy resolves perfectly, so resolution alone must not count as present.
 - `ensureWorkspaceLinks` plans every link before writing any. One refused link stops the whole repair with nothing written.
 
@@ -95,7 +95,7 @@ Detail: `docs/AGENTS-DETAIL.md#witness-and-publish-tooling`.
 - `scripts/lib/tree-under-test.mjs` `worktreeStateRev`: the rev is unreferenced; use it in the same run.
 - `scripts/gpulock.mjs run <owner> -- <cmd>` exits with the child's code (127 when the command cannot start); it does not parse the child's `RESULT:` line.
 - `scripts/lib/witness-audit.mjs --gate` is not in `scripts/check.mjs` or `package.json`; run it by hand.
-- Wireweave witnesses are manual and run with `node`; none is in `scripts/check.mjs`, `package.json` or CI. Batching across sends is kept on purpose.
+- Wireweave witnesses are manual (`node`); none is in `scripts/check.mjs`, `package.json` or CI.
 - `src/netcode/SnapshotEncoder.js` `buildCrowdDots`: each cell is a `[cx, cz, count]` entry keyed by the string `cx,cz`; keep the pair, not a packed number.
 - Stage radius queries take `radius ?? relevanceRadius`; never `||`, which turns zero into the full ring.
 - `src/apps/AppRuntime.js` `nearbyEntities` and `relevantEntities` answer the same radius query with or without a stage loader.
@@ -141,7 +141,7 @@ Detail: `docs/AGENTS-DETAIL.md#repo-boundaries`.
 - Keep Node-only dynamic import specifiers opaque (IIFE, as in `src/sdk/EditorHandlers.js`); `edge/cf-do/spoint-do.js` imports `jolt-edge-init.js` before `WorkerEntry.js`.
 - Never flatten the msgpackr specifier in `src/protocol/msgpack.js` `_ensurePackr` to a literal.
 - Untrusted apps run only through `src/sdk/SESCompartmentEvaluator.js`, which fails closed with `SandboxUnavailableError`.
-- `design` ships as pinned CDN URLs in `client/{index,landing/index,editor/thebird-host}.html` and `scripts/bundle-client.mjs`; `vendor/*` is editing-only.
+- `design` ships as pinned CDN URLs in the client HTML pages and `scripts/bundle-client.mjs`; `vendor/*` is editing-only.
 
 ## Browsers
 
@@ -190,7 +190,7 @@ Detail: `docs/AGENTS-DETAIL.md#entry-points`.
 - Spawn release is gated by `holdSpawnUntilGrounded` (`src/sdk/Relocation.js`) and capped at `SPAWN_HOLD_MAX_MS` (20 s).
 - `client/BrowserServer.js` keeps `_lastTodSync` and `_deliveredWorldFingerprints` at module level, so a fresh BrowserServer in the same page inherits them.
 - The singleplayer world name comes from `init({ worldName })` (`src/sdk/WorkerEntry.js`); `src/sdk/WorldPersistence.js` discards a snapshot on a name mismatch.
-- Respawn clearance is one sampler: `src/apps/AppGameplay.js` `footprintBlockers`, used by `pickSpawnPoint` and `apps/tps-game/respawn-clearance.js`; its intrusion limit is `MAX_FOOTPRINT_INTRUSION_M` (0.15 m).
+- Respawn clearance is one sampler, `footprintBlockers` (`src/apps/AppGameplay.js`), capped by `MAX_FOOTPRINT_INTRUSION_M`.
 - `client/app.js` `_buildWorldScenery` returns the in-flight `_sceneryBuildPromise`; `Promise.race` does not cancel the losing promise.
 - Keep both path-containment checks in `src/sdk/StaticHandler.js` (`containedRealFile`, `src/static/containedFile.js`) when changing static serving.
 - Derive world-entity facts from `_modelUrls` and `_entityApps`, not `entities`, which `sendWorldDefAndModules` (`src/sdk/ServerHandlers.js`) strips.
@@ -229,7 +229,7 @@ Detail: `docs/AGENTS-DETAIL.md#chart-re-anchor`.
 
 Detail: `docs/AGENTS-DETAIL.md#physics-and-jolt`.
 
-- `physics.setBodyMotionType` returns the same id for an in-place change, a NEW id when it recreates the body, and `false` when it cannot; use `IsActive()` as the discriminator.
+- `physics.setBodyMotionType` returns the same id in place, a new id on recreate, or `false`; use `IsActive()` as the discriminator.
 - Create the new body BEFORE destroying the old, on the layer its motion type maps to (`LAYER_STATIC` for static, else `LAYER_DYNAMIC`); refuse a body holding a constraint or vehicle chassis, and a trimesh/mesh/heightfield body moving to a simulated type.
 - Replace a pooled body whose `bodyMeta.type` differs from the requested motion type; copy `getBodyPosition` before the next call.
 - Use `GetSampleCount()` (per-side N) and `GetMinHeightValue()`; `get_mMinHeightValue` is not a Jolt method.
