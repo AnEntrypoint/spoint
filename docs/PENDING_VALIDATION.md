@@ -3570,3 +3570,26 @@ Examined, not changed:
 - streamer `validCenters` (300 ms tick): `pass()` keeps its player snapshot across awaits, so a shared buffer changes what the retirement loop sees; needs restructuring first.
 - streamer `fields` getter and `groundlessPlayers`: no per-frame callers (re-anchor and start only).
 - `FieldLattice.toLattice` (array per call): callers are the tick and cover paths only.
+
+## Run 40, Phase B: witnesses run, two residual tree allocations open
+
+Commits on main, in order: afe899a (witness totals the recursive heap tree and warms the frame path), c37a738 (centroid keeps its selection slots across frames; waypoint sync loop indexed), e1cb44d (presence tick visits remote peers with a stable visitor; presence witness checks sampled bytes). Each commit is authored by lanmower with no trailer.
+
+Results (foreground, exit codes as printed):
+
+| witness | variant | exit | RESULT line |
+|---|---|---|---|
+| `scripts/editor-drag-alloc-witness.mjs` | tree | 1 | `RESULT: FAIL tree editor drag and waypoint overlay`: transforms equal base on 16 scenarios x 6 moves; radius ring matches 6 of 6; zero THREE constructions per frame and per move; waypoint rebuild and canvas checks pass. The sampled-bytes check fails: 18872 bytes over 16 scenarios x 50 frames after 300 warm-up frames (per scenario 2464,0,7664,6360,0,0,0,0,0,0,0,0,816,784,784,0). |
+| `scripts/editor-drag-alloc-witness.mjs --editor=base` | base 48541f5 (negative control, expected to FAIL) | 1 | `RESULT: FAIL base editor 48541f5 (negative control, expected to FAIL)`: 1465 allocations per move; 3067152 sampled bytes per frame window |
+| `scripts/editor-presence-alloc-witness.mjs` | tree | 1 | `RESULT: FAIL tree editor presence`: badges equal base (4 compared); zero THREE allocations per tick; one rect per tick; sampled bytes 4352 over 50 ticks after 300 warm-up ticks (FAIL, open) |
+| `scripts/editor-presence-alloc-witness.mjs --presence=base` | base (negative control, expected to FAIL) | 1 | `RESULT: FAIL base editor presence`: 30 allocations and 30 rect reads over 10 ticks; 102608 sampled bytes over 50 ticks |
+| `npm run check` | whole gate | 0 | 74 s wall; zero `RESULT: FAIL` lines |
+
+What changed and what is measured:
+- The sampled-bytes helper summed child totals as objects (`total += attributedBytes(...)`), which produced strings such as `0[object Object]`. The recursion now adds `.total`.
+- Per-function attribution (the profiler reports function starts, not lines) showed `_selectionCentroid` at about 16.7 KB per window. `_selectionIds.length = 0` followed by `push` released the backing store on every frame. The fix reuses slots with a count; the site is gone in the measured run.
+- `WaypointPath.update` still shows about 13 to 20 KB per window, concentrated in scenarios with several waypoints. Bisection: returning before the position loop removes it; a `Map.get`-only loop leaves about 2.5 KB; a loop that compares against the `Float64Array` snapshot allocates more (about 65 KB). The cause is not identified. `update` and `_unchanged` are optimised by V8 (`--trace-opt`), and only one rebuild happens per scenario move (probed), so the residual is not a per-frame rebuild.
+- `EditorPresence.tick` residual is about 87 bytes per tick. Likely cause: `Date.now()` values exceed the small-integer range and box on each store. Initialising `_pointScratch` as doubles made the count worse (9328), so it was reverted.
+- Run-to-run noise in sampled bytes is about 2x for the same tree, so the zero threshold is not stable on these counters.
+
+Open: the two tree sampled-bytes checks (drag and presence) remain FAIL. The base controls FAIL as intended. The thresholds were not changed.
