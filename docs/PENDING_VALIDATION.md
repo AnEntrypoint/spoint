@@ -3084,3 +3084,73 @@ Decisions (made here, not referred to the owner):
 
 
 
+
+## Run 32: full AGENTS.md audit (Phase A, code and docs)
+
+Baseline: AGENTS.md is 29,958 bytes at HEAD ac56310. Every line was read against the tree in this run. Verdicts: FALSE (the code shows the opposite), STALE (true once, now different), CONFLICT (the rule and the code disagree; the rule is kept and reported as open), UNVERIFIABLE (external tooling, or a measured result that needs a run; kept, with a Phase B check where one exists), OK.
+
+| section | claim | verdict | action |
+|---|---|---|---|
+| Working rules | scripts/check.mjs parses TRACKED src,client,apps,scripts,bin | FALSE: walks the working tree (readdirSync, statSync) | reworded; runner needs exit 0 per step |
+| Working rules | bake-heightfield re-bake command | STALE: the script requires --world <name> (line 53-61) | --world tps-game added |
+| Working rules | check-cache-keys: editing another transform's BAKE_INPUTS_* reddens check | STALE: it pins COLLISION_GRID, SNAPSHOT_ENCODE, SNAPSHOT_ENTITY_ENC and the heightfield artifact | named the pins |
+| Working rules | CI node versions and completing jobs | STALE: check pins node 24; the GPU job (if vars.CI_GPU_RUNNER_ONLINE) pins node 20; frame-time-coverage sets up no Node | reworded |
+| Working rules | .gm/witness-out: no *.wasm tracked | FALSE: client/basis/basis_transcoder.wasm, src/fluid/sph.wasm and others are tracked; the rule holds under .gm/witness-out only | scoped to .gm/witness-out |
+| Working rules | BAKE_TRANSFORMS entries, data/* gitignore, data/prefabs negation, concurrency group | OK | none |
+| Working rules | ci-status, git verbs, orchestrate session, gm MCP port | UNVERIFIABLE here (external tooling) | kept |
+| Validation | npm run check takes about 3 minutes | STALE: 105 s and 153 s in Run 31 | about 2 to 3 minutes |
+| Stopping Processes | lease bullets, subreaper, browserTree, killRecorded | OK in Run 31 (its witnesses) | none |
+| PRD rows | prd_resolve, prd.rs, lost update | UNVERIFIABLE here (gm tooling) | kept |
+| Witness tooling | planet-orbit-hitch-probe: ctrl.setMode('custom') called only there | FALSE: client/app.js also sets cam.setMode('custom' or 'tps') | reworded |
+| Witness tooling | nearfield transect window = cl.extentM / 2 | STALE: WINDOW_OUT_M = Math.max(WINDOW_M, cl.extentM / 2), WINDOW_M = 30 | reworded |
+| Witness tooling | tree-under-test committedSource reads HEAD or publishedTree | STALE: falls back to index stage 0 when remote main does not answer | fallback added |
+| Witness tooling | gpulock run: the child's RESULT line decides | FALSE: run exits with the child's code (127 spawn failure, EXIT_LOCK_LOST); no RESULT parsing | reworded |
+| Witness tooling | buildCrowdDots keeps a [cx, cz] pair, never a packed key | STALE: keys a Map by the string cx,cz and emits [cx, cz, count] | reworded |
+| Witness tooling | World ports map and "a port applies only when WORLD=<name>" | FALSE for the rule: ServerBoot port = PORT env or worldDef.port, for any boot. The map is code-stated | map removed; rule reworded |
+| Witness tooling | cross-map-parity refuses a dirty PARITY.md | STALE: a dirty docs/PARITY.md makes the run PROVISIONAL | reworded |
+| Witness tooling | perf-run avgMs is invalidated | FALSE: avgMs is still emitted and printed | quote p50Ms with p95Ms |
+| Client render | pendingPipelineCount reads renderer._pipelines | STALE: pendingProgramCount reads it and passes it in | reworded |
+| Client render | parseTreeTextureMaxPx never coerces | CONFLICT: TreeTextureBudget.js:26-31 uses Number(raw) | rule kept; reported open |
+| Client render | ?legacygl=1 is the only route to the GLSL renderer | FALSE: ?legacygl=1 selects the legacy WebGLRenderer; ?forcewebgl=1 is WebGPURenderer's WebGL2 backend | reworded |
+| Client render | ShadowPipeline forceUpdate sets needsUpdate on every cascade | STALE: only in the early-return branches (one cascade, no movers, no eye) | reworded |
+| Client render | model-pool impostorCellBudget: 0 never | STALE: 0 is accepted; the drain budget is floored at 1 | reworded |
+| Repo boundaries | untrusted apps run only through SESCompartmentEvaluator | CONFLICT: AppLoader.loadFromString imports editor-supplied source with native import(); SES is in no production path | rule kept; reported open |
+| Repo boundaries | design CDN pins, module-worker three path, Node-only import specifiers | OK or UNVERIFIABLE (not checked) | kept |
+| Debugging | refusals carry a reasonCode, not prose | FALSE: stageShapes.js and ColliderStreamer.js throw prose (0 reasonCode); touchSurfaces.js has 3 | reworded |
+| Debugging | RelocationSearch: a non-finite height is never no crossing | STALE: crossesShore is false for a non-finite pair; the search counts gaps and no-data | reworded |
+| Debugging | witnesses mint integer ids; the sender is stamped by stampSender | FALSE for the second half: stampSender is used by server code only (appEventSender.js, ServerHandlers.js, Relocation.js) | witness half removed |
+| Debugging | witness passes --params=multiplayer | FALSE: no script passes it; only verify-doc-claims.mjs names the string | removed |
+| Debugging | ?noveg is read nowhere | OK (grep finds it only in verify-doc-claims.mjs) | none |
+| Entry points | boot() signals stopped with RoomDirectory.stopAll | STALE: stopAll is called only on the SHUTDOWN IPC (RoomProcessWorker.js); boot() installs SIGINT/SIGTERM handlers | reworded |
+| Fire | burnCell is integer-only, no float | FALSE: regrow floors a float product; no Math.random, Date.now or performance.now | reworded |
+| Planet-wide | contacts drop silently; overflow bodies share body id 0 | FALSE: World.js throws at the body limit (:144) and at the contact limit (:756) | reworded |
+| Chart re-anchor | position, velocity and forward stay invariant | STALE: world-space state is preserved; components are re-expressed (createReexpressPass) | reworded |
+| Physics | setBodyMotionType returns a NEW body id or false | FALSE: same id for an in-place change; new id on recreate; false otherwise | reworded |
+| Physics | new body created on LAYER_DYNAMIC | FALSE: LAYER_STATIC for a static target, LAYER_DYNAMIC otherwise | reworded |
+| Physics | AppRuntimePhysics skips e._vehicleId in both LOD and budget | STALE: LOD pins a vehicle chassis to physical; the budget skips it | reworded |
+| Physics | removeBody parks a pooled dynamic body | STALE: parks shape-pooled bodies unless force is set | reworded |
+| Physics | GetSampleCount, GetMinHeightValue | UNVERIFIABLE in tree (no src or client hits) | kept |
+| Terrain | renderYOnSphere is in HeightfieldStreamer.js | FALSE path: PlanetFrame.js; HeightfieldStreamer reuses filled samples (cache), not a solver seed | path fixed |
+| Terrain | No terrain is fatal | STALE wording: a world with no terrain is refused | reworded |
+| Terrain | ModelExclusionField includes _interior models | FALSE: no _interior in the file | removed |
+| Terrain | near-quad reach in chart metres, never face units | FALSE: converted to face units per face, then tested in face units | reworded |
+| Terrain | seaHash in the floor(P) rule | STALE: seaNoise takes the floor and fraction; seaHash takes the cell point | seaNoise named |
+| Terrain | gl-render.js sampleGroundM and sampleGroundMSync | STALE path: packages/mapspinner/src/gl-render.js; the "poisons" claim is UNVERIFIABLE | path and verified part only |
+| Terrain | every discard in terrain.glsl sits inside _WATERPASS_; SLOPE_MAX 0.6 and 0.9; terrainCarvesOf | OK | none |
+| Grass | updateMsPerQuietFrame | FALSE: no such name; profile.updateMs (window.__grassProfile) | reworded |
+| Grass wind | jerk ratio 231 and 6.4 for 8 and 1 bands | UNVERIFIABLE here: needs the seam witness run | kept; Phase B reads the witness output |
+| Netcode | PhysicsNetworkClient.connect() rejects with TransportConnectError | FALSE: the transport's connect rejects (PhysicsNetworkClient.js:199 and TransportConnectError at :36); retry is in PhysicsNetworkClient._doReconnect | reworded |
+| Netcode | headless witnesses assign globalThis.WebSocket | STALE: only chart-reanchor-wire-harness.mjs does, and only when it is absent | reworded |
+| Netcode | WIRE_STRUCTURES[1] 10 keys; MSG ids unique; INPUT_RETAIN_TICKS 240; prediction lead 16; _firstHeldSequence; e.normal | OK | none |
+| Dev HMR | a reload answers 304 | FALSE: 304 only when If-None-Match equals the ETag (DevHmr.js) | reworded |
+| XR | XR update before renderGraph.run | OK: xrSystem.update at client/app.js:2740, renderGraph.run at :2923 | none |
+| Hot swap, patched deps | acceptSelf; marker-based idempotency | OK | none |
+
+Removed (memory rule c): the world port map (the code shows it); the --params=multiplayer clause; the "witnesses mint integer ids" clause; the "_interior" clause.
+
+Audit and size: 29,958 bytes before this run's edits. The edits follow in one commit each, with the size after each.
+
+Changes (Phase A, one commit each, as lanmower, no trailers; each row is the AGENTS.md change in that commit):
+
+| # | AGENTS.md section | change | witness |
+|---|---|---|---|
