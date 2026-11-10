@@ -6,10 +6,13 @@ const PRESENCE_NEVER_SENT = undefined
 const _worldScratch = new THREE.Vector3()
 const _pointBuf = new Float64Array(2)
 const _rectBuf = new Float64Array(4)
-const _clock = new Float64Array(1)
+const CLOCK_MS = 1000
 
 export function createEditorPresence({ client, MSG, camera, renderer, entityMeshes }) {
   const remote = new Map()
+  const clock = new Float64Array(1)
+  clock[0] = Date.now()
+  const clockTimer = setInterval(() => { clock[0] = Date.now() }, CLOCK_MS)
   let _lastDragSendAt = 0
   let _lastSentEntityId = PRESENCE_NEVER_SENT
 
@@ -103,7 +106,7 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
 
   let _tickAny = false, _tickHasRect = false
   function _visitRemote(entry, id) {
-    if (_clock[0] - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); return }
+    if (clock[0] - entry.at > STALE_MS) { remote.delete(id); _dropBadge(id); return }
     const mesh = entityMeshes.get(entry.entityId)
     if (!mesh) { _dropBadge(id); return }
     if (!_tickHasRect) { _readRect(); _tickHasRect = true }
@@ -112,7 +115,6 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     _paint(id, entry)
   }
   function tick() {
-    _clock[0] = Date.now()
     _tickAny = false
     _tickHasRect = false
     remote.forEach(_visitRemote)
@@ -121,5 +123,7 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
 
   function hide() { root.style.display = 'none' }
 
-  return { sendPresence, sendDragThrottled, onPresenceMessage, onPeerLeave, tick, hide }
+  function destroy() { clearInterval(clockTimer) }
+
+  return { sendPresence, sendDragThrottled, onPresenceMessage, onPeerLeave, tick, hide, destroy }
 }
