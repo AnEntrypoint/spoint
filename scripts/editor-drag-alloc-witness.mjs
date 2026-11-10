@@ -12,6 +12,12 @@ const ENTITIES = [
   ['e3', [-2, 0.5, -1], { _trigger: true, radius: 3 }],
 ]
 const PATH = [[6, 2], [12, 5], [18, 8], [25, 3], [31, -4], [40, -10]]
+const FRAMES = 5
+const WAYPOINT_NODES = [
+  { id: 'e1', position: [0, 0.5, 0], custom: { _waypoint: true, order: 0 } },
+  { id: 'e2', position: [3, 0.5, 1], custom: { _waypoint: true, order: 1 } },
+  { id: 'e3', position: [-2, 0.5, -1], custom: { _waypoint: true, order: 2 } },
+]
 const SCENARIOS = [
   ...['translate', 'rotate', 'scale'].flatMap(mode => ['world', 'local'].flatMap(space => ['active', 'centroid'].map(pivot => ({ name: `${mode}/${space}/${pivot}/single`, mode, space, pivot, selected: ['e1'], handle: 'axis' })))),
   ...['translate', 'rotate', 'scale'].map(mode => ({ name: `${mode}/world/centroid/multi`, mode, space: 'world', pivot: 'centroid', selected: ['e1', 'e2', 'e3'], handle: 'axis' })),
@@ -123,8 +129,15 @@ async function runEditor(THREE, urls) {
       moves.push({ t: snapshot(world.meshes), alloc, ring: scenario.handle === 'radius' ? ringMatchesFresh(THREE, world) : null })
     }
     ptr.onEnd({ ...base, clientX: start.x + PATH.at(-1)[0], clientY: start.y + PATH.at(-1)[1] }, false)
+    ed.updateWaypointPath(WAYPOINT_NODES)
+    const frames = []
+    for (let f = 0; f < FRAMES; f++) {
+      const before = allocTotal()
+      ed.updateGizmo()
+      frames.push(allocTotal() - before)
+    }
     ed.destroy()
-    results.push({ name: scenario.name, moves })
+    results.push({ name: scenario.name, moves, frames })
   }
   return { part: 'editor', scenarios: results, sites: globalThis.__allocCounts.sites }
 }
@@ -183,6 +196,9 @@ async function main() {
   if (process.env.ALLOC_SITES === '1') {
     for (const [site, n] of Object.entries(editor[target].sites).sort((a, b) => b[1] - a[1])) console.log(`site ${n} ${site}`)
   }
+  const frameAllocs = editor[target].scenarios.map(s => s.frames.slice(1).reduce((n, a) => n + a, 0))
+  const frameTotal = frameAllocs.reduce((a, b) => a + b, 0)
+  checks.push(report('zero editor allocations per frame after the first frame (updateGizmo with waypoints)', frameTotal === 0, `${target}: ${frameTotal} constructions/clones over ${SCENARIOS.length} scenarios x ${FRAMES - 1} frames (per scenario ${frameAllocs.join(',')})`))
   const allocs = editor[target].scenarios.map(s => s.moves.slice(1).reduce((n, m) => n + m.alloc, 0))
   const total = allocs.reduce((a, b) => a + b, 0)
   checks.push(report('zero editor allocations per move after the first move', total === 0, `${target}: ${total} constructions/clones across ${SCENARIOS.length} scenarios (per scenario ${allocs.join(',')})`))
