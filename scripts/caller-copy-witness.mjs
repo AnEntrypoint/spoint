@@ -66,7 +66,8 @@ check('snapshot body velocities match each body', near(bodyA?.velocity, [1, 2, 3
 
 const cid = world.addConstraint(dynA, dynB, { type: 'point' })
 const J = world.Jolt
-const constraint = world._constraints.get(cid)?.c
+const base = world._constraints.get(cid)?.c
+const constraint = base ? J.castObject(base, J.PointConstraint) : null
 const localA = constraint?.GetLocalSpacePoint1(), localB = constraint?.GetLocalSpacePoint2()
 const localPoint = (v) => (v ? [v.GetX(), v.GetY(), v.GetZ()] : null)
 const localOnA = localPoint(localA), localOnB = localPoint(localB)

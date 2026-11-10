@@ -3349,4 +3349,48 @@ Phase A checks: no build, test, gate or witness was run in Phase A. The new scri
 
 ### Run 37 Phase B results (Linux, this host)
 
-Pending: filled in during Phase B.
+Build: `npm run build:bundles`, exit 0, 982 ms. The empty-glob warnings are gone (Phase A items 1 and 2). Three ⚠️ size marks remain; their causes are in the table after the witnesses.
+
+Wall times below were measured with the witness batch running concurrently, so they are not comparable with the sequential Run 36 figures. The drop from about 10 s is the quiesce fix: the same witnesses exit at once, and the pre-fix control takes about 10 s per child.
+
+| witness | exit | wall ms | RESULT line or evidence |
+|---|---|---|---|
+| scripts/body-getter-buffer-witness.mjs | 0 | 399 | RESULT: PASS body getters reuse one array each and create no Jolt velocity object (15 of 15 checks) |
+| body-getter negative control: `--module=src/physics/World.pre-buffers.js` (a copy of cfaa58c^, removed after the run) | 1 | 209 | RESULT: FAIL (10 of 15 checks); 1001 GetLinearVelocity and 1000 GetAngularVelocity calls in 1000 reads |
+| body-getter negative control: `--module=src/physics/World.nobulk.js` (copy with GetLinearAndAngularVelocity renamed, removed after) | 1 | 369 | throws in getBodyVelocity; the new existence check passes on the real interface, so the existence check does not discriminate and the call checks catch the rename |
+| scripts/caller-copy-witness.mjs (new) | 0 | 210 | RESULT: PASS callers copy physics getter results into their own arrays (15 of 15 checks) |
+| caller-copy negative control: four `--*-module=` copies that drop the copies (removed after) | 1 | 208 | RESULT: FAIL (5 of 15 checks); the addConstraint anchor reads local A [3,3,3] instead of zero, snapshot body arrays are shared, and a read of body B overwrites A's getVelocity copy |
+| scripts/quiesce-exit-witness.mjs (new) | 0 | 250 | RESULT: PASS exitAfterQuiesce ends a piped-stdout child at once with its exit code (6 of 6 checks) |
+| quiesce negative control: `--module=scripts/lib/quiesce.pre.mjs` (a9fb008^, removed after) | 1 | 20227 (two children, about 10 s each) | RESULT: FAIL (4 of 6 checks); exit codes propagate, the timing checks fail |
+| scripts/collision-tile-shape-witness.mjs | 0 | 392 | RESULT: PASS collision tile floor is the server's box (19 of 19 checks) |
+| scripts/world-persistence-fingerprint-witness.mjs | 0 | 110 | RESULT: PASS spoint's world restore compares the world definition fingerprint as well as the name (10 checks) |
+| scripts/stick-floor-ramp-witness.mjs | 0 | 718 | RESULT: PASS the 0.5 m stick-to-floor keeps the character grounded on a 5 deg ramp (0.9355 >= 0.9; removing it drops grounded to 0.0645) |
+| scripts/chart-reanchor-wire-harness.mjs | 0 | 14937 | RESULT: PASS forced scenario: every expectation holds |
+| scripts/agents-md-facts-witness.mjs | 0 | 438 | RESULT: PASS 216 path claim(s) exist, 188 symbol claim(s) appear in their cited file(s); AGENTS.md is 29,991 bytes |
+| scripts/crowd-dots-alloc-witness.mjs | 0 | 103 | RESULT: PASS buildCrowdDots builds its dots with no Map (100 calls, 0 Map entries, 0 Maps over 200 players) |
+| crowd-dots negative control: `--module=src/netcode/SnapshotEncoder.pre.js` (4effa8d^, removed after) | 1 | 96 | RESULT: FAIL 1 of 6 checks |
+| scripts/relocation-search-nodata-witness.mjs | 0 | 70 | RESULT: PASS RelocationSearch treats NaN as no data (13 of 13 checks) |
+| relocation negative control: client/core/RelocationSearch.js replaced by its 4874e53^ copy, then restored with `git checkout` | 1 | 61 | RESULT: FAIL 1 check (a coast does not take a shoreline beyond a no-data gap) |
+| scripts/lease-windows-witness.mjs | 2 | 102 | RESULT: BLOCKED windows lease witness: this host is linux, not win32 |
+
+Defects found in Phase B and fixed in place: the caller-copy witness called `GetLocalSpacePoint1` on the base `Constraint` that `settings.Create` returns; it now casts with `J.castObject(base, J.PointConstraint)`. The first body-getter control was copied from 46445e6, which already holds the buffer change, so it passed; it was rerun from cfaa58c^ and fails as intended.
+
+Surprising output, reviewed:
+- `[physics] peak bodies ..., peak active ...` prints from `PhysicsWorld.destroy()` whenever a world with bodies is torn down. It is the teardown report added with the loud-limit commits (b721dfd, b527f65), not a warning. It is kept; witness logs that destroy a world show it.
+- The chart harness's `RESULT_JSON_BEGIN`/`RESULT_JSON_END` block holds 124 lines of JSON. It is not empty.
+- The body-getter `nobulk` control ends with an uncaught TypeError and no RESULT line. The witness does not catch a thrown error; the exit code is 1 and that is the evidence for the control.
+
+Size marks (⚠️). Causes from the bundle-hash stamps, which list every bundled input with its source bytes:
+
+| output | size | cause | status |
+|---|---|---|---|
+| dist/client/ez-tree.es-*.js | 3.8 mb | @dgreenheck/ez-tree 1.1.0 build, 4,016,624 source bytes; 20 base64 image data URIs make up 3,969,796 of those characters | open: vendor-embedded textures; fixing it means patching the vendor package |
+| dist/client/app.js | 1.2 mb | @pixiv/three-vrm is inlined (988,239 source bytes) because the client externalPlugin lists only three, mapspinner and jolt-physics; SPOINT_FEATURE_VRM is 'true' | open: externalising it needs an importmap entry in client/index.html, the static-export copy, and a browser run to show VRM avatars still load; no browser is verified here |
+| dist/src/sdk/WorkerEntry.js | 4.0 mb | @dimforge/rapier3d-compat (2,238,719 source bytes), imported by a literal dynamic import in src/behaviours/softbody.js, is inlined because the worker bundle does not split | open: externalising rapier alone leaves about 1.9 mb by source-size arithmetic, so the mark would stay |
+
+In app.js, `REVISION` is three's constant (`OE.REVISION`, an external three namespace) and three-vrm's shader preprocessor text, not a second copy of three. grep -c counts 26 lines and matchAll counts 28 occurrences in this build.
+
+
+Docs page: `node scripts/generate-docs-site.js` exit 0, 111 ms (31 sections). `node scripts/docs-page-freshness-witness.mjs` exit 0, 711 ms: RESULT: PASS docs/index.html equals the output of scripts/generate-docs-site.js for the current sources (1,546,942 bytes).
+
+`npm run check`: exit 0, 66664 ms, 636 log lines, no warning line (a scan for warn, ⚠, deprecat and empty-glob text is empty). This line and the regenerated docs page were written after the run; they are the only changes after it.
