@@ -95,7 +95,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     if (!editMode()) return
     const mesh = entityMeshes.get(id); if (!mesh) return
     gizmoGroup = _buildGizmo()
-    gizmoGroup.position.copy(_pivotMode === 'centroid' && extraSelectedIds.size ? _computeCentroid([id, ...extraSelectedIds]) : mesh.position)
+    gizmoGroup.position.copy(_pivotMode === 'centroid' && extraSelectedIds.size ? _selectionCentroid(id) : mesh.position)
     scene.add(gizmoGroup)
     if (!extraSelectedIds.size) attachRadiusGizmo(mesh)
   }
@@ -167,6 +167,14 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     const c = out.set(0, 0, 0); let n = 0
     for (const id of ids) { const m = entityMeshes.get(id); if (!m) continue; c.add(m.position); n++ }
     return n ? c.multiplyScalar(1 / n) : c
+  }
+  const _selectionIds = []
+  const _selectionCentroid_out = new THREE.Vector3()
+  function _selectionCentroid(leadId) {
+    _selectionIds.length = 0
+    _selectionIds.push(leadId)
+    for (const id of extraSelectedIds) _selectionIds.push(id)
+    return _computeCentroid(_selectionIds, _selectionCentroid_out)
   }
   function _axisVec(axis) {
     if (_gizmoSpace !== 'local') return _AX[axis]
@@ -790,7 +798,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       if (_lastSceneEntities.length) waypointPath.update(_lastSceneEntities, selectedEntityId)
       if (!gizmoGroup || !selectedEntityId || dragAxis) return
       const m = entityMeshes.get(selectedEntityId); if (!m) return
-      gizmoGroup.position.copy(_pivotMode === 'centroid' && extraSelectedIds.size ? _computeCentroid([selectedEntityId, ...extraSelectedIds]) : m.position)
+      gizmoGroup.position.copy(_pivotMode === 'centroid' && extraSelectedIds.size ? _selectionCentroid(selectedEntityId) : m.position)
       if (radiusGizmoGroup) radiusGizmoGroup.position.copy(m.position)
     },
     destroy() {
@@ -824,4 +832,4 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     onPlaytestStop(fn) { _onPlaytestStop = fn },
     onCommandPalette(fn) { _onCommandPalette = fn }
   }
-}
+}
