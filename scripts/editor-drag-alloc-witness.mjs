@@ -59,6 +59,7 @@ function makeWorld(THREE) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial())
     m.position.set(...pos)
     m.userData.custom = { ...custom }
+    m.userData.isEditable = true
     meshes.set(id, m)
     scene.add(m)
   }
@@ -115,7 +116,9 @@ async function runEditor(THREE, urls) {
     const moves = []
     for (const [dx, dy] of PATH) {
       const before = allocTotal()
+      globalThis.__allocCounts.window = true
       ptr.onMove({ ...base, clientX: start.x + dx, clientY: start.y + dy })
+      globalThis.__allocCounts.window = false
       const alloc = allocTotal() - before
       moves.push({ t: snapshot(world.meshes), alloc, ring: scenario.handle === 'radius' ? ringMatchesFresh(THREE, world) : null })
     }
@@ -123,7 +126,7 @@ async function runEditor(THREE, urls) {
     ed.destroy()
     results.push({ name: scenario.name, moves })
   }
-  return { part: 'editor', scenarios: results }
+  return { part: 'editor', scenarios: results, sites: globalThis.__allocCounts.sites }
 }
 
 async function runWaypoint(THREE, urls, canvases) {
@@ -177,6 +180,9 @@ async function main() {
   }
   const rings = editor[target].scenarios.flatMap(s => s.moves.map(m => m.ring)).filter(r => r !== null)
   checks.push(report('radius ring geometry equals a freshly built torus after every move', rings.length > 0 && rings.every(Boolean), `${target}: ${rings.filter(Boolean).length} of ${rings.length} radius moves match`))
+  if (process.env.ALLOC_SITES === '1') {
+    for (const [site, n] of Object.entries(editor[target].sites).sort((a, b) => b[1] - a[1])) console.log(`site ${n} ${site}`)
+  }
   const allocs = editor[target].scenarios.map(s => s.moves.slice(1).reduce((n, m) => n + m.alloc, 0))
   const total = allocs.reduce((a, b) => a + b, 0)
   checks.push(report('zero editor allocations per move after the first move', total === 0, `${target}: ${total} constructions/clones across ${SCENARIOS.length} scenarios (per scenario ${allocs.join(',')})`))
@@ -185,7 +191,8 @@ async function main() {
   checks.push(report('waypoint: moved point rebuilds once', wp.moved.adds === 1, `${target}: scene.add on moved update = ${wp.moved.adds}`))
   checks.push(report('waypoint: rebuild creates no label canvas', wp.moved.canvases === 0, `${target}: canvases created on rebuild = ${wp.moved.canvases} (first build created ${wp.first.canvases})`))
   const ok = checks.every(Boolean)
-  console.log(ok ? `RESULT: PASS ${target} editor drag and waypoint overlay: ${total} allocations per move after warm-up, identical transforms, one rebuild per change` : `RESULT: FAIL ${target} editor drag and waypoint overlay: ${total} allocations per move after warm-up, waypoint sameAfterMove=${wp.sameAfterMove.adds} moved=${wp.moved.adds} canvases=${wp.moved.canvases}`)
+  const label = target === 'base' ? 'base editor 48541f5 (negative control, expected to FAIL)' : 'tree editor'
+  console.log(ok ? `RESULT: PASS ${label} drag and waypoint overlay: ${total} allocations per move after warm-up, identical transforms, one rebuild per change` : `RESULT: FAIL ${label} drag and waypoint overlay: ${total} allocations per move after warm-up, waypoint sameAfterMove=${wp.sameAfterMove.adds} moved=${wp.moved.adds} canvases=${wp.moved.canvases}`)
   process.exitCode = ok ? 0 : 1
 }
 

@@ -24,12 +24,13 @@ function countingThreeSource() {
   const lines = [
     `import * as T from '${url}'`,
     `export * from '${url}'`,
-    `const counts = globalThis.__allocCounts ??= { constructed: {}, cloned: {} }`,
+    `const counts = globalThis.__allocCounts ??= { constructed: {}, cloned: {}, window: false, sites: {} }`,
+    `const siteOf = (kind) => { if (!counts.window) return; const hit = new Error().stack.split('\\n').find(l => /\\/(editor|EditorGizmoBuild|WaypointPath)\\.js:/.test(l)); const key = kind + ' ' + (hit ? hit.trim().replace(/^at /, '') : 'outside editor modules'); counts.sites[key] = (counts.sites[key] || 0) + 1 }`,
     ...COUNTED.map(n => `counts.constructed.${n} = 0; counts.cloned.${n} = 0`),
   ]
   for (const n of COUNTED) {
-    lines.push(`export class ${n} extends T.${n} { constructor(...a) { super(...a); counts.constructed.${n}++ } }`)
-    lines.push(`{ const orig = T.${n}.prototype.clone; T.${n}.prototype.clone = function () { counts.cloned.${n}++; return orig.call(this) } }`)
+    lines.push(`export class ${n} extends T.${n} { constructor(...a) { super(...a); counts.constructed.${n}++; siteOf('new ${n}') } }`)
+    lines.push(`{ const orig = T.${n}.prototype.clone; T.${n}.prototype.clone = function () { counts.cloned.${n}++; siteOf('clone ${n}'); return orig.call(this) } }`)
   }
   return lines.join('\n') + '\n'
 }
