@@ -139,10 +139,32 @@ export class TransformRingReader {
     this._ctrl = ctrl
     this._payload = payload
     this._capacity = capacity
+    this._players = new Map()
+    this._records = new Map()
+    this._pass = 0
+    this._generation = -1
+    this._epoch = -1
+    this._consistent = false
+    this._sweepUnseen = (record, pid) => {
+      if (record.seen === this._pass) return
+      this._records.delete(pid)
+      this._players.delete(pid)
+    }
+    this._markStale = record => { record.stale = true }
+  }
+
+  _recordFor(pid) {
+    let record = this._records.get(pid)
+    if (record === undefined) {
+      record = { position: [0, 0, 0], rotation: [0, 0, 0, 0], velocity: [0, 0, 0], stale: false, seen: 0 }
+      this._records.set(pid, record)
+    }
+    return record
   }
 
   _readSlots() {
-    const out = new Map()
+    const pass = ++this._pass
+    const out = this._players
     for (let i = 0; i < this._capacity; i++) {
       const cbase = i * CTRL_INTS_PER_SLOT, pbase = i * PAYLOAD_FLOATS_PER_SLOT
       let attempt = 0, gen1 = 0, gen2 = -1, pid, px, py, pz, qx, qy, qz, qw, vx, vy, vz
@@ -158,27 +180,48 @@ export class TransformRingReader {
       } while (gen1 !== gen2 && attempt < SLOT_READ_RETRIES)
       if (pid === undefined || pid === -1) continue
       if (gen1 !== gen2 || genLocked(gen1)) continue
-      out.set(pid, { position: [px, py, pz], rotation: [qx, qy, qz, qw], velocity: [vx, vy, vz], stale: false })
+      const record = this._recordFor(pid)
+      record.position[0] = px; record.position[1] = py; record.position[2] = pz
+      record.rotation[0] = qx; record.rotation[1] = qy; record.rotation[2] = qz; record.rotation[3] = qw
+      record.velocity[0] = vx; record.velocity[1] = vy; record.velocity[2] = vz
+      record.stale = false
+      record.seen = pass
+      out.set(pid, record)
     }
+    this._records.forEach(this._sweepUnseen)
     return out
   }
 
-  readCut(maxRetries = RING_CUT_RETRIES) {
-    let players = null
+  _cut(maxRetries) {
+    let read = false
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const generation = Atomics.load(this._header, HEADER_GEN_OFF)
       if (genLocked(generation)) continue
       const epoch = Atomics.load(this._header, HEADER_EPOCH_OFF)
-      players = this._readSlots()
-      if (Atomics.load(this._header, HEADER_GEN_OFF) === generation) return { generation, epoch, players, consistent: true }
+      const players = this._readSlots()
+      read = true
+      if (Atomics.load(this._header, HEADER_GEN_OFF) === generation) {
+        this._generation = generation
+        this._epoch = epoch
+        this._consistent = true
+        return players
+      }
     }
-    const sampled = players ?? this._readSlots()
-    for (const entry of sampled.values()) entry.stale = true
-    return { generation: -1, epoch: -1, players: sampled, consistent: false }
+    const sampled = read ? this._players : this._readSlots()
+    sampled.forEach(this._markStale)
+    this._generation = -1
+    this._epoch = -1
+    this._consistent = false
+    return sampled
+  }
+
+  readCut(maxRetries = RING_CUT_RETRIES) {
+    const players = this._cut(maxRetries)
+    return { generation: this._generation, epoch: this._epoch, players, consistent: this._consistent }
   }
 
   readAll(maxRetries = RING_CUT_RETRIES) {
-    return this.readCut(maxRetries).players
+    return this._cut(maxRetries)
   }
 }
 
