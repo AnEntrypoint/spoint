@@ -47,6 +47,7 @@ check('getBodyRotation keeps its own array, apart from getBodyPosition', world.g
 check('getBodyRotation of an unrotated body is the identity quaternion', near(world.getBodyRotation(a), [0, 0, 0, 1]))
 check('getBodyVelocity returns the linear velocity', near(world.getBodyVelocity(a), [1, 2, 3]), `[${[...world.getBodyVelocity(a)].join(', ')}]`)
 check('getBodyAngularVelocity returns the angular velocity', near(world.getBodyAngularVelocity(a), [4, 5, 6]), `[${[...world.getBodyAngularVelocity(a)].join(', ')}]`)
+check('the real body interface exposes GetLinearAndAngularVelocity as a function', typeof realInterface.GetLinearAndAngularVelocity === 'function')
 const va = world.getBodyVelocity(a)
 calls.GetLinearVelocity = 0
 calls.GetAngularVelocity = 0

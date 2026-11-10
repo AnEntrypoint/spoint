@@ -3310,3 +3310,43 @@ No defect was found in Phase B, so no fix commit was needed. AGENTS.md is 29,991
 | scripts/docs-page-freshness-witness.mjs | see below | | regenerated before the check |
 
 The witnesses that load Jolt each take about 10 s on this host. This run did not split that time between the wasm initialisation and the checks.
+
+## Run 37: ranked open items, the queue, and the caller-copy witness (Phase A, code, test and docs)
+
+Ranking of every reachable open item in this ledger. Order: defects named in the last report, then items reachable and checkable on this host, then research items, then owner decisions, then blocked items, then foreign items.
+
+| rank | class | item | Phase A action | witness (Phase B) |
+|------|-------|------|----------------|-------------------|
+| 1 | defect (named in Run 36) | esbuild empty-glob warning at client/app.js (Chat.js re-mount HMR import) | import specifier held in `chatHudUrl`; no glob | build output has no empty-glob line |
+| 2 | defect (named in Run 36) | esbuild empty-glob warning at src/sdk/WorkerEntry.js (TickHandler HMR import) | specifier held in `tickHandlerUrl`; no glob | build output has no empty-glob line |
+| 3 | defect (named in Run 36) | ⚠️ size marks: ez-tree chunk 3,998,897 bytes, dist/client/app.js 1,248,698 bytes (REVISION 26 times), dist/src/sdk/WorkerEntry.js 4.0 MB | no code change in Phase A (a build is forbidden here); cause isolated in Phase B with an esbuild metafile (one-off, not committed) | Phase B metafile per-input byte table; fix what is fixable, report the rest with the cause |
+| 4 | defect (Run 36 timing note) | scripts/lib/quiesce.mjs: 10 s exit with piped stdout. Cause read from the code: `referencedHandles` counted stdio handles, so a piped stdout held the wait to the deadline. The race sleep was also a ref'd timer that held the loop for 5 s after the stop finished | stdio handles (fd 0 to 2) and unref'd handles are excluded; the stop bound is cleared once the stop settles | scripts/quiesce-exit-witness.mjs (new): exit codes 0 and 1 propagate, each arrives under 3000 ms; negative control `--module=` HEAD copy, expected FAIL near 10 s |
+| 5 | defect (found in Phase A) | scripts/lease-windows-witness.mjs called psProcessTable(), which spawns `ps`, absent on Windows, so the table read returned null on win32 | witness uses processTable(), the platform-aware table, now exported from scripts/lib/browser-lease.mjs | Windows host only: `node scripts/lease-windows-witness.mjs` (BLOCKED here, exit 2) |
+| 6 | reachable, witness gap (Run 36 "no direct witness") | caller copies: CollisionMirror floorOf, WorldPersistence buildWorldSnapshot, addConstraint anchors, AppPhysics getVelocity and getRotation | new scripts/caller-copy-witness.mjs; each caller takes a `--<name>-module=` override so the negative control runs a copy with the copy removed | scripts/caller-copy-witness.mjs, negative control with four temp copies |
+| 7 | reachable, witness gap (Run 36 limit) | scripts/body-getter-buffer-witness.mjs did not check that the Jolt angular bulk call exists | check added: realInterface.GetLinearAndAngularVelocity is a function | scripts/body-getter-buffer-witness.mjs (15 checks) |
+| 8 | reachable, not directly witnessed | src/sdk/WorkerEntry.js rockBodies copy (a worker boot path) | none: the copy is in the worker's boot, which the caller-copy witness does not start | recorded as a limit in the caller-copy witness RESULT line |
+| 9 | reachable, deferred design | reuse designs: SnapshotEncoder (~353, ~555), TickHandler (~362, double buffer), PlayerManager (~219, JSON clone), CollisionMirror floorOf records, RewindSpatialIndex string key | not in this pass | open; each needs its own witness with an allocation count |
+| 10 | reachable research, gate failing | replay growth at 120/40/6 (gate FAILS; cause partly identified) | not in this pass | open |
+| 11 | reachable research | pop outlier; 1–2 mm ledge spike; 50/10/2 underpowered | not in this pass | open |
+| 12 | owner decision | SES bypass for editor apps (not changed: owner only); Session TTL; groundY; WebGL dot look; row 16 wording; conditioner outlier; Run 34 timing conflict | not changed | owner |
+| 13 | blocked here | Windows lease run (no Windows host); perf-run (no NVIDIA DirectX adapter on Linux); crowd-dot-render-witness (needs a headful browser) | not run | host or GPU needed |
+| 14 | foreign | rows 7 and 44 (jayzee-side) | not touched | jayzee |
+
+Phase A changes (each one in this commit, each with its witness):
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | client/app.js (~1381) | Chat.js specifier held in `chatHudUrl` before `import()` | build output (Phase B) |
+| 2 | src/sdk/WorkerEntry.js (~239) | TickHandler specifier held in `tickHandlerUrl` before `await import()` | build output (Phase B) |
+| 3 | scripts/lib/quiesce.mjs | stdio handles and unref'd handles are not counted; the race bound is a timer cleared on settle (`boundedBy`) | scripts/quiesce-exit-witness.mjs |
+| 4 | scripts/quiesce-exit-witness.mjs (new) | child with piped stdout; codes 0 and 1; under 3000 ms; `--module=` override | itself, plus negative control with the HEAD copy of quiesce.mjs |
+| 5 | scripts/caller-copy-witness.mjs (new) | CollisionMirror floorOf bodies, WorldPersistence snapshot bodies, addConstraint local anchors (Jolt GetLocalSpacePoint1 and 2, zero for a world-space anchor at the body position), AppPhysics getVelocity and getRotation copies; four `--*-module=` overrides | itself, plus negative control with copies that drop the copy (see Phase B) |
+| 6 | scripts/body-getter-buffer-witness.mjs | check that GetLinearAndAngularVelocity is a function on the real interface | itself |
+| 7 | scripts/lib/browser-lease.mjs | `killRecorded` and `processTable` exported | scripts/lease-windows-witness.mjs (BLOCKED here) |
+| 8 | scripts/lease-windows-witness.mjs | uses processTable (not `ps`); adds a killRecorded step: mismatched start leaves the process, recorded start stops it | Windows host only |
+
+Phase A checks: no build, test, gate or witness was run in Phase A. The new scripts were read back by eye, not executed.
+
+### Run 37 Phase B results (Linux, this host)
+
+Pending: filled in during Phase B.

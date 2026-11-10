@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { killOwnedBrowser, psProcessTable, startOf } from './lib/browser-lease.mjs'
+import { killOwnedBrowser, killRecorded, processTable, startOf } from './lib/browser-lease.mjs'
 
 if (process.platform !== 'win32') {
   console.log(`RESULT: BLOCKED windows lease witness: this host is ${process.platform}, not win32. Run it on a Windows host from the repo root with: node scripts/lease-windows-witness.mjs`)
@@ -19,31 +19,40 @@ const once = (stream, ms) => new Promise((resolve, reject) => {
 const HOLD = 'setInterval(() => {}, 1000)'
 const treeSource = `const { spawn } = require('node:child_process'); const g = spawn(process.execPath, ['-e', ${JSON.stringify(HOLD)}], { stdio: 'ignore', windowsHide: true }); console.log(g.pid); ${HOLD}`
 
-const table = psProcessTable()
-check('the process table reads on win32 and lists this process', Boolean(rowOf(table, process.pid)), table ? `rows ${table.length}` : 'psProcessTable returned null')
+const table = processTable()
+check('the process table reads on win32 and lists this process', Boolean(rowOf(table, process.pid)), table ? `rows ${table.length}` : 'processTable returned null')
 
 const parent = spawn(process.execPath, ['-e', treeSource], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true })
 const grandchildPid = Number((await once(parent.stdout, 10000)).trim())
 const parentStart = startOf(parent.pid)
-const beforeKill = psProcessTable()
+const beforeKill = processTable()
 check('the spawned parent and its grandchild are both in the table before the kill', Boolean(rowOf(beforeKill, parent.pid)) && Boolean(rowOf(beforeKill, grandchildPid)), `parent ${parent.pid} grandchild ${grandchildPid}`)
 check('the grandchild is a child of the parent', rowOf(beforeKill, grandchildPid)?.ppid === parent.pid, `ppid ${rowOf(beforeKill, grandchildPid)?.ppid}`)
 
 const decoy = spawn(process.execPath, ['-e', HOLD], { stdio: 'ignore', windowsHide: true })
 killOwnedBrowser({ browserPid: decoy.pid, browserStart: 'not-the-start-time' })
-check('a recorded start time that does not match leaves the process running', Boolean(rowOf(psProcessTable(), decoy.pid)))
+check('a recorded start time that does not match leaves the process running', Boolean(rowOf(processTable(), decoy.pid)))
 
 killOwnedBrowser({ browserPid: parent.pid, browserStart: parentStart })
-const afterKill = psProcessTable()
+const afterKill = processTable()
 check('killOwnedBrowser with the recorded start stops the parent through taskkill /T /F', Boolean(afterKill) && !rowOf(afterKill, parent.pid), `parent ${parent.pid}`)
 check('killOwnedBrowser stops the grandchild in the same tree', Boolean(afterKill) && !rowOf(afterKill, grandchildPid), `grandchild ${grandchildPid}`)
 
+const recorded = spawn(process.execPath, ['-e', HOLD], { stdio: 'ignore', windowsHide: true })
+const recordedStart = startOf(recorded.pid)
+killRecorded([{ pid: recorded.pid, start: 'not-the-start-time' }])
+check('killRecorded with a mismatched start leaves its recorded process running', Boolean(rowOf(processTable(), recorded.pid)), `pid ${recorded.pid}`)
+killRecorded([{ pid: recorded.pid, start: recordedStart }])
+const afterRecorded = processTable()
+check('killRecorded with the recorded start stops the process', Boolean(afterRecorded) && !rowOf(afterRecorded, recorded.pid), `pid ${recorded.pid}`)
+
 decoy.kill()
 parent.kill()
+recorded.kill()
 
 if (failures.length) {
   console.log(`RESULT: FAIL ${failures.length} check(s): ${failures.join('; ')}`)
   process.exit(1)
 }
-console.log(`RESULT: PASS windows lease: taskkill /T /F stopped the recorded parent (${parent.pid}) and its grandchild (${grandchildPid}); a mismatched start left its decoy (${decoy.pid}) running`)
+console.log(`RESULT: PASS windows lease: taskkill /T /F stopped the recorded parent (${parent.pid}) and its grandchild (${grandchildPid}); a mismatched start left its decoy (${decoy.pid}) running; killRecorded stopped ${recorded.pid} only with its recorded start`)
 process.exit(0)

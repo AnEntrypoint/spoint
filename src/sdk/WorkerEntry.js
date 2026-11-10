@@ -236,7 +236,8 @@ if (hasWorkerPostMessage) {
     if (data.type === 'HMR_TICK_HANDLER') {
       let ok = false
       try {
-        const { createTickHandler: next } = await import(`./TickHandler.js?hmr=${data.v}&p=${data.floor || 0}`)
+        const tickHandlerUrl = `./TickHandler.js?hmr=${data.v}&p=${data.floor || 0}`
+        const { createTickHandler: next } = await import(tickHandlerUrl)
         _ctx.setTickHandler(next(_ctx._tickHandlerArgs))
         ok = true
       } catch (e) { console.error('[hmr] worker tick handler swap failed:', e?.message || e) }

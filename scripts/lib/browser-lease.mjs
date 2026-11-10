@@ -76,7 +76,7 @@ export function killOwnedBrowser(record) {
   return state
 }
 
-function processTable() {
+export function processTable() {
   if (process.platform === 'win32') return windowsProcessTable()
   if (process.platform === 'linux') return linuxProcessTable()
   return psProcessTable()
@@ -171,7 +171,7 @@ function refreshedTree(record) {
   return mergeTree(prior, browserTreeNow(Number(record?.browserPid ?? 0), Number(record?.browserPgid ?? 0), String(record.browserStart)))
 }
 
-function killRecorded(entries) {
+export function killRecorded(entries) {
   if (entries.length === 0) return
   const table = processTable()
   if (!table) {

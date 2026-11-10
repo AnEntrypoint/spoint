@@ -1378,7 +1378,8 @@ let client; const _clientConfig = {
       const uiRoot = window.__app.chatHUD.node?.parentNode
       const getBridge = () => window.__app.wireweave
       if (uiRoot) {
-        import('./hud/Chat.js?hr=' + (payload.timestamp || Date.now())).then(({ createChatHUD }) => {
+        const chatHudUrl = './hud/Chat.js?hr=' + (payload.timestamp || Date.now())
+        import(chatHudUrl).then(({ createChatHUD }) => {
           try { window.__app.chatHUD?.destroy() } catch (_) {}
           window.__app.chatHUD = createChatHUD(uiRoot, getBridge)
           _dbgNet('[hmr] hud/Chat.js re-mounted')
