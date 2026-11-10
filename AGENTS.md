@@ -248,7 +248,7 @@ Detail: `docs/AGENTS-DETAIL.md#terrain-and-colliders`.
 - Baked heightfields fail loud (`TerrainPhysics.js`): an absent artifact falls back, but unreadable or stale ones throw `[baked-heightfield]`.
 - A world without terrain refuses to load: `ServerAPI.loadWorld` rethrows `[terrain] world "<id>" has no terrain`. `ctx.terrainHeightAt` is not `elevationAtLocal`.
 - Verify a placement change with byte-identical sha256 dumps of `placementsForChunk`.
-- Wrap the anchor field with `createModelExclusionField` in `client/core/Rocks.js`, `client/core/Vegetation.js` and `client/core/Grass.js`.
+- Wrap the anchor field with `createModelExclusionField` in `client/core/Rocks.js`, `client/core/Vegetation.js` and `client/core/Grass.js`. Interior models still get a footprint (`scripts/rock-model-exclusion-witness.mjs`).
 - Convert the near-quad reach from chart metres to face units per face, then test it in face units (`TerrainMeshSurface.js sync`); keep `DEFAULT_MAX_QUADS` at 512.
 - `terrain.glsl` `snoise3`, `vnoise2`, `seaNoise` and `hpfSample` take the in-cell fraction as `P-floor(P)` from one `floor`.
 - `packages/mapspinner/src/gl-render.js` `sampleGroundM` returns the last completed probe height, not this call's; `sampleGroundMSync` does not update that height.
