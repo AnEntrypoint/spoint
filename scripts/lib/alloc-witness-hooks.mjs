@@ -101,16 +101,16 @@ export function treeUrl(rel) {
 
 export const BASE_REV = '48541f5'
 
-function attributedBytes(node, pattern, inScope = false, sites = [], own = false) {
-  const matches = pattern.test(node.callFrame?.url ?? '')
+function attributedBytes(node, pattern, inScope = false, sites = [], own = false, functions = null) {
+  const matches = pattern.test(node.callFrame?.url ?? '') && (functions === null || functions.has(node.callFrame?.functionName ?? ''))
   const here = own ? matches : inScope || matches
   let total = here ? node.selfSize : 0
   if (here && node.selfSize > 0) sites.push(`${node.selfSize} ${node.callFrame?.functionName || '(anonymous)'} ${node.callFrame?.url}:${node.callFrame?.lineNumber + 1}`)
-  for (const child of node.children ?? []) total += attributedBytes(child, pattern, here && !own, sites, own).total
+  for (const child of node.children ?? []) total += attributedBytes(child, pattern, here && !own, sites, own, functions).total
   return { total, sites }
 }
 
-export async function sampledAllocationBytes(run, pattern, { own = false } = {}) {
+export async function sampledAllocationBytes(run, pattern, { own = false, functions = null } = {}) {
   const session = new Session()
   session.connect()
   const post = (method, params = {}) => new Promise((resolve, reject) => session.post(method, params, (err, result) => (err ? reject(err) : resolve(result))))
@@ -120,7 +120,7 @@ export async function sampledAllocationBytes(run, pattern, { own = false } = {})
   const { profile } = await post('HeapProfiler.stopSampling')
   await post('HeapProfiler.disable')
   session.disconnect()
-  const { total, sites } = attributedBytes(profile.head, pattern, false, [], own)
+  const { total, sites } = attributedBytes(profile.head, pattern, false, [], own, functions)
   if (process.env.ALLOC_SITES === "1") for (const site of sites) console.error(`sampled ${site}`)
   return total
 }
