@@ -3201,3 +3201,27 @@ Owner record, not changed (sandbox security posture). The rule states that untru
 | 4 | Phase B | the witness on the new file: RESULT: PASS tree texture budget: 30/30 checks pass, module client/core/TreeTextureBudget.js (exit 0). The negative control on the pre-change file (d616915, saved as .gm/tmp/old-ttb.js and then removed): RESULT: FAIL tree texture budget: 22/30 checks pass, exit 1; the eight failing checks are the coerced forms, "0x200", "0b10000000000", "512.0", " 512", "+512", "1e3", the URL leaftex=0x200 (accepted as 512) and halvingsFor(1024, "0x100") (accepted as 2). The witness detects the defect | scripts/tree-texture-budget-witness.mjs; scripts/agents-md-facts-witness.mjs (RESULT: PASS 215 path claim(s) exist, 188 symbol claim(s) appear) |
 
 Phase B results (Run 33, Linux, this host). npm run build:bundles exits 0; its glob warning for TickHandler.js?hmr is the same as Run 32 and is not an error. The new witness and its negative control are rows 1 to 4 above. No defect was found in Phase B, so no fix commit was needed. The final npm run check is recorded in the run's REPORT line.
+
+## Run 34: wall-clock per cycle and the working method (process note, no code change)
+
+Owner-supplied measurements, taken from the transcripts and not re-derived here: sleep-and-check loops took 133 min across 70 calls (about 1.9 min per loop); 3920 gm run_code calls and 373 next_context calls, one round trip each; 196 git calls at 48 min; 102 gm_codemode calls at 46 min; npm run check ran 36 times at 18 min, three times in one pass. The 18 min over 36 runs is about 30 s per run, which does not match the 105 s and 153 s recorded for the Run 31 check. Per-run check times were not logged, so the gap stays open until each run is timed.
+
+Witness wall times measured in this pass (run one after another in one blocking call, machine load not controlled):
+
+| witness | exit | wall ms | RESULT line |
+|---|---|---|---|
+| scripts/agents-md-facts-witness.mjs | 0 | 244 | RESULT: PASS 216 path claim(s) exist, 188 symbol claim(s) appear |
+| scripts/tree-texture-budget-witness.mjs | 0 | 50 | RESULT: PASS tree texture budget: 30/30 checks pass |
+| scripts/grass-wind-field-seam-witness.mjs | 0 | 485 | RESULT: PASS grass wind field: sampled wind at a fixed point moves smoothly frame to frame |
+| scripts/docs-page-freshness-witness.mjs | 0 | 248 | RESULT: PASS docs/index.html equals the output of scripts/generate-docs-site.js |
+
+Not timed in this pass: npm run build:bundles and npm run check. Run 31 recorded 105 s and 153 s for the check.
+
+Working method from this pass on:
+1. No sleep-and-poll loop. A wait is one blocking call with a timeout (run_shell timeoutMs, at most 600000), or one background job whose exit ends the wait. A PID is waited on only if this run started it.
+2. Verbs are batched. One run_code body does its reads and writes with Promise.all and returns one result. Each ledger row is appended in the same body as its commit.
+3. npm run check runs once per Phase B, as the last step before the push. Ledger edits come before the check, so the docs page is regenerated once, after the last ledger edit.
+4. Each witness row records its wall time, in the format of the table above: exit code, wall ms and the RESULT line.
+5. A ledger edit makes the docs freshness witness fail until docs/index.html is regenerated. This pass does not regenerate the page, because the instruction was to commit only the ledger note, so the next Phase B regenerates it before the check.
+
+This run used job_status poll loops (waitMs 30000, up to 18 rounds) for the Phase B checks. From this pass on, those are replaced by the blocking waits above.
