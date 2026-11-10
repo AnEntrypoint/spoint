@@ -144,10 +144,16 @@ export function createXRSystem(renderer, scene, camera) {
 
   const _xrOffsetPos = { x: 0, y: 0, z: 0 }
   const _xrIdentityOrientation = { x: 0, y: 0, z: 0, w: 1 }
+  const _xrAppliedOffset = new Float64Array(3)
+  let _xrAppliedBase = null
   function offsetXROrigin(pt) {
     if (!renderer.xr.isPresenting || !xrBaseReferenceSpace) return false
-    _xrOffsetPos.x = -pt.x; _xrOffsetPos.y = -pt.y; _xrOffsetPos.z = -pt.z
+    const x = -pt.x, y = -pt.y, z = -pt.z
+    if (_xrAppliedBase === xrBaseReferenceSpace && _xrAppliedOffset[0] === x && _xrAppliedOffset[1] === y && _xrAppliedOffset[2] === z) return true
+    _xrOffsetPos.x = x; _xrOffsetPos.y = y; _xrOffsetPos.z = z
     renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(_xrOffsetPos, _xrIdentityOrientation)))
+    _xrAppliedOffset[0] = x; _xrAppliedOffset[1] = y; _xrAppliedOffset[2] = z
+    _xrAppliedBase = xrBaseReferenceSpace
     return true
   }
 
@@ -229,8 +235,9 @@ export function createXRSystem(renderer, scene, camera) {
   ]
 
   function handleSettingsInput(input, inputHandler) {
-    if (!widgets.settingsVisible) { settingsLatched.clear(); return }
-    for (const [key, action] of SETTINGS_BUTTONS) {
+    if (!widgets.settingsVisible) { if (settingsLatched.size) settingsLatched.clear(); return }
+    for (let k = 0; k < SETTINGS_BUTTONS.length; k++) {
+      const key = SETTINGS_BUTTONS[k][0], action = SETTINGS_BUTTONS[k][1]
       if (!input[key]) { settingsLatched.set(key, false); continue }
       if (!settingsLatched.get(key)) { action(inputHandler); settingsLatched.set(key, true) }
     }
