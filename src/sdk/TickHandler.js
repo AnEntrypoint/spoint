@@ -45,7 +45,7 @@ const STATIC_MOTION_IDLE_SECONDS = 1
 let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
 
 function createSnapState() {
-  return { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
+  return { broadcastEntityMap: new Map(), broadcastSpareMap: null, staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
 }
 
 function accrueStepBudget(player, tickMs, stepsTaken) {
@@ -449,8 +449,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const combined = _combinedScratch
     combined.tick = playerSnap.tick; combined.players = playerSnap.players; combined.entities = entitySnap.entities; combined.serverTime = serverNow
     const prevMap = (isKeyframe || state.broadcastEntityMap.size === 0) ? new Map() : state.broadcastEntityMap
-    const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
+    const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap, undefined, undefined, undefined, undefined, state.broadcastSpareMap)
     state.broadcastEntityMap = entityMap
+    state.broadcastSpareMap = prevMap
     const selfById = _playersByIdScratch; selfById.clear()
     for (const p of playerSnap.players) selfById.set(p.id, p)
     const broadcastMemo = newRecordMemo()

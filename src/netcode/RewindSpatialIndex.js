@@ -7,6 +7,14 @@ function nextBoundary(o, d, c, s) {
   return (boundary - o) / d
 }
 
+const CELL_HASH_X = 73856093
+const CELL_HASH_Y = 19349663
+const CELL_HASH_Z = 83492791
+
+function cellHash(cx, cy, cz) {
+  return Math.imul(cx | 0, CELL_HASH_X) ^ Math.imul(cy | 0, CELL_HASH_Y) ^ Math.imul(cz | 0, CELL_HASH_Z)
+}
+
 export class RewindSpatialIndex {
   constructor(cellSize = 16) {
     this.cellSize = cellSize
@@ -17,7 +25,21 @@ export class RewindSpatialIndex {
     this._visited = new Set()
   }
 
-  static _key(cx, cy, cz) { return cx + ',' + cy + ',' + cz }
+  _cellNode(cx, cy, cz, create) {
+    const h = cellHash(cx, cy, cz)
+    let node = this.cells.get(h)
+    let tail = null
+    while (node !== undefined) {
+      if (node.cx === cx && node.cy === cy && node.cz === cz) return node
+      tail = node
+      node = node.next
+    }
+    if (!create) return undefined
+    const fresh = { cx, cy, cz, items: [], next: undefined }
+    if (tail === null) this.cells.set(h, fresh)
+    else tail.next = fresh
+    return fresh
+  }
 
   _cellOf(pos) {
     const s = this.cellSize
@@ -32,10 +54,7 @@ export class RewindSpatialIndex {
     const loY = Math.floor((pos[1] - margin) / s), hiY = Math.floor((pos[1] + margin) / s)
     const loZ = Math.floor((pos[2] - margin) / s), hiZ = Math.floor((pos[2] + margin) / s)
     for (let cx = loX; cx <= hiX; cx++) for (let cy = loY; cy <= hiY; cy++) for (let cz = loZ; cz <= hiZ; cz++) {
-      const key = RewindSpatialIndex._key(cx, cy, cz)
-      let bucket = this.cells.get(key)
-      if (!bucket) { bucket = []; this.cells.set(key, bucket) }
-      bucket.push({ id, pos })
+      this._cellNode(cx, cy, cz, true).items.push({ id, pos })
     }
   }
 
@@ -59,11 +78,11 @@ export class RewindSpatialIndex {
     let guard = 0
     const guardMax = Math.ceil(maxDist / s) * 3 + 8
     while (t <= maxDist && guard++ < guardMax) {
-      const key = RewindSpatialIndex._key(cx, cy, cz)
-      if (!visited.has(key)) {
-        visited.add(key)
-        const bucket = this.cells.get(key)
-        if (bucket) for (let i = 0; i < bucket.length; i++) onCandidate(bucket[i])
+      const node = this._cellNode(cx, cy, cz, false)
+      if (node !== undefined && !visited.has(node)) {
+        visited.add(node)
+        const bucket = node.items
+        for (let i = 0; i < bucket.length; i++) onCandidate(bucket[i])
       }
       if (tMaxX < tMaxY) {
         if (tMaxX < tMaxZ) { cx += stepX; t = tMaxX; tMaxX += tDeltaX }
@@ -76,7 +95,11 @@ export class RewindSpatialIndex {
     }
   }
 
-  size() { let n = 0; for (const b of this.cells.values()) n += b.length; return n }
+  size() {
+    let n = 0
+    for (const head of this.cells.values()) for (let node = head; node !== undefined; node = node.next) n += node.items.length
+    return n
+  }
 
   arrayIndexOf(id) { const i = this._arrayIndex.get(id); return i === undefined ? -1 : i }
 }

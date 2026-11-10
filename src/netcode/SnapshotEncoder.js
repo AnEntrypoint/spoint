@@ -569,9 +569,12 @@ export class SnapshotEncoder {
     return { encoded: { tick: tick||0, serverTime, players: preEncodedPlayers||[], entities, removed: removed.length ? removed : undefined, delta: 1 }, entityMap: nextMap }
   }
 
-  static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds) {
+  static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds, spareMap) {
     const players = preEncodedPlayers || (snapshot.players || []).map(encodePlayer)
-    const dynIds = _deltaDynIds, entities = _deltaEntities, nextMap = new Map()
+    const dynIds = _deltaDynIds, entities = _deltaEntities
+    const reusable = spareMap != null && spareMap !== prevEntityMap
+    const nextMap = reusable ? spareMap : new Map()
+    if (reusable) nextMap.clear()
     dynIds.clear(); entities.length = 0
     if (staticEntries) for (const { enc } of staticEntries) entities.push(enc)
     for (const e of snapshot.entities || []) {

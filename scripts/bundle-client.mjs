@@ -3,6 +3,7 @@ import { existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'no
 import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { bundleInputHash, clientHashSpec, fileSha256 } from '../src/sdk/bundleFreshness.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -36,7 +37,7 @@ const externalPlugin = {
   setup(b) {
     b.onResolve({ filter: /^\/(spoint\/)?(node_modules|src|apps|data|vendor)\// }, args => ({ path: args.path, external: true }))
     b.onResolve({ filter: /^(xstate|msgpackr|anentrypoint-design|game-editor-kit|three-mesh-bvh|wireweave|nostr-tools|streaming-gltf(\/model-pool|\/draco-loader|\/occlusion-query-tier|\/octahedral-impostor-ez(-tier)?|\/octahedral-impostor-display-tsl)?)$/ }, args => ({ path: _bareToAbs[args.path] || args.path, external: true }))
-    b.onResolve({ filter: /^(three|mapspinner|jolt-physics)(\/|$)/ }, args => ({ path: args.path, external: true }))
+    b.onResolve({ filter: /^(three|mapspinner|jolt-physics|@pixiv\/three-vrm)(\/|$)/ }, args => ({ path: args.path, external: true }))
     b.onResolve({ filter: /^node:/ }, args => ({ path: args.path, external: true }))
     b.onResolve({ filter: /^(fs|path|crypto|url|os|util|stream|events|worker_threads)$/ }, args => ({ path: args.path, external: true }))
   }
@@ -66,9 +67,32 @@ if (flags.has('--check')) {
   process.exit(0)
 }
 
+const EZ_TREE_SOURCE_FILTER = /[\\/]node_modules[\\/]@dgreenheck[\\/]ez-tree[\\/]build[\\/]ez-tree\.es\.js$/
+const EZ_TREE_DATA_URI = /"data:image\/(jpeg|png);base64,([A-Za-z0-9+\/=]+)"/g
+const EZ_TREE_ASSET_DIR = resolve(ROOT, outdir, 'assets', 'ez-tree')
+const ezTreeAssets = new Set()
+const ezTreeTextureAssetsPlugin = {
+  name: 'spoint-ez-tree-texture-assets',
+  setup(b) {
+    b.onLoad({ filter: EZ_TREE_SOURCE_FILTER }, args => {
+      const source = readFileSync(args.path, 'utf8')
+      mkdirSync(EZ_TREE_ASSET_DIR, { recursive: true })
+      const contents = source.replace(EZ_TREE_DATA_URI, (_, type, payload) => {
+        const bytes = Buffer.from(payload, 'base64')
+        const name = `${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}.${type === 'jpeg' ? 'jpg' : 'png'}`
+        writeFileSync(join(EZ_TREE_ASSET_DIR, name), bytes)
+        ezTreeAssets.add(`assets/ez-tree/${name}`)
+        return `new URL("./assets/ez-tree/${name}", import.meta.url).href`
+      })
+      return { contents, loader: 'js' }
+    })
+  }
+}
+
 const artifactPath = resolve(ROOT, outfile)
 const artifactMatchesStamp = existsSync(artifactPath) && typeof stamp?.outputSha === 'string' && stamp.outputSha === fileSha256(artifactPath)
-const bundleFresh = IF_STALE && artifactMatchesStamp && stamp?.hash === WANT_HASH
+const storedAssetsPresent = (stamp?.assets ?? []).every(rel => existsSync(resolve(ROOT, outdir, rel)))
+const bundleFresh = IF_STALE && artifactMatchesStamp && stamp?.hash === WANT_HASH && storedAssetsPresent
 if (bundleFresh) {
   console.log(`[bundle-client] ${outfile} is fresh (stamp matches the current inputs and artifact) -- skipping`)
 } else {
@@ -87,7 +111,7 @@ if (bundleFresh) {
     outdir,
     sourcemap: false,
     legalComments: 'none',
-    plugins: [externalPlugin],
+    plugins: [externalPlugin, ezTreeTextureAssetsPlugin],
     metafile: true,
     logLevel: 'info',
     define: {
@@ -106,7 +130,7 @@ if (bundleFresh) {
     .sort()
   WANT_HASH = hashInputs(graphInputs)
   const outputSha = fileSha256(artifactPath)
-  writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), outputSha, outputBytes: statSync(artifactPath).size, inputs: graphInputs }) + '\n')
+  writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), outputSha, outputBytes: statSync(artifactPath).size, inputs: graphInputs, assets: [...ezTreeAssets].sort() }) + '\n')
   console.log(`[bundle-client] stamped ${hashOut} ${WANT_HASH.slice(0, 16)} (${graphInputs.length} bundled inputs, artifact ${outputSha.slice(0, 16)})`)
 }
 
