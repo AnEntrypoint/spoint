@@ -3262,3 +3262,33 @@ No defect was found, so no fix commit was needed. AGENTS.md is 29,990 bytes (wc 
 | scripts/agents-md-facts-witness.mjs | 0 | 280 | RESULT: PASS 216 path claim(s) exist, 188 symbol claim(s) appear in their cited file(s) |
 
 The two snapshot witnesses each take about 10 s on this host, which is a fixed cost in those witnesses and not a lease or build cost. It was not investigated in this run.
+
+## Run 36: World.getBody* reuse their output arrays (Phase A, code, test and docs)
+
+Audit of every caller of getBodyPosition, getBodyRotation, getBodyVelocity and getBodyAngularVelocity (repo-wide, excluding node_modules, dist and vendor). Before the change each call returned a new array, so a caller could hold it. With one shared array per getter, a caller that holds a result across a second call of the same getter would read the second body's value.
+
+| call site | use | with a shared array | action |
+|---|---|---|---|
+| src/physics/World.js addConstraint, aA and aB | two getBodyPosition calls in two statements | aA would hold body B's position (a real defect in the current code) | fixed: both anchors copied |
+| src/physics/World.js recreateBodyWithMotionType, createOpts.rotation | stored in createOpts | copied at the store, so it survives the later _addBody call | fixed: copied |
+| src/physics/World.js recreateBodyWithMotionType, _addBody position argument | read by _addBody into a new RVec3 before any other getter call | safe | unchanged |
+| src/physics/World.js recreateBodyWithMotionType, lv and av | two different getters, each used once | safe | unchanged |
+| src/client/CollisionMirror.js (box records) | stored in a map of records | every record would show the last body's position | fixed: copied |
+| src/sdk/WorkerEntry.js (rock bodies) | stored per rock in a map | every rock would share one position | fixed: copied |
+| src/sdk/WorldPersistence.js (body snapshot) | stored in the snapshot object | every snapshot body would share the arrays | fixed: copied |
+| src/apps/AppPhysics.js getVelocity, getAngularVelocity, getRotation | returned to app script code, which may keep the value | app code would see later values | fixed: copied |
+| src/apps/AppRuntimePhysics.js (kinematic push, rest test, flight model) | read and compared, or passed to flightForces, which reads it into numbers | consumed before the next call | unchanged |
+| src/physics/StaticTileIndex.js | passed to boxRecordOf | boxRecordOf copies into a new array | unchanged |
+| src/sdk/chartState/migrateEntities.js | spread into new arrays | already copies | unchanged |
+| src/terrain/ColliderStreamer.js (transfer.point, transfer.quat) | written into the caller's position and rotation arrays | the transfer copies the values | unchanged |
+| scripts/netcode-conditioner-harness.mjs, scripts/collision-tile-shape-witness.mjs | read at once, or passed to boxRecordOf | safe | unchanged |
+
+The getters also change their Jolt calls. getBodyVelocity used GetLinearVelocity, which creates a Jolt Vec3 per call, and destroyed it. getBodyAngularVelocity used GetAngularVelocity, which created a Vec3 and never destroyed it, a per-call wasm leak. Both now read through GetLinearAndAngularVelocity into the existing _bulkOutLV and _bulkOutAV, which the bulk path already uses unguarded. The angular getter's old guard on GetAngularVelocity is dropped for the same reason.
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | src/physics/World.js (constructor line, the four getters, addConstraint anchors, recreateBodyWithMotionType rotation) | constructor adds _bodyPosOut, _bodyRotOut, _bodyVelOut and _bodyAngVelOut; each getter writes its own array and returns it; velocity getters go through GetLinearAndAngularVelocity; a missing body writes zeros (identity rotation) into the same array; the two addConstraint anchors and the stored rotation are copied | scripts/body-getter-buffer-witness.mjs (new, Phase B). It boots a real PhysicsWorld with real Jolt bodies, counts Jolt velocity objects through a Proxy on bodyInterface, and checks that each getter returns the same array on every call, that the values are right, that a missing body reads as zero, and that 1000 velocity reads create no Jolt velocity object. Negative control in Phase B: the same file against a copy of the HEAD World.js (src/physics/World.pre-buffers.js, removed after the run), which must FAIL |
+| 2 | src/apps/AppPhysics.js, src/client/CollisionMirror.js, src/sdk/WorkerEntry.js, src/sdk/WorldPersistence.js | the storing and returning call sites copy the getter result | the same witness covers the getters; the copies are read-audit fixes with no direct witness, and this is recorded as a limit |
+| 3 | AGENTS.md line 234; docs/AGENTS-DETAIL.md line 230 | rule text: copy `getBody*` results before the next call of that getter | scripts/agents-md-facts-witness.mjs (Phase B), with AGENTS.md size from wc -c |
+
+Not changed: the Jolt objects inside the position and rotation getters (the bulk output objects, already reused) and the setBody* paths.

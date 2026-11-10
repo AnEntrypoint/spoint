@@ -252,9 +252,9 @@ export function buildPhysicsAPI(ent, runtime) {
       }
       ent.position = [...p]
     },
-    getVelocity: () => { const b = liveBodyId(); return b !== undefined ? runtime._physics.getBodyVelocity(b) : [...(ent.velocity || [0,0,0])] },
-    getAngularVelocity: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyAngularVelocity?.(b) || [0,0,0]) : [0,0,0] },
-    getRotation: () => { const b = liveBodyId(); return b !== undefined ? (runtime._physics.getBodyRotation?.(b) || [...ent.rotation]) : [...ent.rotation] },
+    getVelocity: () => { const b = liveBodyId(); return b !== undefined ? [...runtime._physics.getBodyVelocity(b)] : [...(ent.velocity || [0,0,0])] },
+    getAngularVelocity: () => { const b = liveBodyId(); return b !== undefined ? [...(runtime._physics.getBodyAngularVelocity?.(b) || [0,0,0])] : [0,0,0] },
+    getRotation: () => { const b = liveBodyId(); return b !== undefined ? [...(runtime._physics.getBodyRotation?.(b) || [...ent.rotation])] : [...ent.rotation] },
     setFriction: (f) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyFriction?.(b, f) : false },
     setRestitution: (r) => { const b = liveBodyId(); return b !== undefined ? !!runtime._physics.setBodyRestitution?.(b, r) : false },
     setMotionType: (motionType) => {

@@ -88,7 +88,7 @@ export class PhysicsWorld {
     this._sampleBodyPeaks()
     this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0); this._tmpQuat = new J.Quat(0, 0, 0, 1)
     this._bulkOutP = new J.RVec3(0, 0, 0); this._bulkOutR = new J.Quat(0, 0, 0, 1)
-    this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0)
+    this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0); this._bodyPosOut = [0, 0, 0]; this._bodyRotOut = [0, 0, 0, 1]; this._bodyVelOut = [0, 0, 0]; this._bodyAngVelOut = [0, 0, 0]
     const [gx, gy, gz] = this.gravity
     const gv = new J.Vec3(gx, gy, gz); this.physicsSystem.SetGravity(gv); J.destroy(gv)
     this._heap32 = new Int32Array(J.HEAP8.buffer)
@@ -524,10 +524,10 @@ export class PhysicsWorld {
     }
   }
 
-  getBodyPosition(id) { const b = this._getBody(id); if (!b) return [0,0,0]; this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); return [this._bulkOutP.GetX(),this._bulkOutP.GetY(),this._bulkOutP.GetZ()] }
-  getBodyRotation(id) { const b = this._getBody(id); if (!b) return [0,0,0,1]; this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); return [this._bulkOutR.GetX(),this._bulkOutR.GetY(),this._bulkOutR.GetZ(),this._bulkOutR.GetW()] }
-  getBodyVelocity(id) { const b = this._getBody(id); if (!b) return [0,0,0]; const v = this.bodyInterface.GetLinearVelocity(b.GetID()); const r=[v.GetX(),v.GetY(),v.GetZ()]; this.Jolt.destroy(v); return r }
-  getBodyAngularVelocity(id) { const b = this._getBody(id); if (!b || !this.bodyInterface.GetAngularVelocity) return [0,0,0]; const v = this.bodyInterface.GetAngularVelocity(b.GetID()); return [v.GetX(),v.GetY(),v.GetZ()] }
+  getBodyPosition(id) { const b = this._getBody(id); const o = this._bodyPosOut; if (!b) { o[0] = 0; o[1] = 0; o[2] = 0; return o } this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); o[0] = this._bulkOutP.GetX(); o[1] = this._bulkOutP.GetY(); o[2] = this._bulkOutP.GetZ(); return o }
+  getBodyRotation(id) { const b = this._getBody(id); const o = this._bodyRotOut; if (!b) { o[0] = 0; o[1] = 0; o[2] = 0; o[3] = 1; return o } this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); o[0] = this._bulkOutR.GetX(); o[1] = this._bulkOutR.GetY(); o[2] = this._bulkOutR.GetZ(); o[3] = this._bulkOutR.GetW(); return o }
+  getBodyVelocity(id) { const b = this._getBody(id); const o = this._bodyVelOut; if (!b) { o[0] = 0; o[1] = 0; o[2] = 0; return o } this.bodyInterface.GetLinearAndAngularVelocity(b.GetID(), this._bulkOutLV, this._bulkOutAV); o[0] = this._bulkOutLV.GetX(); o[1] = this._bulkOutLV.GetY(); o[2] = this._bulkOutLV.GetZ(); return o }
+  getBodyAngularVelocity(id) { const b = this._getBody(id); const o = this._bodyAngVelOut; if (!b) { o[0] = 0; o[1] = 0; o[2] = 0; return o } this.bodyInterface.GetLinearAndAngularVelocity(b.GetID(), this._bulkOutLV, this._bulkOutAV); o[0] = this._bulkOutAV.GetX(); o[1] = this._bulkOutAV.GetY(); o[2] = this._bulkOutAV.GetZ(); return o }
   setBodyFriction(id, f) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetFriction) return false; this.bodyInterface.SetFriction(b.GetID(), f); return true }
   setBodyRestitution(id, r) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetRestitution) return false; this.bodyInterface.SetRestitution(b.GetID(), r); return true }
   setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate); this._staticTiles?.update(id) }
@@ -563,7 +563,7 @@ export class PhysicsWorld {
     const meta = this.bodyMeta.get(id) || {}
     const mass = opts.mass ?? meta.mass
     const createOpts = {
-      rotation: this.getBodyRotation(id),
+      rotation: [...this.getBodyRotation(id)],
       meta: { ...meta, type: motionTypeName },
       friction: b.GetFriction(),
       restitution: b.GetRestitution(),
@@ -640,8 +640,8 @@ export class PhysicsWorld {
     const ba = this._getBody(bodyIdA), bb = this._getBody(bodyIdB)
     if (!ba || !bb) return null
     const J = this.Jolt, type = opts.type || 'fixed'
-    const aA = opts.anchorA || this.getBodyPosition(bodyIdA)
-    const aB = opts.anchorB || this.getBodyPosition(bodyIdB)
+    const aA = opts.anchorA || [...this.getBodyPosition(bodyIdA)]
+    const aB = opts.anchorB || [...this.getBodyPosition(bodyIdB)]
     const p = this._tmpRVec3, v = this._tmpVec3
     const swing = type === 'swingTwist' ? swingTwistLimits(opts.limits, opts.softness) : null
     const hinge = type === 'hinge' && opts.limits ? hingeLimits(opts.limits, opts.softness) : null

@@ -236,7 +236,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
         const id = boxBodies.get(k).id, J = world.Jolt, bounds = world.bodies.get(id).GetShape().GetLocalBounds(), lo = bounds.mMin, hi = bounds.mMax
         const half = [(hi.GetX() - lo.GetX()) / 2, (hi.GetY() - lo.GetY()) / 2, (hi.GetZ() - lo.GetZ()) / 2]
         J.destroy(bounds)
-        return { half, position: world.getBodyPosition(id), rotation: world.getBodyRotation(id) }
+        return { half, position: [...world.getBodyPosition(id)], rotation: [...world.getBodyRotation(id)] }
       }),
     }
   }

@@ -1,4 +1,4 @@
-export declare const SOURCE_DIGEST: '61d30eddb170f4516b092501fd4e223641d22afae15c5db5272e2cbd676928dd';
+export declare const SOURCE_DIGEST: 'a161bc1c117be145cd7b1f25b45870060360dc6a4c56773ebe99c713758dc665';
 
 export type NonNegFinite = number;
 
@@ -61,12 +61,12 @@ export declare class AppContext {
         createTrackedVehicle: (wheelDefs: any, opts: any) => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
         destroyVehicle: () => any;
-        getAngularVelocity: () => any;
+        getAngularVelocity: () => any[];
         getBodyId: () => any;
-        getRotation: () => any;
+        getRotation: () => any[];
         getVehicleWheelState: (wheelIndex: any) => any;
         getVehicleWheelTransform: (wheelIndex: any) => any;
-        getVelocity: () => any;
+        getVelocity: () => any[];
         hasVehicle: () => boolean;
         setAngularDamping: (v: NonNegFinite) => void;
         setCCDPolicy: (v: any) => void;
@@ -784,12 +784,12 @@ export declare class AppContext {
         createTrackedVehicle: (wheelDefs: any, opts: any) => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
         destroyVehicle: () => any;
-        getAngularVelocity: () => any;
+        getAngularVelocity: () => any[];
         getBodyId: () => any;
-        getRotation: () => any;
+        getRotation: () => any[];
         getVehicleWheelState: (wheelIndex: any) => any;
         getVehicleWheelTransform: (wheelIndex: any) => any;
-        getVelocity: () => any;
+        getVelocity: () => any[];
         hasVehicle: () => boolean;
         setAngularDamping: (v: NonNegFinite) => void;
         setCCDPolicy: (v: any) => void;

@@ -269,7 +269,7 @@ if (hasWorkerPostMessage) {
         return r.hit ? { distance: r.distance, bodyId: r.bodyId, isRock: !!(rockIds && rockIds.has(r.bodyId)) } : null
       })
       const rockBodies = data.includeRockBodies && rockIds
-        ? [...rockIds].map(id => ({ id, position: physics.getBodyPosition(id), rotation: physics.getBodyRotation(id), shapeKey: physics._bodyShapeKey.get(id) }))
+        ? [...rockIds].map(id => ({ id, position: [...physics.getBodyPosition(id)], rotation: [...physics.getBodyRotation(id)], shapeKey: physics._bodyShapeKey.get(id) }))
         : undefined
       const rs = _ctx._terrainStreamer && _ctx._terrainStreamer._rockStreamer
       const rockStreamer = rs ? { liveCount: rs.liveCount, centers: rs.centers, rebuildCount: rs.rebuildCount, chunkCacheSize: rs.chunkCacheSize } : null

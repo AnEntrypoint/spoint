@@ -231,7 +231,7 @@ Detail: `docs/AGENTS-DETAIL.md#physics-and-jolt`.
 
 - `physics.setBodyMotionType` returns the same id in place, a new id on recreate, or `false`; use `IsActive()` as the discriminator.
 - Create the new body BEFORE destroying the old, on the layer its motion type maps to (`LAYER_STATIC` for static, else `LAYER_DYNAMIC`); refuse a body holding a constraint or vehicle chassis, and a trimesh/mesh/heightfield body moving to a simulated type.
-- Replace a pooled body whose `bodyMeta.type` differs from the requested motion type; copy `getBodyPosition` before the next call.
+- Replace a pooled body whose `bodyMeta.type` differs from the requested motion type; copy `getBody*` results before the next call.
 - Use `GetSampleCount()` (per-side N) and `GetMinHeightValue()`; `get_mMinHeightValue` is not a Jolt method.
 - Trimesh and convex build failures propagate as `ColliderBuildError` and refuse boot (`assertTrimeshBuildsClean`, `src/apps/AppRuntime.js`); never degrade to a box.
 - `AppRuntimePhysics.js` pins a vehicle chassis (`e._vehicleId != null`) to physical in `_tickPhysicsLOD` and skips it in `_enforceBodyBudget`.

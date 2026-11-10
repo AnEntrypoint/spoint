@@ -51,10 +51,10 @@ export function buildWorldSnapshot(appRuntime, physics, worldName, definition = 
     if (bodyId !== undefined && physics && typeof physics.getBodyVelocity === 'function') {
       if (e.bodyType !== 'static') {
         body = {
-          position: physics.getBodyPosition(bodyId),
-          rotation: physics.getBodyRotation(bodyId),
-          velocity: physics.getBodyVelocity(bodyId),
-          angularVelocity: physics.getBodyAngularVelocity ? physics.getBodyAngularVelocity(bodyId) : [0, 0, 0]
+          position: [...physics.getBodyPosition(bodyId)],
+          rotation: [...physics.getBodyRotation(bodyId)],
+          velocity: [...physics.getBodyVelocity(bodyId)],
+          angularVelocity: physics.getBodyAngularVelocity ? [...physics.getBodyAngularVelocity(bodyId)] : [0, 0, 0]
         }
       }
     }
