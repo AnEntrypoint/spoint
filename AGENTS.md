@@ -244,14 +244,14 @@ Detail: `docs/AGENTS-DETAIL.md#physics-and-jolt`.
 Detail: `docs/AGENTS-DETAIL.md#terrain-and-colliders`.
 
 - `src/terrain/PlanetFrame.js` `installOwned`: refuse any receiver other than the frame that owns the ground sources.
-- Start every vertex solve from `renderYOnSphere(r2, 0)` (`HeightfieldStreamer.js`); never seed from previous samples.
+- Start every vertex solve from `renderYOnSphere(r2, 0)` (`src/terrain/PlanetFrame.js`); never seed it from previous samples.
 - Baked heightfields fail loud (`TerrainPhysics.js`): an absent artifact falls back, but unreadable or stale ones throw `[baked-heightfield]`.
-- No terrain is fatal: `ServerAPI.loadWorld` rethrows `[terrain] world "<id>" has no terrain`. `ctx.terrainHeightAt` is not `elevationAtLocal`.
+- A world without terrain refuses to load: `ServerAPI.loadWorld` rethrows `[terrain] world "<id>" has no terrain`. `ctx.terrainHeightAt` is not `elevationAtLocal`.
 - Verify a placement change with byte-identical sha256 dumps of `placementsForChunk`.
-- Wrap the anchor field with `createModelExclusionField` in `client/core/Rocks.js`, `client/core/Vegetation.js` and `client/core/Grass.js`; `ModelExclusionField.js` includes `_interior` models.
-- Test the near-quad reach in chart metres, never in face units (`TerrainMeshSurface.js sync`); keep `DEFAULT_MAX_QUADS` at 512.
-- `terrain.glsl` `snoise3`, `vnoise2`, `seaHash` and `hpfSample` take the in-cell fraction as `P-floor(P)` from one `floor`.
-- `gl-render.js` `sampleGroundM` returns the previous call's height; `sampleGroundMSync` poisons the next async read.
+- Wrap the anchor field with `createModelExclusionField` in `client/core/Rocks.js`, `client/core/Vegetation.js` and `client/core/Grass.js`.
+- Convert the near-quad reach from chart metres to face units per face, then test it in face units (`TerrainMeshSurface.js sync`); keep `DEFAULT_MAX_QUADS` at 512.
+- `terrain.glsl` `snoise3`, `vnoise2`, `seaNoise` and `hpfSample` take the in-cell fraction as `P-floor(P)` from one `floor`.
+- `packages/mapspinner/src/gl-render.js` `sampleGroundM` returns the last completed probe height, not this call's; `sampleGroundMSync` does not update that height.
 - Gate vegetation density on painted snow; the slope caps differ (`SLOPE_MAX` 0.6 in `VegPlacement`, 0.9 in `GrassPlacement`).
 - Every `discard` in `packages/mapspinner/src/shaders/terrain.glsl` sits inside `#ifdef _WATERPASS_`; a discard elsewhere costs early-Z for every draw.
 - `src/shared/terrainConfig.js` `terrainCarvesOf`: carves apply only on the non-legacy height backend.
@@ -263,7 +263,7 @@ Detail: `docs/AGENTS-DETAIL.md#grass-distance-density`.
 - `GRASS_DENSITY` and `grassBladeEdgeM` (`src/terrain/GrassPlacement.js`) are the single source of the law; edit `client/core/Grass.js`, `GrassTSL.js` and `GrassMaterial.js` together, or the fade desynchronises silently.
 - The CPU holds each blade from `LEAD_M`, which must exceed `LOD_REVISIT_STEP_M`, or a blade pops.
 - `wind.uGrassRing` carries `EDGE_CAP_M`, not the ring radius.
-- Judge a ring change on `updateMsPerQuietFrame`, not on the instance count.
+- Judge a ring change on `profile.updateMs` (`window.__grassProfile`), not on the instance count.
 
 ## Grass wind field
 
