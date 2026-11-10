@@ -45,6 +45,15 @@ function _makeOrderLabelSprite(index) {
 export function createWaypointPathOverlay({ scene, entityMeshes }) {
   let _group = null
   let _lastIds = null, _lastSel = '', _lastPos = new Float64Array(0)
+  let _sourceEntities = null, _points = []
+
+  function _pointsFrom(entities) {
+    if (entities !== _sourceEntities) {
+      _sourceEntities = entities
+      _points = collectWaypointPathPoints(entities).map(p => ({ id: p.id, order: p.order, position: [p.position[0], p.position[1], p.position[2]] }))
+    }
+    return _points
+  }
 
   function _unchanged(points, selectedId) {
     if (!_lastIds || _lastIds.length !== points.length || _lastSel !== (selectedId || '')) return false
@@ -96,11 +105,11 @@ export function createWaypointPathOverlay({ scene, entityMeshes }) {
 
   return {
     update(entities, selectedId) {
-      const points = collectWaypointPathPoints(entities)
+      const points = _pointsFrom(entities)
       if (entityMeshes) {
         for (const p of points) {
           const m = entityMeshes.get(p.id)
-          if (m) p.position = [m.position.x, m.position.y, m.position.z]
+          if (m) { p.position[0] = m.position.x; p.position[1] = m.position.y; p.position[2] = m.position.z }
         }
       }
       if (_unchanged(points, selectedId)) return
@@ -111,7 +120,7 @@ export function createWaypointPathOverlay({ scene, entityMeshes }) {
       scene.add(_group)
     },
     get visible() { return !!_group },
-    destroy() { _teardown(); _lastIds = null }
+    destroy() { _teardown(); _lastIds = null; _sourceEntities = null; _points = [] }
   }
 }
 

@@ -3550,3 +3550,23 @@ Changes this round, each committed on its own as lanmower:
 4. `scripts/check.mjs`: a step whose output contains a `RESULT: FAIL` line now fails the run even when it exits 0.
 
 Why `npm run check` exited 0 next to a FAIL line: the drag witness is not one of the check steps, and the witnesses are run by hand (AGENTS.md). The FAIL line came from the hand-run negative control, which exits 1 (`BASE_EXIT=1`). The final check log has no `RESULT: FAIL` line, so no step passed a FAIL. Change 4 guards steps added later. Its failing branch was checked by reading only; no step in the current list prints a FAIL.
+
+## Run 40: per-frame editor allocation, Phase A (code, docs and tests only, not built or run)
+
+Base: origin/main 03f107f. Audit: the per-frame editor path is `client/app.js` (render stage) calling `editor.updateGizmo()` while `isEditorFrame` or the edit panel is visible, and `EditorPresence.tick()` in the same stage. The streamer's per-query path (`coversPosition`, Run 39 row 10) allocates nothing; `FieldLattice.toLatticeInto` and `chartTransfer.point` take caller buffers. The streamer tick (300 ms) and cover paths are per tick, not per frame.
+
+Ranked items, worked top to bottom:
+
+| rank | item | file | change | status | witness (run in Phase B) |
+|---|---|---|---|---|---|
+| 1 | `updateGizmo` ran `waypointPath.update` every frame, which rebuilt the waypoint list, its point objects and a position array per point | client/editor/WaypointPath.js (`_pointsFrom`, `update`, `destroy`) | the list is cached by the identity of the entity array (a new array arrives only with a scene-graph message); positions are written into the cached arrays; `destroy` clears the cache | committed in this Phase A commit | `scripts/editor-drag-alloc-witness.mjs` per-frame section (added in the next Phase A commit, not run here) |
+| 2 | `updateGizmo` built a centroid id array and a Vector3 every frame in centroid pivot | client/editor/editor.js (`updateGizmo`, `attachGizmo`) | one reused id array and one scratch Vector3 for the gizmo; `attachGizmo` shares the helper | next commit | same per-frame section |
+| 3 | `EditorPresence.tick` cloned a vector, called `getBoundingClientRect` and built a result object per remote peer, and rebuilt label and position strings every frame | client/editor/EditorPresence.js (`_project`, `tick`) | module scratch vector and point; one rect per tick; DOM writes only when a value changes | next commit | `scripts/editor-presence-alloc-witness.mjs` (added with the change, not run here) |
+| 4 | `_nearestEntitySnapPoint` created a `forEach` closure on every move | client/editor/editor.js (`_nearestEntitySnapPoint`) | a stable visitor function with module scratch state | next commit | `scripts/editor-drag-alloc-witness.mjs` (Run 39 rows 1–9, unchanged) |
+
+Examined, not changed:
+- drag `onDragUpdate` payload (`position.toArray()` per move): `client/app.js` spreads it into `editPanel.selectedEntity`, which keeps the array, so it cannot be reused.
+- radius drag `custom` spread per move: the new custom object is retained by the same consumer path, and the old identity is referenced elsewhere.
+- streamer `validCenters` (300 ms tick): `pass()` keeps its player snapshot across awaits, so a shared buffer changes what the retirement loop sees; needs restructuring first.
+- streamer `fields` getter and `groundlessPlayers`: no per-frame callers (re-anchor and start only).
+- `FieldLattice.toLattice` (array per call): callers are the tick and cover paths only.
