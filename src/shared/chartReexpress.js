@@ -39,6 +39,17 @@ export function sameChart(a, b) {
   return a.radius === b.radius && a.anchorHeight === b.anchorHeight && a.offsetY === b.offsetY && near(a.east, b.east) && near(a.up, b.up) && near(a.north, b.north)
 }
 
+const _pushVec = [0, 0, 0]
+
+function reexpressPushSlot(transfer, s) {
+  _pushVec[0] = s[0]; _pushVec[1] = 0; _pushVec[2] = s[1]
+  transfer.vec(_pushVec, _pushVec)
+  s[0] = _pushVec[0]; s[1] = _pushVec[2]
+  _pushVec[0] = s[2]; _pushVec[1] = 0; _pushVec[2] = s[3]
+  transfer.vec(_pushVec, _pushVec)
+  s[2] = _pushVec[0]; s[3] = _pushVec[2]
+}
+
 export function createReexpressPass(transfer) {
   const seen = new Set()
   const first = target => {
@@ -55,6 +66,7 @@ export function createReexpressPass(transfer) {
     yawRotation(q) { if (q && first(q)) reexpressYawQuat(transfer, q) },
     look(holder, yawKey, pitchKey) { if (holder && first(holder)) reexpressLook(transfer, holder, yawKey, pitchKey) },
     clear(list) { if (list && first(list)) list.length = 0 },
+    pushSlot(slot) { if (slot && first(slot)) reexpressPushSlot(transfer, slot) },
   }
 }
 

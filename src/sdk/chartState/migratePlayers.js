@@ -9,6 +9,11 @@ function reexpressPlayerState(pass, state) {
   pass.yawRotation(state.rotation)
 }
 
+function reexpressPlayerPushes(pass, player) {
+  if (player.pendingPush) pass.pushSlot(player.pendingPush)
+  if (player.pushQueue) for (const slot of player.pushQueue) if (slot) pass.pushSlot(slot)
+}
+
 function reexpressBufferedInputs(pass, inputs) {
   for (const input of inputs) pass.look(input.data)
 }
@@ -27,6 +32,7 @@ export function createPlayerMigrator({ playerManager, networkState, lagCompensat
     const counts = { players: 0, bufferedInputs: 0, networkPlayers: 0, lagSamples: 0, characters: 0 }
     for (const player of playerManager.players.values()) {
       reexpressPlayerState(pass, player.state)
+      reexpressPlayerPushes(pass, player)
       pass.look(player.lastInput)
       const buffered = playerManager.getInputs(player.id)
       reexpressBufferedInputs(pass, buffered)
