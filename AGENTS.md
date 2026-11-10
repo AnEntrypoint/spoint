@@ -88,20 +88,20 @@ Detail: `docs/AGENTS-DETAIL.md#witness-and-publish-tooling`.
 - `scripts/lib/tip-rebase.mjs` `planRebaseOnTip`: a path both sides moved is refused as `REFUSAL_CONTESTED`.
 - `scripts/lib/capture-server.mjs` `makeRootGuard`: a bundle hash that differs from the boot pin answers 503 `root-hash-changed`.
 - `scripts/static-export.mjs` `bundleAppsIntoSingleModules`: apps stay single modules; `src/apps/AppLoader.js` loads them through a Blob URL, which misses the Pages base path.
-- `scripts/planet-orbit-hitch-probe.mjs`: `ctrl.setMode('custom')` is called only there.
-- `scripts/nearfield-lod-lattice-witness.mjs`: keep the transect window at `cl.extentM / 2`.
+- `scripts/planet-orbit-hitch-probe.mjs` sets `ctrl.setMode('custom')`; the app's camera also switches between `custom` and `tps` (`client/app.js`).
+- `scripts/nearfield-lod-lattice-witness.mjs`: the outer transect window is `Math.max(WINDOW_M, cl.extentM / 2)`; keep that form.
 - `scripts/lib/js-token-stream.mjs` `tokenize`: a clean `scripts/comment-sweep-token-witness.mjs` is evidence only when the swept files hold no `//` or `/*` outside template literals and strings.
-- `scripts/lib/tree-under-test.mjs` `committedSource`: read HEAD only on a clean checkout; otherwise read remote main's tree (`publishedTree`).
+- `scripts/lib/tree-under-test.mjs` `committedSource`: read HEAD only on a clean checkout; otherwise read remote main's tree (`publishedTree`), and the index stage 0 when remote main does not answer.
 - `scripts/lib/tree-under-test.mjs` `worktreeStateRev`: the rev is unreferenced; use it in the same run.
-- `scripts/gpulock.mjs run <owner> -- <cmd>`: the child's exit code and its own `RESULT:` line decide the outcome.
+- `scripts/gpulock.mjs run <owner> -- <cmd>` exits with the child's code (127 when the command cannot start); it does not parse the child's `RESULT:` line.
 - `scripts/lib/witness-audit.mjs --gate` is not in `scripts/check.mjs` or `package.json`; run it by hand.
 - Wireweave witnesses are manual and run with `node`; none is in `scripts/check.mjs`, `package.json` or CI. Batching across sends is kept on purpose.
-- `src/netcode/SnapshotEncoder.js` `buildCrowdDots`: keep each cell as a `[cx, cz]` pair, never a packed key.
+- `src/netcode/SnapshotEncoder.js` `buildCrowdDots`: each cell is a `[cx, cz, count]` entry keyed by the string `cx,cz`; keep the pair, not a packed number.
 - Stage radius queries take `radius ?? relevanceRadius`; never `||`, which turns zero into the full ring.
 - `src/apps/AppRuntime.js` `nearbyEntities` and `relevantEntities` answer the same radius query with or without a stage loader.
-- World ports: 3002 `tps-game` (default), 3007 `tutorial`, 3008 `tutorial-rpg`, 3009 `construct`, 3010 `deathrun`; 3003 to 3006 are `apps/world/_fixtures/sillos-terrain-*`. A port applies only when the world boots standalone (`WORLD=<name>`).
-- `scripts/cross-map-parity.mjs` reads jayzee's working-tree PARITY.md: commit or revert that file before running it.
-- `scripts/perf-run.mjs` `avgMs` is invalidated: quote `p50Ms` with `p95Ms`, never the average.
+- A world's `port` applies unless the `PORT` environment variable is set (`src/sdk/ServerBoot.js`).
+- `scripts/cross-map-parity.mjs` reads jayzee's working-tree `docs/PARITY.md`; a dirty file makes the run PROVISIONAL, so commit or revert it first.
+- `scripts/perf-run.mjs` still emits `avgMs`: quote `p50Ms` with `p95Ms`, never the average.
 
 ## Client render placement
 
