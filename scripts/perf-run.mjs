@@ -7,6 +7,7 @@ import { spawnSync, spawn } from 'node:child_process'
 import { chromium, DEFAULT_VIEWPORT } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { percentile, summarizeFrames } from './lib/frame-percentile.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
@@ -351,7 +352,7 @@ const GPU_PASS_ARM_SRC = `(() => {
       const id = key.split(':')[1]
       const m = meta.get(id) || meta.get(Number(id)) || {}
       const sv = t.vals.slice().sort((a, c) => a - c)
-      const q = (p) => sv.length ? +sv[Math.min(sv.length - 1, Math.floor(p * sv.length))].toFixed(4) : null
+      const q = (p) => sv.length ? +percentile(sv, p).toFixed(4) : null
       const abTag = key.split(':')[2] || null
       passes.push({ type: key.split(':')[0], ctx: id, abTag, ...m, samples: t.n, p50Ms: q(0.5), p95Ms: q(0.95), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
     }
@@ -405,11 +406,6 @@ function sampleGpu() {
   const out = (r.stdout || '').trim()
   const num = (re) => { const m = re.exec(out); return m ? Number(m[1]) : null }
   return { gpu3d: num(/gpu3d=([\d.]+)/), train: num(/train=(\d+)/), gm: num(/gm=(\d+)/), perf: num(/perf=(\d+)/), other: num(/other=(\d+)/), user: num(/user=(\d+)/), chrome: num(/chrome=(\d+)/), cpu: num(/cpu=(\d+)/) }
-}
-
-function percentile(sorted, p) {
-  if (!sorted.length) return 0
-  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
 }
 
 function aggregateProfile(profile) {
@@ -1130,15 +1126,7 @@ async function main() {
         vegInstances: revealed.veg,
         refreshHz: revealed.refreshHz,
       },
-      frames: {
-        count: deltas.length,
-        minMs: +deltas[0].toFixed(2),
-        p50Ms: +percentile(deltas, 0.5).toFixed(2),
-        p95Ms: +percentile(deltas, 0.95).toFixed(2),
-        p99Ms: +percentile(deltas, 0.99).toFixed(2),
-        maxMs: +percentile(deltas, 1).toFixed(2),
-        fps: +(1000 / Math.max(0.001, percentile(deltas, 0.5))).toFixed(1),
-      },
+      frames: summarizeFrames(deltas),
       trianglesPerFrame: {
         count: tris.length,
         avg: +(tris.reduce((a, b) => a + b, 0) / Math.max(1, tris.length)).toFixed(0),
