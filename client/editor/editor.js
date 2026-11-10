@@ -168,6 +168,14 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     for (const id of ids) { const m = entityMeshes.get(id); if (!m) continue; c.add(m.position); n++ }
     return n ? c.multiplyScalar(1 / n) : c
   }
+  let _cenOut = null, _cenN = 0
+  function _addCentroidMember(_startPos, id) { const m = entityMeshes.get(id); if (!m) return; _cenOut.add(m.position); _cenN++ }
+  function _computeCentroidOfMap(map, out) {
+    _cenOut = out.set(0, 0, 0); _cenN = 0
+    map.forEach(_addCentroidMember)
+    const n = _cenN
+    return n ? out.multiplyScalar(1 / n) : out
+  }
   const _selectionIds = []
   let _selectionCount = 0
   const _selectionCentroid_out = new THREE.Vector3()
@@ -270,6 +278,36 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     dragAxis = null; _dragRadiusStart = null; _dragRadiusCenter = null; _dragBeforeState = null
   }
 
+  let _mvD = 0, _mvQuat = null, _mvPivot = null
+  function _scaleExtraVisitor(startScale, eid) {
+    const em = entityMeshes.get(eid); if (!em) return
+    const es = _dragScaleExtra.copy(startScale)
+    if (dragAxis==='x') es.x = Math.max(0.01, es.x + _mvD)
+    else if (dragAxis==='y') es.y = Math.max(0.01, es.y + _mvD)
+    else es.z = Math.max(0.01, es.z + _mvD)
+    em.scale.copy(es)
+    if (_mvPivot) {
+      const startPos = _dragPositionStart.get(eid)
+      const offset = _dragOffset.copy(startPos).sub(_mvPivot)
+      offset.x *= startScale.x ? es.x / startScale.x : 1
+      offset.y *= startScale.y ? es.y / startScale.y : 1
+      offset.z *= startScale.z ? es.z / startScale.z : 1
+      em.position.copy(_mvPivot).add(offset)
+    }
+  }
+  function _rotateExtraVisitor(startQuat, eid) {
+    const em = entityMeshes.get(eid); if (!em) return
+    em.quaternion.copy(startQuat).multiply(_mvQuat)
+    if (_mvPivot) {
+      const startPos = _dragPositionStart.get(eid)
+      em.position.copy(_dragOffset.copy(startPos).sub(_mvPivot).applyQuaternion(_mvQuat).add(_mvPivot))
+    }
+  }
+  function _translateExtraVisitor(startPos, eid) {
+    const em = entityMeshes.get(eid); if (!em) return
+    em.position.copy(startPos).add(_dragWorldDelta)
+  }
+
   function applyGizmoDrag(e) {
     if (!dragAxis || !dragStart || !gizmoGroup) return
     raycaster.setFromCamera(getNDC(e), camera)
@@ -282,7 +320,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     }
     const delta = _dragDelta.copy(pt).sub(dragStart).multiplyScalar(_precisionScale(e))
     const mesh = entityMeshes.get(selectedEntityId); if (!mesh) return
-    const _centroidPivot = (_pivotMode === 'centroid' && _dragPositionStart) ? _computeCentroid(_dragPositionStart.keys(), _centroidScratch) : null
+    const _centroidPivot = (_pivotMode === 'centroid' && _dragPositionStart) ? _computeCentroidOfMap(_dragPositionStart, _centroidScratch) : null
     if (_mode() === 'scale') {
       const s = _dragScale.copy(dragEntityStart)
       const d = delta.dot(_axisVec(dragAxis))
@@ -299,22 +337,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         mesh.position.copy(_centroidPivot).add(offset)
         if (gizmoGroup) gizmoGroup.position.copy(_centroidPivot)
       }
-      if (_extraDragStart) for (const [eid, startScale] of _extraDragStart) {
-        const em = entityMeshes.get(eid); if (!em) continue
-        const es = _dragScaleExtra.copy(startScale)
-        if (dragAxis==='x') es.x = Math.max(0.01, es.x + d)
-        else if (dragAxis==='y') es.y = Math.max(0.01, es.y + d)
-        else es.z = Math.max(0.01, es.z + d)
-        em.scale.copy(es)
-        if (_centroidPivot) {
-          const startPos = _dragPositionStart.get(eid)
-          const offset = _dragOffset.copy(startPos).sub(_centroidPivot)
-          offset.x *= startScale.x ? es.x / startScale.x : 1
-          offset.y *= startScale.y ? es.y / startScale.y : 1
-          offset.z *= startScale.z ? es.z / startScale.z : 1
-          em.position.copy(_centroidPivot).add(offset)
-        }
-      }
+      if (_extraDragStart) { _mvD = d; _mvPivot = _centroidPivot; _extraDragStart.forEach(_scaleExtraVisitor) }
     } else if (_mode() === 'rotate') {
       const projAxis = dragAxis==='x'?'y':'x'
       let d = delta.dot(_axisVec(projAxis))
@@ -331,14 +354,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         mesh.position.copy(_dragOffset.copy(startPos).sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
         if (gizmoGroup) gizmoGroup.position.copy(_centroidPivot)
       }
-      if (_extraDragStart) for (const [eid, startQuat] of _extraDragStart) {
-        const em = entityMeshes.get(eid); if (!em) continue
-        em.quaternion.copy(startQuat).multiply(q)
-        if (_centroidPivot) {
-          const startPos = _dragPositionStart.get(eid)
-          em.position.copy(_dragOffset.copy(startPos).sub(_centroidPivot).applyQuaternion(q).add(_centroidPivot))
-        }
-      }
+      if (_extraDragStart) { _mvQuat = q; _mvPivot = _centroidPivot; _extraDragStart.forEach(_rotateExtraVisitor) }
     } else {
       const axisVec = _axisVec(dragAxis)
       const moveDelta = _gizmoSpace === 'local' ? _dragMove.copy(axisVec).multiplyScalar(delta.dot(axisVec)) : delta
@@ -361,11 +377,8 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       }
       gizmoGroup.position.copy(newPos); mesh.position.copy(newPos)
       if (_extraDragStart) {
-        const worldDelta = _dragWorldDelta.copy(newPos).sub(dragEntityStart)
-        for (const [eid, startPos] of _extraDragStart) {
-          const em = entityMeshes.get(eid); if (!em) continue
-          em.position.copy(startPos).add(worldDelta)
-        }
+        _dragWorldDelta.copy(newPos).sub(dragEntityStart)
+        _extraDragStart.forEach(_translateExtraVisitor)
       }
     }
     if (_onDragUpdate) {
