@@ -22,6 +22,10 @@ const shoreNoGap = (x) => (x < 1000 ? 5 : -5)
 const gapped = await settled(searchBookmark('coast', ctxFor(shoreWithGap, 11)))
 check('a coast with a no-data gap across the shoreline finds no crossing inside the gap', gapped.error !== undefined && /nothing found near the origin/.test(gapped.error.message) && gapped.error.noData > 0 && gapped.error.sampled > gapped.error.noData, JSON.stringify(gapped.value ?? { message: gapped.error?.message, noData: gapped.error?.noData, sampled: gapped.error?.sampled }))
 
+const shoreBehindGap = (x) => (x < 1000 ? 5 : x < 1100 ? NaN : x < 2000 ? 5 : -5)
+const passedGap = await settled(searchBookmark('coast', ctxFor(shoreBehindGap, 14)))
+check('a coast does not take a shoreline that lies beyond a no-data gap', passedGap.error !== undefined && /nothing found near the origin/.test(passedGap.error.message) && passedGap.error.noData > 0, JSON.stringify(passedGap.value ?? passedGap.error?.message))
+
 const whole = await settled(searchBookmark('coast', ctxFor(shoreNoGap, 12)))
 check('the same coast search with no gap finds the shoreline at x of 1000 with no no-data sample', whole.value !== undefined && Math.abs(whole.value.x - 1000) < 1 && Math.abs(whole.value.z) < 1 && whole.value.noData === 0, JSON.stringify(whole.value ?? whole.error?.message))
 
@@ -68,5 +72,5 @@ if (failed.length) {
   console.log(`RESULT: FAIL ${failed.length} check(s): ${failed.map((c) => c.name).join('; ')}`)
   process.exit(1)
 }
-console.log('RESULT: PASS RelocationSearch treats NaN as no data: coast takes no crossing across a no-data gap, an all-no-data search throws RelocationSearchNoDataError, a hill search skips a hole to its highest finite point, and the cache returns one result per kind and seed without caching a failure')
+console.log('RESULT: PASS RelocationSearch treats NaN as no data: coast takes no crossing across or beyond a no-data gap, an all-no-data search throws RelocationSearchNoDataError, a hill search skips a hole to its highest finite point, and the cache returns one result per kind and seed without caching a failure')
 process.exit(0)

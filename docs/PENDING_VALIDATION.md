@@ -3225,3 +3225,22 @@ Working method from this pass on:
 5. A ledger edit makes the docs freshness witness fail until docs/index.html is regenerated. This pass does not regenerate the page, because the instruction was to commit only the ledger note, so the next Phase B regenerates it before the check.
 
 This run used job_status poll loops (waitMs 30000, up to 18 rounds) for the Phase B checks. From this pass on, those are replaced by the blocking waits above.
+
+## Run 35: NaN crossings, reasonCode refusals, per-tick buffers, Windows lease witness (Phase A, code, test and docs)
+
+Decision A (NaN crossings: code wrong, rule right). The rule is that a non-finite height is no data, never no crossing. `coast` in client/core/RelocationSearch.js did not follow it: the ray scan read a pair with a NaN sample as "no crossing" and walked on past the gap, so a shoreline behind a no-data gap was reported (pre-change: x=2000 across a gap from 1000 to 1100). The bisection already stopped at a no-data midpoint, so the scan was the odd side. The fix: `crossesShore` is a plain sign test, and the scan ends a ray at its first no-data sample. AGENTS.md line 163 and docs/AGENTS-DETAIL.md line 148 state the rule in its full form.
+
+Decision B (reasonCode refusals: code kept, narrowed rule holds). The rule is that a refusal a caller branches on carries `reasonCode`. src/stage/stageShapes.js (11 TypeError throws) and src/terrain/ColliderStreamer.js (7 Error or TypeError throws) carry prose only. Grep over src, client, scripts and apps (Run 35 Phase A) finds no `catch` around their importers (src/stage/Stage.js, src/terrain/RockPhysics.js, src/terrain/VegPhysics.js) and no test of their message text. The one stage refusal with a code is StageLoader.js `StageConfigError`, which already carries `code` and `reasonCode`. A code on these throws would have no reader, so no code is added and AGENTS.md line 164 stays as it is.
+
+Per-tick and per-frame allocation audit (Phase A; the owner's buffer rule):
+
+| path | allocation per call | status |
+|---|---|---|
+| src/netcode/SnapshotEncoder.js buildCrowdDots | a template-literal key per player, a Map.set per new cell, a shared Map cleared per call, and the result array | changed (row 2): no Map, no key string; dots are built by a scan of the result |
+| src/netcode/SnapshotEncoder.js encodeDelta, buildDynamicCache | a new Map per call | kept: the entity map is stored by the acked-baseline ring (recordSent), so it cannot be a reused buffer |
+| src/netcode/SnapshotEncoder.js encodePlayerInto, encodeReducedPlayer, encodeDeltaFromCache scratch | none: pooled per record and per scratch | unchanged |
+| src/physics/World.js getBodyPosition, getBodyRotation, getBodyAngularVelocity | a new array per call; getBodyVelocity also builds a Jolt Vec3 and destroys it | open: the callers (AppRuntimePhysics, CollisionMirror, ColliderStreamer, StaticTileIndex, WorkerEntry, WorldPersistence, migrateEntities) hold the returned arrays, so a shared-return change needs a per-caller audit |
+
+| # | file | change | witness |
+|---|------|--------|---------|
+| 1 | client/core/RelocationSearch.js; scripts/relocation-search-nodata-witness.mjs (new check); AGENTS.md line 163; docs/AGENTS-DETAIL.md line 148 | the scan ends a ray at its first no-data sample; `crossesShore` is a sign test; the witness adds "a coast does not take a shoreline that lies beyond a no-data gap" (seed 14, a shore at x=2000 behind a gap) | scripts/relocation-search-nodata-witness.mjs (Phase B). Phase A on the new file: 13/13 checks, RESULT: PASS, exit 0. On the pre-change file (git HEAD copied to client/core/RelocationSearch.pre-nan.js through a temporary witness copy, both removed after the run): 12/13, the failing check is the beyond-gap one with {"x":2000,"z":0,"noData":9}, RESULT: FAIL, exit 1 |

@@ -160,7 +160,7 @@ Detail: `docs/AGENTS-DETAIL.md#debugging-discipline`.
 - Silent-no-op class: codesearch the reader and the enable bit first (`?noveg`, `__vdrsScale`, `?legacygl=1`, `window.__fsCheap`).
 - Silent-default class: parse the whole record at ONE boundary and refuse there (`ColliderStreamer.js`, `src/stage/stageShapes.js`); never `v ?? DEFAULT` on invalid input.
 - Test `NO_GROUND_HEIGHT` only with `isNoGroundHeight`, never with `=== 0`; convert it to NaN before a height consumer. `guardedGroundHeight` takes two arguments.
-- A non-finite height is no data (`client/core/RelocationSearch.js`): `crossesShore` is false for a pair with one, and the search counts it as a gap or no-data; a search with only no-data samples throws `RelocationSearchNoDataError`.
+- A non-finite height is no data, never no crossing (`client/core/RelocationSearch.js`): `coast` ends a ray at its first one, so no shore past a gap is taken; a search with only no-data samples throws `RelocationSearchNoDataError`.
 - A refusal that a caller branches on carries a code (`reasonCode`, as `src/client/touchSurfaces.js` does).
 - Put a "report once" latch on the returned closure (`PlanetFrame.guardedGroundHeight`), not at module level.
 - The sender of a server event is stamped by `stampSender` (`src/sdk/ServerHandlers.js`), not by the witness.

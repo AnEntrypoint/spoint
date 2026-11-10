@@ -39,7 +39,7 @@ function elevationAt(frame, heightAt, x, z) {
   return Number.isFinite(y) ? elevationAtLocal(frame, x, y, z) : NaN
 }
 
-const crossesShore = (a, b) => Number.isFinite(a) && Number.isFinite(b) && (a >= 0) !== (b >= 0)
+const crossesShore = (a, b) => (a >= 0) !== (b >= 0)
 
 async function coast({ frame, heightAt }, yieldSlice) {
   let best = null
@@ -57,6 +57,7 @@ async function coast({ frame, heightAt }, yieldSlice) {
     for (let d = COAST_STEP_M; d <= COAST_MAX_M; d += COAST_STEP_M) {
       await yieldSlice()
       const e = at(d)
+      if (!Number.isFinite(prev) || !Number.isFinite(e)) break
       if (crossesShore(prev, e)) {
         let lo = prevD, hi = d, eLo = prev, gap = false
         for (let i = 0; i < BISECT_ITERATIONS; i++) {
