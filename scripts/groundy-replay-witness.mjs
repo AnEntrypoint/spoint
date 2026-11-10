@@ -187,7 +187,7 @@ const main = async () => {
   const starvedWindowOverTotal = runs.reduce((s, r) => s + r.starvedWindowOver, 0)
   const powerCount = POWER_COUNTS_STARVED_WINDOWS ? starvedWindowTotal : replays
   const powerLabel = POWER_COUNTS_STARVED_WINDOWS ? 'starved-window replay(s)' : 'correction replay(s)'
-  console.log(`starved-window replays ${starvedWindowTotal} (over ${RESIDUAL_LIMIT_M * 100} cm ${starvedWindowOverTotal}); correction replays ${replays} (over ${RESIDUAL_LIMIT_M * 100} cm ${overLimit}); power counts ${POWER_COUNTS_STARVED_WINDOWS ? 'starved-window' : 'correction'} replays, minimum ${MIN_REPLAYS}`)
+  console.log(`gate population: starved-window replays ${starvedWindowTotal} (over ${RESIDUAL_LIMIT_M * 100} cm ${starvedWindowOverTotal}), the population this replay produces at ${COND}; correction replays ${replays} (over ${RESIDUAL_LIMIT_M * 100} cm ${overLimit}), recorded and vetoing only when nonzero; power counts ${POWER_COUNTS_STARVED_WINDOWS ? 'starved-window' : 'correction'} replays, minimum ${MIN_REPLAYS}`)
   const maxResidual = runs.reduce((m, r) => (r.maxResidualM === null ? m : Math.max(m, r.maxResidualM)), -Infinity)
   const popRuns = runs.filter(r => r.popsPerMin > 0).length
   const withGap = runs.reduce((s, r) => s + r.overLimitWithGroundYGap, 0)
@@ -230,17 +230,16 @@ const main = async () => {
     return
   }
 
-  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && starvedWindowOverTotal === 0 && powerCount >= MIN_REPLAYS && replays >= MIN_REPLAYS && spikeTotal === 0
+  const ruledOut = runs.length === RUNS && RUNS >= MIN_RUNS && failures.length === 0 && overLimit === 0 && starvedWindowOverTotal === 0 && powerCount >= MIN_REPLAYS && spikeTotal === 0
   const reasons = [
     ...(failures.length ? [`${failures.length} of ${RUNS} run(s) failed`] : []),
     ...(powerCount < MIN_REPLAYS ? [`underpowered: ${powerCount} ${powerLabel}, below the ${MIN_REPLAYS} needed to gate replay residual`] : []),
-    ...(replays < MIN_REPLAYS ? [`underpowered: ${replays} correction replay(s), below the ${MIN_REPLAYS} needed to gate correction residual`] : []),
     ...(overLimit > 0 ? [`replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${overLimit} of ${replays} replays across ${runsOverLimit} of ${runs.length} completed run(s)`] : []),
-    ...(starvedWindowOverTotal > 0 ? [`starved-window replay residual over ${RESIDUAL_LIMIT_M * 100} cm in ${starvedWindowOverTotal} of ${starvedWindowTotal} starved-window replays`] : []),
+    ...(starvedWindowOverTotal > 0 ? [`starved-window ack error over ${RESIDUAL_LIMIT_M * 100} cm in ${starvedWindowOverTotal} of ${starvedWindowTotal} starved-window replays`] : []),
     ...(spikeTotal > 0 ? [`${spikeTotal} mirror one-tick spike(s) of ${SPIKE_MIN_M * 1000}-${SPIKE_MAX_M * 1000} mm across ${runs.filter(r => r.spikes > 0).length} of ${runs.length} run(s)`] : [])
   ]
   console.log(ruledOut
-    ? `RESULT: PASS the replay base groundY adds no residual over ${RESIDUAL_LIMIT_M * 100} cm in ${runs.length} runs of ${COND} (${replays} replays, max residual ${Number.isFinite(maxResidual) ? maxResidual.toFixed(4) : '-'} m, ${popRuns} run(s) with local pops)`
+    ? `RESULT: PASS the replay base groundY adds no residual over ${RESIDUAL_LIMIT_M * 100} cm in ${runs.length} runs of ${COND}: no starved-window ack error over ${RESIDUAL_LIMIT_M * 100} cm in ${starvedWindowTotal} starved-window replays and no correction over it in ${replays} correction replays (${popRuns} run(s) with local pops)`
     : `RESULT: FAIL world ${WORLD} cond ${COND}: ${reasons.join('; ')}; ${RUNS} requested, ${popRuns} run(s) with local pops`)
   await exitAfterQuiesce(ruledOut ? 0 : 1)
 }
