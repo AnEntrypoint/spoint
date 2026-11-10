@@ -163,18 +163,18 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
   let _pivotMode = 'active'
   const _PIVOT_MODES = ['active', 'centroid', 'individual']
   let _dragPositionStart = null
-  function _computeCentroid(ids, out = new THREE.Vector3()) {
-    const c = out.set(0, 0, 0); let n = 0
-    for (const id of ids) { const m = entityMeshes.get(id); if (!m) continue; c.add(m.position); n++ }
-    return n ? c.multiplyScalar(1 / n) : c
+  function _meanInPlace(c, n) {
+    if (!n) return c
+    const inv = 1 / n
+    c.x *= inv; c.y *= inv; c.z *= inv
+    return c
   }
   let _cenOut = null, _cenN = 0
   function _addCentroidMember(_startPos, id) { const m = entityMeshes.get(id); if (!m) return; _cenOut.add(m.position); _cenN++ }
   function _computeCentroidOfMap(map, out) {
     _cenOut = out.set(0, 0, 0); _cenN = 0
     map.forEach(_addCentroidMember)
-    const n = _cenN
-    return n ? out.multiplyScalar(1 / n) : out
+    return _meanInPlace(out, _cenN)
   }
   const _selectionIds = []
   let _selectionCount = 0
@@ -186,7 +186,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     extraSelectedIds.forEach(_pushSelectionId)
     const c = _selectionCentroid_out.set(0, 0, 0); let n = 0
     for (let i = 0; i < _selectionCount; i++) { const m = entityMeshes.get(_selectionIds[i]); if (!m) continue; c.add(m.position); n++ }
-    return n ? c.multiplyScalar(1 / n) : c
+    return _meanInPlace(c, n)
   }
   function _axisVec(axis) {
     if (_gizmoSpace !== 'local') return _AX[axis]
