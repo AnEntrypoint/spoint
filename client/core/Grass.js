@@ -120,7 +120,7 @@ export async function createGrass(opts = {}) {
   const revisitTouched = []
   let revisitTouchedN = 0
   let revisitPass = 0
-  let revisitPx = 0, revisitPz = 0
+  const _revisitPoint = new Float64Array([NaN, NaN, 0, 0])
   const exactFrame = createExactPatchFrame(frame)
   const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
@@ -134,13 +134,21 @@ export async function createGrass(opts = {}) {
     return !(ddx * ddx + ddz * ddz > LOD_NEAR_DIST * LOD_NEAR_DIST)
   }
 
+  const _scanPose = new Float64Array(2)
+  function clumpLodNearAt(xf, o, pose) {
+    const ddx = xf[o] - pose[0], ddz = xf[o + 2] - pose[1]
+    return !(ddx * ddx + ddz * ddz > LOD_NEAR_DIST * LOD_NEAR_DIST)
+  }
+
+  const _scaleArr = new Float64Array(3)
   function writeBlade(e, cell, i) {
     const o = i * XF_FLOATS
     const tint = cell.xf[o + 8]
-    e.position.set(cell.xf[o], cell.xf[o + 1], cell.xf[o + 2])
-    e.quaternion.set(cell.xf[o + 3], cell.xf[o + 4], cell.xf[o + 5], cell.xf[o + 6])
+    e.position.fromArray(cell.xf, o)
+    e.quaternion.fromArray(cell.xf, o + 3)
     const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * tint
-    e.scale.set(width, cell.xf[o + 7] * CLUMP_HEIGHT_SCALE, width)
+    _scaleArr[0] = width; _scaleArr[1] = cell.xf[o + 7] * CLUMP_HEIGHT_SCALE; _scaleArr[2] = width
+    e.scale.fromArray(_scaleArr)
   }
 
   function writeInstanceUniforms(mesh, cell, i) {
@@ -161,10 +169,13 @@ export async function createGrass(opts = {}) {
   }
 
   const _addState = { cell: null, idx: null, near: false, k: 0 }
+  const _entryPool = []
   function placeAddedBlade(e, id) {
     const s = _addState, cell = s.cell, i = s.idx[s.k++]
     writeBlade(e, cell, i)
-    cell.entries[i] = { id, near: s.near }
+    const en = _entryPool.pop() || { id: 0, near: false }
+    en.id = id; en.near = s.near
+    cell.entries[i] = en
     cell.lod[i] = s.near ? 1 : 0
     cell.on[i] = 1
   }
@@ -197,6 +208,7 @@ export async function createGrass(opts = {}) {
       totalInstances--
       cell.onCount--
       if (en.near) { nearInstances--; cell.nearCount-- }
+      _entryPool.push(en)
       cell.entries[i] = null
       cell.on[i] = 0
     }
@@ -356,7 +368,6 @@ export async function createGrass(opts = {}) {
   let lodRevisit = true
   const _flipCell = [], _flipIdx = []
   let _flipN = 0
-  let _lodEvalPx = NaN, _lodEvalPz = NaN
 
   function flipPush(cell, i) { _flipCell[_flipN] = cell; _flipIdx[_flipN] = i; _flipN++ }
 
@@ -398,11 +409,17 @@ export async function createGrass(opts = {}) {
   }
 
   function scanChunk(cell, px, pz) {
+    _scanPose[0] = px; _scanPose[1] = pz
+    scanCellAtPose(cell)
+  }
+
+  function scanCellAtPose(cell) {
     if (cell.pending || !cell.xf || !cell.keepR2 || !cell.bounds) return
+    const px = _scanPose[0], pz = _scanPose[1]
     const b = cell.bounds
-    const nearestX = px < b[0] ? b[0] : (px > b[2] ? b[2] : px)
-    const nearestZ = pz < b[1] ? b[1] : (pz > b[3] ? b[3] : pz)
-    const ddx = nearestX - px, ddz = nearestZ - pz
+    const loX = b[0] - px, hiX = px - b[2], loZ = b[1] - pz, hiZ = pz - b[3]
+    const ddx = loX > 0 ? loX : (hiX > 0 ? hiX : 0)
+    const ddz = loZ > 0 ? loZ : (hiZ > 0 ? hiZ : 0)
     const nearestSq = ddx * ddx + ddz * ddz
     const chunkOutside = nearestSq > LOD_NEAR_DIST * LOD_NEAR_DIST
     if (nearestSq > DENSITY_REACH_SQ && cell.onCount === 0) return
@@ -413,7 +430,7 @@ export async function createGrass(opts = {}) {
       const inReach = bdx * bdx + bdz * bdz < keepR2[i]
       if (inReach !== (on[i] === 1)) { flipPush(cell, i); continue }
       if (!inReach) continue
-      const wantNear = chunkOutside ? false : clumpLodNear(xf[o], xf[o + 2], px, pz)
+      const wantNear = chunkOutside ? false : clumpLodNearAt(xf, o, _scanPose)
       if (wantNear !== (lod[i] === 1)) flipPush(cell, i)
     }
   }
@@ -468,7 +485,7 @@ export async function createGrass(opts = {}) {
     return { addNear: createIdxList(), addMid: createIdxList(), drop: createIdxList(), toNear: createIdxList(), toMid: createIdxList() }
   }
 
-  function scanLoadedCell(cell) { scanChunk(cell, revisitPx, revisitPz) }
+  function scanLoadedCell(cell) { _scanPose[0] = _revisitPoint[2]; _scanPose[1] = _revisitPoint[3]; scanCellAtPose(cell) }
 
   function applyRevisitGroup(cell, g) {
     if (g.drop.n) { removeBlades(cell, g.drop.a, g.drop.n); profile.revisitRemoves += g.drop.n }
@@ -484,14 +501,14 @@ export async function createGrass(opts = {}) {
       return
     }
     if (!(Number.isFinite(px) && Number.isFinite(pz))) return
-    const dx = px - _lodEvalPx, dz = pz - _lodEvalPz
-    const moved = !Number.isFinite(_lodEvalPx) || !(dx * dx + dz * dz < LOD_REVISIT_STEP_M * LOD_REVISIT_STEP_M)
+    const dx = px - _revisitPoint[0], dz = pz - _revisitPoint[1]
+    const moved = !Number.isFinite(_revisitPoint[0]) || !(dx * dx + dz * dz < LOD_REVISIT_STEP_M * LOD_REVISIT_STEP_M)
     if (!moved && _flipN === 0) return
-    _lodEvalPx = px; _lodEvalPz = pz
+    _revisitPoint[0] = px; _revisitPoint[1] = pz
     if (moved) {
       clearFlips()
       profile.lodRevisits++
-      revisitPx = px; revisitPz = pz
+      _revisitPoint[2] = px; _revisitPoint[3] = pz
       loaded.forEach(scanLoadedCell)
     }
     const pass = ++revisitPass
@@ -513,10 +530,10 @@ export async function createGrass(opts = {}) {
       const g = cell.revisitGroup
       if (!inReach && live) idxPush(g.drop, i)
       else if (inReach && !live) {
-        if (clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)) idxPush(g.addNear, i)
+        if (clumpLodNearAt(cell.xf, o, _revisitPoint)) idxPush(g.addNear, i)
         else idxPush(g.addMid, i)
       } else if (inReach && live) {
-        const wantNear = clumpLodNear(cell.xf[o], cell.xf[o + 2], px, pz)
+        const wantNear = clumpLodNearAt(cell.xf, o, _revisitPoint)
         if (wantNear !== (cell.lod[i] === 1)) { if (wantNear) idxPush(g.toNear, i); else idxPush(g.toMid, i) }
         else continue
       } else continue
@@ -830,7 +847,7 @@ export async function createGrass(opts = {}) {
   function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, setSun: (sun) => setGrassSun(wind, sun), streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, _cells: loaded, get totalInstances() { return totalInstances }, get nearInstances() { return nearInstances }, get lodRevisit() { return lodRevisit }, set lodRevisit(v) { lodRevisit = v !== false; _lodEvalPx = NaN }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance, densityFullR: FULL_R, densityEdgeM: EDGE_CAP_M, densityReachM: DENSITY_REACH_M }
+  const api = { update, setSun: (sun) => setGrassSun(wind, sun), streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, _cells: loaded, get totalInstances() { return totalInstances }, get nearInstances() { return nearInstances }, get lodRevisit() { return lodRevisit }, set lodRevisit(v) { lodRevisit = v !== false; _revisitPoint[0] = NaN }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance, densityFullR: FULL_R, densityEdgeM: EDGE_CAP_M, densityReachM: DENSITY_REACH_M }
   if (typeof window !== 'undefined') window.__grass = api
   return api
 }
