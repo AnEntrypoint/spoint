@@ -3662,10 +3662,36 @@ Changes, each committed on its own as lanmower with no trailer:
 | # | commit | file | change | witness (run in Phase B) |
 |---|---|---|---|---|
 | 1 | 8e702f6 | `src/transport/TransformRing.js` (`TransformRingReader`) | the reader keeps one Map (`_players`) and one record per player (`_records`, with `position`, `rotation`, `velocity` arrays and `seen`); a read writes into the records, sets `seen` to the pass, and a `Map.forEach` sweep with a bound callback removes players not seen; `readCut` builds its result object only for external callers, and `readAll` returns the Map | `scripts/transform-ring-read-alloc-witness.mjs`: digests of 240 reads equal the pre-change reader (`0b76d94`), including a locked header (stale path) and a locked slot; zero sampled bytes per read after 3000 warm-up reads; the pre-change control must FAIL |
-| 2 | 9802706 | `src/terrain/GrassDecal.js` (`nearestStampsInto`, `tickAt`), `client/core/Grass.js` (`_refreshDecalUniforms`, `_nearStamps`) | `nearestStampsInto(out, px, pz, max, radius)` returns the count and fills reused records; a stable insertion keeps the nearest `max` (ties keep stamp order, as the old stable sort did); one clock read per call; `tick` and `nearestStamps` are replaced by `tickAt` and `nearestStampsInto` | `scripts/grass-decal-nearest-alloc-witness.mjs`: 400 queries across max 1/4/8/16/Infinity and radius 4/15/40/all give the same stamps in the same order as the pre-change query; zero sampled bytes per call after 3000 warm-up calls on a live clock; the pre-change control must FAIL |
+| 2 | 9802706 | `src/terrain/GrassDecal.js` (`nearestStampsInto`, `tickAt`), `client/core/Grass.js` (`_refreshDecalUniforms`, `_nearStamps`) | `nearestStampsInto(out, px, pz, max, radius)` returns the count and fills reused records; a stable insertion keeps the nearest `max` (ties keep stamp order, as the old stable sort did); the clock is read from a one-second cell (`nowCell`) rather than per call; `tick` and `nearestStamps` are replaced by `tickAt` and `nearestStampsInto` | `scripts/grass-decal-nearest-alloc-witness.mjs`: 400 queries across max 1/4/8/16/Infinity and radius 4/15/40/all give the same stamps in the same order as the pre-change query; zero sampled bytes per call after 3000 warm-up calls on a live clock; the pre-change control must FAIL |
 
 Judgement calls to review in Phase B:
 - The transform ring map and records are reused: a caller that keeps a result across reads sees later values. The only consumer is `SceneGraph.setPlayerTransformsFromRing`, which copies values synchronously in the same frame.
 - The map's insertion order follows first appearance, not slot order on every read. The consumer does not depend on order.
 - `nearestStamps` is no longer exported. Its only caller was `Grass.js`.
-- The grass decal query reads the clock once per call with `Date.now` (the store's default). That single read is a boxed number in V8 and may show in the sampled bytes; Phase B decides whether to fix it (as the presence clock was fixed) or to record it.
+- The grass decal query no longer reads the clock per call. `client/core/Grass.js` holds the time in a `Float64Array(1)` cell that a one-second `setInterval` refreshes (the presence clock pattern); `nearestStampsInto` reads it through the `nowCell` option. The store's default clock is unchanged for the server (`EditorHandlers.js`) and `Weather.js`. Each `createGrass` adds one timer; a hot reload that rebuilds the grass module leaves its previous timer running, so this is one orphan timer per reload until the page is reloaded.
+
+## Run 42, Phase B: build, witnesses and negative controls (foreground, exit codes and wall times)
+
+Build: `npm run build:bundles` exit 0, 678 ms wall (bundle-client wrote dist/client, bundle-worker wrote dist/src/sdk/WorkerEntry.js, 0 `RESULT: FAIL` lines).
+
+Fixes found in Phase B, both committed separately as lanmower with no trailer:
+- eaff397 `src/transport/TransformRing.js`: the first sampled run measured 22,400 B on the tree. Cause: the `let` locals of the `_readSlots` loop were undefined at entry, so doubles boxed on every read. Locals are now initialised to numbers, records use `Float64Array`, and `if (pid === -1) continue` replaces the `undefined` test. Tree: 0 B.
+- bb73513 `src/terrain/GrassDecal.js` and `client/core/Grass.js`: the first decal run measured 800 B on the tree (16 B per query, all at `nearestStampsInto`). Cause: the clock value crossed a ternary that merged a `Float64Array` read with a tagged `now()` result, so the time was boxed per call. The time now lives in a `Float64Array(1)` cell (`nowCell`) refreshed by a one-second timer; the rebuild check is inline. Tree: 0 B.
+
+Witnesses (command, exit code, wall time, quoted RESULT line):
+
+| witness | exit | wall ms | RESULT line |
+|---|---|---|---|
+| `node scripts/transform-ring-read-alloc-witness.mjs` | 0 | 172 | `RESULT: PASS tree transform ring reads: 0 sampled bytes over 50 reads, reads equal the pre-change reader` |
+| `node scripts/transform-ring-read-alloc-witness.mjs --ring=base` (negative control, expected to FAIL) | 1 | 118 | `RESULT: FAIL base transform ring reads: 90400 sampled bytes over 50 reads` |
+| `node scripts/grass-decal-nearest-alloc-witness.mjs` | 0 | 1041 | `RESULT: PASS tree grass decal nearest stamps: 0 sampled bytes over 50 queries, order and values equal the pre-change query` |
+| `node scripts/grass-decal-nearest-alloc-witness.mjs --decal=base` (negative control, expected to FAIL) | 1 | 560 | `RESULT: FAIL base grass decal nearest stamps: 430216 sampled bytes over 50 queries` |
+| `node scripts/editor-drag-alloc-witness.mjs` (also covers the gizmo centroid and the waypoint overlay) | 0 | 898 | `RESULT: PASS tree editor drag and waypoint overlay: 0 allocations per move after warm-up, identical transforms, one rebuild per change` |
+| `node scripts/editor-drag-alloc-witness.mjs --editor=base` (negative control, expected to FAIL) | 1 | 626 | `RESULT: FAIL base editor 48541f5 (negative control, expected to FAIL) drag and waypoint overlay: 1465 allocations per move after warm-up, waypoint sameAfterMove=1 moved=1 canvases=3` |
+| `node scripts/editor-presence-alloc-witness.mjs` (presence tick) | 0 | 229 | `RESULT: PASS tree editor presence: 0 allocations and 10 rect reads over 10 ticks` |
+| `node scripts/editor-presence-alloc-witness.mjs --presence=base` (negative control, expected to FAIL) | 1 | 143 | `RESULT: FAIL base editor presence: 30 allocations and 30 rect reads over 10 ticks` |
+| `node scripts/starved-neutral-witness.mjs` (reads the ring path) | 0 | 103 | `RESULT: PASS a starved tick freezes the character until a sequenced input is consumed (constant false)` |
+
+Not run in Phase B: the XR arc, Grass revisit, occlusion, PlayerLOD, Weather and XR rows (ranked 3 to 8 above). Each needs a harness this host does not have, so they stay open in the ledger.
+
+Quoted witness checks, for the record. The drag witness prints one `ok` per check; the failing base run prints `FAIL` for the per-frame, per-move, waypoint rebuild and label-canvas checks. The presence base run prints `FAIL` for allocations, sampled bytes and the rect count.
