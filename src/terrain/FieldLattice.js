@@ -54,6 +54,15 @@ export function createFieldLattice({ sampler, offsetY, reliefScale, anchor, live
   }
 
   const heightFn = (x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess)
+  const probeIn = [0, 0, 0], probeOut = [0, 0, 0]
+
+  function toLatticeInto(x, z, out) {
+    transfers()
+    probeIn[0] = x; probeIn[1] = liveGroundY(x, z); probeIn[2] = z
+    const p = chartToLattice.point(probeIn, probeOut)
+    out[0] = p[0]; out[1] = p[2]
+    return out
+  }
 
   return {
     anchor: anchorSnapshot,
@@ -63,11 +72,8 @@ export function createFieldLattice({ sampler, offsetY, reliefScale, anchor, live
       transfers()
       return { position: latticeToChart.point([cornerX, 0, cornerZ]), rotation: [...latticeToChart.qM] }
     },
-    toLattice(x, z) {
-      transfers()
-      const p = chartToLattice.point([x, liveGroundY(x, z), z])
-      return [p[0], p[2]]
-    },
+    toLattice(x, z) { return toLatticeInto(x, z, [0, 0]) },
+    toLatticeInto,
     toChart(x, z) {
       transfers()
       const y = heightFn(x, z)

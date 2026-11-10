@@ -148,6 +148,7 @@ export function createTerrainStreamer(opts = {}) {
   let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0, lastError = null
   let lattice = null, refusalCount = 0, lastRefusal = null
   const patches = []
+  let seedScratch = null
 
   function refuse(name, message) {
     refusalCount++
@@ -219,10 +220,9 @@ export function createTerrainStreamer(opts = {}) {
 
   const coverProbe = [0, 0]
   function coversPosition(x, z) {
-    let p = coverProbe
-    if (lattice) p = lattice.toLattice(x, z)
-    else { p[0] = x; p[1] = z }
-    for (let f = 0; f < fields.length; f++) if (chebyshev(p, fields[f].center) <= half) return true
+    if (lattice) lattice.toLatticeInto(x, z, coverProbe)
+    else { coverProbe[0] = x; coverProbe[1] = z }
+    for (let f = 0; f < fields.length; f++) if (chebyshev(coverProbe, fields[f].center) <= half) return true
     return false
   }
 
@@ -233,8 +233,10 @@ export function createTerrainStreamer(opts = {}) {
 
   function seedFromSolved(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
     if (!fields.length && !patches.length) return null
-    const samples = new Float32Array(gridN * gridN).fill(NaN)
-    const filled = new Uint8Array(gridN * gridN)
+    const size = gridN * gridN
+    if (!seedScratch || seedScratch.samples.length < size) seedScratch = { samples: new Float32Array(size), filled: new Uint8Array(size) }
+    const samples = seedScratch.samples.subarray(0, size).fill(NaN)
+    const filled = seedScratch.filled.subarray(0, size).fill(0)
     let any = false
     for (let s = 0; s < fields.length + patches.length; s++) {
       const f = s < fields.length
