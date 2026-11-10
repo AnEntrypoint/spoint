@@ -353,7 +353,7 @@ const GPU_PASS_ARM_SRC = `(() => {
       const sv = t.vals.slice().sort((a, c) => a - c)
       const q = (p) => sv.length ? +sv[Math.min(sv.length - 1, Math.floor(p * sv.length))].toFixed(4) : null
       const abTag = key.split(':')[2] || null
-      passes.push({ type: key.split(':')[0], ctx: id, abTag, ...m, samples: t.n, avgMs: +(t.sum / t.n).toFixed(4), p50Ms: q(0.5), p95Ms: q(0.95), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
+      passes.push({ type: key.split(':')[0], ctx: id, abTag, ...m, samples: t.n, p50Ms: q(0.5), p95Ms: q(0.95), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
     }
     passes.sort((a, c) => c.totalMs - a.totalMs)
     perFrameTotals.sort((a, c) => a - c)
@@ -1137,7 +1137,6 @@ async function main() {
         p95Ms: +percentile(deltas, 0.95).toFixed(2),
         p99Ms: +percentile(deltas, 0.99).toFixed(2),
         maxMs: +percentile(deltas, 1).toFixed(2),
-        avgMs: +(deltas.reduce((a, b) => a + b, 0) / Math.max(1, deltas.length)).toFixed(2),
         fps: +(1000 / Math.max(0.001, percentile(deltas, 0.5))).toFixed(1),
       },
       trianglesPerFrame: {
@@ -1258,7 +1257,7 @@ async function main() {
     console.log(`  main thread ms: ${JSON.stringify(out.mainThreadMs)}`)
     console.log(`  host cpu: peak=${out.hostCpu.peakAllPct}% contentionSensitive=${out.hostCpu.contentionSensitive} before=${JSON.stringify(out.hostCpu.before)} after=${JSON.stringify(out.hostCpu.after)} samples=${out.hostCpu.during.length}`)
     console.log(`  heap: ${JSON.stringify(out.heapStats)}  gcSelfMs(profile)=${out.cpuProfile.gcSelfMs}`)
-    if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} p50=${p.p50Ms}ms avg=${p.avgMs}ms p95=${p.p95Ms}ms n=${p.samples} total=${p.totalMs}ms`) }
+    if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} p50=${p.p50Ms}ms p95=${p.p95Ms}ms n=${p.samples} total=${p.totalMs}ms`) }
     console.log(`  cpu profile total=${out.cpuProfile.totalMs}ms`)
     for (const r of out.cpuProfile.topInclusive.slice(0, 30)) console.log(`    incl ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
     for (const r of out.cpuProfile.top.slice(0, 20)) console.log(`    ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
