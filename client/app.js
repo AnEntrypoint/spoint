@@ -25,14 +25,13 @@ import { createCameraController } from './core/camera.js'
 import { createMultiViewport } from './core/MultiViewport.js'
 import { preloadAnimationLibraryIfUncached, loadAnimationLibrary } from './AnimationLibrary.js'
 import { dbDelete, dbPut } from './ModelCache.js'
-import { createEditor } from './editor/editor.js'
 import { createClientStateMachine } from './core/ClientMachine.js'
 import { createSpectatorMode } from './core/SpectatorMode.js'
 import { createLoadingStateMachine } from './core/LoadingMachine.js'
-import { createEditPanel } from './editor/EditorShell.js'
 import { EditorAutosave } from './editor/EditorAutosave.js'
 import { PerfOverlay } from './editor/PerfOverlay.js'
-import { showConfirm, showToast } from './editor/EditPanelDOM.js'
+import { showConfirm } from './editor/EditPanelDOM.js'
+import { showToast } from './core/Toast.js'
 import { createEditorAPI } from './editor/EditorAPI.js'
 import { createAgentEditStaging } from './editor/AgentEditStaging.js'
 import { createEditHistory } from './editor/EditHistory.js'
@@ -103,6 +102,9 @@ import { installDevTools } from './core/DevToolsIntegration.js'
 import { assertWorld } from '/src/shared/worldResolve.js'
 import { expandWorldPresets } from '/src/shared/worldPresets.js'
 import { worldPlayerModel, worldEquipment, worldMobileButtons } from '/src/shared/worldDefaults.js'
+
+let editor = null
+let editPanel = null
 performance.mark('boot:modules-evaluated')
 
 const _dbgTerrain = dbg('terrain')
@@ -1169,9 +1171,9 @@ function _selectAndShow(id, editorProps, { requestProps = false } = {}) {
 }
 function _applySelectAndShow(id, mesh, editorProps, requestProps) {
   const d = _buildEntityData(id, mesh)
-  editor.selectEntity(id, d)
+  editor?.selectEntity(id, d)
   _lastEditorProps = editorProps || []
-  editPanel.showEntity(d, _lastEditorProps)
+  editPanel?.showEntity(d, _lastEditorProps)
   if (requestProps) client.send(MSG.GET_EDITOR_PROPS, { entityId: id })
 }
 const _listWorldsResolvers = []
@@ -1253,7 +1255,7 @@ let client; const _clientConfig = {
     for (const [id] of el.entityMeshes) { if (!_eids.has(id)) el.removeEntity(id) }
     for (const e of state.entities) {
       const mesh=el.entityMeshes.get(e.id)
-      const _editingThis = editor.isDragging&&editor.isDragging()&&editor.selectedEntityId===e.id
+      const _editingThis = editor?.isDragging&&editor?.isDragging()&&editor?.selectedEntityId===e.id
       if (mesh&&e.position&&!_editingThis) { const _rp=floatingOrigin.toRender({x:e.position[0],y:e.position[1],z:e.position[2]},_entityPosRebased); const dx=_rp.x-mesh.position.x,dy=_rp.y-mesh.position.y,dz=_rp.z-mesh.position.z; const moved=dx*dx+dy*dy+dz*dz; if (!mesh.userData.entInit||moved>100) { mesh.position.set(_rp.x,_rp.y,_rp.z); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } else if (modelPool.has(e.id)&&moved>1e-4) { modelPool.setTarget(e.id,_rp.x,_rp.y,_rp.z,100) } }
       if (mesh&&e.rotation&&modelPool.has(e.id)&&!_editingThis) {
         const _ud=mesh.userData, _lq=_ud._lastPushedQuat
@@ -1390,7 +1392,7 @@ let client; const _clientConfig = {
     sessionStorage.setItem('cam',JSON.stringify(cam.save())); location.reload()
   },
   onEditorSelect: payload => { const {entityId,editorProps}=payload||{}; if (!entityId) return; _selectAndShow(entityId, editorProps) },
-  onMessage: (type,payload) => { if (type===MSG.WORLD_LIST) { const r=_listWorldsResolvers.splice(0); r.forEach(fn=>fn(payload?.worlds||[])) } else if (type===MSG.GROUP_ENTITIES) { const r=_groupResolvers.splice(0); r.forEach(fn=>fn(payload)) } else if (type===MSG.APP_LIST) { editPanel.updateApps(payload.apps); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitApps(payload.apps) } else if (type===MSG.SOURCE) {
+  onMessage: (type,payload) => { if (type===MSG.WORLD_LIST) { const r=_listWorldsResolvers.splice(0); r.forEach(fn=>fn(payload?.worlds||[])) } else if (type===MSG.GROUP_ENTITIES) { const r=_groupResolvers.splice(0); r.forEach(fn=>fn(payload)) } else if (type===MSG.APP_LIST) { editPanel?.updateApps(payload.apps); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitApps(payload.apps) } else if (type===MSG.SOURCE) {
     const _srcKey = (payload.appName||'') + '::' + (payload.file||'index.js')
     const _srcResolve = _sourceResolvers.get(_srcKey)
     if (_srcResolve) { _sourceResolvers.delete(_srcKey); _srcResolve(payload) }
@@ -1398,18 +1400,18 @@ let client; const _clientConfig = {
       _fsBrowsePending.delete(_srcKey)
       const fullPath = _fsBrowseFullPathByKey.get(_srcKey) || (payload.appName + '/' + (payload.file || 'index.js'))
       _fsBrowseFullPathByKey.delete(_srcKey)
-      editPanel.setFsSource(fullPath, payload)
+      editPanel?.setFsSource(fullPath, payload)
     } else {
-      editPanel.openCode(payload.appName,payload.file||'index.js',payload.source)
+      editPanel?.openCode(payload.appName,payload.file||'index.js',payload.source)
     }
-  } else if (type===MSG.FS_TREE) { editPanel.updateFsTree(payload.tree, payload.error)
-  } else if (type===MSG.FS_TREE_CHANGED) { editPanel.onFsTreeChanged()
-  } else if (type===MSG.FS_OP_RESULT) { editPanel.onFsOpResult(payload.op, payload.ok, payload.error)
-  } else if (type===MSG.SCENE_GRAPH) { _lastSceneGraph = payload.entities || []; try { window.__debug.sceneGraph=payload.entities } catch(_) {}; editPanel.updateScene(payload.entities); if (typeof editor !== 'undefined') editor.updateWaypointPath(payload.entities); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitScene(payload.entities) } else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) { _lastEditorProps=payload.editorProps||[]; const _epExtraIds=Array.from(editor.extraSelectedIds||[]); editPanel.showEntity(_buildEntityData(payload.entityId,mesh),_lastEditorProps,_epExtraIds,_buildExtraEntitiesData(_epExtraIds)) } } else if (type===MSG.EVENT_LOG_DATA) { editPanel.updateEventLog(payload.events); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitEvents(payload.events) } else if (type===MSG.WORLD_SAVED) { if (payload?.ok) { _isDirty=false; try { editPanel.setDirty(false) } catch (_) {}; if (payload.downloadOnly && payload.def) { try { const blob=new Blob(['export default '+JSON.stringify(payload.def,null,2)+'\n'],{type:'text/javascript'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(payload.name||'world')+'.js'; a.click(); URL.revokeObjectURL(a.href) } catch(_) {}; editPanel.toast('World "'+payload.name+'" downloaded ('+(payload.def.entities||[]).length+' entities)','success'); editPanel.setStatus('saved: '+payload.name+'.js (download)') } else { editPanel.toast('Saved world "'+payload.name+'" -> '+payload.path+' ('+payload.entityCount+' entities)','success'); editPanel.setStatus('saved: '+payload.path) } }
+  } else if (type===MSG.FS_TREE) { editPanel?.updateFsTree(payload.tree, payload.error)
+  } else if (type===MSG.FS_TREE_CHANGED) { editPanel?.onFsTreeChanged()
+  } else if (type===MSG.FS_OP_RESULT) { editPanel?.onFsOpResult(payload.op, payload.ok, payload.error)
+  } else if (type===MSG.SCENE_GRAPH) { _lastSceneGraph = payload.entities || []; try { window.__debug.sceneGraph=payload.entities } catch(_) {}; editPanel?.updateScene(payload.entities); if (typeof editor !== 'undefined') editor?.updateWaypointPath(payload.entities); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitScene(payload.entities) } else if (type===MSG.APP_FILES) editPanel?.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) { _lastEditorProps=payload.editorProps||[]; const _epExtraIds=Array.from(editor?.extraSelectedIds||[]); editPanel?.showEntity(_buildEntityData(payload.entityId,mesh),_lastEditorProps,_epExtraIds,_buildExtraEntitiesData(_epExtraIds)) } } else if (type===MSG.EVENT_LOG_DATA) { editPanel?.updateEventLog(payload.events); if (typeof _editorAPIBundle !== 'undefined') _editorAPIBundle._emitEvents(payload.events) } else if (type===MSG.WORLD_SAVED) { if (payload?.ok) { _isDirty=false; try { editPanel?.setDirty(false) } catch (_) {}; if (payload.downloadOnly && payload.def) { try { const blob=new Blob(['export default '+JSON.stringify(payload.def,null,2)+'\n'],{type:'text/javascript'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(payload.name||'world')+'.js'; a.click(); URL.revokeObjectURL(a.href) } catch(_) {}; editPanel?.toast('World "'+payload.name+'" downloaded ('+(payload.def.entities||[]).length+' entities)','success'); editPanel?.setStatus('saved: '+payload.name+'.js (download)') } else { editPanel?.toast('Saved world "'+payload.name+'" -> '+payload.path+' ('+payload.entityCount+' entities)','success'); editPanel?.setStatus('saved: '+payload.path) } }
     else if (payload?.exists) { showConfirm({ title: 'World already exists', message: 'A world named "'+payload.name+'" already exists. Overwrite it?', confirmLabel: 'Overwrite', destructive: true }).then(ok => { if (ok) client.send(MSG.SAVE_WORLD, { name: payload.name, overwrite: true }) }) }
-    else { editPanel.toast('Save World failed: '+(payload?.error||'unknown'),'error') } }
-    else if (type===MSG.EDITOR_ERROR) { editPanel.toast(payload?.message||'Editor operation failed','error') }
-    else if (type===MSG.PREFAB_SAVED) { if (payload?.ok) editPanel.toast('Saved prefab "'+payload.name+'" ('+payload.entityCount+' entities)','success'); else editPanel.toast('Save prefab failed: '+(payload?.error||'unknown'),'error') }
+    else { editPanel?.toast('Save World failed: '+(payload?.error||'unknown'),'error') } }
+    else if (type===MSG.EDITOR_ERROR) { editPanel?.toast(payload?.message||'Editor operation failed','error') }
+    else if (type===MSG.PREFAB_SAVED) { if (payload?.ok) editPanel?.toast('Saved prefab "'+payload.name+'" ('+payload.entityCount+' entities)','success'); else editPanel?.toast('Save prefab failed: '+(payload?.error||'unknown'),'error') }
     else if (type===MSG.EDITOR_PRESENCE) { editorPresence.onPresenceMessage(payload) } },
   debug: false
 }
@@ -1690,7 +1692,14 @@ function _structGroup(ids) {
     })
   })
 }
-const editPanel = createEditPanel({
+let _editorLoad = null
+function ensureEditor() {
+  _editorLoad ??= Promise.all([import('./editor/editor.js'), import('./editor/EditorShell.js')]).then(([ed, shell]) => wireEditor(ed.createEditor, shell.createEditPanel))
+    .catch(e => { _editorLoad = null; console.error('[editor] load failed:', e?.message || e); showToast('Editor failed to load: ' + (e?.message || e), 'error') })
+  return _editorLoad
+}
+function wireEditor(createEditor, createEditPanel) {
+editPanel = createEditPanel({
   onPlace: (appName, posOverride) => { const pos=posOverride||_viewportCenterPlacePos(); const id=appName+'-'+_rand6(); client.send(MSG.PLACE_APP,{appName,position:pos,config:{},entityId:id}); _pushStructural({ entityId:id, desc:'spawn', undoOp:()=>client.send(MSG.DESTROY_ENTITY,{entityId:id}), redoOp:()=>client.send(MSG.PLACE_APP,{appName,position:pos,config:{},entityId:id}) }) },
   onPlaceModel: (url, posOverride) => { const pos=posOverride||_viewportCenterPlacePos(); const id='placed-'+_rand6()+_rand6().slice(0,2); client.send(MSG.PLACE_MODEL,{url,position:pos,entityId:id}); _pushStructural({ entityId:id, desc:'spawn', undoOp:()=>client.send(MSG.DESTROY_ENTITY,{entityId:id}), redoOp:()=>client.send(MSG.PLACE_MODEL,{url,position:pos,entityId:id}) }) },
   onPlaceBatch: async (plan) => {
@@ -1857,116 +1866,20 @@ editPanel.showEntity = function(entity, ...args) {
   livePreview.selectEntity(entity)
   return _origShowEntity(entity, ...args)
 }
-const clientMachine = createClientStateMachine()
-if (window.__app) window.__app.clientMachine = clientMachine
-if (window.__app) window.__net = () => {
-  const pred = client?._msgHandler?.getPredEngine?.()
-  const rec = pred?.reconciliationEngine
-  return {
-    predictionEnabled: !!(client?.config?.predictionEnabled && pred),
-    errorOffset: rec ? rec.getErrorOffset().slice() : null,
-    teleportThreshold: rec?.teleportThreshold ?? null,
-    smoothing: rec?.smoothing ?? null,
-    divergence: pred?.calculateDivergence ? pred.calculateDivergence() : null,
-    rtt: client?.getRTT?.() ?? null,
-    bufferHealth: client?.getBufferHealth?.() ?? null,
-  }
-}
-setInterval(() => {
-  if (!client) return
-  connectionStatus.updateQuality({ rtt: client.getRTT?.() ?? null, bufferHealth: client.getBufferHealth?.() ?? null, connected: client.connected !== false })
-}, 1000)
-const _pendingEdits = new Map()
-let _isDirty = false
-let _camCoordsAt = 0
-const CAM_COORDS_THROTTLE_MS = 100
-window.addEventListener('beforeunload', (e) => { if (_isDirty) { e.preventDefault(); e.returnValue = '' } })
-const _recordPendingEdit = (id, changes) => {
-  if (id && changes) { _isDirty = true; try { editPanel.setDirty(true) } catch (_) {}; if (Array.isArray(changes.position)) _pendingEdits.set(id, { pos: changes.position.slice(), expiry: (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 4000 }) }
-}
-const _wireChangesScratch = new THREE.Vector3()
-const _wireChanges = (changes) => Array.isArray(changes.position) ? { ...changes, position: (() => { const a = floatingOrigin.toAuthoritative({ x: changes.position[0], y: changes.position[1], z: changes.position[2] }, _wireChangesScratch); return [a.x, a.y, a.z] })() } : changes
-const editor = createEditor({ scene, camera, renderer, client, entityMeshes: el.entityMeshes, playerStates: pm.playerStates, machine: clientMachine, onCommitEdit: _recordPendingEdit, onEmptyDrag: (dx, dy) => cam.editLook(dx, dy), raycastHitPoint: _raycastHitPoint, isLocked: id => editPanel.isLocked(id), floatingOrigin, onDestroyEntities: ids => ids.forEach(_structDestroy) })
-const editorPresence = createEditorPresence({ client, MSG, camera, renderer, entityMeshes: el.entityMeshes })
-const _editorAPIBundle = createEditorAPI({
-  client, entityMeshes: el.entityMeshes, MSG,
-  sendEditorUpdate: (id, changes) => {
-    _recordPendingEdit(id, changes)
-    client.send(MSG.EDITOR_UPDATE, { entityId: id, changes })
-  },
-  getSelectedId: () => editor.selectedEntityId,
-  setSelectedId: id => _selectAndShow(id, null, { requestProps: true }),
-  isOpen: () => editPanel.visible,
-  floatingOrigin
-})
-engineCtx._editorAPI = _editorAPIBundle.api
-engineCtx.editor = _editorAPIBundle.api
-if (window.__app) window.__app.editorAPI = _editorAPIBundle.api
-function _renderEditorAppPanels() {
-  if (editPanel.inspectorAppMount) _editorAPIBundle._renderPanels('inspector', editPanel.inspectorAppMount)
-  if (editPanel.appsAppMount) _editorAPIBundle._renderPanels('apps', editPanel.appsAppMount)
-  if (editPanel.eventsAppMount) _editorAPIBundle._renderPanels('events', editPanel.eventsAppMount)
-  if (editPanel.hierarchyAppMount) _editorAPIBundle._renderPanels('hierarchy', editPanel.hierarchyAppMount)
-}
-_editorAPIBundle.api.onSceneUpdate(() => _renderEditorAppPanels())
-_editorAPIBundle.api.onSelect(() => _renderEditorAppPanels())
-_editorAPIBundle.api.onAppsUpdate(() => _renderEditorAppPanels())
-_editorAPIBundle.api.onEventsUpdate(() => _renderEditorAppPanels())
-_editorAPIBundle.api.onTabChange(() => _renderEditorAppPanels())
-const multiViewport = createMultiViewport(renderer, scene)
-if(window.__app){window.__app.editor=editor;window.__app.editPanel=editPanel;window.__app.cam=cam;window.__app.multiViewport=multiViewport}
+editor = createEditor({ scene, camera, renderer, client, entityMeshes: el.entityMeshes, playerStates: pm.playerStates, machine: clientMachine, onCommitEdit: _recordPendingEdit, onEmptyDrag: (dx, dy) => cam.editLook(dx, dy), raycastHitPoint: _raycastHitPoint, isLocked: id => editPanel.isLocked(id), floatingOrigin, onDestroyEntities: ids => ids.forEach(_structDestroy) })
 editPanel.onTabChange(t => _editorAPIBundle._emitTab(t))
 editor.onSelectionChange((id,data) => {
   if (data) { const mesh=el.entityMeshes.get(id); _lastEditorProps=[]; const extraIds=Array.from(editor.extraSelectedIds||[]); editPanel.showEntity(mesh?_buildEntityData(id,mesh):data,_lastEditorProps,extraIds,_buildExtraEntitiesData(extraIds)); client.send(MSG.GET_EDITOR_PROPS,{entityId:id}); _editorAPIBundle._emitSelect(id,data) }
   else if (id != null) { const extraIds=Array.from(editor.extraSelectedIds||[]); editPanel.showEntity(editPanel.selectedEntity, _lastEditorProps, extraIds, _buildExtraEntitiesData(extraIds)) }
   editorPresence.sendPresence(id, false)
 })
-editor.onEditModeChange(on => { cam.setEditMode(on, pm.playerMeshes.get(client.playerId)); if (on) { if (document.pointerLockElement) _safeExitPointerLock(); editPanel.show(); client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } else { editPanel.hide(); editorPresence.hide(); editorPresence.sendPresence(null, false) } })
+const _onEditModeChange = on => { cam.setEditMode(on, pm.playerMeshes.get(client.playerId)); if (on) { if (document.pointerLockElement) _safeExitPointerLock(); editPanel.show(); client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } else { editPanel.hide(); editorPresence.hide(); editorPresence.sendPresence(null, false) } }
+editor.onEditModeChange(_onEditModeChange)
 editor.onGizmoSpaceChange(space => { try { editPanel.setGizmoSpace(space) } catch (_) {} })
 editor.onPivotModeChange(mode => { try { editPanel.setPivotMode(mode) } catch (_) {} })
-cam.onCameraInHead(inHead => { try { clientMachine.send({ type: 'SET_CAMERA_MODE', inHead }) } catch (e) { _dbgEditor('SET_CAMERA_MODE send failed:', e?.message || e) } })
-clientMachine.subscribe(() => { try { editPanel.setGizmoMode(clientMachine.gizmoMode) } catch (e) { _dbgEditor('setGizmoMode failed:', e?.message || e) } })
-const persistentHistory = _worldParam ? createPersistentHistory(_worldParam) : null
-const editHistory = createEditHistory({
-  send: (entityId, changes) => { const wireChanges = _wireChanges(changes); _recordPendingEdit(entityId, wireChanges); client.send(MSG.EDITOR_UPDATE, { entityId, changes: wireChanges }) },
-  onToast: (msg) => showToast(msg),
-  onChange: () => { try { editPanel.updateHistory(editHistory.list()) } catch (_) {} },
-  onPush: (entry) => { if (persistentHistory) persistentHistory.add(entry).catch(e => console.warn('[persistentHistory] add failed:', e?.message)) }
-})
 editor.onTransformCommit(r => editHistory.push(r))
-const livePreview = createLivePreview({
-  getSelectedEntity: () => editPanel.selectedEntity,
-  getMesh: (entityId) => el.entityMeshes.get(entityId),
-  onRevert: () => { try { editPanel.updateHistory(editHistory.list()) } catch (_) {} }
-})
-
-const _dnProjectVec = new THREE.Vector3()
-let damageNumbers = null
-window.__damageEffects = DamageEffects
-window.__DamageNumbers = {
-  addNumber(payload) { return damageNumbers ? damageNumbers.addNumber(payload.damage, payload.position, { color: payload.color }) : null },
-  update(dtMs) { return damageNumbers ? damageNumbers.update(dtMs) : null },
-  getActiveNumbers() { return damageNumbers ? damageNumbers.getActiveNumbers() : [] },
-  cleanup() { return damageNumbers ? damageNumbers.cleanup() : null }
-}
-
-let _rpgHudContainer = null, _rpgHudPending = null, _rpgProgressHud = null
-function _paintRpgHud(progress) {
-  try {
-    if (!_rpgHudContainer) { _rpgHudContainer = document.createElement('div'); uiRoot.appendChild(_rpgHudContainer) }
-    applyDiff(_rpgHudContainer, [_rpgProgressHud(progress)])
-  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' rpgProgressHud: ' + (e?.message || e) }
-}
-_designKit.renderRpgProgressHud = (progress) => { if (_rpgProgressHud) _paintRpgHud(progress); else _rpgHudPending = progress }
-
-let _commandPalette = null
 editorKit.then((kit) => {
   if (!kit) return
-  try {
-    damageNumbers = kit.createDamageNumbers(scene, { project(v) { return _dnProjectVec.set(v.x, v.y, v.z).project(camera) } })
-  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' damageNumbers: ' + (e?.message || e) }
-  _rpgProgressHud = kit.RpgProgressHud
-  if (_rpgHudPending) { const p = _rpgHudPending; _rpgHudPending = null; _paintRpgHud(p) }
   try {
     if (editPanel.inspectorKitMount) {
       applyDiff(editPanel.inspectorKitMount, [
@@ -1981,96 +1894,7 @@ editorKit.then((kit) => {
   try { _commandPalette = kit.createCommandPalette({ wm: editPanel.wm, commands: _buildCommandPaletteCommands() }) }
   catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' commandPalette: ' + (e?.message || e) }
 })
-
-function _buildCommandPaletteCommands() {
-  return [
-    { id: 'editor:toggle-panel-scene', label: 'Toggle Scene Hierarchy', keywords: 'hierarchy scene tree', action: () => editPanel.wm.getWindow('scene') ? editPanel.wm.close('scene') : null },
-    { id: 'editor:toggle-panel-inspector', label: 'Toggle Inspector', keywords: 'inspector properties', action: () => editPanel.wm.getWindow('inspector') ? editPanel.wm.close('inspector') : null },
-    { id: 'editor:toggle-rendergraph', label: 'Toggle RenderGraph Viewer', keywords: 'rendergraph perf timing', action: () => {} },
-    { id: 'editor:toggle-fsbrowser', label: 'Toggle FS Browse', keywords: 'files browse apps', action: () => {} },
-    { id: 'editor:toggle-validator', label: 'Validate World', keywords: 'validate lint world', action: () => {} },
-    { id: 'editor:toggle-waypoints', label: 'Toggle Waypoint Timeline', keywords: 'waypoints path timeline', action: () => {} },
-    { id: 'editor:toggle-procgen', label: 'Toggle Procgen Panel', keywords: 'procgen wfc l-system', action: () => {} },
-    { id: 'editor:toggle-shortcuts', label: 'Keyboard Shortcuts', keywords: 'shortcuts help keys', action: () => editPanel.toggleShortcutsHelp?.() },
-    { id: 'editor:toggle-history', label: 'Edit History', keywords: 'history undo', action: () => {} },
-    { id: 'editor:gizmo-translate', label: 'Gizmo: Translate', keywords: 'move translate gizmo', action: () => clientMachine.send('TRANSLATE') },
-    { id: 'editor:gizmo-rotate', label: 'Gizmo: Rotate', keywords: 'rotate gizmo', action: () => clientMachine.send('ROTATE') },
-    { id: 'editor:gizmo-scale', label: 'Gizmo: Scale', keywords: 'scale gizmo', action: () => clientMachine.send('SCALE') },
-    { id: 'editor:snap-toggle', label: 'Toggle Snap', keywords: 'snap grid', action: () => editPanel.toggleSnap?.() },
-    { id: 'editor:gizmo-space-world', label: 'Gizmo Space: World', keywords: 'world space gizmo', action: () => editor.setGizmoSpace('world') },
-    { id: 'editor:gizmo-space-local', label: 'Gizmo Space: Local', keywords: 'local space gizmo', action: () => editor.setGizmoSpace('local') },
-    { id: 'editor:frame-selected', label: 'Frame Selected', keywords: 'frame focus selected', action: () => _focusSelectedEntity() },
-    { id: 'editor:exit-editor', label: 'Exit Editor (Play)', keywords: 'play game exit editor', action: () => { if (clientMachine.isEditor) clientMachine.send('TOGGLE_EDITOR') } },
-    { id: 'editor:playtest', label: 'Playtest (in-editor)', keywords: 'playtest play test preview', action: () => { if (clientMachine.isEditor) { _beforePlaytestSnapshot = _captureWorldSnapshot(); clientMachine.send('PLAYTEST'); cam.setEditMode(false, pm.playerMeshes.get(client.playerId)); editPanel.setPlaytesting(true) } } },
-    { id: 'editor:stop-playtest', label: 'Stop Playtest', keywords: 'stop playtest eject', action: () => { if (clientMachine.isPlaytesting) { _restoreWorldSnapshot(_beforePlaytestSnapshot); _beforePlaytestSnapshot = null; clientMachine.send('PLAYTEST_STOP'); cam.setEditMode(true, pm.playerMeshes.get(client.playerId)); editPanel.setPlaytesting(false) } } },
-    { id: 'editor:debug-wireframe', label: 'Debug: Wireframe', keywords: 'wireframe debug', action: () => { if (window.__renderControls) window.__renderControls.set('wireframe', true) } },
-    { id: 'editor:debug-unlit', label: 'Debug: Unlit', keywords: 'unlit debug', action: () => { if (window.__renderControls) window.__renderControls.set('unlit', true) } },
-    { id: 'editor:debug-overdraw', label: 'Debug: Overdraw', keywords: 'overdraw debug', action: () => { if (window.__renderControls) window.__renderControls.set('overdraw', true) } },
-    { id: 'editor:debug-normal', label: 'Debug: Normal', keywords: 'normal debug render', action: () => { if (window.__renderControls) { window.__renderControls.set('wireframe', false); window.__renderControls.set('unlit', false); window.__renderControls.set('overdraw', false) } } },
-    { id: 'editor:debug-collider', label: 'Toggle Collider Wireframe', keywords: 'collider debug physics', action: () => { if (window.__renderControls) window.__renderControls.set('colliderDebug', !window.__renderControls.get('colliderDebug')) } },
-    { id: 'editor:save-world', label: 'Save World', keywords: 'save world', action: () => {} },
-    { id: 'editor:load-world', label: 'Load World', keywords: 'load world open', action: () => {} },
-    { id: 'editor:delete', label: 'Delete Selected', keywords: 'delete remove', action: () => { if (editor.selectedEntityId) _structDestroy(editor.selectedEntityId) } },
-    { id: 'editor:duplicate', label: 'Duplicate Selected', keywords: 'duplicate copy', action: () => { if (editor.selectedEntityId) _structDuplicate(editor.selectedEntityId) } },
-    { id: 'editor:group', label: 'Group Selected', keywords: 'group parent', action: () => { if (editor.selectedEntityId) _structGroup([editor.selectedEntityId, ...editor.extraSelectedIds]) } },
-    { id: 'editor:copy', label: 'Copy Selected', keywords: 'copy', action: () => editor.copySelectedEntity?.() },
-    { id: 'editor:paste', label: 'Paste', keywords: 'paste', action: () => editor.pasteOntoSelectedEntity?.() },
-  ]
-}
 editor.onCommandPalette(() => _commandPalette?.toggle(_buildCommandPaletteCommands()))
-
-PerfOverlay.install({
-  onSelectEntity: (id) => {
-    if (id && el.entityMeshes.has(id)) {
-      editor.selectEntity(id)
-      _selectAndShow(id, null, { requestProps: true })
-    }
-  }
-})
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyO' && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
-    if (e.cancelable) e.preventDefault()
-    PerfOverlay.toggle()
-  }
-})
-
-EditorAutosave.install({
-  beginSave: () => {
-    const ents = []
-    for (const [id, mesh] of el.entityMeshes) {
-      if (!mesh) continue
-      let appName = null
-      try { const e = el.getEntity(id); if (e) appName = e._appName } catch (_) {}
-      ents.push({
-        id,
-        position: mesh.position.toArray(),
-        rotation: mesh.quaternion.toArray(),
-        scale: mesh.scale.toArray(),
-        custom: mesh.userData?.custom ? { ...mesh.userData.custom } : {},
-        appName
-      })
-    }
-    return { entities: ents, savedAt: Date.now() }
-  },
-  onRestorePrompt: (savedAt, data) => {
-    const age = ((Date.now() - savedAt) / 60000) | 0
-    const restore = confirm(`Found unsaved editor changes from ${age} minute${age !== 1 ? 's' : ''} ago.\n\nRestore them?`)
-    if (restore && data && data.entities) {
-      for (const ent of data.entities) {
-        const mesh = el.entityMeshes.get(ent.id)
-        if (!mesh) continue
-        mesh.position.fromArray(ent.position)
-        mesh.quaternion.fromArray(ent.rotation)
-        mesh.scale.fromArray(ent.scale)
-        const changes = _wireChanges({ position: ent.position, rotation: ent.rotation, scale: ent.scale })
-        if (ent.custom && Object.keys(ent.custom).length) changes.custom = ent.custom
-        client.send(MSG.EDITOR_UPDATE, { entityId: ent.id, changes })
-      }
-      showToast('Restored unsaved changes')
-    }
-  }
-})
-EditorAutosave.checkRecovery()
 
 let _dragHud = null
 editor.onDragUpdate((id, data, cursor) => {
@@ -2135,6 +1959,200 @@ editPanel.onEditorChange((key,value) => {
   if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); if (changes.custom) el.mergeCustom(editor.selectedEntityId, changes.custom); editor.updateGizmo() };
   if (changes.custom) { const eid=editor.selectedEntityId; editHistory.push({ entityId: eid, before: { custom: beforeCustom }, after: { custom: changes.custom }, kind: 'custom' }) }
   editor.sendEditorUpdate(changes) })
+  if(window.__app){window.__app.editor=editor;window.__app.editPanel=editPanel;window.__app.cam=cam}
+  if (clientMachine.isEditor) _onEditModeChange(true)
+}
+const clientMachine = createClientStateMachine()
+clientMachine.subscribe(() => { if (clientMachine.isEditor) ensureEditor() })
+if (window.__app) window.__app.clientMachine = clientMachine
+if (window.__app) window.__net = () => {
+  const pred = client?._msgHandler?.getPredEngine?.()
+  const rec = pred?.reconciliationEngine
+  return {
+    predictionEnabled: !!(client?.config?.predictionEnabled && pred),
+    errorOffset: rec ? rec.getErrorOffset().slice() : null,
+    teleportThreshold: rec?.teleportThreshold ?? null,
+    smoothing: rec?.smoothing ?? null,
+    divergence: pred?.calculateDivergence ? pred.calculateDivergence() : null,
+    rtt: client?.getRTT?.() ?? null,
+    bufferHealth: client?.getBufferHealth?.() ?? null,
+  }
+}
+setInterval(() => {
+  if (!client) return
+  connectionStatus.updateQuality({ rtt: client.getRTT?.() ?? null, bufferHealth: client.getBufferHealth?.() ?? null, connected: client.connected !== false })
+}, 1000)
+const _pendingEdits = new Map()
+let _isDirty = false
+let _camCoordsAt = 0
+const CAM_COORDS_THROTTLE_MS = 100
+window.addEventListener('beforeunload', (e) => { if (_isDirty) { e.preventDefault(); e.returnValue = '' } })
+const _recordPendingEdit = (id, changes) => {
+  if (id && changes) { _isDirty = true; try { editPanel?.setDirty(true) } catch (_) {}; if (Array.isArray(changes.position)) _pendingEdits.set(id, { pos: changes.position.slice(), expiry: (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 4000 }) }
+}
+const _wireChangesScratch = new THREE.Vector3()
+const _wireChanges = (changes) => Array.isArray(changes.position) ? { ...changes, position: (() => { const a = floatingOrigin.toAuthoritative({ x: changes.position[0], y: changes.position[1], z: changes.position[2] }, _wireChangesScratch); return [a.x, a.y, a.z] })() } : changes
+const editorPresence = createEditorPresence({ client, MSG, camera, renderer, entityMeshes: el.entityMeshes })
+const _editorAPIBundle = createEditorAPI({
+  client, entityMeshes: el.entityMeshes, MSG,
+  sendEditorUpdate: (id, changes) => {
+    _recordPendingEdit(id, changes)
+    client.send(MSG.EDITOR_UPDATE, { entityId: id, changes })
+  },
+  getSelectedId: () => editor?.selectedEntityId,
+  setSelectedId: id => _selectAndShow(id, null, { requestProps: true }),
+  isOpen: () => editPanel?.visible,
+  floatingOrigin
+})
+engineCtx._editorAPI = _editorAPIBundle.api
+engineCtx.editor = _editorAPIBundle.api
+if (window.__app) window.__app.editorAPI = _editorAPIBundle.api
+function _renderEditorAppPanels() {
+  if (editPanel?.inspectorAppMount) _editorAPIBundle._renderPanels('inspector', editPanel?.inspectorAppMount)
+  if (editPanel?.appsAppMount) _editorAPIBundle._renderPanels('apps', editPanel?.appsAppMount)
+  if (editPanel?.eventsAppMount) _editorAPIBundle._renderPanels('events', editPanel?.eventsAppMount)
+  if (editPanel?.hierarchyAppMount) _editorAPIBundle._renderPanels('hierarchy', editPanel?.hierarchyAppMount)
+}
+_editorAPIBundle.api.onSceneUpdate(() => _renderEditorAppPanels())
+_editorAPIBundle.api.onSelect(() => _renderEditorAppPanels())
+_editorAPIBundle.api.onAppsUpdate(() => _renderEditorAppPanels())
+_editorAPIBundle.api.onEventsUpdate(() => _renderEditorAppPanels())
+_editorAPIBundle.api.onTabChange(() => _renderEditorAppPanels())
+const multiViewport = createMultiViewport(renderer, scene)
+if(window.__app){window.__app.multiViewport=multiViewport}
+cam.onCameraInHead(inHead => { try { clientMachine.send({ type: 'SET_CAMERA_MODE', inHead }) } catch (e) { _dbgEditor('SET_CAMERA_MODE send failed:', e?.message || e) } })
+clientMachine.subscribe(() => { try { editPanel?.setGizmoMode(clientMachine.gizmoMode) } catch (e) { _dbgEditor('setGizmoMode failed:', e?.message || e) } })
+const persistentHistory = _worldParam ? createPersistentHistory(_worldParam) : null
+const editHistory = createEditHistory({
+  send: (entityId, changes) => { const wireChanges = _wireChanges(changes); _recordPendingEdit(entityId, wireChanges); client.send(MSG.EDITOR_UPDATE, { entityId, changes: wireChanges }) },
+  onToast: (msg) => showToast(msg),
+  onChange: () => { try { editPanel?.updateHistory(editHistory.list()) } catch (_) {} },
+  onPush: (entry) => { if (persistentHistory) persistentHistory.add(entry).catch(e => console.warn('[persistentHistory] add failed:', e?.message)) }
+})
+const livePreview = createLivePreview({
+  getSelectedEntity: () => editPanel?.selectedEntity,
+  getMesh: (entityId) => el.entityMeshes.get(entityId),
+  onRevert: () => { try { editPanel?.updateHistory(editHistory.list()) } catch (_) {} }
+})
+
+const _dnProjectVec = new THREE.Vector3()
+let damageNumbers = null
+window.__damageEffects = DamageEffects
+window.__DamageNumbers = {
+  addNumber(payload) { return damageNumbers ? damageNumbers.addNumber(payload.damage, payload.position, { color: payload.color }) : null },
+  update(dtMs) { return damageNumbers ? damageNumbers.update(dtMs) : null },
+  getActiveNumbers() { return damageNumbers ? damageNumbers.getActiveNumbers() : [] },
+  cleanup() { return damageNumbers ? damageNumbers.cleanup() : null }
+}
+
+let _rpgHudContainer = null, _rpgHudPending = null, _rpgProgressHud = null
+function _paintRpgHud(progress) {
+  try {
+    if (!_rpgHudContainer) { _rpgHudContainer = document.createElement('div'); uiRoot.appendChild(_rpgHudContainer) }
+    applyDiff(_rpgHudContainer, [_rpgProgressHud(progress)])
+  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' rpgProgressHud: ' + (e?.message || e) }
+}
+_designKit.renderRpgProgressHud = (progress) => { if (_rpgProgressHud) _paintRpgHud(progress); else _rpgHudPending = progress }
+
+let _commandPalette = null
+editorKit.then((kit) => {
+  if (!kit) return
+  try {
+    damageNumbers = kit.createDamageNumbers(scene, { project(v) { return _dnProjectVec.set(v.x, v.y, v.z).project(camera) } })
+  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' damageNumbers: ' + (e?.message || e) }
+  _rpgProgressHud = kit.RpgProgressHud
+  if (_rpgHudPending) { const p = _rpgHudPending; _rpgHudPending = null; _paintRpgHud(p) }
+})
+
+function _buildCommandPaletteCommands() {
+  return [
+    { id: 'editor:toggle-panel-scene', label: 'Toggle Scene Hierarchy', keywords: 'hierarchy scene tree', action: () => editPanel?.wm.getWindow('scene') ? editPanel?.wm.close('scene') : null },
+    { id: 'editor:toggle-panel-inspector', label: 'Toggle Inspector', keywords: 'inspector properties', action: () => editPanel?.wm.getWindow('inspector') ? editPanel?.wm.close('inspector') : null },
+    { id: 'editor:toggle-rendergraph', label: 'Toggle RenderGraph Viewer', keywords: 'rendergraph perf timing', action: () => {} },
+    { id: 'editor:toggle-fsbrowser', label: 'Toggle FS Browse', keywords: 'files browse apps', action: () => {} },
+    { id: 'editor:toggle-validator', label: 'Validate World', keywords: 'validate lint world', action: () => {} },
+    { id: 'editor:toggle-waypoints', label: 'Toggle Waypoint Timeline', keywords: 'waypoints path timeline', action: () => {} },
+    { id: 'editor:toggle-procgen', label: 'Toggle Procgen Panel', keywords: 'procgen wfc l-system', action: () => {} },
+    { id: 'editor:toggle-shortcuts', label: 'Keyboard Shortcuts', keywords: 'shortcuts help keys', action: () => editPanel?.toggleShortcutsHelp?.() },
+    { id: 'editor:toggle-history', label: 'Edit History', keywords: 'history undo', action: () => {} },
+    { id: 'editor:gizmo-translate', label: 'Gizmo: Translate', keywords: 'move translate gizmo', action: () => clientMachine.send('TRANSLATE') },
+    { id: 'editor:gizmo-rotate', label: 'Gizmo: Rotate', keywords: 'rotate gizmo', action: () => clientMachine.send('ROTATE') },
+    { id: 'editor:gizmo-scale', label: 'Gizmo: Scale', keywords: 'scale gizmo', action: () => clientMachine.send('SCALE') },
+    { id: 'editor:snap-toggle', label: 'Toggle Snap', keywords: 'snap grid', action: () => editPanel?.toggleSnap?.() },
+    { id: 'editor:gizmo-space-world', label: 'Gizmo Space: World', keywords: 'world space gizmo', action: () => editor?.setGizmoSpace('world') },
+    { id: 'editor:gizmo-space-local', label: 'Gizmo Space: Local', keywords: 'local space gizmo', action: () => editor?.setGizmoSpace('local') },
+    { id: 'editor:frame-selected', label: 'Frame Selected', keywords: 'frame focus selected', action: () => _focusSelectedEntity() },
+    { id: 'editor:exit-editor', label: 'Exit Editor (Play)', keywords: 'play game exit editor', action: () => { if (clientMachine.isEditor) clientMachine.send('TOGGLE_EDITOR') } },
+    { id: 'editor:playtest', label: 'Playtest (in-editor)', keywords: 'playtest play test preview', action: () => { if (clientMachine.isEditor) { _beforePlaytestSnapshot = _captureWorldSnapshot(); clientMachine.send('PLAYTEST'); cam.setEditMode(false, pm.playerMeshes.get(client.playerId)); editPanel?.setPlaytesting(true) } } },
+    { id: 'editor:stop-playtest', label: 'Stop Playtest', keywords: 'stop playtest eject', action: () => { if (clientMachine.isPlaytesting) { _restoreWorldSnapshot(_beforePlaytestSnapshot); _beforePlaytestSnapshot = null; clientMachine.send('PLAYTEST_STOP'); cam.setEditMode(true, pm.playerMeshes.get(client.playerId)); editPanel?.setPlaytesting(false) } } },
+    { id: 'editor:debug-wireframe', label: 'Debug: Wireframe', keywords: 'wireframe debug', action: () => { if (window.__renderControls) window.__renderControls.set('wireframe', true) } },
+    { id: 'editor:debug-unlit', label: 'Debug: Unlit', keywords: 'unlit debug', action: () => { if (window.__renderControls) window.__renderControls.set('unlit', true) } },
+    { id: 'editor:debug-overdraw', label: 'Debug: Overdraw', keywords: 'overdraw debug', action: () => { if (window.__renderControls) window.__renderControls.set('overdraw', true) } },
+    { id: 'editor:debug-normal', label: 'Debug: Normal', keywords: 'normal debug render', action: () => { if (window.__renderControls) { window.__renderControls.set('wireframe', false); window.__renderControls.set('unlit', false); window.__renderControls.set('overdraw', false) } } },
+    { id: 'editor:debug-collider', label: 'Toggle Collider Wireframe', keywords: 'collider debug physics', action: () => { if (window.__renderControls) window.__renderControls.set('colliderDebug', !window.__renderControls.get('colliderDebug')) } },
+    { id: 'editor:save-world', label: 'Save World', keywords: 'save world', action: () => {} },
+    { id: 'editor:load-world', label: 'Load World', keywords: 'load world open', action: () => {} },
+    { id: 'editor:delete', label: 'Delete Selected', keywords: 'delete remove', action: () => { if (editor?.selectedEntityId) _structDestroy(editor?.selectedEntityId) } },
+    { id: 'editor:duplicate', label: 'Duplicate Selected', keywords: 'duplicate copy', action: () => { if (editor?.selectedEntityId) _structDuplicate(editor?.selectedEntityId) } },
+    { id: 'editor:group', label: 'Group Selected', keywords: 'group parent', action: () => { if (editor?.selectedEntityId) _structGroup([editor?.selectedEntityId, ...editor.extraSelectedIds]) } },
+    { id: 'editor:copy', label: 'Copy Selected', keywords: 'copy', action: () => editor?.copySelectedEntity?.() },
+    { id: 'editor:paste', label: 'Paste', keywords: 'paste', action: () => editor?.pasteOntoSelectedEntity?.() },
+  ]
+}
+
+PerfOverlay.install({
+  onSelectEntity: (id) => {
+    if (id && el.entityMeshes.has(id)) {
+      ensureEditor().then(() => { if (editor) editor.selectEntity(id) })
+      _selectAndShow(id, null, { requestProps: true })
+    }
+  }
+})
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyO' && (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+    if (e.cancelable) e.preventDefault()
+    PerfOverlay.toggle()
+  }
+})
+
+EditorAutosave.install({
+  beginSave: () => {
+    const ents = []
+    for (const [id, mesh] of el.entityMeshes) {
+      if (!mesh) continue
+      let appName = null
+      try { const e = el.getEntity(id); if (e) appName = e._appName } catch (_) {}
+      ents.push({
+        id,
+        position: mesh.position.toArray(),
+        rotation: mesh.quaternion.toArray(),
+        scale: mesh.scale.toArray(),
+        custom: mesh.userData?.custom ? { ...mesh.userData.custom } : {},
+        appName
+      })
+    }
+    return { entities: ents, savedAt: Date.now() }
+  },
+  onRestorePrompt: (savedAt, data) => {
+    const age = ((Date.now() - savedAt) / 60000) | 0
+    const restore = confirm(`Found unsaved editor changes from ${age} minute${age !== 1 ? 's' : ''} ago.\n\nRestore them?`)
+    if (restore && data && data.entities) {
+      for (const ent of data.entities) {
+        const mesh = el.entityMeshes.get(ent.id)
+        if (!mesh) continue
+        mesh.position.fromArray(ent.position)
+        mesh.quaternion.fromArray(ent.rotation)
+        mesh.scale.fromArray(ent.scale)
+        const changes = _wireChanges({ position: ent.position, rotation: ent.rotation, scale: ent.scale })
+        if (ent.custom && Object.keys(ent.custom).length) changes.custom = ent.custom
+        client.send(MSG.EDITOR_UPDATE, { entityId: ent.id, changes })
+      }
+      showToast('Restored unsaved changes')
+    }
+  }
+})
+EditorAutosave.checkRecovery()
+
 let _lobby = null, _lobbyPromise = null
 function _getLobby() {
   if (!_lobbyPromise) {
@@ -2157,7 +2175,7 @@ function _getServerBrowser() {
   }
   return _serverBrowserPromise
 }
-document.addEventListener('keydown', e => { const _mod=e.ctrlKey||e.metaKey; const _typing=e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable); if(_mod&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();editHistory.undo()}else if(_mod&&(e.code==='KeyY'||(e.shiftKey&&e.code==='KeyZ'))){e.preventDefault();editHistory.redo()}else if(e.code==='KeyM'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();clientMachine.send('OPEN_LOBBY')}else if(e.code==='KeyB'&&e.shiftKey&&!_mod&&!e.altKey&&!_typing&&!e.repeat){ e.preventDefault(); _getServerBrowser().then(sb => sb.isOpen ? sb.close() : sb.open()) }else if(e.code==='KeyC'&&e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.repeat){ if(colliderDebug){ colliderDebug.toggle(); console.log('[colliderDebug] visible:', colliderDebug.visible) } }else if(e.code==='KeyX'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&clientMachine.isEditor){ editPanel.toggleSnap() }else if((e.key==='?'||(e.shiftKey&&e.code==='Slash'))&&!_mod&&!e.altKey&&!_typing&&clientMachine.isEditor&&!e.repeat){ e.preventDefault(); editPanel.toggleShortcutsHelp() }; editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
+document.addEventListener('keydown', e => { const _mod=e.ctrlKey||e.metaKey; const _typing=e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable); if(_mod&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();editHistory.undo()}else if(_mod&&(e.code==='KeyY'||(e.shiftKey&&e.code==='KeyZ'))){e.preventDefault();editHistory.redo()}else if(e.code==='KeyM'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();clientMachine.send('OPEN_LOBBY')}else if(e.code==='KeyB'&&e.shiftKey&&!_mod&&!e.altKey&&!_typing&&!e.repeat){ e.preventDefault(); _getServerBrowser().then(sb => sb.isOpen ? sb.close() : sb.open()) }else if(e.code==='KeyC'&&e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.repeat){ if(colliderDebug){ colliderDebug.toggle(); console.log('[colliderDebug] visible:', colliderDebug.visible) } }else if(e.code==='KeyX'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&clientMachine.isEditor){ editPanel?.toggleSnap() }else if((e.key==='?'||(e.shiftKey&&e.code==='Slash'))&&!_mod&&!e.altKey&&!_typing&&clientMachine.isEditor&&!e.repeat){ e.preventDefault(); editPanel?.toggleShortcutsHelp() }; if (editor) editor.onKeyDown(e); else if (e.code === 'KeyP') { if (e.ctrlKey || e.metaKey) e.preventDefault(); ensureEditor().then(() => { if (editor) editor.onKeyDown(e) }) }; ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
 let _pointerLockState = { state: 'idle', detail: null }
 function _setPointerLockState(state, detail = null) {
   _pointerLockState = { state, detail }
@@ -2430,9 +2448,9 @@ window.addEventListener('pointerup', _endFly)
 window.addEventListener('pointercancel', _endFly)
 const _vpMenuHitAuth = new THREE.Vector3()
 const _vpMenuPlacePos = (hit) => { if (!hit) return null; const a = floatingOrigin.toAuthoritative(hit, _vpMenuHitAuth); return [a.x, a.y, a.z] }
-renderer.domElement.addEventListener('contextmenu', e => { e.preventDefault(); if (_flyMoved) { _flyMoved = false; return } if (editPanel.visible) { const hit = _raycastHitPoint(e.clientX, e.clientY); editPanel.openViewportMenu(e.clientX, e.clientY, _vpMenuPlacePos(hit)) } })
+renderer.domElement.addEventListener('contextmenu', e => { e.preventDefault(); if (_flyMoved) { _flyMoved = false; return } if (editPanel?.visible) { const hit = _raycastHitPoint(e.clientX, e.clientY); editPanel?.openViewportMenu(e.clientX, e.clientY, _vpMenuPlacePos(hit)) } })
 let _vpPressTimer = null, _vpPx = 0, _vpPy = 0
-renderer.domElement.addEventListener('touchstart', e => { if (!editPanel.visible) return; const t = e.touches[0]; _vpPx = t.clientX; _vpPy = t.clientY; _vpPressTimer = setTimeout(() => { const hit = _raycastHitPoint(_vpPx, _vpPy); editPanel.openViewportMenu(_vpPx, _vpPy, _vpMenuPlacePos(hit)); _vpPressTimer = null }, 500) }, { passive: true })
+renderer.domElement.addEventListener('touchstart', e => { if (!editPanel?.visible) return; const t = e.touches[0]; _vpPx = t.clientX; _vpPy = t.clientY; _vpPressTimer = setTimeout(() => { const hit = _raycastHitPoint(_vpPx, _vpPy); editPanel?.openViewportMenu(_vpPx, _vpPy, _vpMenuPlacePos(hit)); _vpPressTimer = null }, 500) }, { passive: true })
 renderer.domElement.addEventListener('touchend', () => { if (_vpPressTimer) { clearTimeout(_vpPressTimer); _vpPressTimer = null } })
 renderer.domElement.addEventListener('touchmove', e => { const t = e.touches[0]; if (_vpPressTimer && Math.hypot(t.clientX-_vpPx, t.clientY-_vpPy) > 10) { clearTimeout(_vpPressTimer); _vpPressTimer = null } }, { passive: true })
 import('anentrypoint-design').then(kit => {
@@ -2442,7 +2460,7 @@ import('anentrypoint-design').then(kit => {
     onDragOver: () => { renderer.domElement.style.outline = '3px solid var(--accent, #4af)' },
     onDrop: ({ data, pointerEvent }) => {
       renderer.domElement.style.outline = ''
-      if (!editPanel.visible || !data?.appName) return
+      if (!editPanel?.visible || !data?.appName) return
       const pos = pointerEvent ? _raycastPlacePos(pointerEvent.clientX, pointerEvent.clientY) : _viewportCenterPlacePos()
       client.send(MSG.PLACE_APP, { appName: data.appName, position: pos, config: {} })
       showToast('Placed ' + data.appName.replace(/-/g, ' '))
@@ -2638,7 +2656,7 @@ function buildFrameSectionNodes() {
         if (now - fpsLast >= 1000) {
           fpsDisplay = fpsFrames; fpsFrames = 0; fpsLast = now
           if (typeof window !== 'undefined') window.__fps = fpsDisplay
-          if (editPanel.visible) editPanel.setFps(fpsDisplay)
+          if (editPanel?.visible) editPanel?.setFps(fpsDisplay)
           if (_leakProbeOn) try {
             const im = renderer.info.memory, ir = renderer.info.render
             let sceneN = 0; scene.traverse(() => sceneN++)
@@ -2785,8 +2803,8 @@ function buildFrameSectionNodes() {
       reads: ['frameDt'], writes: [],
       run(ctx) {
         if (ctx.now - _entityCullAt >= 100) { el.updateVisibility(camera); _entityCullAt = ctx.now }
-        if (editPanel.visible) {
-          const hiddenIds = editPanel.hiddenInEditorIds
+        if (editPanel?.visible) {
+          const hiddenIds = editPanel?.hiddenInEditorIds
           if (hiddenIds.length) for (const id of hiddenIds) { const m = el.entityMeshes.get(id); if (m) m.visible = false }
         }
       },
@@ -2896,9 +2914,9 @@ function buildFrameSectionNodes() {
           const authFocus = floatingOrigin.toAuthoritative(vf || camera.position, _colliderDebugFocus)
           try { colliderDebug.update(authFocus, el.entityMeshes) } catch (_) {}
         }
-        if (typeof editor !== 'undefined' && (ctx.res.isEditorFrame || editPanel.visible)) editor.updateGizmo()
-        if (editPanel.visible && ctx.now - _camCoordsAt > CAM_COORDS_THROTTLE_MS) { _camCoordsAt = ctx.now; try { editPanel.setCamCoords(camera.position.x, camera.position.y, camera.position.z) } catch (_) {} }
-        if (editPanel.visible) { try { editorPresence.tick() } catch (_) {} }
+        if (typeof editor !== 'undefined' && (ctx.res.isEditorFrame || editPanel?.visible)) editor?.updateGizmo()
+        if (editPanel?.visible && ctx.now - _camCoordsAt > CAM_COORDS_THROTTLE_MS) { _camCoordsAt = ctx.now; try { editPanel?.setCamCoords(camera.position.x, camera.position.y, camera.position.z) } catch (_) {} }
+        if (editPanel?.visible) { try { editorPresence.tick() } catch (_) {} }
       },
     },
   ]
