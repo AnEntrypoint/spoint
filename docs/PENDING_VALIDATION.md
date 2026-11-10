@@ -3731,7 +3731,7 @@ Witness harness status, each with its reason:
 
 ## Run 43, Phase B: witnesses in the foreground (exit code, wall time, RESULT line)
 
-Build: `npm run build:bundles` exit 0, 690 ms first (before the arc probe fix) and 635 ms after it, 0 `RESULT: FAIL` lines.
+Build: `npm run build:bundles` exit 0, 635 ms, 0 `RESULT: FAIL` lines.
 
 Defects found in Phase B and their fixes (each its own commit):
 - e5fade22, XRWidgets arc. The first arc run measured XRWidgets frames at 11,008 B (`computeParabolicArc`) and 1,312 B (`updateTeleportArc`) over 50 updates. Cause: doubles passed as arguments to `surfaceBelow` and `Vector3.set` were boxed, and `surfaceBelow` returned a boxed height or null. The probe now goes through a `Float64Array(3)` cell, the height comes back through `Float64Array(1)`, and the marker is written with `copy` and a `y` store. XRWidgets frames now measure 0 B.
@@ -3744,25 +3744,25 @@ Witnesses (command, exit code, wall time, RESULT line or the decisive check):
 | witness | exit | wall ms | result |
 |---|---|---|---|
 | `npm run build:bundles` | 0 | 635 | bundles written, 0 FAIL lines |
-| `node scripts/transform-ring-read-alloc-witness.mjs` (regression, row 1) | 0 | 175 | `RESULT: PASS tree transform ring reads: 0 sampled bytes over 50 reads` |
+| `node scripts/transform-ring-read-alloc-witness.mjs` (regression) | 0 | 175 | `RESULT: PASS tree transform ring reads: 0 sampled bytes over 50 reads` |
 | `node scripts/transform-ring-read-alloc-witness.mjs --ring=base` | 1 | 126 | `RESULT: FAIL base transform ring reads: 90400 sampled bytes over 50 reads` |
 | `node scripts/player-lod-tiers-alloc-witness.mjs` (row 6) | 0 | 497 | `RESULT: PASS tree player LOD tiers: 0 sampled bytes over 50 calls, tiers equal the pre-change classifier` |
 | `node scripts/player-lod-tiers-alloc-witness.mjs --lod=base` | 1 | 304 | `RESULT: FAIL base player LOD tiers: 724000 sampled bytes over 50 calls` |
-| `node scripts/xr-arc-alloc-witness.mjs` (row 3) | 0 | 7031 | `RESULT: PASS tree XR teleport arc: 0 sampled bytes over 50 updates in XRWidgets, arc equal the pre-change arc` (info: 3,377,376 B inside three.js raycaster, not gated) |
+| `node scripts/xr-arc-alloc-witness.mjs` (row 3) | 0 | 7031 | `RESULT: PASS tree XR teleport arc: 0 sampled bytes over 50 updates in XRWidgets, arc equal the pre-change arc` |
 | `node scripts/xr-arc-alloc-witness.mjs --arc=base` | 1 | 3870 | `RESULT: FAIL base XR teleport arc: 7915832 sampled bytes over 50 updates in XRWidgets` |
 | `node scripts/xr-system-per-frame-witness.mjs` (row 8) | 0 | 626 | `RESULT: PASS tree XR system per-frame work: 0 origin re-applies over 200 static frames, 0 settings bytes` |
 | `node scripts/xr-system-per-frame-witness.mjs --xr=base` | 1 | 390 | `RESULT: FAIL base XR system per-frame work: 200 origin re-applies over 200 static frames, 7600 settings bytes` |
 | `node scripts/chart-push-reanchor-witness.mjs` (row 12) | 0 | 137 | `RESULT: PASS tree queued and pending pushes re-expressed at a 2 degree re-anchor: largest push error 1.093e-11 m` |
 | `node scripts/chart-push-reanchor-witness.mjs --push=base` | 1 | 103 | `RESULT: FAIL base queued and pending pushes at a 2 degree re-anchor: largest push error 4.873e-4 m` |
 | `node scripts/perf-run-no-average-witness.mjs` (row 15) | 0 | 33 | `RESULT: PASS scripts/perf-run.mjs reports p50Ms and p95Ms only: 0 average fields` |
-| `node scripts/grass-decal-nearest-alloc-witness.mjs` (regression, row 2) | 0 | 1193 | `RESULT: PASS tree grass decal nearest stamps: 0 sampled bytes over 50 queries` |
+| `node scripts/grass-decal-nearest-alloc-witness.mjs` (regression) | 0 | 1193 | `RESULT: PASS tree grass decal nearest stamps: 0 sampled bytes over 50 queries` |
 | `node scripts/grass-decal-nearest-alloc-witness.mjs --decal=base` | 1 | 653 | `RESULT: FAIL base grass decal nearest stamps: 430216 sampled bytes over 50 queries` |
 | `node scripts/editor-drag-alloc-witness.mjs` (regression; gizmo centroid and waypoint overlay inside it) | 0 | 976 | `RESULT: PASS tree editor drag and waypoint overlay: 0 allocations per move after warm-up, identical transforms, one rebuild per change` |
 | `node scripts/editor-drag-alloc-witness.mjs --editor=base` | 1 | 677 | `RESULT: FAIL base editor 48541f5 (negative control, expected to FAIL) drag and waypoint overlay: 1465 allocations per move after warm-up` |
 | `node scripts/editor-presence-alloc-witness.mjs` (regression; presence tick) | 0 | 289 and 314 (two runs) | `RESULT: PASS tree editor presence: 0 allocations and 10 rect reads over 10 ticks` (see the presence defect above) |
 | `node scripts/editor-presence-alloc-witness.mjs --presence=base` | 1 | 193 | `RESULT: FAIL base editor presence: 30 allocations and 30 rect reads over 10 ticks` |
 | `node scripts/starved-neutral-witness.mjs` (regression; reads the ring path) | 0 | 74 | `RESULT: PASS a starved tick freezes the character until a sequenced input is consumed (constant false)` |
-| `node scripts/xr-arc-cost-witness.mjs` (existing budget witness, row 3) | 0 | 445 | `RESULT: PASS teleport arc steady-state p95 1.67 ms under the 5 ms budget on a 320000-triangle terrain (Node CPU, not a browser frame)` |
+| `node scripts/xr-arc-cost-witness.mjs` (existing budget witness, row 3) | 0 | 445 | `RESULT: PASS teleport arc steady-state p95 1.67 ms under the 5 ms budget (Node CPU, not a browser frame)` |
 | `node scripts/xr-arc-frame-order-witness.mjs` (existing, row 3) | 0 | 83 | `RESULT: PASS the arc runs in the frame section before the render, and reads the matrices the previous render left` |
 | `node scripts/groundy-replay-witness.mjs` (row 12 regression; netcode) | 1 | 13566 | `RESULT: FAIL world peers cond 120/40/6: underpowered: 0 correction replay(s), below the 100 needed to gate correction residual; 15 requested, 2 run(s) with local pops` |
 
