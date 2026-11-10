@@ -51,9 +51,10 @@ async function runChild(which) {
     m.updateMatrixWorld(true)
     entityMeshes.set(id, m)
   }
+  const viewport = { left: 0, top: 0, width: W, height: H }
   const renderer = {
     domElement: {
-      getBoundingClientRect() { rectCalls++; return { left: 0, top: 0, width: W, height: H } },
+      getBoundingClientRect() { rectCalls++; return viewport },
     },
   }
   const presence = createEditorPresence({ client: { send() {} }, MSG: { EDITOR_PRESENCE: 'EDITOR_PRESENCE' }, camera, renderer, entityMeshes })
